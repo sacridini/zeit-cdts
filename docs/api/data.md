@@ -112,8 +112,97 @@ comp = zeit.build_annual_composites(
     bands=["nir08", "swir22"],
     epsg=3035,
 )
-nbr = (comp.sel(band="nir08") - comp.sel(band="swir22")) / (comp.sel(band="nir08") + comp.sel(band="swir22"))
+nbr = zeit.compute_indices(comp, ["NBR"]).sel(band="NBR")
 zeit.save_raster(nbr, "nbr_1985_2024.tif")   # one band per year, ready for LandTrendr
+```
+
+### `build_spectral_temporal_metrics` { .api }
+
+<!-- sig: zeit.cube.build_spectral_temporal_metrics -->
+```python
+zeit.cube.build_spectral_temporal_metrics(
+    source="planetary_computer", collection="landsat-c2-l2",
+    bbox=None, vector_path=None, start_year=1985, end_year=2024,
+    season=('01-01', '12-31'), indices=None,
+    metrics=('median', 'p10', 'p25', 'p75', 'p90', 'std'),
+    band_map=None, cloud_cover_max=30, apply_cloud_mask=True,
+    resolution=30, epsg=4326, access_token=None, chunksize=1024,
+)
+```
+
+Builds per-year spectral temporal metrics (STMs) from a STAC catalog: the median, percentiles, spread and so on of each index over every clear observation of a season. Each index is computed on every observation first, and the statistics are taken over time afterwards (the median NDVI, not the NDVI of the median bands). Scenes are read as raw integers and reduced one spatial chunk at a time, as in `build_annual_composites`, so the raw bands pass through memory once and only the metrics are kept. Also exported as `zeit.build_spectral_temporal_metrics`.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `source` | `str` | `"planetary_computer"` | Catalog alias or STAC API URL, as in `build_time_series`. |
+| `collection` | `str` | `"landsat-c2-l2"` | Collection ID. Picks the QA band and the default asset of each band role. |
+| `bbox` | `list` | `None` | `[min_lon, min_lat, max_lon, max_lat]` in EPSG:4326. `bbox` or `vector_path` is required. |
+| `vector_path` | `str` | `None` | Vector file whose bounds define the area. |
+| `start_year`, `end_year` | `int` | `1985`, `2024` | Inclusive range of years. |
+| `season` | `tuple` | `("01-01", "12-31")` | `("MM-DD", "MM-DD")` window inside each year; wraps the new year as in `build_annual_composites`. |
+| `indices` | `list[str]` | `None` | What to summarize: indices (`NDVI`, `EVI`, `SAVI`, `kNDVI`, `NBR`, `NDMI`, `NDWI`, `MNDWI`), band roles (`blue`, `green`, `red`, `nir`, `swir1`, `swir2`) or asset names. Required. |
+| `metrics` | `list[str]` | `('median', 'p10', 'p25', 'p75', 'p90', 'std')` | `median`, `mean`, `std` (population), `min`, `max`, `iqr` (p75 − p25), `count` (clear observations) or any integer percentile such as `p5`. |
+| `band_map` | `dict` | `None` | Asset of each band role, e.g. `{"nir": "B8A"}`. Known for Landsat Collection 2 and Sentinel-2 L2A on Planetary Computer and Earth Search; needed for other collections. |
+| `cloud_cover_max` | `int` | `30` | Maximum scene cloud cover, in percent. |
+| `apply_cloud_mask` | `bool` | `True` | Mask clouds and shadows with the collection's QA band. |
+| `resolution` | `float` | `30` | Output pixel size, in units of `epsg`. |
+| `epsg` | `int` | `4326` | Output coordinate reference system. |
+| `access_token` | `str` | `None` | Token for catalogs that require one. |
+| `chunksize` | `int` | `1024` | Spatial chunk size, in pixels. Memory per chunk in flight is about `scenes × chunksize² × (2 bytes per band loaded + 4 per band or index used)`. |
+
+</div>
+
+**Returns** a lazy float32 `xarray.DataArray` `(time, band, y, x)` with one band per index and metric, named `"<index>_<metric>"` (`"NDVI_p10"`), `time` on January 1st of each year and a `year` coordinate. Years without scenes are NaN.
+
+```python
+import zeit
+
+stm = zeit.build_spectral_temporal_metrics(
+    source="planetary_computer",
+    collection="sentinel-2-l2a",
+    bbox=[-47.95, -15.85, -47.90, -15.80],
+    start_year=2021,
+    end_year=2024,
+    indices=["NDVI", "NBR"],
+    metrics=["median", "p10", "p90", "iqr"],
+    resolution=20,
+    epsg=32723,
+)
+zeit.save_raster(stm.sel(year=2024), "stm_2024.tif")   # 8 bands: NDVI_median ... NBR_iqr
+```
+
+### `compute_indices` { .api }
+
+<!-- sig: zeit.indices.compute_indices -->
+```python
+zeit.indices.compute_indices(cube, indices, band_map=None)
+```
+
+Computes spectral indices from a reflectance cube, lazily, so a cube from `build_time_series` or `build_annual_composites` can be saved as indices without ever writing its bands. Each band role is found by its usual asset names (`red`, `B04`, `SR_B4`...), so the same call works for Landsat and Sentinel-2 from any of the built-in catalogs. Also exported as `zeit.compute_indices`.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `cube` | `xr.DataArray` | required | Float reflectance cube with a `band` dimension. Raw integer cubes are rejected. |
+| `indices` | `list[str]` | required | `NDVI`, `EVI`, `SAVI`, `kNDVI`, `NBR`, `NDMI`, `NDWI` or `MNDWI` (any case). |
+| `band_map` | `dict` | `None` | Band to read a role from when the default doesn't fit, e.g. `{"nir": "B8A"}`. |
+
+</div>
+
+**Returns** a DataArray with the cube's dimensions whose `band` coordinate lists the indices. Divisions by zero become NaN.
+
+```python
+cube = zeit.build_time_series(
+    source="planetary_computer", collection="sentinel-2-l2a",
+    bbox=[-47.95, -15.85, -47.90, -15.80],
+    start_date="2024-01-01", end_date="2024-12-31",
+    bands=["B02", "B04", "B08", "B12"], apply_cloud_mask=True,
+    resolution=10, epsg=32723,
+)
+idx = zeit.compute_indices(cube, ["NDVI", "EVI", "NBR"])   # (time, 3, y, x), still lazy
 ```
 
 ### `build_local_cube` { .api }
@@ -150,7 +239,8 @@ cube = zeit.build_local_cube(
 ```python
 zeit.gee.download_gee_timeseries(
     roi, start_date, end_date, out_dir, method="auto",
-    composite_type="annual", bands=None, project=None,
+    composite_type="annual", indices=None, project=None,
+    metrics=('median', 'p10', 'p25', 'p75', 'p90', 'std'), bands=None,
 )
 ```
 
@@ -164,9 +254,11 @@ Builds harmonised Landsat 5/7/8/9 composites on Google Earth Engine and download
 | `start_date`, `end_date` | `str` | required | Date range, `YYYY-MM-DD`. |
 | `out_dir` | `str` | required | Output folder (for `"drive"`, used to name the exports). |
 | `method` | `str` | `"auto"` | `"auto"` (direct, Drive when needed), or force `"direct"` / `"drive"`. |
-| `composite_type` | `str` | `"annual"` | `"annual"` medoid composites (LandTrendr) or `"dense"` (every observation, CCDC). |
-| `bands` | `list` | `None` | Bands or indices to export (`"SR_B4"`, `"NDVI"`, `"NBR"`, `"EVI"`, `"NDWI"`, `"kNDVI"`). Default: the six reflective bands. |
+| `composite_type` | `str` | `"annual"` | `"annual"` medoid composites (LandTrendr), `"dense"` (every observation, CCDC) or `"stm"` (spectral temporal metrics per year). |
+| `indices` | `list` | `None` | Indices (`"NDVI"`, `"EVI"`, `"SAVI"`, `"kNDVI"`, `"NBR"`, `"NDMI"`, `"NDWI"`, `"MNDWI"`) and SR bands (`"SR_B2"` … `"SR_B7"`) to export, as in `build_spectral_temporal_metrics`. Indices are computed on surface reflectance; SR bands are exported as Collection 2 digital numbers. Default: the six reflective bands. |
 | `project` | `str` | `None` | Google Cloud project used to initialise Earth Engine. Recommended. |
+| `metrics` | `list` | `('median', 'p10', 'p25', 'p75', 'p90', 'std')` | With `composite_type="stm"`: `median`, `mean`, `std`, `min`, `max`, `iqr`, `count` or a percentile such as `"p10"`. |
+| `bands` | `list` | `None` | Deprecated name of `indices` (warns). |
 
 </div>
 
@@ -177,7 +269,15 @@ download_gee_timeseries(
     roi="217/076",                      # WRS-2 path/row; or a bbox, .shp, .gpkg, .tif ...
     start_date="1985-01-01", end_date="2025-12-31",
     out_dir="./gee_data", composite_type="annual",
-    bands=["NBR"], project="my-gcp-project",
+    indices=["NBR"], project="my-gcp-project",
+)
+
+# Spectral temporal metrics, reduced on Earth Engine: landsat_stm_2015.tif ... (8 bands each)
+download_gee_timeseries(
+    roi="217/076", start_date="2015-01-01", end_date="2024-12-31",
+    out_dir="./gee_stm", composite_type="stm",
+    indices=["NDVI", "NBR"], metrics=["median", "p10", "p90", "iqr"],
+    project="my-gcp-project",
 )
 ```
 

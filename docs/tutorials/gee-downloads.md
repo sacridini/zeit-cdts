@@ -80,6 +80,40 @@ download_gee_image(
 
 Masked pixels are written with the GeoTIFF nodata value Earth Engine uses for the output type (`-inf` for float, the type minimum for signed integers, `0` for unsigned). You can force either route with `method='direct'` or `method='drive'`.
 
+## Indices and spectral temporal metrics
+
+Earth Engine computes whatever you ask on its own servers, so you can download indices instead of bands, and per-year statistics instead of every observation.
+
+**Indices instead of bands.** Pass index names in `indices`: `NDVI`, `EVI`, `SAVI`, `kNDVI`, `NBR`, `NDMI`, `NDWI` and `MNDWI`, alone or mixed with SR bands. They are computed on surface reflectance (the Collection 2 digital numbers scaled by 2.75e-05 and offset by −0.2), on the medoid for `'annual'` and on every observation for `'dense'`. One index is one sixth of the six-band download.
+
+**Spectral temporal metrics** (`composite_type='stm'`) summarize a whole year in a few bands per index: each index is computed on every clear observation, then reduced over the year on Earth Engine with one combined reducer. Choose the statistics with `metrics`: `median`, `mean`, `std`, `min`, `max`, `iqr` (p75 − p25), `count` (clear observations) or any percentile such as `p10`.
+
+```python
+from zeit.gee import download_gee_timeseries
+
+download_gee_timeseries(
+    roi="23KPQ",
+    start_date="2015-01-01",
+    end_date="2024-12-31",
+    out_dir="./stm",
+    composite_type="stm",
+    indices=["NDVI", "NBR", "SR_B6"],           # indices and SR bands
+    metrics=["median", "p10", "p90", "iqr"],
+    project="my-gcp-project",
+)
+# -> ./stm/landsat_stm_2015.tif ... landsat_stm_2024.tif,
+#    12 bands each: NDVI_median, NDVI_p10, NDVI_p90, NDVI_iqr, NBR_median, ...
+```
+
+Each year is the calendar year inside `start_date`–`end_date`. To summarize one season, run one call per year with that season's dates. The band names and order match `zeit.build_spectral_temporal_metrics` (the STAC version), so models trained on one source can be applied to the other. Both take what to summarize in `indices`. Earth Engine's percentile reducer is not guaranteed to interpolate exactly like NumPy, so percentiles can differ slightly from the STAC version.
+
+To build metrics on a collection of your own, use `zeit.gee.compute_stm(collection, indices, metrics)`. It returns the `ee.Image` to pass to `download_gee_image`.
+
+The `indices` argument was called `bands` up to zeit 0.25. `bands=` still works, with a deprecation warning.
+
+!!! note "Indices from zeit 0.25 and earlier"
+    zeit 0.25 and earlier computed indices on the raw Collection 2 digital numbers, which carry a large offset (reflectance 0 is DN 7273). That compressed normalized differences towards zero (an NDVI of 0.71 came out as 0.33) and made EVI meaningless. Download index composites made with those versions again.
+
 ## Large areas: export to Google Drive
 
 For state-level or national-scale analyses, downloading data directly over the internet in real-time might fail due to API payload limits or simply take too long.
@@ -127,7 +161,7 @@ download_gee_timeseries(
     end_date="2025-12-31",
     out_dir="./lt_rj/annual",
     composite_type="annual",
-    bands=["NBR"],                   # index computed on the medoid, which is selected on all 6 SR bands
+    indices=["NBR"],                 # index computed on the medoid, which is selected on all 6 SR bands
     project="my-gcp-project",
 )
 # -> ./lt_rj/annual/landsat_medoid_1985.tif ... landsat_medoid_2025.tif

@@ -11,8 +11,8 @@ from stackstac.nodata_reader import exception_matches
 import zeit.cube as cube_mod
 from zeit.cube import (
     ERRORS_AS_NODATA, _clear_mask, _composite_block, _cube_scale_offset, _item_scale_offset,
-    _nanmedian_time, _rescale,
-    build_annual_composites, build_time_series,
+    _nanmedian_time, _qa_band_for, _rescale, _stac_band_map, _stm_block,
+    build_annual_composites, build_spectral_temporal_metrics, build_time_series,
 )
 
 CLEAR = 1 << 6  # Landsat QA_PIXEL clear bit
@@ -131,6 +131,30 @@ def test_item_scale_offset_per_scene_and_band():
     np.testing.assert_allclose(o, [[-0.2, 0.0, 0.0], [0.0, 0.0, 0.0], [-0.1, -0.1, 0.0]], rtol=1e-6)
 
 
+def test_item_scale_offset_sentinel2_without_raster_bands():
+    """Planetary Computer Sentinel-2: factors from the processing baseline."""
+    cube = _stub_cube(np.ones((2, 3, 2, 2), dtype="uint16")).assign_coords(band=["B04", "B8A", "SCL"])
+    items = [
+        SimpleNamespace(id="scene0", properties={"s2:processing_baseline": "03.01"},
+                        assets={b: SimpleNamespace(extra_fields={}) for b in ("B04", "B8A", "SCL")}),
+        SimpleNamespace(id="scene1", properties={"s2:processing_baseline": "05.11"},
+                        assets={b: SimpleNamespace(extra_fields={}) for b in ("B04", "B8A", "SCL")}),
+    ]
+    s, o = _item_scale_offset(cube, items)
+    np.testing.assert_allclose(s, [[1e-4, 1e-4, 1.0], [1e-4, 1e-4, 1.0]], rtol=1e-6)
+    np.testing.assert_allclose(o, [[0.0, 0.0, 0.0], [-0.1, -0.1, 0.0]], rtol=1e-6)
+
+
+def test_qa_band_and_band_map_per_provider():
+    assert _qa_band_for("sentinel-2-l2a", "planetary_computer") == "SCL"
+    assert _qa_band_for("sentinel-2-l2a", "earth_search") == "scl"
+    assert _qa_band_for("landsat-c2-l2", "planetary_computer") == "qa_pixel"
+    assert _clear_mask(np.array([4, 9], dtype="uint16"), "SCL").tolist() == [True, False]
+    assert _stac_band_map("sentinel-2-l2a", "planetary_computer")["nir"] == "B08"
+    assert _stac_band_map("sentinel-2-l2a", "earth_search")["nir"] == "nir"
+    assert _stac_band_map("landsat-c2-l2")["swir2"] == "swir22"
+
+
 def test_cube_scale_offset_reads_coords():
     cube = _stub_cube(np.ones((2, 3, 2, 2), dtype="uint16"), scale=1e-4, offset=-0.1)
     s, o = _cube_scale_offset(cube, ["b2"])
@@ -219,3 +243,70 @@ def test_build_annual_composites_season_wrapping_and_validation(monkeypatch):
         build_annual_composites(bands=["b1"])
     with pytest.raises(ValueError, match="method"):
         build_annual_composites(bbox=[0, 0, 1, 1], bands=["b1"], method="mean")
+
+
+def test_stm_block_indices_per_observation_then_metrics():
+    rng = np.random.default_rng(4)
+    raw = _raw_block(rng, t=9)                      # bands [b1, b2, qa]
+    scale = np.full((9, 2), 1e-4, dtype="float32")
+    offset = np.zeros((9, 2), dtype="float32")
+    offset[5:] = -0.1
+    layers = [("NDVI", {"nir": "b2", "red": "b1"}), ("b2", "b2")]
+    band_pos = {"b1": (0, 0), "b2": (1, 1)}
+    metrics = ["median", "p10", "count"]
+    got = _stm_block(raw, layers, band_pos, 2, "qa_pixel", scale, offset, metrics)
+    assert got.shape == (6, 5, 4) and got.dtype == np.float32
+
+    vals = _reference(raw, scale, offset)            # (t, 2, y, x) reflectance, NaN masked
+    with np.errstate(all="ignore"):
+        ndvi = (vals[:, 1] - vals[:, 0]) / (vals[:, 1] + vals[:, 0])
+    with np.errstate(all="ignore"), pytest.warns(RuntimeWarning):
+        for k, a in enumerate((ndvi, vals[:, 1])):
+            np.testing.assert_allclose(got[3 * k], np.nanmedian(a, 0), rtol=1e-4, atol=1e-6)
+            np.testing.assert_allclose(got[3 * k + 1], np.nanpercentile(a, 10, 0), rtol=1e-4, atol=1e-6)
+            np.testing.assert_array_equal(got[3 * k + 2], np.isfinite(a).sum(0))
+    assert np.isnan(got[[0, 1, 3, 4], 4, 3]).all()   # cloudy in every scene
+    assert (got[[2, 5], 4, 3] == 0).all()
+
+
+def test_build_spectral_temporal_metrics(monkeypatch):
+    rng = np.random.default_rng(5)
+    raws = {2019: _raw_block(rng, t=8, ny=6, nx=7)}
+    calls = []
+
+    def fake_build_time_series(**kw):
+        calls.append(kw)
+        year = int(kw["start_date"][:4])
+        if year not in raws:
+            raise ValueError("No images found for the given criteria.")
+        assert kw["dtype"] == "uint16" and kw["apply_cloud_mask"] is False
+        return _stub_cube(raws[year], scale=1e-4)
+
+    monkeypatch.setattr(cube_mod, "build_time_series", fake_build_time_series)
+    out = build_spectral_temporal_metrics(
+        collection="landsat-c2-l2", bbox=[0, 0, 1, 1], start_year=2019, end_year=2020,
+        indices=["ndvi", "b2"], metrics=["median", "P90"], band_map={"red": "b1", "nir": "b2"},
+    )
+    assert calls[0]["bands"] == ["b2", "b1", "qa_pixel"]
+    assert calls[0]["start_date"] == "2019-01-01" and calls[0]["end_date"] == "2019-12-31"
+    assert out.dims == ("time", "band", "y", "x") and out.shape == (2, 4, 6, 7)
+    assert out.band.values.tolist() == ["NDVI_median", "NDVI_p90", "b2_median", "b2_p90"]
+    assert out.year.values.tolist() == [2019, 2020]
+
+    vals = out.compute().values
+    scale = np.full((8, 2), 1e-4, dtype="float32")
+    ref = _reference(raws[2019], scale, np.zeros_like(scale))
+    with np.errstate(all="ignore"), pytest.warns(RuntimeWarning):
+        ndvi = (ref[:, 1] - ref[:, 0]) / (ref[:, 1] + ref[:, 0])
+        np.testing.assert_allclose(vals[0, 0], np.nanmedian(ndvi, 0), rtol=1e-4, atol=1e-6)
+        np.testing.assert_allclose(vals[0, 3], np.nanpercentile(ref[:, 1], 90, 0), rtol=1e-4)
+    assert np.isnan(vals[1]).all()
+
+
+def test_build_spectral_temporal_metrics_validation():
+    with pytest.raises(ValueError, match="indices"):
+        build_spectral_temporal_metrics(bbox=[0, 0, 1, 1])
+    with pytest.raises(ValueError, match="metric"):
+        build_spectral_temporal_metrics(bbox=[0, 0, 1, 1], indices=["NDVI"], metrics=["variance"])
+    with pytest.raises(ValueError, match="band_map"):
+        build_spectral_temporal_metrics(collection="my-sensor", bbox=[0, 0, 1, 1], indices=["NDVI"])

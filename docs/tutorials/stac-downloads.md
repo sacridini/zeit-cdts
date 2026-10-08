@@ -161,32 +161,51 @@ It reads the scenes as raw integers and reduces each spatial chunk as soon as al
 
 ## 5. Compute spectral indices
 
-If you wish to obtain only a specific spectral index like NDVI, there are two possible scenarios depending on the STAC catalog:
+STAC catalogs serve files, not computations, so the bands an index needs always travel over the network: NDVI needs `red` and `nir`. What `zeit` avoids is *storing* them. The cube is lazy, so the index is computed chunk by chunk as the bands arrive, and only the index is written to disk.
 
-**1. The index is pre-calculated by the provider**
-If the catalog (such as Brazil Data Cube) natively provides an `ndvi` asset, you can fetch it directly without downloading the raw optical bands:
+**The index is pre-calculated by the provider.** Some catalogs (such as Brazil Data Cube) serve an `ndvi` asset, or MODIS vegetation indices (`modis-13Q1-061` on Planetary Computer). Load it like any band:
 ```python
 cube_ndvi = zeit.build_time_series(
     source="brazil_data_cube",
     collection="CBERS4A_WFI_L4_SR",
     tiles=["022024"],
-    bands=["ndvi"] # Direct index download
+    bands=["ndvi"],
 )
 ```
 
-**2. The index is NOT pre-calculated (e.g., Earth Search)**
-Standard Level-2A collections typically do not store the index to save space. You must explicitly download the `red` and `nir` bands and calculate the index locally. Because Zeit is built on Dask, this mathematical operation is lazy and virtually memory-free until you save it or plot it.
+**Compute it from reflectance.** `zeit.compute_indices` finds each band role by its usual asset names (`red` / `B04`, `nir08` / `nir` / `B08`...), so the same call works for Landsat and Sentinel-2 on every built-in catalog. Available: `NDVI`, `EVI`, `SAVI`, `kNDVI`, `NBR`, `NDMI`, `NDWI`, `MNDWI`.
 ```python
 cube_raw = zeit.build_time_series(
-    source="earth_search",
+    source="planetary_computer",
     collection="sentinel-2-l2a",
     tiles=["22JFQ"],
-    bands=["red", "nir"]
+    bands=["B02", "B04", "B08", "B12"],   # only what the indices need
+    apply_cloud_mask=True,
 )
-
-# Compute NDVI lazily
-cube_ndvi = (cube_raw.sel(band="nir") - cube_raw.sel(band="red")) / (cube_raw.sel(band="nir") + cube_raw.sel(band="red"))
+idx = zeit.compute_indices(cube_raw, ["NDVI", "EVI", "NBR"])   # (time, 3, y, x), still lazy
 ```
+
+### Spectral temporal metrics
+
+Spectral temporal metrics (STMs) summarize a season per pixel: the median, percentiles and spread of each index over every clear observation. They are a compact, gap-free input for land cover classification. `zeit.build_spectral_temporal_metrics` builds them per year without ever holding the observations: each spatial chunk is read once as raw integers, masked, turned into indices observation by observation, and reduced to the metrics.
+
+```python
+stm = zeit.build_spectral_temporal_metrics(
+    source="planetary_computer",
+    collection="landsat-c2-l2",
+    bbox=[-47.95, -15.85, -47.90, -15.80],
+    start_year=2015,
+    end_year=2024,
+    season=("05-01", "09-30"),                # dry season
+    indices=["NDVI", "NBR", "swir1"],          # indices, band roles or asset names
+    metrics=["median", "p10", "p90", "iqr", "count"],
+    epsg=32723,
+)
+# (time=10, band=15, y, x): NDVI_median, NDVI_p10, ..., swir1_count
+zeit.save_raster(stm.sel(year=2024), "stm_2024.tif")
+```
+
+The index is computed on every observation before the statistics, so `NDVI_median` is the median NDVI, not the NDVI of the median bands. Band names and order match the Earth Engine version (`download_gee_timeseries(composite_type="stm")`).
 
 ## 6. Smooth noisy series
 

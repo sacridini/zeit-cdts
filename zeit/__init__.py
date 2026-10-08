@@ -23,12 +23,13 @@ except ImportError:
     pass
 
 try:
-    from .cube import build_time_series, build_annual_composites
+    from .cube import build_time_series, build_annual_composites, build_spectral_temporal_metrics
     from .local import build_local_cube
     from .regularize import regularize_time_series
 except ImportError:
     pass
 
+from .indices import compute_indices
 from .io import save_raster, get_georef
 from .validation import generate_landtrendr_accuracy_dashboard
 
@@ -56,6 +57,8 @@ __all__ = [
     "run_tmask_pixel", "apply_tmask_stack",
     "build_time_series",
     "build_annual_composites",
+    "build_spectral_temporal_metrics",
+    "compute_indices",
     "build_local_cube",
     "regularize_time_series",
     "save_raster",
