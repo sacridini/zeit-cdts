@@ -47,7 +47,7 @@ print(stack.shape)   # (35, 120, 120) -> (time, rows, cols)
 ```
 
 !!! info "The one shape to remember"
-    Almost every Zeit function takes an array shaped **`(time, rows, cols)`**: the first axis is the date, the last two are the image. A GeoTIFF with one band per year, read with `rasterio` or `zeit.io.load_raster`, already has this shape.
+    Almost every Zeit function takes an array shaped **`(time, rows, cols)`**: the first axis is the date, the last two are the image. `zeit.load_raster` reads a GeoTIFF with one band per year into this shape, with the years in a `time` coordinate and the georeferencing in `.rio`.
 
 ## 3. Run LandTrendr on every pixel
 
@@ -109,14 +109,14 @@ plt.show()
 Swap the synthetic stack for a real one. Any GeoTIFF with one band per year works:
 
 ```python
-stack, profile = zeit.io.load_raster("my_ndvi_1990_2024.tif")   # (time, rows, cols)
-years = np.arange(1990, 1990 + stack.shape[0])
+stack = zeit.load_raster("my_ndvi_1990_2024.tif", start_year=1990)   # (time, y, x)
+years = stack.time.dt.year.values
 
-vertices = zeit.run_landtrendr_array(years, stack.astype(np.float32), modifier=-1.0)
+vertices = zeit.run_landtrendr_array(years, stack.values.astype(np.float32), modifier=-1.0)
 loss = zeit.extract_events(vertices, event_type="loss", min_magnitude=1500)
 
 zeit.save_raster(loss["yod"], "year_of_loss.tif",
-                 crs=profile["crs"], transform=profile["transform"], nodata=0)
+                 crs=stack.rio.crs, transform=stack.rio.transform(), nodata=0)
 ```
 
 `save_raster` writes a georeferenced, compressed GeoTIFF that opens directly in QGIS or ArcGIS.

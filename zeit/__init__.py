@@ -30,7 +30,7 @@ except ImportError:
     pass
 
 from .indices import compute_indices
-from .io import save_raster, get_georef
+from .io import load_raster, save_raster, get_georef
 from .validation import generate_landtrendr_accuracy_dashboard
 
 try:
@@ -61,7 +61,7 @@ __all__ = [
     "compute_indices",
     "build_local_cube",
     "regularize_time_series",
-    "save_raster",
+    "load_raster", "save_raster",
     "generate_landtrendr_accuracy_dashboard",
     "ai"
 ]

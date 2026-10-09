@@ -151,14 +151,14 @@ The same analysis in three styles. Pick the one that fits your data:
     import numpy as np
     import zeit
 
-    years = np.arange(1985, 2025)
-    stack, profile = zeit.io.load_raster("ndvi_1985_2024.tif")   # (time, rows, cols)
+    stack = zeit.load_raster("ndvi_1985_2024.tif", start_year=1985)   # (time, y, x)
+    years = stack.time.dt.year.values
 
-    vertices = zeit.run_landtrendr_array(years, stack, modifier=-1.0)  # -1: look for drops
+    vertices = zeit.run_landtrendr_array(years, stack.values, modifier=-1.0)  # -1: look for drops
     loss = zeit.extract_events(vertices, event_type="loss", min_magnitude=2000)
 
     zeit.save_raster(loss["yod"], "year_of_loss.tif",
-                     crs=profile["crs"], transform=profile["transform"], nodata=0)
+                     crs=stack.rio.crs, transform=stack.rio.transform(), nodata=0)
     ```
 
 === "Xarray / Dask cube"

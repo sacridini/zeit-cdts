@@ -70,7 +70,7 @@
 | [`download_gee_timeseries`](data.md#download_gee_timeseries) | Harmonised Landsat composites from Earth Engine |
 | [`download_gee_image`](data.md#download_gee_image) / [`resolve_roi`](data.md#resolve_roi) | Download any `ee.Image`; turn tile ids, files or boxes into an area |
 | [`regularize_time_series`](data.md#regularize_time_series) | Median or medoid composites at a fixed step |
-| [`load_raster`](data.md#load_raster) / [`save_raster`](data.md#save_raster) | Read / write GeoTIFFs |
+| [`load_raster`](data.md#load_raster) / [`save_raster`](data.md#save_raster) | Read any time series as a georeferenced cube / write GeoTIFFs |
 | [`get_georef`](data.md#get_georef) | CRS and transform of a raster or cube |
 | [`qc_sentinel2_scl`](data.md#qc_sentinel2_scl), [`qc_modis_summary`](data.md#qc_modis_summary), [`qc_modis_state`](data.md#qc_modis_state) | QA bands to observation weights |
 | **Pre-processing** | |

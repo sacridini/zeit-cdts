@@ -6,6 +6,8 @@ from rasterio.transform import from_origin
 
 from typing import Dict, Any, Optional, Tuple
 
+from ._load import load_raster  # noqa: F401  (zeit.io.load_raster)
+
 def get_georef(reference_cube: Any) -> Dict[str, Any]:
     """
     Extracts the geographical reference (CRS and Transform) from a STAC/Xarray DataArray.
@@ -153,46 +155,3 @@ def save_raster(array: "np.ndarray", output_path: str, reference_cube: Any = Non
             print("Warning: 'pandas' is required to auto-extract dates to CSV, but it is not installed.")
         except Exception as e:
             print(f"Warning: Failed to extract dates to CSV: {e}")
-
-def load_raster(file_path: str, raster_check: Optional[str] = None) -> Tuple["np.ndarray", Dict[str, Any]]:
-    """
-    Loads a GeoTIFF into a NumPy array and returns the array along with its profile.
-    
-    Args:
-        file_path (str): Path to the raster file.
-        raster_check (str, optional): Algorithm name to validate the array against 
-                                      (e.g., 'landtrendr', 'ccdc', 'cold').
-                                      
-    Returns:
-        tuple: (array, profile) where array is a NumPy array and profile is a dict.
-    """
-    import warnings
-    
-    with rasterio.open(file_path) as src:
-        array = src.read()
-        profile = src.profile
-        
-    if raster_check:
-        raster_check = raster_check.lower()
-        bands = array.shape[0]
-        
-        # Determine if data is likely scaled (ints or floats > 1.0)
-        max_val = np.nanmax(array)
-        min_val = np.nanmin(array)
-        is_scaled = (max_val > 10.0 or min_val < -10.0) or (array.dtype.kind in 'iu')
-        
-        if raster_check == 'landtrendr':
-            if bands < 3:
-                warnings.warn(f"LandTrendr Validation: Expected an annual time series, but only {bands} bands (years) were found.")
-            if not is_scaled:
-                warnings.warn("LandTrendr Validation: Data appears to be unscaled floats. LandTrendr typically expects index values scaled by a factor (e.g., 10000).")
-                
-        elif raster_check in ['ccdc', 'cold']:
-            if bands < 12:
-                warnings.warn(f"CCDC/COLD Validation: Requires a dense time series. Found only {bands} bands. Make sure this represents Time x Spectral Bands.")
-            if not is_scaled:
-                warnings.warn("CCDC/COLD Validation: Data appears to be unscaled. CCDC typically expects surface reflectance scaled by 10000.")
-                
-    return array, profile
-
-

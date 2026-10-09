@@ -18,7 +18,7 @@ Nearly every algorithm in Zeit works **one pixel at a time**. It reads a pixel's
 | What | Shape | Notes |
 | :--- | :--- | :--- |
 | A single pixel | `(time,)` | 1-D NumPy array or list. |
-| A single-band cube | **`(time, rows, cols)`** | The default input for almost everything. A GeoTIFF with one band per date, read with `rasterio` or `zeit.io.load_raster`, has this shape. |
+| A single-band cube | **`(time, rows, cols)`** | The default input for almost everything. `zeit.load_raster` reads a GeoTIFF with one band per date into this shape, with the dates in a `time` coordinate and the georeferencing in `.rio`. |
 | A multi-band cube | `(time, band, rows, cols)` | What `build_time_series` returns (as an xarray `DataArray`). CCDC's array API uses `(band, time, rows, cols)`, see its tutorial. |
 | Per-pixel results | `(metric, rows, cols)` | Several outputs stacked on a first axis. The xarray accessors label it with a `metric` coordinate, so you can write `result.sel(metric="slope")`. |
 

@@ -214,7 +214,7 @@ zeit.local.build_local_cube(
 )
 ```
 
-Builds the same kind of lazy cube from a folder of GeoTIFFs, reading the date and band of each file from its name. Also exported as `zeit.build_local_cube`.
+Builds the same kind of lazy cube from a folder of GeoTIFFs, reading the date and band of each file from its name: a shortcut for `load_raster(data_dir, pattern=regex_pattern, date_format=date_format, recursive=True, chunks="auto")` that always returns `(time, band, y, x)`. Also exported as `zeit.build_local_cube`.
 
 <div class="params" markdown>
 
@@ -396,24 +396,55 @@ cube_16d = zeit.regularize_time_series(cube, freq="16D", method="medoid")
 
 <!-- sig: zeit.io.load_raster -->
 ```python
-zeit.io.load_raster(file_path, raster_check=None)
+zeit.io.load_raster(
+    source, dates=None, start_year=None, band=None, chunks=None,
+    clip=None, masked="auto", pattern=None, date_format=None,
+    recursive=False, like=None, validate=None,
+)
 ```
 
-Reads a GeoTIFF into a NumPy array `(bands, rows, cols)` and returns it with its rasterio profile. Optionally checks that the data looks right for an algorithm (enough layers, integer-scaled values) and warns if not.
+Reads a time series, or a single map, as one georeferenced cube: an `xarray.DataArray` with dims `(time, y, x)` (one index) or `(time, band, y, x)` (several spectral bands), a `datetime64` `time` coordinate, and its CRS, transform and NoData through `.rio`. The georeferencing and the dates travel with the data, so the algorithms and `save_raster` need nothing else. Also exported as `zeit.load_raster`.
+
+It reads:
+
+| Source | Example | Where the dates come from |
+| :--- | :--- | :--- |
+| A raster file with one band per date | `"LT_Stack_NDVI_Rondonia.tif"` | `dates`/`start_year`; the dates `save_raster` writes into the file; the band descriptions (`yr1985`, `1985`, `2020-01-15`, `20200115`, or `2020-01-15_red` for a time × band stack); a `<name>_dates.csv` next to it |
+| A folder, a glob pattern or a list of single-date rasters | `"tiles/*.tif"` | The first date in each file name, or `pattern=` |
+| A Zarr store or a NetCDF file | `"cube.zarr"` | Its `time` coordinate |
+| An `xarray.DataArray` or `Dataset` | the output of `build_time_series` | Its `time` coordinate (`lat`/`lon` are renamed `y`/`x`) |
+| A numpy array `(time, y, x)` or `(time, band, y, x)` | | `dates`/`start_year`; `like=` georeferences it |
+
+Without dates, the band axis keeps the name `band` and the algorithms ask for `years`/`dates`. A single band is returned as `(y, x)`.
 
 <div class="params" markdown>
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `file_path` | `str` | required | Path to the raster. |
-| `raster_check` | `str` | `None` | `"landtrendr"`, `"ccdc"` or `"cold"` to validate the input for that algorithm. |
+| `source` | path, list, `DataArray`, `Dataset` or `ndarray` | required | What to read (see the table above). |
+| `dates` | list | `None` | Date of each time step: strings, datetimes, years (`1985`) or fractional years (`2020.5`). Overrides the dates found in the data. |
+| `start_year` | `int` | `None` | Annual series: year of the first time step. |
+| `band` | `int`, `str` or list | `None` | Bands to read: 1-based band numbers in a raster file, band or variable names in a cube or Dataset. |
+| `chunks` | `"auto"`, `dict` | `None` | `None` loads the data into memory; anything else returns a lazy dask-backed cube, read block by block. |
+| `clip` | bounds or geometries | `None` | Read only a region: `(xmin, ymin, xmax, ymax)` in the raster's CRS, or polygons (GeoDataFrame, GeoSeries, shapely). |
+| `masked` | `"auto"`, `bool` | `"auto"` | `"auto"`: NoData becomes NaN in float rasters, while integer rasters (e.g. NDVI × 10000 in Int16) keep their values and type. `True`: NaN everywhere (integers become floats). `False`: values as stored. |
+| `pattern` | `str` | `None` | Several files: regular expression with a named group `date` and optionally `band`, matched against each file name. |
+| `date_format` | `str` | `None` | `strptime` format of the dates in file names or band descriptions (e.g. `"%Y%m%d"`). |
+| `recursive` | `bool` | `False` | Folders: also search sub-folders. |
+| `like` | path or `DataArray` | `None` | numpy input: a raster on the same grid whose coordinates and CRS georeference the array. |
+| `validate` | `str` | `None` | `"landtrendr"`, `"ccdc"` or `"cold"`: warn when the series looks unfit for that algorithm (too few dates, values that do not look scaled). |
 
 </div>
 
-**Returns** `(array, profile)`.
+**Returns** `xarray.DataArray`.
 
 ```python
-stack, profile = zeit.io.load_raster("ndvi_1985_2024.tif", raster_check="landtrendr")
+ndvi = zeit.load_raster("LT_Stack_NDVI_Rondonia.tif")      # bands yr1985 ... yr2024
+ndvi.dims                                                 # ('time', 'y', 'x')
+ndvi.time.dt.year.values[[0, -1]]                         # array([1985, 2024])
+
+ndvi = zeit.load_raster("ndvi_stack.tif", start_year=1985, chunks="auto")   # lazy
+s2 = zeit.load_raster("S2/", pattern=r"_(?P<date>\d{8})_(?P<band>B\d{2})\.tif$")   # (time, band, y, x)
 ```
 
 ### `save_raster` { .api }
