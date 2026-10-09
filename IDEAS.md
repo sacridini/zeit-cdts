@@ -1255,7 +1255,8 @@ dos algoritmos. Um teste com rede, opcional (marcado), lendo uma região pequena
   maiores), corte pelos polígonos, identidade nos `attrs`. Um adaptador por produto devolve
   um cubo lazy por zona UTM; uma zona só fica como está, várias vão para uma grade pelo
   `to_grid` (`load_raster(like=)`) e se juntam.
-- **TESSERA** (`zeit/_tessera.py`): o store pelo `geotessera` (extra `[tessera]`) ou um
+- **TESSERA** (`zeit/_tessera.py`): o store pelo `geotessera` (dependência do zeit no Python
+  3.12+; ele não roda em versões anteriores) ou um
   `store=` local sem ele; blocos lidos pelo `zarr` e desquantizados na leitura; `depth=` pelos
   arrays Matryoshka do `geoemb:depths`; região toda ao sul do equador sai no CRS UTM sul
   (as mesmas células), como Landsat e AlphaEarth; versão e variante do `geotessera` (ou do
@@ -1293,6 +1294,9 @@ dos algoritmos. Um teste com rede, opcional (marcado), lendo uma região pequena
 **Diferenças em relação ao plano:**
 
 - `water=` saiu: na v1.1 a escala `NaN` não separa água de lacuna.
+- O `geotessera` virou dependência do zeit (no Python 3.12+), não um extra: `pip install
+  zeit-cdts` já lê os dois produtos. O AlphaEarth vem por padrão da cópia aberta (sem conta
+  nem cota); o Earth Engine fica como opção, porque gasta a cota da conta.
 - `dequantize=False` saiu: guardar em int8 economiza disco, mas pede um formato próprio de
   ida e volta; o float32 comprimido do `save_raster` basta por enquanto.
 - `resolution=` virou `res=`, como no `load_raster`; `store=` (cópias locais, e os testes)

@@ -17,7 +17,7 @@
 | Cells, years | 10 m, 2017–2025 | 10 m, 2017–2025 |
 | Made from | Sentinel-1 and Sentinel-2 | Sentinel-1, Sentinel-2, Landsat and more |
 | Stored as | Zarr, int8 times a scale per pixel, a group per UTM zone | COGs, int8 on a fixed curve, per year and UTM zone |
-| Read through | `geotessera` (`pip install zeit-cdts[tessera]`, Python 3.12+) | nothing extra: open COGs on Source Cooperative; or Earth Engine |
+| Read through | `geotessera`, installed with zeit (Python 3.12+) | nothing: free open COGs on Source Cooperative (default); or Earth Engine |
 | Licence | CC0 1.0 (attribution requested) | CC-BY 4.0, attribution required |
 
 Both are read with one function, and give the same thing: a georeferenced `(time, band, y, x)` cube, `time` on January 1 of each year, `band` the dimensions (`A00`, `A01`...), NaN where there is no embedding. A region within a UTM zone keeps the zone's CRS and the cells the embeddings were made on, so the two products line up cell by cell:
@@ -102,7 +102,7 @@ agree = zeit.agreement({
 
 ## Earth Engine, local copies, versions
 
-- `backend="gee"` reads AlphaEarth from the `GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL` collection of Earth Engine (start a session with `zeit.gee.auth.initialize_gee()`); each year is downloaded once into `cache_dir`.
+- AlphaEarth comes by default from its open copy on Source Cooperative: free, no account, no quota. `backend="gee"` reads it from the `GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL` collection of Earth Engine instead (start a session with `zeit.gee.auth.initialize_gee()`), which counts against the account's quota; each year is downloaded once into `cache_dir`.
 - `store=` reads a copy of either product: a TESSERA Zarr store (a local one needs no `geotessera`), or a folder with AlphaEarth's `aef_index.parquet` and its COGs.
 - `version=`/`variant=` choose a TESSERA run (default v1.1, the complete global one) and `depth=` the first dimensions of a v2 store (Matryoshka embeddings, trained to work truncated).
 - From the shell: `zeit embeddings ./out --source tessera --bbox -63 -10 -62.9 -9.9 --years 2018-2024` ([CLI](../cli.md)).

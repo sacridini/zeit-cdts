@@ -27,9 +27,10 @@ def _geotessera():
         from geotessera.registry import dataset_for_location, zarr_store_url
         from geotessera.store import zarr_store
     except ImportError as e:  # pragma: no cover - depends on the environment
-        raise ImportError("source='tessera' finds and opens the TESSERA store through the geotessera library: "
-                          "pip install 'zeit-cdts[tessera]' (geotessera needs Python 3.12 or newer). A local copy "
-                          "of a store reads without it: store='path/to/store'.") from e
+        raise ImportError("source='tessera' finds and opens the TESSERA store through the geotessera library, "
+                          "which zeit installs on Python 3.12 or newer (the versions geotessera supports); it is "
+                          "missing here (on Python 3.12+: pip install geotessera). A local copy of a store reads "
+                          "without it: store='path/to/store'.") from e
     return zarr_store_url, dataset_for_location, zarr_store
 
 

@@ -27,16 +27,14 @@ dependencies = [
     "earthengine-api",
     "requests",
     "zarr",
-    "rioxarray"
+    "rioxarray",
+    "geotessera>=0.11; python_version >= '3.12'"
 ]
 
 [project.optional-dependencies]
 plot = [
     "matplotlib",
     "anywidget>=0.9"
-]
-tessera = [
-    "geotessera>=0.11; python_version >= '3.12'"
 ]
 dev = [
     "pytest",

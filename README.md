@@ -49,7 +49,7 @@ pip install zeit-cdts
 ```
 *(Note: Wheels are provided for Windows, Linux, and macOS. macOS runs in single-threaded mode by default due to Apple Clang lacking OpenMP).*
 
-For `zeit.plot` (matplotlib and anywidget), install the `plot` extra: `pip install zeit-cdts[plot]`. For the TESSERA embeddings, the `tessera` extra (Python 3.12+): `pip install zeit-cdts[tessera]`.
+For `zeit.plot` (matplotlib and anywidget), install the `plot` extra: `pip install zeit-cdts[plot]`. The TESSERA and AlphaEarth embeddings need nothing extra (TESSERA's reader, `geotessera`, comes with zeit on Python 3.12+).
 
 **For macOS users who want C++ OpenMP multi-threading:**
 Apple's default Clang compiler disables OpenMP. To achieve maximum performance and enable multi-threading, you must install the `libomp` library and manually export the compilation flags *before* forcing a local compilation:

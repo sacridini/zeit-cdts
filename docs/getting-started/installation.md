@@ -33,11 +33,7 @@ pip install zeit-cdts[plot]
 pip install pywebview   # optional: show the viewer in a native window outside notebooks
 ```
 
-To read the [TESSERA embeddings](../tutorials/embeddings.md) with `zeit.load_embeddings(source="tessera")` (the `geotessera` library, which needs Python 3.12 or newer; the AlphaEarth embeddings need nothing extra):
-
-```bash
-pip install zeit-cdts[tessera]
-```
+The [embeddings](../tutorials/embeddings.md) of TESSERA and AlphaEarth need nothing extra: `geotessera`, which reads TESSERA, is installed with zeit on Python 3.12 or newer (it does not support older ones).
 
 For development and running tests, you can install the optional development dependencies:
 

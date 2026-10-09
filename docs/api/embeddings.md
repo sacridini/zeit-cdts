@@ -9,7 +9,7 @@ Both products summarise a whole year of imagery in a vector per pixel, made by a
 | Dimensions | 128 | 64 (each embedding has length 1) |
 | Cells, years | 10 m, 2017–2025 (v1.1) | 10 m, 2017–2025 |
 | Made from | Sentinel-1 and Sentinel-2 | Sentinel-1, Sentinel-2, Landsat and more |
-| Read from | the TESSERA Zarr store, through `geotessera` (`pip install zeit-cdts[tessera]`, Python 3.12+) | open COGs on Source Cooperative (no account), or Earth Engine |
+| Read from | the TESSERA Zarr store, through `geotessera` (installed with zeit on Python 3.12+) | open COGs on Source Cooperative (free, no account: the default), or Earth Engine |
 | Licence | CC0 1.0 | CC-BY 4.0: "The AlphaEarth Foundations Satellite Embedding dataset is produced by Google and Google DeepMind." |
 | Cite | Feng et al. (2025), arXiv:2506.20380 | Brown et al. (2025), arXiv:2507.22291 |
 
@@ -43,7 +43,7 @@ Reads the embeddings of a product over a region as a georeferenced cube, lazily 
 | `resampling` | `str` | `"auto"` | With `like`, `crs` or `res`: `"auto"` takes the nearest cell (interpolated embeddings are vectors the model never made), and the mean of the cells (`"average"`) when the target cells are at least 1.5 times larger. Or any method of `load_raster`. |
 | `version`, `variant` | `str` | `None` | TESSERA: dataset version (default `"v1.1"`, the complete global run) and variant (default: the version's). |
 | `depth` | `int` | `None` | TESSERA v2: only the first `depth` dimensions (a Matryoshka prefix, published as an array of its own). |
-| `backend` | `str` | `None` | AlphaEarth: `"source.coop"` (default, open COGs) or `"gee"` (the `GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL` collection, with an Earth Engine session up, downloaded into `cache_dir`). |
+| `backend` | `str` | `None` | AlphaEarth: `"source.coop"` (default: the open COGs, free, no account or quota) or `"gee"` (the `GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL` collection, with an Earth Engine session up, downloaded into `cache_dir`; it uses the account's quota). |
 | `store` | URL, path or zarr store | `None` | A copy of the product to read: TESSERA, a Zarr store (read without `geotessera` when local); AlphaEarth, a folder or URL with `aef_index.parquet` and the COGs in `<year>/<zone>/`. |
 | `chunks` | `"auto"`, `None` or `dict` | `"auto"` | `None` reads it all into memory. |
 | `cache_dir` | path | `None` | Where downloads are kept: the AlphaEarth index (78 MB, refreshed monthly) and Earth Engine downloads. Default `~/.cache/zeit/embeddings`. |

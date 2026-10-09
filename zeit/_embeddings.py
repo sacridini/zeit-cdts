@@ -59,9 +59,9 @@ def load_embeddings(
         samples) read the box around them. Optional with ``like``, whose extent is used.
     source
         ``"tessera"`` (TESSERA, 128 dimensions, Sentinel-1 and -2; through the
-        ``geotessera`` library) or ``"alphaearth"`` (Google's AlphaEarth Foundations
-        Satellite Embedding, 64 dimensions; its open copy on Source Cooperative, or Earth
-        Engine with ``backend="gee"``).
+        ``geotessera`` library, installed with zeit on Python 3.12+) or ``"alphaearth"``
+        (Google's AlphaEarth Foundations Satellite Embedding, 64 dimensions; its free open
+        copy on Source Cooperative, or Earth Engine with ``backend="gee"``).
     years
         A year, a list or a range (default: every year the product has, 2017-2025).
     like
@@ -85,9 +85,11 @@ def load_embeddings(
         TESSERA v2 stores: the first ``depth`` dimensions only (a Matryoshka prefix, which
         those stores are trained for and publish as arrays of their own).
     backend
-        AlphaEarth: ``"source.coop"`` (default; open COGs, no account) or ``"gee"`` (the
-        ``GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL`` collection, downloaded with an Earth
-        Engine account into ``cache_dir``).
+        AlphaEarth: ``"source.coop"`` (default: the open COGs on Source Cooperative, free,
+        no account, no quota) or ``"gee"`` (the ``GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL``
+        collection, downloaded into ``cache_dir`` with an Earth Engine account; it counts
+        against the account's quota, for when a year is on Earth Engine and not yet on
+        the open copy).
     store
         A copy of the product to read instead of the public one: TESSERA, the URL or path of
         a Zarr store (or a ``zarr`` store object); AlphaEarth, a URL or folder with

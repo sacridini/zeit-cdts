@@ -2,9 +2,8 @@
 Example 22: Foundation-Model Embeddings (TESSERA and AlphaEarth)
 
 Reads the yearly embeddings of a 5 x 5 km box in Rondonia, Brazil (needs a network: a few
-hundred MB), from AlphaEarth Foundations (open COGs, nothing to install) and, when the
-`geotessera` library is installed (`pip install zeit-cdts[tessera]`, Python 3.12+), from
-TESSERA. Then:
+hundred MB), from AlphaEarth Foundations (its free open copy on Source Cooperative) and
+from TESSERA (through `geotessera`, installed with zeit on Python 3.12+). Then:
 
 1. `zeit.plot` saves the first three principal components of 2017 and 2025 as a figure;
 2. `zeit.som` clusters the pixels of 2025 without labels;

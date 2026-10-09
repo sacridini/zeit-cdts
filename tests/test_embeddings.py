@@ -257,7 +257,7 @@ def test_tessera_through_geotessera(tessera, monkeypatch):
     assert asked["url"] == ("v1.1", None)
     assert (cube.attrs["embedding_version"], cube.attrs["embedding_variant"]) == ("1.1", "dclimate")
     monkeypatch.setitem(sys.modules, "geotessera", None)
-    with pytest.raises(ImportError, match=r"zeit-cdts\[tessera\]"):
+    with pytest.raises(ImportError, match="pip install geotessera"):
         zeit.load_embeddings(_bbox_of(x0, y0, 32620, 0, 5, 0, 5), source="tessera", years=2018)
 
 
