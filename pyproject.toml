@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "zeit-cdts"
-version = "0.35.0"
+version = "0.36.0"
 description = "Zeit: Change Detection and Time Series for Python - LandTrendr and CCDC tools"
 readme = "README.md"
 license = "GPL-2.0-or-later"
