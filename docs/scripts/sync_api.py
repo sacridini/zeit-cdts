@@ -2,7 +2,7 @@
 
 Every API entry in ``docs/api/*.md`` starts with a marker naming the object:
 
-    <!-- sig: zeit.raster.run_landtrendr_array -->
+    <!-- sig: zeit.landtrendr -->
     ```python
     ...generated...
     ```

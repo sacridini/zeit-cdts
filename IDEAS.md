@@ -161,14 +161,16 @@ cubo e saída `Dataset` georreferenciado com uma variável por métrica.
 - `save_raster` nomeia as bandas pela coordenada da dimensão (anos, vértices...).
 - Implementado em `zeit/_series_api.py`; resultados idênticos aos motores.
 
-## Fase 6: arrumação final (0.32.0)
+## Fase 6: arrumação final — **Feito** (0.32.0)
 
-- README, quickstart, conceitos e tutoriais reescritos no fluxo carregar, rodar,
-  exportar.
-- `examples/` atualizados; CLI usando as funções novas.
-- Lista de mudanças de API (o que saiu, o que substitui) na documentação.
-- `import zeit` rápido: hoje leva ~19 s, 16 deles no `zeit.ai` (torch + transformers).
-  Carregar o `zeit.ai` só quando for usado (`__getattr__` do módulo).
+- `import zeit` de ~19 s para ~2 s: `zeit.ai` (torch + transformers), os construtores de
+  cubo STAC (pystac-client, stackstac) e o classificador CCDC (sklearn) carregam no
+  primeiro uso, pelo `__getattr__` do módulo (`tests/test_package.py` garante que o
+  torch e o stackstac não voltem ao import).
+- Página "Upgrading to the one-function API" (`docs/getting-started/migrating.md`) com a
+  tabela do que saiu e do que substitui, e quickstart carregar, rodar, exportar no README.
+- README, quickstart, conceitos, tutoriais, exemplos e CLI já foram migrados em cada fase;
+  `sync_api --check` e `mkdocs build --strict` limpos.
 
 ## Para depois
 

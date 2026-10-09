@@ -57,6 +57,21 @@ pip install --no-binary zeit-cdts zeit-cdts
 
 ---
 
+## Quickstart: load, run, export
+
+Every algorithm is one function that understands its input, and the dates and georeferencing travel with the data:
+
+```python
+import zeit
+
+ndvi = zeit.load_raster("LT_Stack_NDVI_Rondonia.tif")   # (time, y, x) cube, years from the band names
+lt = zeit.landtrendr(ndvi)                               # or zeit.ccdc, zeit.bfast_monitor, zeit.mann_kendall, zeit.phenology...
+loss = zeit.extract_events(lt)                           # greatest NDVI loss per pixel
+zeit.save_raster(loss, "lt_rondonia")                    # one georeferenced GeoTIFF per metric
+```
+
+Coming from 0.26 or earlier? See [Upgrading to the one-function API](https://sacridini.github.io/zeit-cdts/getting-started/migrating/).
+
 ## Cloud-Native ARD Cubes (STAC)
 
 Fetch lazy evaluated, Dask-backed analysis-ready data cubes directly from STAC providers (e.g., Earth Search, Planetary Computer, Brazil Data Cube).
