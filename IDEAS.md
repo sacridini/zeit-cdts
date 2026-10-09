@@ -545,6 +545,152 @@ entrada e saída:
   algoritmo do MATLAB (1e-8), nuvens e sombras injetadas, séries curtas e as convenções do
   `apply_tmask_stack`. O sklearn não é mais usado pelo Tmask.
 
+## Fase 10: fechar a convenção do cubo
+
+Depois da Fase 9 ainda sobram pontas fora do padrão "uma função, qualquer entrada, saída
+georreferenciada": o SOM (o único algoritmo do README que ainda é uma classe sobre numpy
+cru), a CLI (que parou nos algoritmos das Fases 3–5), os decodificadores de QA e dois
+módulos que o `load_raster` e o `regularize_time_series` já cobrem.
+
+| Hoje | Depois |
+| :--- | :--- |
+| `zeit.ai.SOM(x, y, input_len)` + `train`/`predict` sobre `(n_amostras, n_atributos)` montado à mão; importar pede o torch (o `zeit.ai/__init__` carrega os modelos) | `zeit.som(dado, x=, y=, ...)`: atributos e amostragem do `train_classifier`, saída `Dataset` georreferenciado; a classe continua como motor |
+| `som.filter_noisy_samples(X, y)` | `zeit.clean_samples(dado, amostras, label=)`: os pontos de volta com uma coluna `keep` (o `sits_som_clean_samples`) |
+| CLI: `landtrendr`, `ccdc`, `bfast-monitor`, `bfast-lite`, `bfast`, `mann-kendall`, `mmu-filter` | mais `phenology`, `smooth`, `tmask`, `twdtw`, `snic`, `classify` e `som` |
+| `qc_modis_summary`, `qc_modis_state`, `qc_sentinel2_scl` só numpy; a docstring do módulo aponta para o `run_phenology`, que saiu na Fase 5 | recebem e devolvem `DataArray` (dims, `time`, georreferência), prontos para o `weights=` do `zeit.phenology` e do `zeit.smooth` |
+| `build_local_cube(pasta, regex, date_format)` | sai: `load_raster(pasta, pattern=, date_format=, recursive=True, chunks="auto")` |
+| `zeit.preprocessor.cbers_to_landtrendr`, `cbers_to_ccdc` (fora do `__all__`, com `print`; o segundo grava um CSV de datas que o `zeit.ccdc` não precisa mais) | saem: `regularize_time_series(cubo, freq="YS", method="medoid")` e `zeit.ccdc(cubo)` |
+
+### `zeit.som`
+
+`zeit.som(data, *, x=3, y=3, sample=50_000, num_iters=20, algorithm="batch", sigma=1.0,
+learning_rate=0.5, neighborhood="gaussian", topology="rectangular", init="pca", seed=42,
+nodata="auto", chunks=None, n_jobs=-1)`:
+
+- Atributos como no `train_classifier`: tudo o que o pixel tem fora de `y`/`x` (a série de
+  um índice, datas × bandas de um cubo 4D, os mapas de um `Dataset`), pela mesma função
+  interna, sem duplicar. Pixels com algum NaN ficam de fora do treino e saem como 0.
+- Treino numa amostra aleatória de `sample` pixels válidos (reprodutível por `seed`; `None`
+  usa todos), predição em todos, lazy por blocos com o codebook já treinado.
+- Resultado: `label (y, x)` (neurônio 1..x·y, 0 sem valor; `flag_meanings` com `i_j` para a
+  legenda do `zeit.plot`), `distance (y, x)` (distância ao BMU: onde o mapa representa mal
+  o pixel), `prototypes (neuron, ...)` com as dims e coordenadas dos atributos (como o
+  `means` do `zeit.snic`: `prototypes.sel(neuron=3)` é uma série com `time`), `n_pixels
+  (neuron)` e o `quantization_error` nos atributos. O `save_raster` pula `prototypes`
+  (sem `y`/`x`), como os padrões do TWDTW.
+- `zeit.plot(cube, fit=som)`: o pixel clicado com o protótipo do neurônio dele por cima
+  (`_fit.overlays`).
+- Paridade: com `sample=None` e os mesmos argumentos, o codebook é o do `SOM` (que já é
+  bit a bit o do MiniSom), e o `label` é o `SOM.predict` + 1.
+- O motor sai de `zeit/ai/som.py` para `zeit/_som.py` (sem torch); `zeit.ai.SOM` continua
+  como nome reexportado, para quem usa a classe direto. Accessor `cube.zeit.som(...)`.
+- `zeit.clean_samples(dado, amostras, label=, x=, y=, ...)`: treina o SOM nos atributos das
+  amostras (pontos lidos como no `train_classifier`), e devolve o `GeoDataFrame` com
+  `neuron`, `keep` e a classe majoritária do neurônio, para conferir antes de treinar um
+  classificador.
+
+### CLI
+
+- Um subcomando por função do padrão do cubo que faltava: `phenology`, `smooth`, `tmask`,
+  `twdtw` (padrões de um CSV `data,padrão,valor` ou de pontos com `--label`), `snic`
+  (`--polygons` grava o `.gpkg`), `classify` (`--samples pontos.gpkg --label classe`:
+  treina e classifica numa chamada; `--model` salva/lê o modelo com `joblib`) e `som`.
+- Todos pelo mesmo corpo do `_run_series_cli`: `load_raster` lazy com `--chunk-size`,
+  `--jobs`, uma chamada de `save_raster` (tudo calculado numa passada) e o mesmo padrão de
+  saída (`<output_dir>/<prefix>.tif` ou uma pasta por variável).
+- `docs/cli.md` com um exemplo de cada; teste de cada subcomando num stack pequeno de
+  `tests/data`, comparando com a função Python.
+
+### QC, `build_local_cube` e `preprocessor`
+
+- `qc_*` aceitam `DataArray`/numpy/caminho e devolvem o mesmo tipo; NoData da QA vira peso
+  0. Com isso, `zeit.phenology(ndvi, weights=zeit.qc_sentinel2_scl(cubo.sel(band="scl")))`
+  funciona sem alinhar nada à mão. Docstring do módulo corrigida.
+- `build_local_cube`: o exemplo 20, o tutorial de STAC, `docs/api/data.md` e o
+  `test_local_cube` passam a usar o `load_raster`; `zeit/local.py` sai.
+- `zeit/preprocessor.py` e `tests/test_preprocessor.py` saem. O medoide anual fica no
+  `regularize_time_series` (conferir que dá o mesmo composto que o `cbers_to_landtrendr`;
+  só a data muda, de 1º de julho para o início do ano).
+- Linhas novas na página "Upgrading to the one-function API" para tudo o que saiu.
+
+## Fase 11: `zeit.ai` de cubo a mapa
+
+Hoje o `zeit.ai` tem os modelos (U-TAE, L-TAE, TempCNN, Siamese, ViT) como `nn.Module`
+soltos, mais o `STACCubeDataset` e três perdas. O caminho entre um cubo e um mapa fica com o
+usuário: os tutoriais começam de `X: (n_amostras, n_bandas, n_datas)` já montado, escrevem o
+laço de treino e, na inferência, a georreferência se perde. É o oposto do resto do zeit.
+O `STACCubeDataset` também tem problemas próprios: descarta as bordas que não cabem num
+patch inteiro, troca NaN por 0, usa o dia do ano como posição (séries de mais de um ano
+colidem) e devolve uma tupla, embora a anotação diga `dict`.
+
+A meta é o mesmo fluxo do `train_classifier`/`classify`, com os modelos profundos:
+
+```python
+samples = zeit.ai.samples(cubo, "pontos.gpkg", label="classe")          # pixels ou patches
+model = zeit.ai.train(zeit.ai.TempCNN, samples, epochs=50)              # laço pronto
+mapa = zeit.ai.predict(model, cubo)                                     # Dataset georreferenciado
+mapa.zeit.save("classes")
+```
+
+### 11a: amostras
+
+`zeit.ai.samples(data, amostras, *, label, patch=None, split=0.2, split_by="block",
+seed=42)` devolve um `SampleSet` (um `torch.utils.data.Dataset`):
+
+- `patch=None`: um pixel por ponto, `(time, band)` (TempCNN, L-TAE). `patch=64`: o recorte
+  `(time, band, 64, 64)` em volta de cada ponto ou polígono, com a máscara do rótulo
+  rasterizada (U-TAE, Siamese, ViT); pixels sem rótulo com `ignore_index`.
+- Pontos lidos e reprojetados como no `train_classifier` (mesma função interna). Polígonos
+  viram pixels (modo pixel) ou máscaras (modo patch).
+- `split_by="block"`: validação em blocos espaciais, não pixels sorteados (com pixels
+  vizinhos dos dois lados a validação mede autocorrelação, não generalização).
+- Guarda o que a predição precisa conferir: nomes das bandas, as datas (posições em dias
+  desde a primeira data, não dia do ano), as classes e a normalização por banda (quantis
+  2–98, como o `sits`), calculada só no treino.
+- NaN fica NaN no tensor, com uma máscara: o modelo decide (o `pad_mask` do U-TAE), em vez
+  do 0 silencioso do `STACCubeDataset`, que é corrigido junto (bordas, posições, `dict`).
+
+### 11b: treino
+
+`zeit.ai.train(model, samples, *, epochs=50, batch_size=64, lr=1e-3, loss="ce"|"focal"|
+"tversky", device="auto", patience=10, **model_kwargs)`:
+
+- `model` é a classe (o zeit instancia com `input_dim`, número de datas e de classes tirados
+  das amostras) ou uma instância já criada.
+- Laço mínimo: Adam, early stopping pela validação, melhor época restaurada, histórico no
+  `model.zeit_history_`. Não substitui um laço próprio: quem já tem o seu continua usando
+  o `SampleSet` com um `DataLoader`.
+- O modelo sai com `zeit_meta_` (bandas, datas, classes, normalização, tamanho do patch),
+  e `zeit.ai.save(model, caminho)`/`zeit.ai.load(caminho)` guardam pesos + meta + a classe
+  e os argumentos do modelo.
+
+### 11c: predição
+
+`zeit.ai.predict(model, data, *, patch=None, overlap=0.25, batch_size=..., device="auto",
+probability=False, chunks=None)`:
+
+- Entrada qualquer do `load_raster`; bandas reordenadas pelo nome e normalizadas com o
+  `zeit_meta_`. Datas diferentes das do treino: erro claro nos modelos de posição fixa
+  (TempCNN); nos de atenção (L-TAE, U-TAE) as posições saem do `time` do cubo.
+- Modo pixel em lotes; modo patch em janelas deslizantes com sobreposição e pesos que caem
+  para as bordas da janela (sem costura entre patches), lazy por blocos dask com
+  `map_overlap` na margem da janela.
+- Saída como a do `zeit.classify`: `label (y, x)` com `flag_meanings`, `probability (class,
+  y, x)` opcional, georreferenciado; pixels sem dado em toda a série saem 0.
+- Siamese: `predict(model, (cubo_t0, cubo_t1))` dá o mapa de mudança.
+- `zeit.classify(cubo, model)` com um modelo do `zeit.ai` delega para o `predict`, para
+  que haja uma função de classificação só.
+
+### Testes, docs e ordem
+
+- Cubo sintético com duas classes separáveis pela fenologia: TempCNN e L-TAE passam de 95%
+  em poucas épocas na CPU; o U-TAE prevê o mesmo mapa com um patch e com janelas
+  sobrepostas; o resultado tem a grade do cubo; `import zeit` continua sem torch.
+- Tutoriais do TempCNN, L-TAE e U-TAE reescritos a partir do cubo (sem `X` montado à mão),
+  com um tutorial "de ponta a ponta" no lugar do `ai.md`.
+- Dividida em 11a/11b (amostras e treino, com TempCNN e L-TAE) e 11c (predição, depois
+  U-TAE, Siamese e ViT).
+
 ## Para depois
 
 - `load_raster(..., crs=, res=)`: reprojetar para um CRS ou resolução sem um raster de
