@@ -6,6 +6,8 @@ lazily, from a file and with any number of threads; the crop shortcut; load_rast
 dims, dates and NoData; folders of rasters on different grids; QA bands.
 """
 
+import platform
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -25,6 +27,7 @@ T, H, W = 4, 120, 160
 needs_gdal = pytest.mark.skipif(_gdaltransform.open_library() is None, reason="rasterio's GDAL library not found")
 # The kernel is GDAL 3.12's: bit for bit against GDAL 3.12 and later (rasterio 1.4, the last
 # for Python 3.10 and 3.11, brings an older GDAL, whose warp differs in a few cells).
+ARM64 = platform.machine().lower() in ("arm64", "aarch64")
 GDAL_312 = tuple(int(p) for p in rasterio.__gdal_version__.split(".")[:2]) >= (3, 12)
 needs_gdal_312 = pytest.mark.skipif(not GDAL_312, reason=f"compares with GDAL 3.12; rasterio brings "
                                                         f"GDAL {rasterio.__gdal_version__}")
@@ -120,7 +123,14 @@ def test_every_type_matches_gdal(dtype, nodata, method):
     assert out.dtype == dtype and out.rio.nodata == dst_nodata
     for t in range(T):
         ref = gdal_date(da.values[t], TRANSFORM, grid, method, src_nodata, dst_nodata, work)
-        assert same(out.values[t], ref).all(), (method, t)
+        if ARM64 and dtype == np.float64:
+            # On arm64 (macOS) GDAL and the kernel may round float64 differently: clang fuses
+            # multiply-adds there by default, and rasterio's GDAL is not built with
+            # -ffp-contract=off as zeit is. Same cells, values within rounding.
+            assert (np.isnan(out.values[t]) == np.isnan(ref)).all() and                 ((out.values[t] == dst_nodata) == (ref == dst_nodata)).all(), (method, t)
+            np.testing.assert_allclose(out.values[t], ref, rtol=1e-12, equal_nan=True, err_msg=f"{method} {t}")
+        else:
+            assert same(out.values[t], ref).all(), (method, t)
 
 
 def test_a_cloud_of_one_date_stays_out_of_the_others():
