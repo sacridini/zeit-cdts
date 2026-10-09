@@ -21,7 +21,8 @@ class GeoFoundationViT(nn.Module):
     def forward(self, x: "torch.Tensor") -> "torch.Tensor":
         if not self.has_hf:
             feats = self.fallback_conv(x).mean(dim=2)
-            feats = nn.functional.interpolate(feats, scale_factor=16, mode='bilinear')
+            # back to the input's size (not x16: a side that is not a multiple of 16 would shrink)
+            feats = nn.functional.interpolate(feats, size=x.shape[-2:], mode='bilinear')
             return self.classifier(feats)
         
         outputs = self.backbone(pixel_values=x)
@@ -29,5 +30,5 @@ class GeoFoundationViT(nn.Module):
         B, Seq, Dim = last_hidden.shape
         H = W = int(Seq ** 0.5)
         feats = last_hidden.permute(0, 2, 1).view(B, Dim, H, W)
-        feats = nn.functional.interpolate(feats, scale_factor=16, mode='bilinear')
+        feats = nn.functional.interpolate(feats, size=x.shape[-2:], mode='bilinear')
         return self.classifier(feats)

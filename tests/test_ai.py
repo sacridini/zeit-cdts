@@ -46,3 +46,18 @@ def test_utae():
     with torch.no_grad():
         out = model(x, batch_positions=batch_positions)
     assert out.shape == (2, 3, 16, 16)
+
+
+def test_foundation_vit_keeps_the_input_size(monkeypatch):
+    """The prediction has the input's size, also when a side is not a multiple of 16
+    (it used to come back at the multiple of 16 below)."""
+    import torch
+    from zeit.ai import foundation
+
+    def offline(*args, **kwargs):
+        raise OSError("no network in tests")
+
+    monkeypatch.setattr(foundation.AutoModel, "from_pretrained", offline)
+    model = foundation.GeoFoundationViT(num_classes=3)
+    x = torch.rand(1, 6, 4, 39, 38)   # (batch, bands, time, y, x)
+    assert model(x).shape == (1, 3, 39, 38)
