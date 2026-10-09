@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from ._embeddings import aligned_chunks, cube, window_of
+from ._embeddings import BLOCKS, aligned_chunks, cube, window_of
 
 # The bucket's own endpoint rather than the data.source.coop gateway, which drops requests
 # under the load of a region read (as geotessera found for TESSERA's copy there).
@@ -192,7 +192,6 @@ class _Files:
 
     def __getitem__(self, key):
         import rasterio
-        from rasterio.windows import Window
 
         if not isinstance(key, tuple):
             key = (key,)
@@ -206,22 +205,40 @@ class _Files:
             with rasterio.Env(**_GDAL_ENV):
                 for i, t in enumerate(range(t0, t1, ts)):
                     for path, frow, fcol in self.files[t]:
-                        with rasterio.open(path) as src:
-                            fh, fw = src.height, src.width
-                            r0, r1 = max(top, frow), min(top + h, frow + fh)
-                            c0, c1 = max(left, fcol), min(left + w, fcol + fw)
-                            if r1 <= r0 or c1 <= c0:
-                                continue
-                            up = src.transform.e > 0   # bottom-up: file row 0 is the southern one
-                            rows = (fh - (r1 - frow), fh - (r0 - frow)) if up else (r0 - frow, r1 - frow)
-                            values = src.read(list(range(b0 + 1, b1 + 1)),
-                                              window=Window(c0 - fcol, rows[0], c1 - c0, rows[1] - rows[0]))
-                            if up:
-                                values = values[:, ::-1, :]
-                            out[i, :, r0 - top:r1 - top, c0 - left:c1 - left] = dequantise(values)
+                        r0, r1 = max(top, frow), top + h
+                        c0, c1 = max(left, fcol), left + w
+                        if r0 >= r1 or c0 >= c1:
+                            continue
+                        key = (path, b0, b1, r0, r1, c0, c1)
+                        cached = BLOCKS.get(key)
+                        if cached is None:
+                            cached = (_read(path, frow, fcol, r0, r1, c0, c1, b0, b1),)
+                            BLOCKS.put(key, cached)
+                        values = cached[0]
+                        if values.size:
+                            rr, cc = values.shape[1:]
+                            out[i, :, r0 - top:r0 - top + rr, c0 - left:c0 - left + cc] = dequantise(values)
         if bs != 1 or ys != 1 or xs != 1:
             out = out[:, ::bs, ::ys, ::xs]
         return out
+
+
+def _read(path: str, frow: int, fcol: int, r0: int, r1: int, c0: int, c1: int, b0: int, b1: int) -> np.ndarray:
+    """Bands ``b0..b1`` of the cells ``r0..r1``, ``c0..c1`` of the zone's grid that a file
+    (its top-left cell at ``frow``, ``fcol``) holds, top-down, int8 as stored; an empty array
+    when the file holds none of them."""
+    import rasterio
+    from rasterio.windows import Window
+
+    with rasterio.open(path) as src:
+        fh, fw = src.height, src.width
+        r1, c1 = min(r1, frow + fh), min(c1, fcol + fw)
+        if r1 <= r0 or c1 <= c0:
+            return np.empty((b1 - b0, 0, 0), dtype=np.int8)
+        up = src.transform.e > 0   # bottom-up: file row 0 is the southern one
+        rows = (fh - (r1 - frow), fh - (r0 - frow)) if up else (r0 - frow, r1 - frow)
+        values = src.read(list(range(b0 + 1, b1 + 1)), window=Window(c0 - fcol, rows[0], c1 - c0, rows[1] - rows[0]))
+    return values[:, ::-1, :] if up else values
 
 
 # ---------------------------------------------------------------------------

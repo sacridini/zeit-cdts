@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from ._embeddings import aligned_chunks, cube, window_of
+from ._embeddings import BLOCKS, aligned_chunks, cube, window_of
 
 DEFAULT_VERSION = "v1.1"
 _CHUNK = 512   # cells a side of a block: whole 32 x 32 inner chunks, within the 4096 x 4096 shards
@@ -144,10 +144,10 @@ def _zone(group, array: str, bbox, years: Optional[List[int]], zone: int):
     epsg = crs.to_epsg()
     if bbox[3] <= 0 and epsg is not None and 32601 <= epsg <= 32660:
         crs, shift = CRS.from_epsg(epsg + 100), _SOUTH
-    source = _Window(emb, scales, [stored.index(y) for y in wanted], window)
+    name = "tessera-" + tokenize(str(getattr(emb, "store_path", "")), str(emb.store), array, zone, window, wanted)
+    source = _Window(emb, scales, [stored.index(y) for y in wanted], window, name)
     chunks = ((1,) * len(wanted), (source.shape[1],), aligned_chunks(row0, row1 - row0, _CHUNK),
               aligned_chunks(col0, col1 - col0, _CHUNK))
-    name = "tessera-" + tokenize(str(getattr(emb, "store_path", "")), str(emb.store), array, zone, window, wanted)
     data = dsa.from_array(source, chunks=chunks, name=name, lock=False, asarray=True, fancy=False,
                           meta=np.empty((0, 0, 0, 0), dtype=np.float32))
     bands = [f"A{i:02d}" for i in range(source.shape[1])]
@@ -170,8 +170,8 @@ class _Window:
     ndim = 4
     dtype = np.dtype(np.float32)
 
-    def __init__(self, emb, scales, steps: List[int], window):
-        self.emb, self.scales, self.steps = emb, scales, list(steps)
+    def __init__(self, emb, scales, steps: List[int], window, token: str = ""):
+        self.emb, self.scales, self.steps, self.token = emb, scales, list(steps), token
         row0, row1, col0, col1 = window
         self.row0, self.col0 = row0, col0
         self.shape = (len(self.steps), int(emb.shape[1]), row1 - row0, col1 - col0)
@@ -186,8 +186,12 @@ class _Window:
         blocks = []
         for i in range(t0, t1, ts):
             t = self.steps[i]
-            values = self.emb[t, b0:max(b0, b1), rows, cols]
-            blocks.append(dequantise(values, self.scales[t, rows, cols]))
+            key = (self.token, t, b0, b1, rows.start, rows.stop, cols.start, cols.stop)
+            raw = BLOCKS.get(key)
+            if raw is None:
+                raw = (np.asarray(self.emb[t, b0:max(b0, b1), rows, cols]), np.asarray(self.scales[t, rows, cols]))
+                BLOCKS.put(key, raw)
+            blocks.append(dequantise(*raw))
         if not blocks:
             return np.empty((0, max(0, b1 - b0), max(0, y1 - y0), max(0, x1 - x0)), dtype=np.float32)
         out = np.stack(blocks)

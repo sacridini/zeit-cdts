@@ -30,7 +30,7 @@ aef = zeit.load_embeddings((-62.95, -9.95, -62.90, -9.90), source="alphaearth", 
 emb.rio.transform() == aef.rio.transform()      # True: the same 554 x 549 cells of 10 m, EPSG:32720
 ```
 
-The cube is lazy: the blocks are read when computed, a year and every dimension at a time, and dequantised as they arrive (over this 5 x 5 km box, all nine years took 43 s for TESSERA and 70 s for AlphaEarth from a laptop in Europe). `chunks=None` reads it all at once; `zeit.save_raster(emb, "emb.tif")` keeps a copy that `zeit.load_raster` reads back, still knowing what it holds.
+The cube is lazy: the blocks are read when computed, a year and every dimension at a time, kept as downloaded (up to 1 GB, so that what is computed twice is downloaded once) and dequantised as they arrive (over this 5 x 5 km box, all nine years took 43 s for TESSERA and 70 s for AlphaEarth from a laptop in Europe). `chunks=None` reads it all at once; `zeit.save_raster(emb, "emb.tif")` keeps a copy that `zeit.load_raster` reads back, still knowing what it holds.
 
 Regions come as bounds in longitude and latitude, a vector file or a `GeoDataFrame` (cells outside its polygons become NaN), or the grid of another raster:
 
@@ -58,7 +58,7 @@ Dozens of dimensions cannot be shown at once, so `zeit.plot` shows the first thr
 The embeddings were made for this. Each dimension of a year is a feature:
 
 ```python
-year = emb.sel(time="2024").persist()                     # read once: training reads whole blocks
+year = emb.sel(time="2024")                               # blocks read for training are kept for classify
 rf = zeit.train_classifier(year, "samples.gpkg", label="class")
 classes = zeit.classify(year, rf)
 ```

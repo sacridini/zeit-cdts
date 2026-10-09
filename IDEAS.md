@@ -1304,8 +1304,12 @@ dos algoritmos. Um teste com rede, opcional (marcado), lendo uma região pequena
 - O clique num pixel do `zeit.plot` mostra a série dos três componentes, não a distância de
   ano a ano (seria um `fit=` novo).
 - Pontos de treino: um cubo lazy lê os blocos inteiros sob os pontos (uma leitura de pontos
-  pelo `sample_points` precisaria de outro caminho no `train_classifier`). Documentado: o
-  mesmo cubo é classificado em seguida, então `.persist()` (ou `chunks=None`) lê uma vez.
+  pelo `sample_points` precisaria de outro caminho no `train_classifier`). Os blocos lidos
+  ficam num cache (`BlockCache`, int8 como baixados, até 1 GB, `ZEIT_EMBEDDING_CACHE_MB`),
+  então classificar a mesma região em seguida não baixa de novo. O cache veio de medir o
+  `zeit.plot` de um cubo lazy: a SVD da PCA leva 0,24 s, mas a amostra da PCA e depois os
+  quadros baixavam o cubo duas vezes (~11 s cada, o limite do servidor: mais concorrência ou
+  blocos menores não mudam nada). Com o cache, ~35 s viraram ~19 s, quase só o download.
 - A recusa vale também para Mann-Kendall, `smooth`, `tmask` e `coded`.
 
 ## Para depois

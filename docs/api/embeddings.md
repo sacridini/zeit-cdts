@@ -60,7 +60,7 @@ aef = zeit.load_embeddings((-63.0, -10.0, -62.9, -9.9), source="alphaearth", yea
 on_landsat = zeit.load_embeddings(source="alphaearth", like=landsat_cube, years=2020)   # 30 m, averaged
 ```
 
-Training points read the whole blocks they fall on. When the same region is classified next, `.persist()` the cube (or read it with `chunks=None`, or save it) so that it is read once.
+The blocks last read are kept as they were downloaded (int8, up to 1 GB; the environment variable `ZEIT_EMBEDDING_CACHE_MB` changes the limit, `0` turns it off), so a lazy cube computed twice is downloaded once: the principal components `zeit.plot` fits and then its frames, or the blocks under training points and then the classification of the same region. Reading is bound by the servers' throughput (about 4 MB/s of int8 from Europe), not by the computation.
 
 ## Similarity
 

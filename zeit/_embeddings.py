@@ -126,8 +126,11 @@ def load_embeddings(
     northings); a region entirely south of the equator is given in the southern UTM CRS
     (the same cells, 10,000 km apart in northing), as Landsat and AlphaEarth are.
 
-    Training points read the whole blocks they fall on: when the same region is then
-    classified, ``.persist()`` the cube (or ``chunks=None``) to read it once.
+    The blocks last read are kept as they were downloaded (int8, up to 1 GB; the
+    environment variable ``ZEIT_EMBEDDING_CACHE_MB`` changes it, 0 turns it off), so a lazy
+    cube computed twice is downloaded once: the principal components ``zeit.plot`` fits and
+    then its frames, the blocks under training points and then the classification of the
+    same region.
 
     Examples
     --------
@@ -252,6 +255,53 @@ def attrs_from_tag(tag: Optional[str]) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Region, years, grid
 # ---------------------------------------------------------------------------
+
+class BlockCache:
+    """The raw blocks last read from the products (int8, as stored, before dequantising), so
+    that a cube computed twice is downloaded once: the principal components of ``zeit.plot``
+    and then its frames, training points and then the classification. The least recently
+    used blocks go when the cache passes its limit, in MB: ``ZEIT_EMBEDDING_CACHE_MB``
+    (default 1024; 0 turns it off)."""
+
+    def __init__(self, limit_mb: Optional[float] = None):
+        import threading
+        from collections import OrderedDict
+
+        if limit_mb is None:
+            limit_mb = float(os.environ.get("ZEIT_EMBEDDING_CACHE_MB", 1024))
+        self.limit = int(limit_mb * 2 ** 20)
+        self.blocks: "OrderedDict[Any, Tuple[np.ndarray, ...]]" = OrderedDict()
+        self.size = 0
+        self.lock = threading.Lock()
+
+    def get(self, key):
+        with self.lock:
+            value = self.blocks.get(key)
+            if value is not None:
+                self.blocks.move_to_end(key)
+            return value
+
+    def put(self, key, value: Tuple[np.ndarray, ...]) -> None:
+        nbytes = sum(v.nbytes for v in value)
+        if nbytes > self.limit:
+            return
+        with self.lock:
+            if key in self.blocks:
+                return
+            self.blocks[key] = value
+            self.size += nbytes
+            while self.size > self.limit:
+                _, old = self.blocks.popitem(last=False)
+                self.size -= sum(v.nbytes for v in old)
+
+    def clear(self) -> None:
+        with self.lock:
+            self.blocks.clear()
+            self.size = 0
+
+
+BLOCKS = BlockCache()
+
 
 def _default_cache() -> Path:
     return Path.home() / ".cache" / "zeit" / "embeddings"

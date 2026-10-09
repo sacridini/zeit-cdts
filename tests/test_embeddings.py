@@ -551,3 +551,44 @@ def test_cli_downloads_embeddings(tessera, tmp_path, monkeypatch):
     back = zeit.load_raster(tmp_path / "tessera.tif")
     assert back.dims == ("time", "band", "y", "x") and list(back.time.dt.year.values) == [2018, 2019]
     assert back.attrs["embedding_source"] == "tessera"
+
+
+def test_blocks_are_downloaded_once(tessera, alphaearth, monkeypatch):
+    """A cube computed twice (the PCA of zeit.plot, then its frames) reads each block once."""
+    path, zones = tessera
+    cache = _embeddings.BlockCache(limit_mb=64)
+    monkeypatch.setattr(_tessera, "BLOCKS", cache)
+    monkeypatch.setattr(_alphaearth, "BLOCKS", cache)
+    reads = []
+    original = _alphaearth._read
+    monkeypatch.setattr(_alphaearth, "_read", lambda *a: reads.append(a) or original(*a))
+    x0, y0, _, _ = zones[20]
+    cube = zeit.load_embeddings(_bbox_of(x0, y0, 32620, 0, 70, 0, 70), source="tessera", store=path, years=2018)
+    first = cube.values
+    n = len(cache.blocks)
+    assert n == cube.data.npartitions and cache.size > 0
+    np.testing.assert_array_equal(cube.values, first)
+    assert len(cache.blocks) == n
+    root, _, (ax0, top, k) = alphaearth
+    t = Transformer.from_crs(32720, 4326, always_xy=True)
+    w, s = t.transform(ax0 + 3, top - k * 10 + 3)
+    e, nn = t.transform(ax0 + 2 * k * 10 - 3, top - 3)
+    aef = zeit.load_embeddings((w, s, e, nn), source="alphaearth", store=root, years=2024)
+    aef.values
+    count = len(reads)
+    aef.values
+    assert count > 0 and len(reads) == count
+
+
+def test_block_cache_keeps_the_latest_within_its_limit():
+    cache = _embeddings.BlockCache(limit_mb=1)
+    block = (np.zeros(400 * 1024, dtype=np.int8),)
+    for k in range(4):
+        cache.put(k, block)
+    assert list(cache.blocks) == [2, 3]
+    assert cache.size <= cache.limit and cache.get(0) is None and cache.get(3) is not None
+    cache.put("huge", (np.zeros(2 * 2 ** 20, dtype=np.int8),))
+    assert cache.get("huge") is None
+    off = _embeddings.BlockCache(limit_mb=0)
+    off.put(1, block)
+    assert off.get(1) is None
