@@ -202,13 +202,13 @@ def _open_one(path: str, *, band: Any, chunks: Any, date_format: Optional[str]) 
     with rasterio.open(path) as src:
         descriptions = list(src.descriptions)
         tag = src.tags().get(TIME_TAG)
-    da = rioxarray.open_rasterio(path, masked=False, chunks=chunks)
+    da = rioxarray.open_rasterio(path, masked=False, chunks=_file_chunks(chunks))
     da.attrs.pop("long_name", None)
     times: Optional[pd.DatetimeIndex] = None
     names: Optional[List[str]] = None
     if tag:
         times = pd.DatetimeIndex(json.loads(tag))
-        if len(times) != da.sizes["band"]:
+        if len(times) != da.sizes["band"] or not times.is_unique:
             times = None
     if times is None:
         if date_format is not None:
@@ -235,6 +235,16 @@ def _open_one(path: str, *, band: Any, chunks: Any, date_format: Optional[str]) 
             da = da.squeeze("band", drop=False)
     da.attrs["source"] = path
     return da
+
+
+def _file_chunks(chunks: Any, single: bool = False) -> Any:
+    """Chunks given for the cube's dims, as the dims of a raster file: (band, y, x)."""
+    if not isinstance(chunks, dict):
+        return chunks
+    out = {"band" if k in ("time", "band") else k: v for k, v in chunks.items() if k in ("time", "band", "y", "x")}
+    if single:
+        out.pop("band", None)
+    return out
 
 
 def _time_labels(times: pd.DatetimeIndex, names: Optional[List[str]]) -> pd.Index:
@@ -298,7 +308,7 @@ def _open_many(files: List[str], *, band: Any, chunks: Any, pattern: Optional[st
     layers = []
     reference = None
     for path, when, spectral in records:
-        layer = rioxarray.open_rasterio(path, masked=False, chunks=chunks)
+        layer = rioxarray.open_rasterio(path, masked=False, chunks=_file_chunks(chunks, single=True))
         if layer.sizes["band"] > 1:
             if band is None:
                 raise ValueError(f"{os.path.basename(path)} has {layer.sizes['band']} bands; "

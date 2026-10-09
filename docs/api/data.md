@@ -452,29 +452,45 @@ s2 = zeit.load_raster("S2/", pattern=r"_(?P<date>\d{8})_(?P<band>B\d{2})\.tif$")
 <!-- sig: zeit.io.save_raster -->
 ```python
 zeit.io.save_raster(
-    array, output_path, reference_cube=None, crs="EPSG:4326",
-    transform=None, nodata=None,
+    data, path, like=None, crs=None, transform=None, nodata=None,
+    dtype=None, band_names=None, compress="deflate", driver=None,
+    reference_cube=None,
 )
 ```
 
-Writes a 2-D, 3-D or 4-D NumPy array (or an xarray `DataArray`) as a compressed, tiled GeoTIFF. The georeferencing comes from `reference_cube`, or from `crs` and `transform`. Also exported as `zeit.save_raster`.
+Writes a map, a stack or a result so that GIS software and `load_raster` read it back as it was: georeferencing, NoData, band names and dates. Returns the path written. Also exported as `zeit.save_raster`.
+
+- A `DataArray` brings its own georeferencing (`.rio`, or its `x`/`y` coordinates); a numpy or dask array takes it from `like=` (a raster or a path), or from `crs` and `transform`.
+- A `time` axis becomes the band descriptions (`1985`, … for annual series, `2020-01-15`, … otherwise) and the `ZEIT_TIME` metadata tag, so `load_raster` gets the `time` coordinate back. A `(time, band, y, x)` cube is written as `2020-01-15_red`, `2020-01-15_nir`, …
+- A `Dataset` or a `dict` of maps (e.g. the result of `extract_events`) becomes a folder with one GeoTIFF per variable when `path` has no extension, or one multi-band file named by variable when it ends in `.tif`.
+- Floats with NaN get NaN as NoData (or `nodata`, which then replaces the NaN); `bool` is written as `uint8` and 64-bit integers as the smallest integer type that holds them.
+- GeoTIFFs are compressed with the predictor that suits the type, tiled when larger than 256 × 256 and BigTIFF when needed; dask arrays are written block by block. The format follows the extension (`.tif`, `.img`, `.nc`, `.zarr`, …) or `driver` (`"COG"` for a Cloud-Optimised GeoTIFF). Missing folders are created.
 
 <div class="params" markdown>
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `array` | `np.ndarray` or `xr.DataArray` | required | Data to write. |
-| `output_path` | `str` | required | Output file. |
-| `reference_cube` | rasterio dataset or `xr.DataArray` | `None` | Object to copy the CRS and transform from. |
-| `crs` | `str` | `"EPSG:4326"` | Coordinate reference system, when no `reference_cube` is given. |
-| `transform` | `Affine` | `None` | Geotransform, when no `reference_cube` is given. |
-| `nodata` | `float` | `None` | NoData value written to the file. |
+| `data` | `DataArray`, `Dataset`, `dict`, numpy or dask array | required | What to write: `(y, x)`, `(band\|time, y, x)` or `(time, band, y, x)`. |
+| `path` | `str` or `Path` | required | Output file, or folder for a `Dataset`/`dict`. Without an extension, `.tif` is added. |
+| `like` | path or `DataArray` | `None` | A raster on the same grid whose CRS and transform georeference `data`. |
+| `crs` | `str`, `int`, `CRS` | `None` | Coordinate reference system; overrides that of `data` and `like`. |
+| `transform` | `Affine` | `None` | Affine transform; overrides that of `data` and `like`. |
+| `nodata` | `float` | `None` | NoData value; overrides that of `data`. NaN in floats are written as this value. |
+| `dtype` | `str` | `None` | Data type to write (default: the data's). Floats cast to integers get `nodata` (or the type's maximum) where they are NaN. |
+| `band_names` | list of `str` | `None` | Band descriptions; by default the dates of a `time` axis or the labels of a `band` axis. |
+| `compress` | `str` | `"deflate"` | GeoTIFF compression: `"deflate"`, `"lzw"`, `"zstd"`, `None`… |
+| `driver` | `str` | `None` | GDAL driver when the extension is not enough; `"COG"` writes a Cloud-Optimised GeoTIFF. |
+| `reference_cube` | path or `DataArray` | `None` | Deprecated name of `like`. |
 
 </div>
 
+**Returns** `pathlib.Path`.
+
 ```python
-zeit.save_raster(loss["yod"], "year_of_loss.tif",
-                 crs=profile["crs"], transform=profile["transform"], nodata=0)
+ndvi = zeit.load_raster("LT_Stack_NDVI_Rondonia.tif")
+zeit.save_raster(ndvi.sel(time="2020"), "ndvi_2020.tif")       # georeferencing from the cube
+zeit.save_raster(loss, "lt_rondonia")                          # dict of maps: one GeoTIFF each
+zeit.save_raster(loss["yod"], "year_of_loss.tif", like=ndvi, nodata=0)   # numpy map
 ```
 
 ### `get_georef` { .api }

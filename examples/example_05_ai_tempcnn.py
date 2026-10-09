@@ -25,6 +25,6 @@ logits = model(tensor_data)
 predictions = torch.argmax(logits, dim=1).view(H, W).numpy().astype(np.uint8)
 
 out_tif = os.path.join("data", "tempcnn_prediction.tif")
-save_raster(predictions, out_tif, reference_cube=cube, nodata=255)
+save_raster(predictions, out_tif, like=cube, nodata=255)
 
 print(f"Done! Output saved to {out_tif}")

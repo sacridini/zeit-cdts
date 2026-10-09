@@ -35,7 +35,7 @@ Todo o zeit troca dados no mesmo formato:
 - Quando o tempo não pode ser inferido, a dimensão das bandas se chama `band` e os
   algoritmos pedem `years=`/`dates=` com uma mensagem clara.
 
-## Fase 1: `load_raster` (0.27.0) — **Feito** (0.27.0)
+## Fase 1: `load_raster` — **Feito** (0.27.0)
 
 `zeit.load_raster(source, *, dates=None, start_year=None, band=None, chunks=None,
 clip=None, masked="auto", pattern=None, date_format=None, validate=None)` devolve um
@@ -63,7 +63,7 @@ Entradas:
   arquivo e conversões para anos, dias ordinais e ano fracionário).
 - `load_raster` e `save_raster` exportados no `zeit` (hoje só em `zeit.io`).
 
-## Fase 2: `save_raster` simétrico (0.28.0)
+## Fase 2: `save_raster` simétrico — **Feito** (0.28.0)
 
 `zeit.save_raster(data, path, *, like=None, crs=None, transform=None, nodata=None,
 dtype=None, band_names=None, compress="deflate", driver=None)` devolve o `Path` gravado.
@@ -79,7 +79,10 @@ dtype=None, band_names=None, compress="deflate", driver=None)` devolve o `Path` 
 - NaN → nodata em floats; `bool` → `uint8`; inteiros de 64 bits reduzidos ao menor tipo
   que cabe; tiled + predictor; BigTIFF quando precisar; dask escrito bloco a bloco.
 - Formato pela extensão (`.tif`, `.nc`, `.zarr`, ...) ou `driver` (`"COG"`).
-- Sem `print`; erros de georreferência viram exceção em vez de passar em silêncio.
+- Sem `print`; sem georreferência, um aviso em vez de uma matriz identidade silenciosa.
+- `reference_cube=` continua aceito como nome antigo de `like=` (DeprecationWarning).
+- Implementado em `zeit/_save.py`. O `get_georef` passou a pôr a origem no canto da
+  célula (as coordenadas `x`/`y` são centros; antes ficava meio pixel deslocada).
 
 ## Fase 3: `zeit.landtrendr` (0.29.0)
 

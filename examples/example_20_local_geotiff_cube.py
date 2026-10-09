@@ -63,7 +63,7 @@ def main():
     print(f"    Mean NDVI per date: {[f'{v:.3f}' for v in ndvi.mean(dim=['y', 'x']).values]}")
 
     out_tif = os.path.join("data", "local_cube_ndvi.tif")
-    zeit.save_raster(ndvi.values.astype("float32"), out_tif, reference_cube=cube, nodata=np.nan)
+    zeit.save_raster(ndvi.values.astype("float32"), out_tif, like=cube, nodata=np.nan)
 
     print(f"\nDone! NDVI time series ({ndvi.sizes['time']} bands) saved to {out_tif}")
 

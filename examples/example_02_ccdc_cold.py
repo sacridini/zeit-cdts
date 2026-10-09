@@ -28,6 +28,6 @@ print("Generating Synthetic Image for Julian Day 200...")
 synthetic = predict_synthetic_image(coefs, target_julian_day=200)
 
 out_tif = os.path.join("data", "ccdc_synthetic.tif")
-save_raster(synthetic, out_tif, reference_cube=cube, nodata=0)
+save_raster(synthetic, out_tif, like=cube, nodata=0)
 
 print(f"Done! Output saved to {out_tif}")

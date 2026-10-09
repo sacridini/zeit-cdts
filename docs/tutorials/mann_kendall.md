@@ -51,8 +51,8 @@ greening = significant & (result.sel(metric="trend") == 1)
 ### 3. Save the maps
 
 ```python
-zeit.save_raster(slope.values.astype("float32"), "results/ndvi_slope.tif", reference_cube=annual_max)
-zeit.save_raster(browning.values.astype("uint8"), "results/browning.tif", reference_cube=annual_max)
+zeit.save_raster(slope.values.astype("float32"), "results/ndvi_slope.tif", like=annual_max)
+zeit.save_raster(browning.values.astype("uint8"), "results/browning.tif", like=annual_max)
 ```
 
 ## Which variant should I use?

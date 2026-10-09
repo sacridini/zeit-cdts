@@ -157,8 +157,7 @@ The same analysis in three styles. Pick the one that fits your data:
     vertices = zeit.run_landtrendr_array(years, stack.values, modifier=-1.0)  # -1: look for drops
     loss = zeit.extract_events(vertices, event_type="loss", min_magnitude=2000)
 
-    zeit.save_raster(loss["yod"], "year_of_loss.tif",
-                     crs=stack.rio.crs, transform=stack.rio.transform(), nodata=0)
+    zeit.save_raster(loss["yod"], "year_of_loss.tif", like=stack, nodata=0)
     ```
 
 === "Xarray / Dask cube"

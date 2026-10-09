@@ -25,6 +25,6 @@ change_logits = model(tensor_t0, tensor_t1)
 predicted_change = torch.argmax(change_logits, dim=1).squeeze().numpy().astype(np.uint8)
 
 out_tif = os.path.join("data", "siamese_prediction.tif")
-save_raster(predicted_change, out_tif, reference_cube=cube, nodata=255)
+save_raster(predicted_change, out_tif, like=cube, nodata=255)
 
 print(f"Done! Output saved to {out_tif}")

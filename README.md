@@ -374,7 +374,7 @@ smoothed_array = apply_whittaker_filter(raw_array, lmbd=10.0, weights=clear_sky_
 
 # Spatial Regularization (Mode filter)
 regularized_map = apply_majority_filter(classified_map, size=3)
-save_raster(regularized_map, "results/classified_regularized.tif", reference_cube=cube)
+save_raster(regularized_map, "results/classified_regularized.tif", like=cube)
 
 # Minimum Mapping Unit (MMU): operates on a GeoTIFF on disk, not an in-memory array
 # Erase isolated patches smaller than 11 pixels
@@ -387,17 +387,14 @@ apply_mmu_filter(
 
 ## Exporting Geospatial Data
 
-Seamlessly dump predicted arrays back to the disk, preserving the metadata from the original STAC cube.
+`save_raster` writes any map, stack or result back to disk with its georeferencing, NoData, band names and dates, so GIS software and `load_raster` read it back as it was.
 
 ```python
 from zeit import save_raster
 
-save_raster(
-    array=final_map, 
-    output_path="output/land_cover.tif", 
-    reference_cube=cube, # Copies Affine Transform and CRS
-    nodata=255
-)
+save_raster(final_map, "output/land_cover.tif", like=cube, nodata=255)   # numpy: CRS and transform from cube
+save_raster(ndvi_cube, "output/ndvi.tif")      # a DataArray brings its own georeferencing and dates
+save_raster(events, "output/loss")             # a dict/Dataset of maps: one GeoTIFF per map
 ```
 
 ## Command-Line Interface

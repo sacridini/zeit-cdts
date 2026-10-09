@@ -247,3 +247,149 @@ def test_save_then_load_keeps_data(tmp_path):
     cube = load_raster(file_path)
     assert cube.shape == (10, 50, 50)
     np.testing.assert_array_equal(cube.values, array)
+
+
+# ---------------------------------------------------------------------------
+# save_raster
+# ---------------------------------------------------------------------------
+
+def test_save_returns_path_and_adds_extension(ndvi, tmp_path):
+    path, _ = ndvi
+    cube = load_raster(path)
+    out = save_raster(cube.isel(time=0), tmp_path / "out" / "first")
+    assert out == tmp_path / "out" / "first.tif" and out.exists()
+    assert zeit.save_raster is save_raster
+
+
+def test_round_trip_keeps_dates_georef_and_type(ndvi, tmp_path):
+    path, array = ndvi
+    cube = load_raster(path)
+    out = save_raster(cube, tmp_path / "copy.tif")
+    with rasterio.open(out) as src:
+        assert src.descriptions == ("1985", "1986", "1987", "1988", "1989")
+        assert src.transform == TRANSFORM and src.crs.to_epsg() == 4326
+        assert src.dtypes[0] == "int16"
+        assert "ZEIT_TIME" in src.tags()
+    back = load_raster(out)
+    assert back.dims == ("time", "y", "x")
+    assert back.time.values.tolist() == cube.time.values.tolist()
+    np.testing.assert_array_equal(back.values, array)
+
+
+def test_sub_annual_dates_use_iso_descriptions(tmp_path):
+    times = pd.to_datetime(["2021-01-05", "2021-02-10"])
+    da = xr.DataArray(np.ones((2, 3, 3), dtype=np.float32), dims=("time", "y", "x"),
+                      coords={"time": times, "y": [2.5, 1.5, 0.5], "x": [0.5, 1.5, 2.5]}).rio.write_crs(3857)
+    out = save_raster(da, tmp_path / "s.tif")
+    with rasterio.open(out) as src:
+        assert src.descriptions == ("2021-01-05", "2021-02-10")
+        assert src.transform == from_origin(0, 3, 1, 1)
+    assert load_raster(out).time.values.tolist() == da.time.values.tolist()
+
+
+def test_4d_cube_writes_date_band_descriptions(tmp_path):
+    times = pd.to_datetime(["2021-01-01", "2021-02-01"])
+    data = np.arange(2 * 2 * 3 * 3, dtype=np.int16).reshape(2, 2, 3, 3)
+    da = xr.DataArray(data, dims=("time", "band", "y", "x"),
+                      coords={"time": times, "band": ["red", "nir"], "y": [2.5, 1.5, 0.5], "x": [0.5, 1.5, 2.5]})
+    out = save_raster(da.rio.write_crs(4326), tmp_path / "s.tif")
+    with rasterio.open(out) as src:
+        assert src.descriptions == ("2021-01-01_red", "2021-01-01_nir", "2021-02-01_red", "2021-02-01_nir")
+    back = load_raster(out)
+    assert back.dims == ("time", "band", "y", "x")
+    np.testing.assert_array_equal(back.sel(band="nir").values, data[:, 1])
+
+
+def test_numpy_with_like_and_explicit_georef(ndvi, tmp_path):
+    path, array = ndvi
+    cube = load_raster(path)
+    for like in (path, cube):
+        out = save_raster(array[0], tmp_path / "m.tif", like=like)
+        with rasterio.open(out) as src:
+            assert src.transform == TRANSFORM and src.crs.to_epsg() == 4326
+    out = save_raster(array[0], tmp_path / "e.tif", crs="EPSG:32721", transform=from_origin(0, 0, 30, 30))
+    with rasterio.open(out) as src:
+        assert src.crs.to_epsg() == 32721 and src.transform.a == 30
+    with pytest.raises(ValueError, match="cells"):
+        save_raster(array[0, :5], tmp_path / "bad.tif", like=path)
+
+
+def test_reference_cube_is_a_deprecated_alias(ndvi, tmp_path):
+    path, array = ndvi
+    with pytest.warns(DeprecationWarning, match="like="):
+        out = save_raster(array[0], tmp_path / "m.tif", reference_cube=load_raster(path))
+    with rasterio.open(out) as src:
+        assert src.transform == TRANSFORM
+
+
+def test_no_georeferencing_warns(tmp_path):
+    with pytest.warns(UserWarning, match="no georeferencing"):
+        save_raster(np.ones((3, 3), dtype=np.uint8), tmp_path / "plain.tif")
+
+
+def test_nodata_and_types(tmp_path):
+    georef = dict(crs="EPSG:4326", transform=TRANSFORM)
+    floats = np.array([[1.0, np.nan], [3.0, 4.0]], dtype=np.float32)
+    with rasterio.open(save_raster(floats, tmp_path / "nan.tif", **georef)) as src:
+        assert np.isnan(src.nodata)
+    with rasterio.open(save_raster(floats, tmp_path / "fill.tif", nodata=-1, **georef)) as src:
+        assert src.nodata == -1 and src.read(1)[0, 1] == -1
+    with rasterio.open(save_raster(floats, tmp_path / "int.tif", dtype="int16", nodata=0, **georef)) as src:
+        assert src.dtypes[0] == "int16" and src.read(1)[0, 1] == 0
+    with rasterio.open(save_raster(floats > 2, tmp_path / "bool.tif", **georef)) as src:
+        assert src.dtypes[0] == "uint8"
+    with rasterio.open(save_raster(np.array([[1, 300]], dtype=np.int64).repeat(2, 0), tmp_path / "i64.tif", **georef)) as src:
+        assert src.dtypes[0] == "uint16"
+    with pytest.raises(ValueError, match="NaN"):
+        save_raster(np.ones((2, 2), dtype=np.int16), tmp_path / "x.tif", nodata=np.nan, **georef)
+
+    masked = load_raster(write_stack(tmp_path / "m.tif", np.array([[[1.0, -9999.0]]] * 2, dtype=np.float32), nodata=-9999),
+                         start_year=2000)
+    with rasterio.open(save_raster(masked, tmp_path / "m2.tif")) as src:
+        assert src.nodata == -9999 and src.read(1)[0, 1] == -9999
+
+
+def test_dict_and_dataset_to_folder_or_stack(ndvi, tmp_path):
+    path, array = ndvi
+    cube = load_raster(path)
+    events = {"yod": array[0].astype(np.uint16), "magnitude": array[1].astype(np.float32), "scalar": 3}
+    folder = save_raster(events, tmp_path / "events", like=cube)
+    assert folder.is_dir()
+    assert sorted(p.name for p in folder.iterdir()) == ["magnitude.tif", "yod.tif"]
+    with rasterio.open(folder / "yod.tif") as src:
+        assert src.dtypes[0] == "uint16" and src.transform == TRANSFORM
+
+    stack = save_raster(events, tmp_path / "events.tif", like=cube)
+    with rasterio.open(stack) as src:
+        assert src.count == 2 and src.descriptions == ("yod", "magnitude")
+        assert src.dtypes[0] == "float32"
+
+    ds = xr.Dataset({"a": cube.isel(time=0, drop=True), "b": cube.isel(time=1, drop=True)})
+    folder = save_raster(ds, tmp_path / "ds")
+    with rasterio.open(folder / "b.tif") as src:
+        assert src.transform == TRANSFORM
+        np.testing.assert_array_equal(src.read(1), array[1])
+
+
+def test_dask_written_block_by_block(ndvi, tmp_path):
+    path, array = ndvi
+    lazy = load_raster(path, chunks={"time": -1, "y": 7, "x": -1})
+    out = save_raster(lazy, tmp_path / "lazy.tif")
+    np.testing.assert_array_equal(load_raster(out).values, array)
+
+
+def test_cog_and_other_formats(ndvi, tmp_path):
+    path, array = ndvi
+    cube = load_raster(path)
+    cog = save_raster(cube, tmp_path / "cog.tif", driver="COG")
+    assert cog.exists() and not list(tmp_path.glob("*__tmp__*"))
+    np.testing.assert_array_equal(load_raster(cog).values, array)
+
+    store = save_raster(cube, tmp_path / "cube.zarr")
+    back = load_raster(store)
+    assert back.time.values.tolist() == cube.time.values.tolist()
+    np.testing.assert_array_equal(back.values, array)
+
+    img = save_raster(cube.isel(time=0), tmp_path / "map.img")
+    with rasterio.open(img) as src:
+        assert src.driver == "HFA"

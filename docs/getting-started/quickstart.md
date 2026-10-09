@@ -115,8 +115,7 @@ years = stack.time.dt.year.values
 vertices = zeit.run_landtrendr_array(years, stack.values.astype(np.float32), modifier=-1.0)
 loss = zeit.extract_events(vertices, event_type="loss", min_magnitude=1500)
 
-zeit.save_raster(loss["yod"], "year_of_loss.tif",
-                 crs=stack.rio.crs, transform=stack.rio.transform(), nodata=0)
+zeit.save_raster(loss["yod"], "year_of_loss.tif", like=stack, nodata=0)
 ```
 
 `save_raster` writes a georeferenced, compressed GeoTIFF that opens directly in QGIS or ArcGIS.

@@ -27,6 +27,6 @@ print("Applying Spatial Majority Filter...")
 clean_predictions = apply_majority_filter(raw_predictions, size=3).astype(np.uint8)
 
 out_tif = os.path.join("data", "vit_prediction.tif")
-save_raster(clean_predictions, out_tif, reference_cube=cube, nodata=255)
+save_raster(clean_predictions, out_tif, like=cube, nodata=255)
 
 print(f"Done! Output saved to {out_tif}")
