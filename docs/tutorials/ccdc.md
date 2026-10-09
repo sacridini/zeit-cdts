@@ -149,19 +149,16 @@ This is a clean way to fill gaps or build seasonal mosaics. On a single pixel's 
 
 ### 7. Classify the segments
 
-The coefficients of each segment are compact descriptions of the land cover during that period. Write them as a feature stack, and a classifier trained on the same features at labelled points can label every pixel:
+The model of each segment is a compact description of the land cover during that period. `zeit.train_classifier` takes, for every pixel, the model of the segment covering a date (each band's coefficients, the intercept moved to that date, and its RMSE) at labelled points; `zeit.classify` labels every pixel:
 
 ```python
-from zeit.classify import train_ccdc_classifier, classify_ccdc_stack
-
-features = segments.coefs.isel(segment=0).fillna(0)       # first segment; 0 = no model
-zeit.save_raster(features, "results/ccdc_coefs.tif")       # bands blue_a0 ... swir2_b3
-
-clf = train_ccdc_classifier(X_train, y_train)       # X: the same features at labelled points
-classify_ccdc_stack(clf, "results/ccdc_coefs.tif", "results/ccdc_classes.tif")
+rf = zeit.train_classifier(segments, "samples.gpkg", label="class", date="2019-07-01")
+land_cover = zeit.classify(segments, rf, date="2019-07-01")
+land_cover.label.zeit.plot()                         # the legend names the classes
+zeit.save_raster(land_cover, "results/ccdc_classes")
 ```
 
-See the [API reference](../api/post-processing.md) for the expected feature layout.
+The same functions classify any cube or Dataset of metrics; see the [API reference](../api/post-processing.md#classification).
 
 ## Tuning the parameters
 

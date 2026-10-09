@@ -51,12 +51,17 @@ Each algorithm is now one function. It takes a pixel's series, a numpy stack wit
 | `alpha=0.1, beta=0.05, gamma=50` (time weight `alpha / (1 + exp(-beta (Δt - gamma)))`) | `steepness=0.1, midpoint=50` (R twdtw's `1 / (1 + exp(-steepness (Δt - midpoint)))`), days of the year around the year (`cycle="year"`), the pattern matched in any stretch of the series |
 | `zeit.apply_savgol_filter(stack, window_length=7)` | `zeit.smooth(cube, method="savgol", window=7)` |
 | `zeit.smooth.apply_whittaker_filter(stack, lmbd=10, weights=w)` | `zeit.smooth(cube, lmbda=10, weights=w)` (uneven dates and NaN handled) |
+| `zeit.apply_tmask_stack(dates, green, swir, scale_factor=10000)` | `zeit.tmask(cube, green="green", swir="swir1")`: dates from `time`, a georeferenced `clear (time, y, x)`; observations without data are not clear |
+| `zeit.run_snic(array, ...)` / `cube.zeit.run_snic(...)` | `zeit.snic(cube, ...)` / `cube.zeit.snic(...)`: a georeferenced `Dataset` (`labels`, `means`, `n_pixels`, `centroid_x`/`centroid_y` in map coordinates); `snic_to_polygons(result)` takes it as is |
+| `train_ccdc_classifier(X, y)` + `classify_ccdc_stack(clf, "coefs.tif", "classes.tif")` | `zeit.train_classifier(data, samples)` + `zeit.classify(data, model)`: sample points instead of feature arrays, any cube, Dataset or CCDC result (`date=`) instead of a coefficient GeoTIFF |
+| `zeit.apply_mmu_filter("in.tif", "out.tif", mmu_pixels=11)` | `zeit.save_raster(zeit.apply_mmu_filter(map, mmu_pixels=11), "out.tif")`: maps in, maps out (the CLI `zeit mmu-filter` is unchanged) |
+| `extract_water_mask(stack, green_band_idx=1, swir_band_idx=4)` | `zeit.extract_water_mask(segments, green="green", swir="swir1")` on the `zeit.ccdc` result |
 
 Results that were a `DataArray` with a `metric` (or `vertex_info`, `parameter`) dimension are now a `Dataset` with one variable per metric: `result.sel(metric="trend")` becomes `result.trend`.
 
 ## Modules
 
-The engines moved to private modules, so that each algorithm's name is its function: `zeit/landtrendr.py`, `ccdc.py`, `bfast.py`, `phenology.py`, `twdtw.py` and `smooth.py` are now `_landtrendr.py`, `_ccdc.py`, `_bfast.py`, `_phenology.py`, `_twdtw.py` and `_smooth.py`. Imports such as `from zeit.landtrendr import run_landtrendr` no longer work; use the functions above.
+The engines moved to private modules, so that each algorithm's name is its function: `zeit/landtrendr.py`, `ccdc.py`, `bfast.py`, `phenology.py`, `twdtw.py`, `smooth.py`, `tmask.py` and `classify.py` are now `_landtrendr.py`, `_ccdc.py`, `_bfast.py`, `_phenology.py`, `_twdtw.py`, `_smooth.py`, `_tmask.py` and `_classify.py`. Imports such as `from zeit.landtrendr import run_landtrendr` no longer work; use the functions above.
 
 ## Command line
 

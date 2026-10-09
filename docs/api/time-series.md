@@ -192,23 +192,24 @@ zeit.save_raster(classes, "twdtw")                               # label.tif, di
 
 Tutorial: [Segmentation](../tutorials/snic.md).
 
-### `run_snic` { .api }
+### `snic` { .api }
 
-<!-- sig: zeit.segmentation.run_snic -->
+<!-- sig: zeit.snic -->
 ```python
-zeit.segmentation.run_snic(
+zeit.snic(
     data, spacing=10, compactness=0.5, seeds=None, grid="rectangular",
-    padding=None, tile_size=None, random_state=None, n_jobs=-1,
+    padding=None, tile_size=None, random_state=None, nodata="auto",
+    n_jobs=-1,
 )
 ```
 
-SNIC superpixels of an image or a whole cube; every leading axis becomes a feature. Given the same seeds, labels match the reference C implementation. Also exported as `zeit.run_snic`.
+SNIC superpixels of an image or a whole cube: every value of a pixel off its `y`/`x` (each band, each date) is one feature, so two pixels are alike when their whole trajectories are, as `sits_segment(seg_fn = sits_snic())`. Given the same seeds, labels match the reference C implementation. It replaces `run_snic` (the engine, still in `zeit.segmentation`) and the accessor's `run_snic`.
 
 <div class="params" markdown>
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `data` | `np.ndarray` | required | `(y, x)`, `(feature, y, x)` or `(time, band, y, x)`. Pixels with any NaN are left unlabelled (`-1`). |
+| `data` | `DataArray`, `ndarray` or path | required | `(y, x)`, `(band, y, x)`, `(time, y, x)` or `(time, band, y, x)`, read into memory. Pixels with any missing feature are left unlabelled (`-1`). |
 | `spacing` | `float` or pair | `10` | Seed spacing in pixels. |
 | `compactness` | `float` | `0.5` | Regularity of the segments, in data units. Higher is more compact. |
 | `seeds` | `(n, 2)` array | `None` | Explicit `(row, col)` seeds; overrides the grid. |
@@ -216,11 +217,18 @@ SNIC superpixels of an image or a whole cube; every leading axis becomes a featu
 | `padding` | `float` or pair | `None` | Seed-free margin. Default `spacing / 2`. |
 | `tile_size` | `int` or pair | `None` | Segment tiles of this size independently, in parallel. |
 | `random_state` | `int` | `None` | Seed for `grid="random"`. |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | Value marking a missing observation. |
 | `n_jobs` | `int` | `-1` | Threads. |
 
 </div>
 
-**Returns** a `SnicResult` with `labels` `(y, x)`, `means` `(n_seeds, *features)`, `centroids`, `sizes` and `seeds`.
+**Returns** an `xarray.Dataset`: `labels (y, x)` (georeferenced; `-1` unlabelled), `means (segment, ...)` with the cube's dims and coordinates (`(segment, time, band)` for a `(time, band, y, x)` cube), and `n_pixels`, `centroid_x`, `centroid_y (segment)` (map coordinates). `save_raster` writes the labels; [`snic_to_polygons`](#snic_to_polygons) makes polygons.
+
+```python
+seg = zeit.snic(ndvi, spacing=8, compactness=0.3)          # ndvi: (time, y, x)
+zeit.save_raster(seg, "results/snic")                       # labels.tif
+polygons = zeit.snic_to_polygons(seg, include_means=True)   # one column per date
+```
 
 ### `snic_to_polygons` { .api }
 
@@ -237,10 +245,10 @@ Converts SNIC labels to a GeoDataFrame, one polygon per segment, like `sits_segm
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `result` | `SnicResult` | required | Output of `run_snic`. |
-| `transform` | `Affine` | `None` | Geotransform of the image (identity: pixel coordinates). |
-| `crs` | | `None` | Coordinate reference system. |
-| `include_means` | `bool` | `False` | Add each segment's mean features as columns `f0, f1, …`. |
+| `result` | `Dataset` or `SnicResult` | required | Output of [`zeit.snic`](#snic) (its transform, CRS and feature names are used) or of the engine `run_snic`. |
+| `transform` | `Affine` | `None` | Geotransform of a `SnicResult` (identity: pixel coordinates); taken from a Dataset. |
+| `crs` | | `None` | Coordinate reference system of a `SnicResult`; taken from a Dataset. |
+| `include_means` | `bool` | `False` | Add each segment's mean features as columns, named by the cube's coordinates (`2022-01-01_ndvi`, …; `f0, f1, …` for a `SnicResult`). |
 
 </div>
 
@@ -263,7 +271,7 @@ The seed grids of the R `snic` package, as `(n, 2)` `(row, col)` positions. Also
 | `shape` | `(int, int)` | required | Image `(rows, cols)`. |
 | `spacing` | `float` or pair | required | Seed spacing. |
 | `padding` | `float` or pair | `None` | Seed-free margin. |
-| `type` | `str` | `"rectangular"` | Grid type, as in `run_snic`'s `grid`. |
+| `type` | `str` | `"rectangular"` | Grid type, as in `zeit.snic`'s `grid`. |
 | `random_state` | `int` | `None` | Seed for `"random"`. |
 
 </div>

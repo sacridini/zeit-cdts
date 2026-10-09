@@ -1,5 +1,5 @@
+"""The Tmask engine (one pixel, and a numpy stack); ``zeit.tmask`` is in ``_tmask_api``."""
 import numpy as np
-from sklearn.linear_model import HuberRegressor
 import warnings
 
 def run_tmask_pixel(dates_julian: np.ndarray, green_band: np.ndarray, swir_band: np.ndarray, scale_factor: float = 10000.0) -> np.ndarray:
@@ -35,6 +35,8 @@ def run_tmask_pixel(dates_julian: np.ndarray, green_band: np.ndarray, swir_band:
         np.sin(w * dates_julian)
     ))
     
+    from sklearn.linear_model import HuberRegressor
+
     # Tmask uses a robust estimator to fit the time-series model.
     # HuberRegressor is a great approximation of IRLS for this purpose.
     huber_green = HuberRegressor(epsilon=1.35, max_iter=100)

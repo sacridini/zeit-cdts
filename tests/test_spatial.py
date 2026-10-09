@@ -32,12 +32,15 @@ def test_apply_mmu_filter(tmp_path):
     with rasterio.open(input_path, "w", **profile) as dst:
         dst.write(data, 1)
         
-    apply_mmu_filter(input_path, output_path, mmu_pixels=11)
-    
+    import zeit
+
+    zeit.save_raster(apply_mmu_filter(input_path, mmu_pixels=11), output_path)
+
     assert os.path.exists(output_path)
-    
+
     with rasterio.open(output_path) as src:
         filtered = src.read(1)
+        assert src.nodata == 0
         
     # The single pixel should be removed
     assert filtered[5, 5] == 0

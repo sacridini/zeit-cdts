@@ -182,14 +182,29 @@ def run_snic(
     )
 
 
-def snic_to_polygons(result: SnicResult, transform=None, crs=None, include_means: bool = False):
+def snic_to_polygons(result, transform=None, crs=None, include_means: bool = False):
     """Polygonise SNIC labels into a GeoDataFrame, one row per non-empty
     segment, like sits_segment(): columns ``supercells`` (label), ``x``/``y``
     (centroid in map coordinates), ``n_pixels`` and ``geometry``. With
-    include_means, the flattened segment means are added as ``f0, f1, ...``.
+    include_means, the segment means are added, one column per feature.
 
-    transform: rasterio Affine of the image (identity = pixel coordinates).
+    result: the Dataset of ``zeit.snic`` (its transform, CRS and feature names
+        are used; the means columns are named by its coordinates, e.g.
+        ``2022-01-01_ndvi``), or the ``SnicResult`` of ``run_snic`` (means as
+        ``f0, f1, ...``).
+    transform: rasterio Affine of the image for a SnicResult (identity = pixel
+        coordinates); taken from a Dataset.
+    crs: CRS of the polygons for a SnicResult; taken from a Dataset.
     """
+    import xarray as xr
+
+    names = None
+    if isinstance(result, xr.Dataset):
+        from ._snic_api import as_result
+
+        result, found_transform, found_crs, names = as_result(result)
+        transform = found_transform if transform is None else transform
+        crs = found_crs if crs is None else crs
     import geopandas as gpd
     from rasterio import features
     from rasterio.transform import Affine
@@ -215,6 +230,6 @@ def snic_to_polygons(result: SnicResult, transform=None, crs=None, include_means
     if include_means:
         flat = result.means.reshape(len(result.means), -1)[ids]
         for j in range(flat.shape[1]):
-            data[f"f{j}"] = flat[:, j]
+            data[names[j] if names is not None else f"f{j}"] = flat[:, j]
     geometry = [unary_union(geoms[i]) if len(geoms[i]) > 1 else geoms[i][0] for i in ids]
     return gpd.GeoDataFrame(data, geometry=geometry, crs=crs)

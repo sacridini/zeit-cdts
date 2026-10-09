@@ -10,16 +10,16 @@ def _run(code):
 
 
 def test_import_does_not_load_heavy_dependencies():
-    out = _run("import sys, zeit; print(sorted(m for m in ('torch', 'transformers', 'stackstac', 'pystac_client') "
-               "if m in sys.modules))")
+    out = _run("import sys, zeit; print(sorted(m for m in ('torch', 'transformers', 'stackstac', 'pystac_client', "
+               "'sklearn') if m in sys.modules))")
     assert out == "[]"
 
 
 def test_lazy_names_load_on_first_use():
     out = _run("import zeit; from zeit import ai; from zeit.ai import SOM; "
-               "print(zeit.build_time_series.__module__, zeit.classify_ccdc_stack.__module__, "
+               "print(zeit.build_time_series.__module__, zeit.classify.__module__, "
                "zeit.ai.SOM is SOM, 'ai' in dir(zeit))")
-    assert out == "zeit.cube zeit.classify True True"
+    assert out == "zeit.cube zeit._classify_api True True"
 
 
 def test_unknown_attribute_raises():

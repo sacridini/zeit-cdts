@@ -3,12 +3,14 @@ Example 12: Tmask End-to-End (Time-Series-Based Cloud/Shadow Masking)
 
 Loads a synthetic Green/SWIR1 datacube (no network needed) with randomly
 injected cloud (high Green) and cloud-shadow (low SWIR) contamination, runs
-the Tmask robust time-series masking algorithm (Zhu & Woodcock, 2014), and
-saves the resulting per-observation clear/cloudy mask stack with
-`zeit.save_raster`.
+the Tmask robust time-series masking algorithm (Zhu & Woodcock, 2014) with
+`zeit.tmask`, and saves the resulting per-observation clear/cloudy mask
+stack with `zeit.save_raster`.
 """
 import os
 import numpy as np
+import pandas as pd
+import xarray as xr
 from rasterio.transform import from_origin
 import zeit
 
@@ -56,17 +58,23 @@ def main():
           f"{int(is_shadow.sum())} shadow-contaminated dates injected.")
 
     print("\n[2/3] Running Tmask (per-pixel robust harmonic regression)...")
-    clear_mask = zeit.apply_tmask_stack(dates_julian, green, swir1, scale_factor=10000.0)
+    transform = from_origin(500000.0, 8800000.0, 30.0, 30.0)
+    dates = pd.Timestamp("2019-12-31") + pd.to_timedelta(dates_julian, unit="D")
+    cube = xr.DataArray(np.stack([green, swir1], axis=1), dims=("time", "band", "y", "x"),
+                        coords={"time": dates, "band": ["green", "swir1"],
+                                "y": transform.f - 30.0 * (np.arange(rows) + 0.5),
+                                "x": transform.c + 30.0 * (np.arange(cols) + 0.5)})
+    cube = cube.rio.write_crs("EPSG:32721").rio.write_transform(transform)
+    clear = zeit.tmask(cube, green="green", swir="swir1", scale=10000.0)   # (time, y, x), True = clear
+    clear_mask = clear.values
 
     clear_fraction = clear_mask.mean(axis=0)
     print(f"    Mean fraction of observations flagged clear per pixel: {clear_fraction.mean():.2%} "
           f"(injected contamination rate: {(is_cloud | is_shadow).mean():.2%}).")
 
     print("\n[3/3] Saving results with zeit.save_raster()...")
-    transform = from_origin(500000.0, 8800000.0, 30.0, 30.0)
-
     out_mask = os.path.join("data", "tmask_clear_mask_stack.tif")
-    zeit.save_raster(clear_mask.astype("uint8"), out_mask, crs="EPSG:32721", transform=transform, nodata=255)
+    zeit.save_raster(clear.astype("uint8"), out_mask, nodata=255)   # one band per date
     print(f"    Full clear/cloudy mask stack ({clear_mask.shape[0]} bands, 1=clear/0=cloudy) -> {out_mask}")
 
     out_fraction = os.path.join("data", "tmask_clear_fraction.tif")

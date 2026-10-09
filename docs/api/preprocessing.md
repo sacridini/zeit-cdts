@@ -4,73 +4,38 @@
 
 ## Cloud masking
 
-### `apply_tmask_stack` { .api }
+### `tmask` { .api }
 
-<!-- sig: zeit.tmask.apply_tmask_stack -->
+<!-- sig: zeit.tmask -->
 ```python
-zeit.tmask.apply_tmask_stack(
-    dates, green_stack, swir_stack, scale_factor=10000.0,
+zeit.tmask(
+    data, green="green", swir="swir1", scale=10000.0, nodata="auto",
+    chunks=None,
 )
 ```
 
-Runs Tmask on every pixel of a Green/SWIR1 stack. A robust (Huber) harmonic model is fitted to each band. Observations far above the Green model are flagged as cloud, and far below the SWIR1 model as shadow. Also exported as `zeit.apply_tmask_stack`. Tutorial: [Cloud Masking (Tmask)](../tutorials/tmask.md).
+Flags clouds and cloud shadows the QA band missed, from each pixel's time series (Tmask, Zhu & Woodcock 2014): a robust (Huber) harmonic model is fitted to the green and SWIR bands of every pixel, and observations far above it in green (clouds) or far below it in SWIR (shadows) are flagged. One function for a `(time, band, y, x)` cube in memory or dask, or anything [`load_raster`](data.md#load_raster) reads; the dates come from its `time` coordinate. It replaces `apply_tmask_stack` and `run_tmask_pixel` (the per-pixel engine, still in `zeit._tmask`).
 
 <div class="params" markdown>
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `dates` | `np.ndarray` | required | Day numbers of the observations, e.g. Python ordinal days. |
-| `green_stack` | `np.ndarray` | required | Green reflectance, `(time, rows, cols)`. |
-| `swir_stack` | `np.ndarray` | required | SWIR1 reflectance, `(time, rows, cols)`. |
-| `scale_factor` | `float` | `10000.0` | Divisor that brings the data to 0–1 reflectance. Use `1.0` if it already is. |
+| `data` | `DataArray` or path | required | A `(time, band, y, x)` cube with green and SWIR bands. |
+| `green` | `str` or `int` | `"green"` | The green band, by name or position. |
+| `swir` | `str` or `int` | `"swir1"` | The SWIR band (SWIR1, ~1.6 µm), by name or position. |
+| `scale` | `float` | `10000.0` | Reflectance scale of the data (`1.0` for reflectance in 0-1); the thresholds are in reflectance. |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | Value marking a missing observation: the raster's NoData (`0` for integer data without one), a number, or `None`. |
+| `chunks` | `"auto"`, `dict` | `None` | Inputs read from disk: `None` reads into memory; otherwise the result is lazy, computed block by block. |
 
 </div>
 
-**Returns** a boolean array `(time, rows, cols)`: `True` = clear, `False` = cloud or shadow.
+**Returns** `clear (time, y, x)`, `bool`: `True` for a clear observation, `False` for a cloud, a shadow or no observation (NoData, NaN, or not above 0 in either band). Pixels with 5 or fewer valid dates are not screened. Georeferenced as the input.
 
 ```python
-from zeit.tmask import apply_tmask_stack
-
-clear = apply_tmask_stack(dates, green, swir)
-ccdc_qa = np.where(clear, 0, 4).astype("uint8")   # CCDC codes: 0 clear, 4 cloud
-```
-
-!!! warning
-    For CCDC, mark flagged observations with `4` (cloud). Code `1` means water in CCDC and would be treated as clear.
-
-### `run_tmask_pixel` { .api }
-
-<!-- sig: zeit.tmask.run_tmask_pixel -->
-```python
-zeit.tmask.run_tmask_pixel(
-    dates_julian, green_band, swir_band, scale_factor=10000.0,
-)
-```
-
-Tmask for a single pixel's series. This is the building block of `apply_tmask_stack`. Series with fewer than 5 observations are returned as all clear. Also exported as `zeit.run_tmask_pixel`.
-
-<div class="params" markdown>
-
-| Parameter | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `dates_julian` | `np.ndarray` | required | Day numbers of the observations. |
-| `green_band` | `np.ndarray` | required | Green reflectance series. |
-| `swir_band` | `np.ndarray` | required | SWIR1 reflectance series. |
-| `scale_factor` | `float` | `10000.0` | Divisor that brings the data to 0–1 reflectance. |
-
-</div>
-
-**Returns** a boolean array, `True` = clear.
-
-```python
-from zeit.tmask import run_tmask_pixel
-
-dates = np.array([1, 17, 33, 49, 65, 81, 97])
-green = np.array([900, 920, 4500, 910, 895, 905, 930])      # a cloud at index 2
-swir = np.array([1200, 1180, 1190, 1210, 1195, 1205, 1188])
-
-run_tmask_pixel(dates, green, swir)
-# array([ True,  True, False,  True,  True,  True,  True])
+cube = zeit.load_raster("landsat/", pattern=r"_(?P<date>\d{8})_(?P<band>\w+)\.tif$")   # (time, band, y, x)
+clear = zeit.tmask(cube, green="green", swir="swir1")
+cube = cube.where(clear)                         # clouds and shadows become NaN
+qa = xr.where(clear, 0, 4)                       # or as CCDC's Fmask codes (0 clear, 4 cloud)
 ```
 
 ## Smoothing

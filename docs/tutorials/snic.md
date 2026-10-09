@@ -16,7 +16,7 @@
 
 ## Why segment a time series?
 
-`zeit.run_snic` works on a single image *and* on a whole time-series cube: every `(time, band)` pair becomes one feature, so two pixels are close when their **trajectories** are close. Two fields with the same average NDVI but opposite seasons fall into different segments. This is the object-based workflow of `sits_segment(seg_fn = sits_snic())` in R's [sits](https://github.com/e-sensing/sits).
+`zeit.snic` works on a single image *and* on a whole time-series cube: every `(time, band)` pair becomes one feature, so two pixels are close when their **trajectories** are close. Two fields with the same average NDVI but opposite seasons fall into different segments. This is the object-based workflow of `sits_segment(seg_fn = sits_snic())` in R's [sits](https://github.com/e-sensing/sits).
 
 Given the same seeds, Zeit produces **the same labels as the authors' reference implementation** ([github.com/achanta/SNIC](https://github.com/achanta/SNIC)), pixel for pixel.
 
@@ -41,19 +41,18 @@ where $\mathbf{c}$ are the features (all bands at all dates), $\mathbf{p}$ the r
 
 ## Step by step
 
-### 1. Segment a NumPy cube
+### 1. Segment a cube
 
 ```python
-import numpy as np
-from zeit import run_snic, snic_to_polygons
+import zeit
 
-# cube: (time, band, y, x), e.g. 23 dates x (NDVI, EVI) from a regularised cube
-res = run_snic(cube.astype(np.float32), spacing=10, compactness=0.5, grid="hexagonal")
+cube = zeit.load_raster("ndvi_evi_2022.tif")      # (time, band, y, x), e.g. 23 dates x (NDVI, EVI)
+seg = zeit.snic(cube, spacing=10, compactness=0.5, grid="hexagonal")
 
-res.labels     # (y, x) int32 segment ids, -1 = unlabelled (NaN pixels)
-res.means      # (n_seeds, time, band) mean trajectory of every segment
-res.centroids  # (n_seeds, 2) row/col centre of mass
-res.sizes      # (n_seeds,) pixel counts
+seg.labels       # (y, x) segment ids, -1 = unlabelled (missing pixels), georeferenced
+seg.means        # (segment, time, band): the mean trajectory of every segment
+seg.n_pixels     # (segment,) pixel counts
+seg.centroid_x   # (segment,) centre of mass, in map coordinates (also centroid_y)
 ```
 
 Seeds come from one of two places:
@@ -63,23 +62,14 @@ Seeds come from one of two places:
 | `spacing=` (+ `grid`, `padding`) | the grids of the R `snic` package used by `sits_snic()` (`snic_grid`): `"rectangular"` (default), `"diamond"`, `"hexagonal"`, `"random"`; default `spacing=10`, `padding=spacing/2` |
 | `seeds=` | your own `(n, 2)` `(row, col)` pixel positions (takes precedence) |
 
-### 2. Or use the xarray accessor
+The same works on a single map `(y, x)`, a stack `(band, y, x)` or a raster path, and as `cube.zeit.snic(...)`.
+
+### 2. Export polygons
 
 ```python
-import zeit.xarray_api  # registers .zeit
-
-ds = cube_da.zeit.run_snic(spacing=10, compactness=0.5)   # dims (..., y, x)
-ds["labels"]          # (y, x)
-ds["means"]           # (segment, time, band) with the cube's coordinates
-```
-
-### 3. Export polygons
-
-```python
-from zeit.io import get_georef
-geo = get_georef(cube_da)
-gdf = snic_to_polygons(res, transform=geo["transform"], crs=geo["crs"], include_means=True)
-# columns: supercells, x, y (centroid), n_pixels, f0..fN (flattened means), geometry
+gdf = zeit.snic_to_polygons(seg, include_means=True)
+# columns: supercells, x, y (centroid), n_pixels, one column per feature (2022-01-01_ndvi, ...), geometry
+zeit.save_raster(seg, "results/snic")              # labels.tif
 ```
 
 The segment means can go straight to any classifier (TempCNN, LTAE, TWDTW, random forest…) as one sample per segment.
@@ -91,7 +81,7 @@ SNIC is inherently sequential — each step depends on the previous pop — so a
 For large scenes, use `tile_size`: the image is split into tiles that are segmented **independently and in parallel** (OpenMP), each seed belonging to the tile that contains it — the same block-wise strategy `sits_segment()` uses. Segments never cross tile edges, and labels remain the global seed index, so the output is identical for any `n_jobs`.
 
 ```python
-res = run_snic(cube, spacing=10, compactness=0.5, tile_size=512, n_jobs=-1)
+seg = zeit.snic(cube, spacing=10, compactness=0.5, tile_size=512, n_jobs=-1)
 ```
 
 Memory: the core keeps one pixel-major copy of each tile being processed (`rows × cols × features` values of the input dtype) plus the priority queue.

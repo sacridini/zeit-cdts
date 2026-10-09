@@ -75,42 +75,20 @@ class ZeitAccessor:
         from zeit._smooth import smooth
         return smooth(self._obj, **kwargs)
 
-    def run_snic(self, spacing: Any = 10,
-                 compactness: float = 0.5, seeds: Optional[np.ndarray] = None,
-                 grid: str = "rectangular", padding: Optional[Any] = None,
-                 tile_size: Optional[Any] = None, random_state: Optional[int] = None,
-                 n_jobs: int = -1) -> xr.Dataset:
+    def snic(self, **kwargs: Any) -> xr.Dataset:
         """
-        SNIC superpixel segmentation of the whole cube. The last two dims
-        must be (y, x); every other dim (e.g. time, band) becomes a feature,
-        so segments group pixels with similar trajectories.
-        Returns a Dataset with "labels" (y, x; -1 = unlabelled), the segment
-        mean trajectories "means" (segment, *other dims), "centroid_row",
-        "centroid_col" and "n_pixels" (segment). Arguments as in
-        zeit.segmentation.run_snic. The cube is loaded into memory.
+        SNIC superpixels of this map or cube: the same as ``zeit.snic(da, **kwargs)``.
         """
-        from zeit.segmentation import run_snic
+        from zeit._snic_api import snic
+        return snic(self._obj, **kwargs)
 
-        obj = self._obj
-        if obj.dims[-2:] != ("y", "x"):
-            raise ValueError(f"the last two dims must be ('y', 'x'), got {obj.dims}")
-        res = run_snic(np.asarray(obj.values), spacing=spacing,
-                       compactness=compactness, seeds=seeds, grid=grid, padding=padding,
-                       tile_size=tile_size, random_state=random_state, n_jobs=n_jobs)
-        feature_dims = obj.dims[:-2]
-        segment = np.arange(len(res.sizes))
-        coords = {"segment": segment, "y": obj.coords.get("y"), "x": obj.coords.get("x")}
-        coords.update({d: obj.coords[d] for d in feature_dims if d in obj.coords})
-        return xr.Dataset(
-            {
-                "labels": (("y", "x"), res.labels),
-                "means": (("segment",) + tuple(feature_dims), res.means),
-                "centroid_row": ("segment", res.centroids[:, 0]),
-                "centroid_col": ("segment", res.centroids[:, 1]),
-                "n_pixels": ("segment", res.sizes),
-            },
-            coords={k: v for k, v in coords.items() if v is not None},
-        )
+    def tmask(self, **kwargs: Any) -> xr.DataArray:
+        """
+        Tmask cloud and shadow screening of this (time, band, y, x) cube: the same as
+        ``zeit.tmask(cube, **kwargs)``.
+        """
+        from zeit._tmask_api import tmask
+        return tmask(self._obj, **kwargs)
 
     def save(self, path: Any, **kwargs: Any) -> Path:
         """

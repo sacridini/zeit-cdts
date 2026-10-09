@@ -1,7 +1,7 @@
 import numpy as np
 import rasterio
 import os
-from zeit.classify import train_ccdc_classifier, classify_ccdc_stack
+from zeit._classify import train_ccdc_classifier, classify_ccdc_stack
 
 def test_ccdc_classification(tmp_path):
     np.random.seed(42)

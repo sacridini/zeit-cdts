@@ -331,20 +331,14 @@ def _where(mask: Any, values: Any) -> Any:
     return np.where(mask, values, np.nan)
 
 
-def predict_image(segments: xr.Dataset, date: Any) -> xr.DataArray:
-    """The modelled image of every band on ``date``, from ``zeit.ccdc`` segments.
-
-    Each pixel uses the segment that covers the date; before the first segment, the first
-    one; after the last, the last one; pixels without a model are NaN.
-    """
+def segment_at(segments: xr.Dataset, date: Any):
+    """(the date as a Timestamp, a one-hot (segment, y, x) weight of each pixel's segment on
+    it): the segment that covers the date; before the first segment, the first one; after
+    the last, the last one. A weight rather than an index, so that it works on dask too."""
     if isinstance(date, (int, np.integer)):
         stamp = pd.Timestamp.fromordinal(int(date)) if date > 9999 else pd.Timestamp(int(date), 1, 1)
     else:
         stamp = to_datetime_index([date])[0]
-    t = float(stamp.toordinal() + _DATENUM_OFFSET)
-    w = 2.0 * np.pi / 365.25
-    terms = xr.DataArray([1.0, t, np.cos(w * t), np.sin(w * t), np.cos(2 * w * t), np.sin(2 * w * t),
-                          np.cos(3 * w * t), np.sin(3 * w * t)], dims="coef", coords={"coef": COEFS})
     when = np.datetime64(stamp.to_datetime64(), "ns")
     exists = segments.t_start.notnull()
     covers = exists & (segments.t_start <= when) & (segments.t_end >= when)
@@ -354,8 +348,20 @@ def predict_image(segments: xr.Dataset, date: Any) -> xr.DataArray:
     first_cover = xr.where(covers, index, n).min("segment")
     last_started = xr.where(started, index, -1).max("segment")
     pick = xr.where(first_cover < n, first_cover, xr.where(last_started >= 0, last_started, 0))
-    # A one-hot weight over the segments instead of isel(segment=pick): works on dask too.
-    chosen = (index == pick)
+    return stamp, index == pick
+
+
+def predict_image(segments: xr.Dataset, date: Any) -> xr.DataArray:
+    """The modelled image of every band on ``date``, from ``zeit.ccdc`` segments.
+
+    Each pixel uses the segment that covers the date; before the first segment, the first
+    one; after the last, the last one; pixels without a model are NaN.
+    """
+    stamp, chosen = segment_at(segments, date)
+    t = float(stamp.toordinal() + _DATENUM_OFFSET)
+    w = 2.0 * np.pi / 365.25
+    terms = xr.DataArray([1.0, t, np.cos(w * t), np.sin(w * t), np.cos(2 * w * t), np.sin(2 * w * t),
+                          np.cos(3 * w * t), np.sin(3 * w * t)], dims="coef", coords={"coef": COEFS})
     model = (segments.coefs.fillna(0) * chosen).sum("segment")
     image = (model * terms).sum("coef")
     image = image.where(segments.n_segments > 0)

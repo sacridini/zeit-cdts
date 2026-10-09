@@ -234,7 +234,7 @@ def test_xarray_accessor():
     da = xr.DataArray(cube, dims=("time", "band", "y", "x"),
                       coords={"time": np.arange(5), "band": ["red", "nir", "swir"],
                               "y": np.arange(24)[::-1] * 10.0, "x": np.arange(30) * 10.0})
-    ds = da.zeit.run_snic(spacing=6, compactness=0.3)
+    ds = da.zeit.snic(spacing=6, compactness=0.3)
     ref = run_snic(cube, spacing=6, compactness=0.3)
     np.testing.assert_array_equal(ds["labels"].values, ref.labels)
     assert ds["means"].dims == ("segment", "time", "band")

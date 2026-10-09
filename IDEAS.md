@@ -442,7 +442,7 @@ accessor novo (`ZeitDatasetAccessor`), em qualquer `Dataset`, delegando para
 `zeit.landtrendr(ndvi).zeit.save("lt")`, `lt.zeit.plot()`, `loss.yod.zeit.plot()`. O
 `sync_api` nomeia os métodos do accessor de Dataset como `Dataset.zeit.<método>`.
 
-## Fase 9: o resto da API no padrão do cubo
+## Fase 9: o resto da API no padrão do cubo — **Feito** (0.41.0–0.42.0)
 
 As Fases 3–5 levaram os algoritmos de mudança para "uma função, qualquer entrada, saída
 georreferenciada". O que sobrou ainda recebe numpy cru, datas montadas à mão ou caminhos de
@@ -497,6 +497,38 @@ entrada e saída:
   funções); `run_twdtw`, `run_twdtw_batch` e `apply_savgol_filter` saíram do `zeit`.
   Accessor: `cube.zeit.twdtw(...)`, `cube.zeit.smooth(...)`. Docs, tutorial (figura
   regerada), README, exemplo 15 e página de migração atualizados.
+
+### 9b: TMASK, SNIC, classificação, filtros, água e regularização — **Feito** (0.42.0)
+
+- `zeit.tmask(cube, green="green", swir="swir1", scale, nodata, chunks)`: bandas pelo nome,
+  datas ordinais tiradas de `time`, `clear (time, y, x)` georreferenciado, lazy por blocos;
+  o motor por pixel (`run_tmask_pixel`, sklearn Huber) é o mesmo. Mudança: observações sem
+  dado agora são `False` (antes `True`). O sklearn passou a ser importado só no uso, e o
+  `test_package` confere que `import zeit` não o carrega.
+- `zeit.snic(cube, ...)`: `Dataset` com `labels (y, x)` georreferenciado, `means (segment,
+  ...)` com as dims e coordenadas do cubo, `n_pixels` e centróides em coordenadas do mapa;
+  `snic_to_polygons` aceita o `Dataset` (transform, CRS e colunas nomeadas pelas
+  coordenadas, `2022-01-01_ndvi`). Accessor `run_snic` virou `snic`.
+- `zeit.train_classifier(dado, amostras, label=, model=, date=)` e `zeit.classify(dado,
+  modelo, date=, probability=)`: atributos = o que o pixel tem fora de `y`/`x` (bandas,
+  datas × bandas, mapas de um `Dataset`) ou, num resultado do CCDC com `date`, o modelo do
+  segmento daquela data (coeficientes com o intercepto movido para a data, `a0 + c1 t`, e o
+  RMSE; o `segment_at` saiu do `predict_image` para ser compartilhado). Amostras como
+  pontos (`GeoDataFrame` ou arquivo), reprojetadas; modelo padrão RandomForest de 100
+  árvores; `zeit_features_` no modelo para conferir e reordenar na predição. Saída `label`
+  com `flag_meanings` e `probability (class, y, x)`. `classify.py` virou `_classify.py`
+  (`train_ccdc_classifier`/`classify_ccdc_stack` saíram do `zeit`).
+- Filtros (`apply_mmu_filter`, `apply_majority_filter`, `apply_bayesian_filter`): mapas
+  (`DataArray`, numpy ou caminho) entram e saem do mesmo tipo, com georreferência e NoData;
+  o `apply_mmu_filter` deixou de ler e gravar arquivos (a CLI `mmu-filter` continua igual).
+- `extract_water_mask(segmentos, green=, swir=, threshold=)` no resultado do CCDC, pelo
+  nível do primeiro segmento no meio dele (`a0 + c1 t`: o `a0` sozinho é o intercepto no
+  ano 0, não uma reflectância). No formato numpy antigo, corrigido o bug documentado: o
+  intercepto da banda b está em `4 + 9 b`, não `4 + 7 b`.
+- `regularize_time_series` aceita qualquer entrada do `load_raster`, faz o medoide de cubos
+  de uma banda e mantém CRS e NoData; o nome ficou (já era do padrão do cubo).
+- Testes em `tests/test_cube_tools_api.py`; docs, tutoriais (TMASK, SNIC, CCDC,
+  LandTrendr), README, exemplos 12, 14, 17 e 18 e página de migração atualizados.
 
 ## Para depois
 

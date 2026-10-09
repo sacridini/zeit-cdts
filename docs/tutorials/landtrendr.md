@@ -124,7 +124,8 @@ To write every map as it is, one GeoTIFF each (`yod.tif`, `magnitude.tif`, …),
 Isolated single pixels are usually noise. A **minimum mapping unit** filter removes patches smaller than a given size:
 
 ```python
-zeit.apply_mmu_filter("results/loss_year.tif", "results/loss_year_mmu.tif", mmu_pixels=11)
+yod = zeit.apply_mmu_filter(loss.yod, mmu_pixels=11)          # patches under 11 pixels become NoData
+zeit.save_raster(yod, "results/loss_year_mmu.tif")
 ```
 
 The map at the top of this page uses exactly these steps: no event starting in the first year, `dsnr >= 3` and an 11-pixel minimum mapping unit.

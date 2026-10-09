@@ -22,15 +22,13 @@ from ._ccdc import predict_synthetic_image
 from ._twdtw_api import twdtw
 
 from .spatial import apply_mmu_filter, apply_majority_filter
-from .segmentation import run_snic, snic_grid, snic_to_polygons
+from .segmentation import snic_grid, snic_to_polygons
+from ._snic_api import snic
 from ._smooth import smooth
 from .masks import extract_water_mask
 from .qc import qc_modis_summary, qc_modis_state, qc_sentinel2_scl
 
-try:
-    from .tmask import run_tmask_pixel, apply_tmask_stack
-except ImportError:
-    pass
+from ._tmask_api import tmask
 
 from .local import build_local_cube
 from .regularize import regularize_time_series
@@ -45,16 +43,16 @@ except ImportError:
     pass
 
 # Loaded on first use, so that `import zeit` stays fast: zeit.ai pulls in torch and
-# transformers, the STAC cube builders pystac-client and stackstac, the classifier sklearn.
+# transformers, the STAC cube builders pystac-client and stackstac, the classifiers sklearn.
 _LAZY = {
     "build_time_series": ".cube",
     "build_annual_composites": ".cube",
     "build_spectral_temporal_metrics": ".cube",
-    "train_ccdc_classifier": ".classify",
-    "classify_ccdc_stack": ".classify",
+    "train_classifier": "._classify_api",
+    "classify": "._classify_api",
     "plot": "._plot",
 }
-_LAZY_MODULES = {"ai", "cube", "classify"}
+_LAZY_MODULES = {"ai", "cube"}
 
 
 def __getattr__(name):
@@ -76,14 +74,13 @@ __all__ = [
     "landtrendr", "desawtooth", "apply_vertices",
     "ccdc",
     "bfast_monitor", "bfast_lite", "bfast", "mann_kendall", "phenology",
-    "twdtw", "smooth",
+    "twdtw", "smooth", "tmask", "snic",
     "extract_events", "predict_synthetic_image",
-    "train_ccdc_classifier", "classify_ccdc_stack",
+    "train_classifier", "classify",
     "apply_mmu_filter", "apply_majority_filter",
-    "run_snic", "snic_grid", "snic_to_polygons",
+    "snic_grid", "snic_to_polygons",
     "extract_water_mask",
     "qc_modis_summary", "qc_modis_state", "qc_sentinel2_scl",
-    "run_tmask_pixel", "apply_tmask_stack",
     "build_time_series",
     "build_annual_composites",
     "build_spectral_temporal_metrics",

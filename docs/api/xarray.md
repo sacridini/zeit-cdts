@@ -16,7 +16,8 @@
 | `phenology` | `(time, y, x)` | `xr.Dataset` of metrics, by year or season | [`zeit.phenology`](time-series.md#phenology) |
 | `twdtw` | `(time, y, x)` or `(time, band, y, x)` | `xr.Dataset` of classes and distances | [`zeit.twdtw`](time-series.md#twdtw) |
 | `smooth` | `(time, ...)` | the smoothed `DataArray` | [`zeit.smooth`](preprocessing.md#smooth) |
-| `run_snic` | `(..., y, x)` | `xr.Dataset` of labels and means | [`run_snic`](time-series.md#run_snic) |
+| `snic` | `(..., y, x)` | `xr.Dataset` of labels and means | [`zeit.snic`](time-series.md#snic) |
+| `tmask` | `(time, band, y, x)` | `clear (time, y, x)` | [`zeit.tmask`](preprocessing.md#tmask) |
 | `save` | any with `y`, `x` (also on a `Dataset`) | writes a raster, returns its path | [`zeit.save_raster`](data.md#save_raster) |
 | `plot` | any with `y`, `x` (also on a `Dataset`) | the viewer, a window or a figure | [`zeit.plot`](plot.md) |
 | `to_zarr_optimized` | any with `y`, `x` | writes a Zarr store | below |
@@ -146,17 +147,31 @@ Smoothing of this cube along `time`: the same as [`zeit.smooth(cube, **kwargs)`]
 smooth = ndvi.zeit.smooth(lmbda=100)
 ```
 
-### `run_snic` { .api .meth }
+### `snic` { .api .meth }
 
-<!-- sig: zeit.xarray_api.ZeitAccessor.run_snic -->
+<!-- sig: zeit.xarray_api.ZeitAccessor.snic -->
 ```python
-DataArray.zeit.run_snic(
-    spacing=10, compactness=0.5, seeds=None, grid="rectangular",
-    padding=None, tile_size=None, random_state=None, n_jobs=-1,
-)
+DataArray.zeit.snic(**kwargs)
 ```
 
-Returns an `xr.Dataset` with `labels` `(y, x)`, the mean trajectory of each segment `means` `(segment, …)` keeping the cube's other coordinates, and `centroid_row`, `centroid_col`, `n_pixels`.
+SNIC superpixels of this map or cube: the same as [`zeit.snic(da, **kwargs)`](time-series.md#snic). The cube is loaded into memory.
+
+```python
+seg = ndvi.zeit.snic(spacing=8, compactness=0.3)
+```
+
+### `tmask` { .api .meth }
+
+<!-- sig: zeit.xarray_api.ZeitAccessor.tmask -->
+```python
+DataArray.zeit.tmask(**kwargs)
+```
+
+Tmask on this `(time, band, y, x)` cube: the same as [`zeit.tmask(cube, **kwargs)`](preprocessing.md#tmask).
+
+```python
+clear = cube.zeit.tmask(green="green", swir="swir1")
+```
 
 ## Saving and showing results
 

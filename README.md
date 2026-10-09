@@ -161,7 +161,6 @@ Extracts harmonic coefficients (Intercept, Slopes, Sine, Cosine) and detects int
 
 ```python
 import zeit
-from zeit.classify import train_ccdc_classifier, classify_ccdc_stack
 
 # 1. A dense multi-band stack: surface reflectance x 10000 (Blue, Green, Red, NIR, SWIR1, SWIR2)
 #    plus a band of Fmask codes (0 clear, 1 water, 2 shadow, 3 snow, 4 cloud, 255 fill)
@@ -180,25 +179,12 @@ zeit.save_raster(segments, "ccdc_out")           # one GeoTIFF per variable, dat
 # Predict what the surface should look like on any arbitrary date without clouds!
 synthetic_image = zeit.predict_synthetic_image(segments, "2020-07-15")   # (band, y, x)
 
-# 4. Land Cover Classification using the Harmonic Coefficients
-# The coefficients of the first segment as a feature stack: bands blue_a0 ... swir2_b3
-zeit.save_raster(segments.coefs.isel(segment=0).fillna(0), "output/ccdc_coefs.tif")
-
-# Train a Random Forest using harmonic coefficients as features
-rf_model = train_ccdc_classifier(
-    X_train=training_coefs, # Your extracted training samples
-    y_train=training_labels, 
-    n_estimators=100
-)
-
-# Classify the entire coefficient stack into a categorical land cover map block-by-block
-# (Handles memory efficiently by reading/writing chunks)
-classify_ccdc_stack(
-    clf=rf_model,
-    coef_stack_path="output/ccdc_coefs.tif",
-    output_path="output/land_cover_map.tif",
-    chunk_size=512
-)
+# 4. Land Cover Classification using the harmonic models
+# Each pixel's model on a date (coefficients and RMSE) as features, a Random Forest
+# trained at labelled points, and every pixel classified
+rf_model = zeit.train_classifier(segments, "samples.gpkg", label="class", date="2020-07-01")
+land_cover = zeit.classify(segments, rf_model, date="2020-07-01")
+zeit.save_raster(land_cover, "output/land_cover")     # label.tif; class names in label's flag_meanings
 ```
 
 ## Phenology Extraction
@@ -347,17 +333,12 @@ smoothed = zeit.smooth(cube, lmbda=10.0, weights=clear_sky_weights)
 # ...or Savitzky-Golay, for evenly spaced series
 smoothed = zeit.smooth(cube, method="savgol", window=5, polyorder=2)
 
-# Spatial Regularization (Mode filter)
-regularized_map = apply_majority_filter(classified_map, size=3)
-save_raster(regularized_map, "results/classified_regularized.tif", like=cube)
+# Spatial Regularization (Mode filter): maps in, maps out, georeferencing kept
+regularized_map = apply_majority_filter(land_cover.label, size=3)
 
-# Minimum Mapping Unit (MMU): operates on a GeoTIFF on disk, not an in-memory array
-# Erase isolated patches smaller than 11 pixels
-apply_mmu_filter(
-    input_path="results/classified_regularized.tif",
-    output_path="results/classified_final.tif",
-    mmu_pixels=11,
-)
+# Minimum Mapping Unit (MMU): erase isolated patches smaller than 11 pixels
+final_map = apply_mmu_filter(regularized_map, mmu_pixels=11)
+save_raster(final_map, "results/classified_final.tif")
 ```
 
 ## Exporting Geospatial Data

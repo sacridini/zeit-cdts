@@ -122,7 +122,7 @@ Stream a cube from a STAC catalog, Earth Engine or local GeoTIFFs.
 
 Mask clouds, composite to a regular time step, smooth noise.
 
-`apply_tmask_stack` · `regularize_time_series`
+`tmask` · `regularize_time_series` · `smooth`
 </div>
 
 <div markdown>

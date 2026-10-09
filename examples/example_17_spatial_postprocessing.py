@@ -7,11 +7,10 @@ LandTrendr-style disturbance-year map (0 = no disturbance) with a few noisy
 single-pixel specks, and a "salt and pepper" multi-class classification map
 - the kind a per-pixel classifier (TWDTW, Random Forest, SOM, ...)
 typically produces. Cleans them up with a Minimum Mapping Unit (MMU) filter
-that reads/writes GeoTIFFs directly (`zeit.apply_mmu_filter`), an in-memory
-majority/mode filter (`zeit.apply_majority_filter`), and a probability-aware
-Bayesian smoothing filter (`zeit.apply_bayesian_filter`). Every stage is
-saved with `zeit.save_raster` (or, for the MMU filter, its own file-based
-writer).
+(`zeit.apply_mmu_filter`), a majority/mode filter (`zeit.apply_majority_filter`)
+and a probability-aware Bayesian smoothing filter (`zeit.apply_bayesian_filter`).
+The filters take and return georeferenced maps (or numpy arrays); every stage
+is saved with `zeit.save_raster`.
 """
 import os
 import numpy as np
@@ -94,11 +93,11 @@ def main():
     in_tif = os.path.join("data", "spatial_disturbance_map.tif")
     zeit.save_raster(disturbance, in_tif, crs="EPSG:32721", transform=transform, nodata=0)
 
-    print("\n[2/4] Applying the Minimum Mapping Unit (MMU) filter (file-based, removes patches < 9 px)...")
+    print("\n[2/4] Applying the Minimum Mapping Unit (MMU) filter (removes patches < 9 px)...")
     out_mmu = os.path.join("data", "spatial_mmu_filtered.tif")
-    zeit.apply_mmu_filter(in_tif, out_mmu, mmu_pixels=9)
-    mmu_result = load_raster(out_mmu).values[None]   # (1, rows, cols)
-    n_disturbed_after = int((mmu_result[0] != 0).sum())
+    mmu_result = zeit.apply_mmu_filter(load_raster(in_tif), mmu_pixels=9)   # NoData (0) where removed
+    zeit.save_raster(mmu_result, out_mmu)
+    n_disturbed_after = int((mmu_result.values != 0).sum())
     print(f"    Disturbed pixels after MMU filtering: {n_disturbed_after} "
           f"(the 3 real patches total {5*5 + 4*4 + 3*4} px - the rest was noise, now removed).")
 

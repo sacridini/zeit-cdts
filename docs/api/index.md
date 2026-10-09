@@ -80,7 +80,7 @@
 | [`get_georef`](data.md#get_georef) | CRS and transform of a raster or cube |
 | [`qc_sentinel2_scl`](data.md#qc_sentinel2_scl), [`qc_modis_summary`](data.md#qc_modis_summary), [`qc_modis_state`](data.md#qc_modis_state) | QA bands to observation weights |
 | **Pre-processing** | |
-| [`apply_tmask_stack`](preprocessing.md#apply_tmask_stack) / [`run_tmask_pixel`](preprocessing.md#run_tmask_pixel) | Time-series cloud and shadow detection |
+| [`tmask`](preprocessing.md#tmask) | Time-series cloud and shadow detection of a cube |
 | [`smooth`](preprocessing.md#smooth) | Whittaker (uneven dates, gaps, weights) or Savitzky-Golay smoothing of a cube or series |
 | [`desawtooth`](preprocessing.md#desawtooth) | LandTrendr spike removal |
 | **Change detection** | |
@@ -96,12 +96,12 @@
 | [`mann_kendall`](time-series.md#mann_kendall) | Trend test and Theil-Sen slope |
 | [`phenology`](time-series.md#phenology) | 19 phenology metrics per year or season |
 | [`twdtw`](time-series.md#twdtw) | Classification by time-weighted DTW, on a file, cube or single pixel |
-| [`run_snic`](time-series.md#run_snic) / [`snic_to_polygons`](time-series.md#snic_to_polygons) / [`snic_grid`](time-series.md#snic_grid) | Superpixel segmentation |
+| [`snic`](time-series.md#snic) / [`snic_to_polygons`](time-series.md#snic_to_polygons) / [`snic_grid`](time-series.md#snic_grid) | Superpixel segmentation of a map or cube, and its polygons |
 | [`SOM`](time-series.md#som) | Self-organizing maps, online and batch (bit-exact `minisom` port) |
 | **Post-processing** | |
 | [`apply_mmu_filter`](post-processing.md#apply_mmu_filter) | Remove patches below a minimum size |
 | [`apply_majority_filter`](post-processing.md#apply_majority_filter) / [`apply_bayesian_filter`](post-processing.md#apply_bayesian_filter) | Smooth class maps |
-| [`train_ccdc_classifier`](post-processing.md#train_ccdc_classifier) / [`classify_ccdc_stack`](post-processing.md#classify_ccdc_stack) | Classify CCDC coefficients |
+| [`train_classifier`](post-processing.md#train_classifier) / [`classify`](post-processing.md#classify) | Train at sample points, classify any cube, metrics or CCDC models |
 | [`extract_water_mask`](post-processing.md#extract_water_mask) | Water mask from CCDC |
 | [`generate_landtrendr_accuracy_dashboard`](post-processing.md#generate_landtrendr_accuracy_dashboard) | Interactive validation page |
 | **Visualisation** | |

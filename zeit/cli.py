@@ -133,7 +133,11 @@ def run_mann_kendall_cli(args: argparse.Namespace) -> None:
 
 def run_mmu_filter_cli(args: argparse.Namespace) -> None:
     try:
-        apply_mmu_filter(args.input, args.output, mmu_pixels=args.mmu_pixels)
+        from ._load import load_raster
+        from ._save import save_raster
+
+        save_raster(apply_mmu_filter(load_raster(args.input), mmu_pixels=args.mmu_pixels), args.output)
+        print(f"MMU filtering applied. Saved to {args.output}")
     except Exception as e:
         print(f"Error running MMU filter: {e}")
         sys.exit(1)

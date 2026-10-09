@@ -27,36 +27,34 @@ An observation is flagged as cloud when its Green value is far **above** the sea
 
 ### 1. Load Green and SWIR1
 
+Any `(time, band, y, x)` cube with green and SWIR1 bands, with its dates:
+
 ```python
-import numpy as np
-from datetime import date
 import zeit
 
-green = zeit.load_raster("green_stack.tif", dates=acquisition_dates)   # (time, y, x), reflectance x 10000
-swir = zeit.load_raster("swir1_stack.tif", dates=acquisition_dates)
-
-dates = np.array([date.fromisoformat(d).toordinal() for d in acquisition_dates])
-green, swir = green.values, swir.values
+cube = zeit.load_raster("landsat/", pattern=r"_(?P<date>\d{8})_(?P<band>\w+)\.tif$")   # reflectance x 10000
+cube.band.values      # array(['blue', 'green', 'red', 'nir', 'swir1', 'swir2'], ...)
 ```
 
 ### 2. Run Tmask
 
 ```python
-from zeit.tmask import apply_tmask_stack
-
-clear = apply_tmask_stack(dates, green, swir, scale_factor=10000.0)
-print(clear.dtype, clear.shape)   # bool (time, rows, cols); True = clear
-print(f"{1 - clear.mean():.1%} of observations flagged")
+clear = zeit.tmask(cube, green="green", swir="swir1")
+print(clear.dtype, clear.dims)   # bool ('time', 'y', 'x'); True = clear
+print(f"{1 - float(clear.mean()):.1%} of observations flagged")
 ```
 
-If your reflectance is already in 0–1, pass `scale_factor=1.0`. Pixels with fewer than 5 observations are returned as all clear, since there is too little data to model the season.
+If your reflectance is already in 0–1, pass `scale=1.0`. Observations without data (NoData, NaN) are not clear. Pixels with 5 or fewer valid observations are not screened, since there is too little data to model the season. A lazy cube (`chunks="auto"`) stays lazy.
 
 ### 3. Use the mask
 
 **For CCDC**, convert to its QA codes (`0` clear, `4` cloud), and combine with the QA band you already have:
 
 ```python
-tmask_qa = np.where(clear, 0, 4).astype(np.uint8)
+import numpy as np
+import xarray as xr
+
+tmask_qa = xr.where(clear, 0, 4).astype(np.uint8)
 qa = np.maximum(qa_from_qa_pixel, tmask_qa)     # keep the worst of the two
 ```
 
@@ -66,28 +64,20 @@ qa = np.maximum(qa_from_qa_pixel, tmask_qa)     # keep the worst of the two
 **For everything else**, set the flagged observations to `NaN` before compositing or smoothing:
 
 ```python
-ndvi_clean = np.where(clear, ndvi, np.nan)
+ndvi_clean = ndvi.where(clear)
 ```
 
-**To save it**:
+**To save it**, one band per date:
 
 ```python
-zeit.save_raster(clear.astype(np.uint8), "results/tmask_clear.tif", like="green_stack.tif")
-```
-
-### For a single pixel
-
-```python
-from zeit.tmask import run_tmask_pixel
-
-clear_px = run_tmask_pixel(dates, green[:, 100, 200], swir[:, 100, 200])
+zeit.save_raster(clear.astype(np.uint8), "results/tmask_clear.tif")
 ```
 
 ## Good practice
 
 - **Use Tmask as a second pass.** Apply the sensor's own QA mask first (Landsat `QA_PIXEL`, Sentinel-2 `SCL`, or `apply_cloud_mask=True` in `build_time_series`) to remove the obvious clouds, then Tmask to catch what it missed.
 - **CCDC already includes it.** `zeit.ccdc` runs the original's Tmask screen internally. Running it beforehand is only needed for other algorithms.
-- **It costs a robust fit per pixel.** For large areas, process in spatial blocks or with Dask.
+- **It costs a robust fit per pixel.** For large areas, keep the cube lazy (`chunks=`): `zeit.tmask` then works block by block.
 
 ## References
 

@@ -11,6 +11,7 @@ everything with `zeit.save_raster`.
 """
 import os
 import numpy as np
+import xarray as xr
 from rasterio.transform import from_origin
 import zeit
 
@@ -44,29 +45,36 @@ def build_sentinel2_scl(rows=30, cols=30, seed=7):
     return scl
 
 
-def build_fake_ccdc_water_scene(rows=30, cols=30, num_bands=6, green_idx=1, swir_idx=4):
+def build_fake_ccdc_water_scene(rows=30, cols=30, transform=None):
     """
-    A synthetic single-segment CCDC coefficient stack (shape:
-    (1 segment, 3 + num_bands*7 params, rows, cols)) - only the Green and
-    SWIR1 intercepts are populated, which is all `extract_water_mask` reads.
-    A circular "lake" has high Green / very low SWIR1 reflectance; the rest
-    of the scene looks like ordinary vegetated land.
+    A synthetic CCDC result (the Dataset `zeit.ccdc` returns): one segment per
+    pixel over 2015-2020, flat models (no trend, no seasonality) whose level
+    is all `extract_water_mask` reads. A circular "lake" has high Green / very
+    low SWIR1 reflectance; the rest of the scene looks like ordinary land.
     """
-    params_per_seg = 3 + num_bands * 7
-    coefs = np.zeros((1, params_per_seg, rows, cols), dtype=np.float64)
+    from zeit._ccdc_api import COEFS
 
-    green_intercept_idx = 4 + green_idx * 7
-    swir_intercept_idx = 4 + swir_idx * 7
-
-    coefs[0, green_intercept_idx] = 900.0   # land Green reflectance
-    coefs[0, swir_intercept_idx] = 2200.0   # land SWIR1 reflectance
+    bands = ["blue", "green", "red", "nir", "swir1", "swir2"]
+    coefs = np.zeros((1, len(bands), len(COEFS), rows, cols), dtype=np.float32)
+    a0 = COEFS.index("a0")
+    coefs[0, bands.index("green"), a0] = 900.0    # land Green reflectance
+    coefs[0, bands.index("swir1"), a0] = 2200.0   # land SWIR1 reflectance
 
     yy, xx = np.mgrid[0:rows, 0:cols]
     lake = ((yy - rows * 0.35) ** 2 + (xx - cols * 0.65) ** 2) < (min(rows, cols) * 0.18) ** 2
-    coefs[0, green_intercept_idx][lake] = 650.0
-    coefs[0, swir_intercept_idx][lake] = 200.0
+    coefs[0, bands.index("green"), a0][lake] = 650.0
+    coefs[0, bands.index("swir1"), a0][lake] = 200.0
 
-    return coefs, lake
+    t_start = np.full((1, rows, cols), np.datetime64("2015-01-01", "ns"))
+    t_end = np.full((1, rows, cols), np.datetime64("2020-12-31", "ns"))
+    segments = xr.Dataset(
+        {"coefs": (("segment", "band", "coef", "y", "x"), coefs),
+         "t_start": (("segment", "y", "x"), t_start), "t_end": (("segment", "y", "x"), t_end),
+         "n_segments": (("y", "x"), np.ones((rows, cols), np.uint8))},
+        coords={"segment": [1], "band": bands, "coef": COEFS,
+                "y": transform.f - 30.0 * (np.arange(rows) + 0.5),
+                "x": transform.c + 30.0 * (np.arange(cols) + 0.5)})
+    return segments.rio.write_crs("EPSG:32721"), lake
 
 
 def main():
@@ -93,15 +101,15 @@ def main():
     zeit.save_raster(scl_weights.astype("float32"), out_scl, crs="EPSG:32721", transform=transform, nodata=-1.0)
     print(f"    Saved -> {out_scl}")
 
-    print(f"\n[3/4] Extracting a persistent water mask from a synthetic CCDC coefficient stack...")
-    coefs, lake_truth = build_fake_ccdc_water_scene(rows=rows, cols=cols)
-    water_mask = zeit.extract_water_mask(coefs, green_band_idx=1, swir_band_idx=4)
-    hit_rate = (water_mask.astype(bool) == lake_truth).mean()
+    print(f"\n[3/4] Extracting a persistent water mask from a synthetic CCDC result...")
+    segments, lake_truth = build_fake_ccdc_water_scene(rows=rows, cols=cols, transform=transform)
+    water_mask = zeit.extract_water_mask(segments, green="green", swir="swir1")   # georeferenced (y, x)
+    hit_rate = (water_mask.values.astype(bool) == lake_truth).mean()
     print(f"    Agreement with the injected lake footprint: {hit_rate:.1%}.")
 
     print("\n[4/4] Saving results with zeit.save_raster()...")
     out_water = os.path.join("data", "ccdc_water_mask.tif")
-    zeit.save_raster(water_mask.astype("uint8"), out_water, crs="EPSG:32721", transform=transform, nodata=255)
+    zeit.save_raster(water_mask, out_water, nodata=255)
     print(f"    Saved -> {out_water}")
 
     print("\nDone!")

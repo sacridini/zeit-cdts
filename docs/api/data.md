@@ -374,15 +374,15 @@ zeit.regularize.regularize_time_series(
 )
 ```
 
-Composites an irregular cube to a fixed time step (16-day, monthly, yearly) with the median or the medoid of each window. Stays lazy. Also exported as `zeit.regularize_time_series`.
+Composites an irregular cube to a fixed time step (16-day, monthly, yearly) with the median or the medoid of each window. Periods without observations are NaN; georeferencing and NoData are kept. Stays lazy. Also exported as `zeit.regularize_time_series`.
 
 <div class="params" markdown>
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `cube` | `xr.DataArray` | required | Cube with a `time` dimension. `"medoid"` also needs a `band` dimension. |
+| `cube` | `DataArray` or path | required | Cube with a `time` dimension, `(time, y, x)` or `(time, band, y, x)`, or anything `load_raster` reads. |
 | `freq` | `str` | `"16D"` | pandas frequency: `"16D"`, `"1MS"`, `"1YS"`, … |
-| `method` | `str` | `"median"` | `"median"` (per band) or `"medoid"` (the real observation closest to the multi-band median). |
+| `method` | `str` | `"median"` | `"median"` (per band) or `"medoid"` (the real observation closest to the multi-band median, so a composite's bands come from one date; with one band, the observation closest to the median). |
 
 </div>
 
