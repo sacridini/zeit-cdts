@@ -72,7 +72,6 @@
 | **Data & I/O** | |
 | [`build_time_series`](data.md#build_time_series) | Lazy cube from a STAC catalog |
 | [`build_annual_composites`](data.md#build_annual_composites) | Cloud-masked annual composites from a STAC catalog (LandTrendr input) |
-| [`build_local_cube`](data.md#build_local_cube) | Lazy cube from a folder of GeoTIFFs |
 | [`download_gee_timeseries`](data.md#download_gee_timeseries) | Harmonised Landsat composites from Earth Engine |
 | [`download_gee_image`](data.md#download_gee_image) / [`resolve_roi`](data.md#resolve_roi) | Download any `ee.Image`; turn tile ids, files or boxes into an area |
 | [`regularize_time_series`](data.md#regularize_time_series) | Median or medoid composites at a fixed step |
@@ -97,7 +96,9 @@
 | [`phenology`](time-series.md#phenology) | 19 phenology metrics per year or season |
 | [`twdtw`](time-series.md#twdtw) | Classification by time-weighted DTW, on a file, cube or single pixel |
 | [`snic`](time-series.md#snic) / [`snic_to_polygons`](time-series.md#snic_to_polygons) / [`snic_grid`](time-series.md#snic_grid) | Superpixel segmentation of a map or cube, and its polygons |
-| [`SOM`](time-series.md#som) | Self-organizing maps, online and batch (bit-exact `minisom` port) |
+| [`som`](time-series.md#som) | Self-organizing map clusters of a map or cube, with each neuron's prototype |
+| [`clean_samples`](time-series.md#clean_samples) | Flag labelled samples whose class is not their SOM neuron's |
+| [`SOM`](time-series.md#som_1) | The SOM engine, online and batch (bit-exact `minisom` port) |
 | **Post-processing** | |
 | [`apply_mmu_filter`](post-processing.md#apply_mmu_filter) | Remove patches below a minimum size |
 | [`apply_majority_filter`](post-processing.md#apply_majority_filter) / [`apply_bayesian_filter`](post-processing.md#apply_bayesian_filter) | Smooth class maps |

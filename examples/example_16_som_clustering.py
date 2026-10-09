@@ -1,17 +1,20 @@
 """
 Example 16: Self-Organizing Map (SOM) End-to-End Unsupervised Clustering
 
-Loads a synthetic 4-band reflectance datacube (no network needed) with 3
+Builds a synthetic 4-band reflectance scene (no network needed) with 3
 spatially distinct land-cover-like clusters (water, vegetation, bare soil),
-trains a Batch SOM on the per-pixel spectra with `zeit.ai.SOM`, predicts a
-Best-Matching-Unit (BMU) map, and saves both the raw BMU map and a
-noise-filtering diagnostic with `zeit.save_raster`.
+clusters its pixels with `zeit.som`, checks a set of labelled sample points
+with `zeit.clean_samples` (some of them deliberately mislabelled), and saves
+the cluster map with `zeit.save_raster`.
 """
 import os
 import numpy as np
+import xarray as xr
+import geopandas as gpd
 from rasterio.transform import from_origin
 import zeit
-from zeit.ai import SOM
+
+TRANSFORM = from_origin(500000.0, 8800000.0, 30.0, 30.0)
 
 
 def build_synthetic_scene(rows=40, cols=40, seed=9):
@@ -56,33 +59,40 @@ def main():
     rows, cols = 40, 40
     print(f"\n[1/3] Generating synthetic 4-band scene ({rows}x{cols} px, 3 land-cover clusters + noise)...")
     data, clean_labels, noisy_labels = build_synthetic_scene(rows=rows, cols=cols)
-    samples = data.reshape(-1, 4)
+    scene = xr.DataArray(
+        np.moveaxis(data, -1, 0), dims=("band", "y", "x"),
+        coords={"band": ["blue", "green", "red", "nir"],
+                "y": TRANSFORM.f + TRANSFORM.e * (np.arange(rows) + 0.5),
+                "x": TRANSFORM.c + TRANSFORM.a * (np.arange(cols) + 0.5)},
+    ).rio.write_crs("EPSG:32721")
 
-    print("\n[2/3] Training a 4x4 Batch SOM and predicting Best-Matching Units...")
-    som = SOM(x=4, y=4, input_len=4, sigma=1.5, random_seed=42)
-    som.train(samples, num_iters=100, algorithm="batch", n_jobs=-1)
-    bmus = som.predict(samples, n_jobs=-1)
-    bmu_map = bmus.reshape(rows, cols)
-    print(f"    {len(np.unique(bmus))} of {4 * 4} neurons were actually activated as a winner.")
+    print("\n[2/3] Clustering every pixel with a 4x4 SOM (zeit.som)...")
+    clusters = zeit.som(scene, x=4, y=4, sigma=1.5, sample=None)
+    used = int((clusters.n_pixels > 0).sum())
+    print(f"    {used} of {4 * 4} neurons hold pixels; mean distance to the prototypes: "
+          f"{clusters.attrs['quantization_error']:.4f}")
+    print(f"    Prototype of neuron 1 (blue, green, red, nir): {clusters.prototypes.sel(neuron=1).values.round(3)}")
 
-    print("    Using filter_noisy_samples() to flag pixels that disagree with their neuron's majority class...")
-    clean_mask = som.filter_noisy_samples(samples, noisy_labels.reshape(-1), n_jobs=-1)
-    clean_mask_map = clean_mask.reshape(rows, cols)
-    true_noise_mask = (noisy_labels != clean_labels)
-    recall = (~clean_mask_map[true_noise_mask]).mean() if true_noise_mask.any() else float("nan")
-    print(f"    Flagged {np.sum(~clean_mask):d}/{clean_mask.size} pixels as noisy; "
+    print("    Checking labelled sample points with zeit.clean_samples()...")
+    names = np.array(["water", "vegetation", "bare_soil"])
+    points = gpd.GeoDataFrame(
+        {"class": names[noisy_labels.ravel()]},
+        geometry=gpd.points_from_xy(np.tile(scene.x.values, rows), np.repeat(scene.y.values, cols)),
+        crs="EPSG:32721",
+    )
+    checked = zeit.clean_samples(scene, points, label="class", x=4, y=4, sigma=1.5)
+    true_noise = (noisy_labels != clean_labels).ravel()
+    recall = (~checked.keep.to_numpy()[true_noise]).mean() if true_noise.any() else float("nan")
+    print(f"    Flagged {int((~checked.keep).sum())}/{len(checked)} samples as suspicious; "
           f"recall on the actually-injected noise: {recall:.1%}.")
 
     print("\n[3/3] Saving results with zeit.save_raster()...")
-    transform = from_origin(500000.0, 8800000.0, 30.0, 30.0)
-
-    out_bmu = os.path.join("data", "som_bmu_map.tif")
-    zeit.save_raster(bmu_map.astype("float32"), out_bmu, crs="EPSG:32721", transform=transform, nodata=-1.0)
-    print(f"    BMU map (0-15, one id per SOM neuron) -> {out_bmu}")
-
-    out_clean = os.path.join("data", "som_clean_mask.tif")
-    zeit.save_raster(clean_mask_map.astype("uint8"), out_clean, crs="EPSG:32721", transform=transform, nodata=255)
-    print(f"    Noise-filter mask (1=kept, 0=flagged as noisy) -> {out_clean}")
+    out_dir = os.path.join("data", "som")
+    zeit.save_raster(clusters, out_dir)
+    print(f"    Cluster map (label, 1-16) and distance to the prototypes -> {out_dir}/")
+    out_points = os.path.join("data", "som_checked_samples.gpkg")
+    checked.to_file(out_points)
+    print(f"    Samples with neuron, neuron_class, purity and keep -> {out_points}")
 
     print("\nDone!")
 

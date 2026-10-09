@@ -278,6 +278,87 @@ The seed grids of the R `snic` package, as `(n, 2)` `(row, col)` positions. Also
 
 ## Clustering (SOM)
 
+### `som` { .api }
+
+<!-- sig: zeit.som -->
+```python
+zeit.som(
+    data, x=3, y=3, sample=50000, num_iters=None, algorithm="online",
+    sigma=1.0, learning_rate=0.5, decay="linear_decay_to_zero",
+    neighborhood="gaussian", topology="rectangular", init="random",
+    seed=42, nodata="auto", chunks=None, n_jobs=-1,
+)
+```
+
+Clusters the pixels of a map or a cube with a self-organizing map. Every value a pixel holds off its `y`/`x` is a feature (each date of an index, each band of each date, each map of a Dataset), so pixels share a neuron when their whole trajectories are alike. The SOM is trained on a random sample of the pixels by the [`SOM`](#som_1) engine (a bit-for-bit port of `minisom`), then every pixel goes to its best-matching neuron. Tutorial: [Clustering](../tutorials/som.md).
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `data` | `DataArray`, `Dataset`, `ndarray` or path | required | A map, a stack, a `(time, y, x)` or `(time, band, y, x)` cube (in memory or dask), a Dataset of maps (e.g. phenology metrics), or anything `load_raster` reads. The features should share a scale: the distance adds them up as they are. |
+| `x`, `y` | `int` | `3`, `3` | Neurons of the grid: `x * y` clusters. Small grids cluster; large ones (10 × 10 and up) explore the data. |
+| `sample` | `int` or `None` | `50000` | Pixels to train on, drawn at random among those with every feature; `None`: all of them. |
+| `num_iters` | `int` | `None` | `"online"`: single-sample updates (default 20 passes over the sample). `"batch"`: passes (default 20). |
+| `algorithm` | `str` | `"online"` | `"online"` or `"batch"` (parallel). On small grids the batch update can leave neurons empty; the online one does not, and is about as fast on 50,000 samples. |
+| `sigma`, `learning_rate` | `float` | `1.0`, `0.5` | Initial neighbourhood radius (grid units) and learning rate. |
+| `decay` | `str` | `"linear_decay_to_zero"` | Online: how the learning rate falls. Ending at 0 lets the prototypes settle; `minisom`'s default, `"asymptotic_decay"`, ends at a third of it, and the last samples seen still pull them (on 30,000 Rondônia trajectories: a mean distance 10% larger, prototypes up to twice as far from their pixels' mean). Or `"inverse_decay_to_zero"`. |
+| `neighborhood` | `str` | `"gaussian"` | `"gaussian"`, `"mexican_hat"`, `"bubble"` or `"triangle"`. |
+| `topology` | `str` | `"rectangular"` | `"rectangular"` or `"hexagonal"`. |
+| `init` | `str` or `None` | `"random"` | Initial prototypes: `"random"` (sample pixels), `"pca"` (first two principal components; poor on a grid one neuron wide) or `None` (`minisom`'s random unit vectors). |
+| `seed` | `int` | `42` | Seed of the sample, the initial weights and the sample order. |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | Value marking a missing observation. Pixels with a missing feature get no neuron. |
+| `chunks` | `"auto"`, `dict` | `None` | A raster path: read lazily. |
+| `n_jobs` | `int` | `-1` | Threads. |
+
+</div>
+
+**Returns** an `xarray.Dataset`: `label (y, x)` (the neuron, `1` to `x * y`; `0` without one; the grid positions `i_j` in `flag_meanings`), `distance (y, x)` (to the neuron's prototype: large where the map represents the pixel poorly), `prototypes (neuron, ...)` with the cube's dims and coordinates (`prototypes.sel(neuron=3)` is a series over `time`) and `n_pixels (neuron)`; the grid position of each neuron in the `i`/`j` coordinates and the sample's mean distance in `attrs["quantization_error"]`. Georeferenced as the input; a lazy cube stays lazy. With `sample=None` and the same arguments, the prototypes are the engine's and `label` is `SOM.predict + 1`.
+
+```python
+ndvi = zeit.load_raster("LT_Stack_NDVI_Rondonia.tif")     # (time, y, x)
+clusters = zeit.som(ndvi, x=2, y=2, sample=30_000)
+clusters.prototypes.sel(neuron=1).plot()                  # one typical trajectory
+clusters.label.zeit.plot()                                # the cluster map
+zeit.plot(ndvi, fit=clusters)                             # click a pixel: its series and its prototype
+```
+
+### `clean_samples` { .api }
+
+<!-- sig: zeit.clean_samples -->
+```python
+zeit.clean_samples(
+    data, samples, label="class", x=None, y=None, num_iters=None,
+    algorithm="online", sigma=1.0, learning_rate=0.5,
+    decay="linear_decay_to_zero", neighborhood="gaussian",
+    topology="rectangular", init="random", seed=42, date=None,
+    nodata="auto", n_jobs=-1,
+)
+```
+
+Checks labelled samples with a SOM before a classifier is trained on them, as `sits_som_clean_samples` of the R `sits` package: a SOM is trained on the features of the samples (read as [`train_classifier`](post-processing.md#train_classifier) reads them), and a sample whose class differs from the majority class of its neuron is suspicious.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `data` | as in `train_classifier` | required | What the classifier will be trained on. |
+| `samples` | `GeoDataFrame` or path | required | Points with their class, reprojected when in another CRS. |
+| `label` | `str` | `"class"` | The column holding the class. |
+| `x`, `y` | `int` | `None` | Neurons of the grid; by default a square grid of about `5 * sqrt(n)` neurons for `n` samples. |
+| `date` | date | `None` | CCDC segments: the date whose models are the features. |
+| `num_iters`, `algorithm`, `sigma`, `learning_rate`, `decay`, `neighborhood`, `topology`, `init`, `seed`, `nodata`, `n_jobs` | | | As in [`som`](#som). |
+
+</div>
+
+**Returns** the samples as given (`GeoDataFrame`, same CRS), with `neuron` (`0`: outside the data or a missing feature), `neuron_class` (the neuron's majority class), `purity` (the share of the neuron's samples in that class) and `keep` (the sample's class is its neuron's; `False` without a neuron).
+
+```python
+checked = zeit.clean_samples(stack, "samples.gpkg", label="class")
+print(checked[~checked.keep])                              # the suspicious ones
+rf = zeit.train_classifier(stack, checked[checked.keep], label="class")
+```
+
 ### `SOM` { .api .cls }
 
 <!-- sig: zeit.ai.SOM -->
@@ -290,7 +371,7 @@ class zeit.ai.SOM(
 )
 ```
 
-Self-organizing map in C++ (online and batch, OpenMP). An operation-by-operation port of Python [`minisom`](https://github.com/JustGlowing/minisom) 2.3: with the same `random_seed` and arguments the trained codebook is bit-for-bit identical to `MiniSom.train` (`algorithm="online"`) or `MiniSom.train_batch_offline` (`algorithm="batch"`), 30–190 times faster. Tutorial: [Clustering](../tutorials/som.md).
+The engine of [`zeit.som`](#som), for samples you arrange yourself: a self-organizing map in C++ (online and batch, OpenMP), an operation-by-operation port of Python [`minisom`](https://github.com/JustGlowing/minisom) 2.3: with the same `random_seed` and arguments the trained codebook is bit-for-bit identical to `MiniSom.train` (`algorithm="online"`) or `MiniSom.train_batch_offline` (`algorithm="batch"`), 30–190 times faster. Tutorial: [Clustering](../tutorials/som.md).
 
 <div class="params" markdown>
 

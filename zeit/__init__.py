@@ -24,13 +24,13 @@ from ._twdtw_api import twdtw
 from .spatial import apply_mmu_filter, apply_majority_filter
 from .segmentation import snic_grid, snic_to_polygons
 from ._snic_api import snic
+from ._som_api import som, clean_samples
 from ._smooth import smooth
 from .masks import extract_water_mask
 from .qc import qc_modis_summary, qc_modis_state, qc_sentinel2_scl
 
 from ._tmask_api import tmask
 
-from .local import build_local_cube
 from .regularize import regularize_time_series
 
 from .indices import compute_indices
@@ -74,7 +74,7 @@ __all__ = [
     "landtrendr", "desawtooth", "apply_vertices",
     "ccdc",
     "bfast_monitor", "bfast_lite", "bfast", "mann_kendall", "phenology",
-    "twdtw", "smooth", "tmask", "snic",
+    "twdtw", "smooth", "tmask", "snic", "som", "clean_samples",
     "extract_events", "predict_synthetic_image",
     "train_classifier", "classify",
     "apply_mmu_filter", "apply_majority_filter",
@@ -85,7 +85,6 @@ __all__ = [
     "build_annual_composites",
     "build_spectral_temporal_metrics",
     "compute_indices",
-    "build_local_cube",
     "regularize_time_series",
     "load_raster", "save_raster", "plot",
     "generate_landtrendr_accuracy_dashboard",

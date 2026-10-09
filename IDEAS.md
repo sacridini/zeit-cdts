@@ -574,7 +574,7 @@ depois" tinha o `crs=`/`res=`.
   Sem `-tap`: para alinhar fontes diferentes, a primeira com `crs=`/`res=` e as outras
   com `like=` ela.
 
-## Fase 10: fechar a convenção do cubo
+## Fase 10: fechar a convenção do cubo — **Feito** (0.45.0)
 
 Depois da Fase 9 ainda sobram pontas fora do padrão "uma função, qualquer entrada, saída
 georreferenciada": o SOM (o único algoritmo do README que ainda é uma classe sobre numpy
@@ -588,59 +588,72 @@ módulos que o `load_raster` e o `regularize_time_series` já cobrem.
 | CLI: `landtrendr`, `ccdc`, `bfast-monitor`, `bfast-lite`, `bfast`, `mann-kendall`, `mmu-filter` | mais `phenology`, `smooth`, `tmask`, `twdtw`, `snic`, `classify` e `som` |
 | `qc_modis_summary`, `qc_modis_state`, `qc_sentinel2_scl` só numpy; a docstring do módulo aponta para o `run_phenology`, que saiu na Fase 5 | recebem e devolvem `DataArray` (dims, `time`, georreferência), prontos para o `weights=` do `zeit.phenology` e do `zeit.smooth` |
 | `build_local_cube(pasta, regex, date_format)` | sai: `load_raster(pasta, pattern=, date_format=, recursive=True, chunks="auto")` |
-| `zeit.preprocessor.cbers_to_landtrendr`, `cbers_to_ccdc` (fora do `__all__`, com `print`; o segundo grava um CSV de datas que o `zeit.ccdc` não precisa mais) | saem: `regularize_time_series(cubo, freq="YS", method="medoid")` e `zeit.ccdc(cubo)` |
+| `zeit.preprocessor.cbers_to_landtrendr`, `cbers_to_ccdc` (fora do `__all__`, com `print`; o segundo grava um CSV de datas que o `zeit.ccdc` não precisa mais) | saem: `regularize_time_series(cubo, freq="YS", method="medoid")` e ### `zeit.som` e `zeit.clean_samples`
 
-### `zeit.som`
+`zeit.som(data, *, x=3, y=3, sample=50000, num_iters=None, algorithm="online", sigma=1.0,
+learning_rate=0.5, decay="linear_decay_to_zero", neighborhood="gaussian",
+topology="rectangular", init="random", seed=42, nodata="auto", chunks=None, n_jobs=-1)`
+em `zeit/_som_api.py`:
 
-`zeit.som(data, *, x=3, y=3, sample=50_000, num_iters=20, algorithm="batch", sigma=1.0,
-learning_rate=0.5, neighborhood="gaussian", topology="rectangular", init="pca", seed=42,
-nodata="auto", chunks=None, n_jobs=-1)`:
-
-- Atributos como no `train_classifier`: tudo o que o pixel tem fora de `y`/`x` (a série de
-  um índice, datas × bandas de um cubo 4D, os mapas de um `Dataset`), pela mesma função
-  interna, sem duplicar. Pixels com algum NaN ficam de fora do treino e saem como 0.
-- Treino numa amostra aleatória de `sample` pixels válidos (reprodutível por `seed`; `None`
-  usa todos), predição em todos, lazy por blocos com o codebook já treinado.
-- Resultado: `label (y, x)` (neurônio 1..x·y, 0 sem valor; `flag_meanings` com `i_j` para a
-  legenda do `zeit.plot`), `distance (y, x)` (distância ao BMU: onde o mapa representa mal
-  o pixel), `prototypes (neuron, ...)` com as dims e coordenadas dos atributos (como o
-  `means` do `zeit.snic`: `prototypes.sel(neuron=3)` é uma série com `time`), `n_pixels
-  (neuron)` e o `quantization_error` nos atributos. O `save_raster` pula `prototypes`
-  (sem `y`/`x`), como os padrões do TWDTW.
-- `zeit.plot(cube, fit=som)`: o pixel clicado com o protótipo do neurônio dele por cima
-  (`_fit.overlays`).
-- Paridade: com `sample=None` e os mesmos argumentos, o codebook é o do `SOM` (que já é
-  bit a bit o do MiniSom), e o `label` é o `SOM.predict` + 1.
-- O motor sai de `zeit/ai/som.py` para `zeit/_som.py` (sem torch); `zeit.ai.SOM` continua
-  como nome reexportado, para quem usa a classe direto. Accessor `cube.zeit.som(...)`.
-- `zeit.clean_samples(dado, amostras, label=, x=, y=, ...)`: treina o SOM nos atributos das
-  amostras (pontos lidos como no `train_classifier`), e devolve o `GeoDataFrame` com
-  `neuron`, `keep` e a classe majoritária do neurônio, para conferir antes de treinar um
-  classificador.
+- Atributos pela mesma função do `train_classifier` (`_classify_api.features`): tudo o que o
+  pixel tem fora de `y`/`x`. NoData como no resto (`"auto"`; num `Dataset` de mapas, só o
+  NoData gravado, porque o 0 é valor em mapas como `n_breaks`). Treino numa amostra de
+  `sample` pixels válidos (reprodutível por `seed`), predição em todos, lazy por blocos.
+- Resultado: `label (y, x)` (1..x·y, 0 sem valor, `flag_meanings` `i_j`), `distance (y, x)`,
+  `prototypes (neuron, ...)` com as dims e coordenadas do cubo, `n_pixels (neuron)`, as
+  coordenadas `i`/`j` e o `quantization_error`. O `save_raster` grava `label` e `distance`.
+- `zeit.plot(cube, fit=som)` desenha o protótipo do neurônio do pixel clicado.
+- Paridade: com `sample=None`, os protótipos são os do motor bit a bit e o `label` é o
+  `SOM.predict` + 1 (testado com os três `init`, batch e online, dois `decay`).
+- **Padrões diferentes dos planejados**, decididos por medição:
+  - `algorithm="online"`, não `"batch"`: numa cena sintética de três trajetórias, o batch
+    numa grade pequena deixa neurônios vazios (um neurônio que não ganha nenhuma amostra é
+    puxado para a média do vizinho e fica igual a ele): acertou 13 de 20 sementes no 3×1 e
+    16 de 20 no 2×2, contra 20 de 20 do online em tudo. Em 50 mil amostras × 60 datas os dois
+    levam ~0,6–0,8 s.
+  - `decay="linear_decay_to_zero"`, não o `asymptotic_decay` do MiniSom: o padrão do
+    MiniSom termina com 1/3 da taxa de aprendizado, e os protótipos ficam puxados pelas
+    últimas amostras. Em 30 mil trajetórias de Rondônia (2×2): distância média 4532 contra
+    5005, protótipos a até 474 da média dos seus pixels contra 955. O batch fica com os
+    protótipos mais perto da média (195), mas com distância média maior (4645).
+  - `init="random"`, não `"pca"`: na grade de um neurônio de largura (3×1) o `"pca"` do
+    MiniSom é degenerado (`linspace(-1, 1, 1)`) e junta classes.
+- Rondônia inteira (40 anos × 1671 × 1686, 30 mil amostras): 2,1 s em memória, 4,4 s lazy,
+  mesmo resultado.
+- O motor saiu de `zeit/ai/som.py` para `zeit/_som.py` (sem torch); `zeit.ai.SOM` continua.
+  Accessor `cube.zeit.som(...)`.
+- `zeit.clean_samples(data, samples, *, label, x, y, ...)`: o SOM nos atributos das amostras
+  (grade padrão de ~5√n neurônios, a regra de Vesanto) e as amostras de volta, no CRS
+  delas, com `neuron`, `neuron_class`, `purity` e `keep`. No exemplo 16 marca exatamente as
+  64 de 1600 amostras com rótulo trocado.
 
 ### CLI
 
-- Um subcomando por função do padrão do cubo que faltava: `phenology`, `smooth`, `tmask`,
-  `twdtw` (padrões de um CSV `data,padrão,valor` ou de pontos com `--label`), `snic`
-  (`--polygons` grava o `.gpkg`), `classify` (`--samples pontos.gpkg --label classe`:
-  treina e classifica numa chamada; `--model` salva/lê o modelo com `joblib`) e `som`.
-- Todos pelo mesmo corpo do `_run_series_cli`: `load_raster` lazy com `--chunk-size`,
-  `--jobs`, uma chamada de `save_raster` (tudo calculado numa passada) e o mesmo padrão de
-  saída (`<output_dir>/<prefix>.tif` ou uma pasta por variável).
-- `docs/cli.md` com um exemplo de cada; teste de cada subcomando num stack pequeno de
-  `tests/data`, comparando com a função Python.
+- `phenology`, `smooth`, `tmask`, `twdtw`, `snic`, `classify` e `som`, todos por um corpo só
+  (`_run_cube_cli`): `load_raster` lazy com `--chunk-size`, `--jobs`, e uma chamada de
+  `save_raster` para `<output_dir>/<prefix>.tif`. `--weights` (fenologia e suavização) lê
+  um raster de pesos; `twdtw --patterns` lê um CSV `pattern,date,<valor>` (ou uma coluna
+  por banda; padrões a partir de pontos ficaram de fora, o `zeit.twdtw` não os aceita);
+  `snic --polygons` grava o `.gpkg`; `classify --samples ... --model rf.joblib` treina e
+  salva, `classify --model rf.joblib` reaproveita; `som` grava também
+  `<prefix>_prototypes.csv`.
+- `tests/test_cli.py`: cada subcomando contra a função Python (não havia testes de CLI).
+  `docs/cli.md` com as seções 8–14.
 
 ### QC, `build_local_cube` e `preprocessor`
 
-- `qc_*` aceitam `DataArray`/numpy/caminho e devolvem o mesmo tipo; NoData da QA vira peso
-  0. Com isso, `zeit.phenology(ndvi, weights=zeit.qc_sentinel2_scl(cubo.sel(band="scl")))`
-  funciona sem alinhar nada à mão. Docstring do módulo corrigida.
-- `build_local_cube`: o exemplo 20, o tutorial de STAC, `docs/api/data.md` e o
-  `test_local_cube` passam a usar o `load_raster`; `zeit/local.py` sai.
-- `zeit/preprocessor.py` e `tests/test_preprocessor.py` saem. O medoide anual fica no
-  `regularize_time_series` (conferir que dá o mesmo composto que o `cbers_to_landtrendr`;
-  só a data muda, de 1º de julho para o início do ano).
-- Linhas novas na página "Upgrading to the one-function API" para tudo o que saiu.
+- `qc_*` aceitam numpy, `DataArray` ou caminho e devolvem o mesmo tipo (um `DataArray` com
+  as dims, datas e georreferência, lazy se era); NoData e NaN da QA pesam 0. Docstring do
+  módulo corrigida.
+- `build_local_cube` e `zeit/local.py` saíram (exemplo 20, tutorial de STAC e referência
+  passaram ao `load_raster`; o caso do `test_local_cube` já estava no `test_io`).
+- `zeit/preprocessor.py` saiu. Ao conferir o `regularize_time_series(freq="YS",
+  method="medoid")` contra o `cbers_to_landtrendr`, apareceu um bug no medoide: uma data
+  sem valor tinha distância 0 (o `sum` do xarray pula NaN) e virava o medoide do pixel.
+  Corrigido (`skipna=False`); fora os empates, o composto é o do `cbers_to_landtrendr`.
+- Sem página de migração: a documentação atual foi atualizada no lugar.
+
+ra tudo o que saiu.
 
 ## Fase 11: `zeit.ai` de cubo a mapa
 
@@ -722,5 +735,7 @@ probability=False, chunks=None)`:
 
 ## Para depois
 
+- O `compute_medoid` em C++ (`_core.utils`) ficou sem uso com a saída do `preprocessor`: o
+  `regularize_time_series(method="medoid")` poderia usá-lo em vez do `groupby` do xarray.
 - `zeit.plot`: medir de verdade o caso de notebook remoto (JupyterHub, Colab), que ficou
   como estimativa no 7a.

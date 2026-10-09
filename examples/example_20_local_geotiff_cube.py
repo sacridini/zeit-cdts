@@ -4,9 +4,9 @@ Example 20: Local GeoTIFF Ingestion End-to-End
 Writes a small archive of individual per-date, per-band GeoTIFF files to
 disk (no network needed - this is what a local Landsat/Sentinel-2 ARD
 archive typically looks like), lazily reassembles them into a single
-Dask-backed datacube with `zeit.build_local_cube` (this is Zeit's "load
-images from disk" entry point, the local counterpart to
-`zeit.build_time_series`'s STAC fetch), computes NDVI from the reassembled
+Dask-backed datacube with `zeit.load_raster` (Zeit's "load images from
+disk" entry point, the local counterpart to `zeit.build_time_series`'s STAC
+fetch), computes NDVI from the reassembled
 Red/NIR bands, and saves the result with `zeit.save_raster`.
 """
 import os
@@ -43,15 +43,15 @@ def write_synthetic_archive(rows=25, cols=25, dates=("20220115", "20220131", "20
 
 
 def main():
-    print("Zeit Example 20: Local GeoTIFF Ingestion (zeit.build_local_cube)")
+    print("Zeit Example 20: Local GeoTIFF Ingestion (zeit.load_raster)")
 
     print("\n[1/3] Writing a synthetic local ARD archive (per-date, per-band GeoTIFFs) to disk...")
     written = write_synthetic_archive()
     print(f"    Wrote {len(written)} files to {ARCHIVE_DIR}/, e.g. {os.path.basename(written[0])}")
 
-    print("\n[2/3] Lazily reassembling the archive into a Dask-backed datacube with zeit.build_local_cube()...")
-    cube = zeit.build_local_cube(
-        ARCHIVE_DIR, regex_pattern=r"(?P<date>\d{8})_(?P<band>[A-Z0-9]+)\.tif", date_format="%Y%m%d",
+    print("\n[2/3] Lazily reassembling the archive into a Dask-backed datacube with zeit.load_raster()...")
+    cube = zeit.load_raster(
+        ARCHIVE_DIR, pattern=r"(?P<date>\d{8})_(?P<band>[A-Z0-9]+)\.tif", date_format="%Y%m%d", chunks="auto",
     )
     print(f"    Reassembled cube: dims={cube.dims}, shape={cube.shape}, "
           f"bands={cube.band.values.tolist()}, dates={[str(d)[:10] for d in cube.time.values]}")
@@ -63,7 +63,7 @@ def main():
     print(f"    Mean NDVI per date: {[f'{v:.3f}' for v in ndvi.mean(dim=['y', 'x']).values]}")
 
     out_tif = os.path.join("data", "local_cube_ndvi.tif")
-    zeit.save_raster(ndvi.values.astype("float32"), out_tif, like=cube, nodata=np.nan)
+    zeit.save_raster(ndvi.astype("float32"), out_tif)   # the dates and georeferencing travel with it
 
     print(f"\nDone! NDVI time series ({ndvi.sizes['time']} bands) saved to {out_tif}")
 

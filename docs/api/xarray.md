@@ -17,6 +17,7 @@
 | `twdtw` | `(time, y, x)` or `(time, band, y, x)` | `xr.Dataset` of classes and distances | [`zeit.twdtw`](time-series.md#twdtw) |
 | `smooth` | `(time, ...)` | the smoothed `DataArray` | [`zeit.smooth`](preprocessing.md#smooth) |
 | `snic` | `(..., y, x)` | `xr.Dataset` of labels and means | [`zeit.snic`](time-series.md#snic) |
+| `som` | `(..., y, x)` | `xr.Dataset` of clusters and prototypes | [`zeit.som`](time-series.md#som) |
 | `tmask` | `(time, band, y, x)` | `clear (time, y, x)` | [`zeit.tmask`](preprocessing.md#tmask) |
 | `save` | any with `y`, `x` (also on a `Dataset`) | writes a raster, returns its path | [`zeit.save_raster`](data.md#save_raster) |
 | `plot` | any with `y`, `x` (also on a `Dataset`) | the viewer, a window or a figure | [`zeit.plot`](plot.md) |
@@ -158,6 +159,19 @@ SNIC superpixels of this map or cube: the same as [`zeit.snic(da, **kwargs)`](ti
 
 ```python
 seg = ndvi.zeit.snic(spacing=8, compactness=0.3)
+```
+
+### `som` { .api .meth }
+
+<!-- sig: zeit.xarray_api.ZeitAccessor.som -->
+```python
+DataArray.zeit.som(**kwargs)
+```
+
+Self-organizing map clusters of this map or cube: the same as [`zeit.som(da, **kwargs)`](time-series.md#som).
+
+```python
+clusters = ndvi.zeit.som(x=3, y=3)
 ```
 
 ### `tmask` { .api .meth }

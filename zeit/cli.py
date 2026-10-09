@@ -142,6 +142,155 @@ def run_mmu_filter_cli(args: argparse.Namespace) -> None:
         print(f"Error running MMU filter: {e}")
         sys.exit(1)
 
+def _run_cube_cli(args: argparse.Namespace, name: str, compute, *, lazy: bool = True, extras=None) -> None:
+    """Shared body of the commands of the cube functions (phenology, smooth, tmask, twdtw,
+    snic, classify, som): read the input (lazily, in blocks of --chunk-size), compute, and
+    write <output_dir>/<prefix>.tif in one pass, one band per map or date. ``extras(result,
+    stem)`` writes what is not a raster (polygons, prototypes) next to it and returns the
+    paths."""
+    import os
+    import xarray as xr
+    from ._load import load_raster
+    from ._save import save_raster
+
+    try:
+        chunks = {"time": -1, "band": -1, "y": args.chunk_size, "x": args.chunk_size} if lazy else None
+        result = compute(load_raster(args.input, chunks=chunks))
+        os.makedirs(args.output_dir, exist_ok=True)
+        stem = os.path.join(args.output_dir, args.prefix)
+        maps = result
+        if isinstance(result, xr.Dataset):
+            maps = result[[v for v in result.data_vars if {"y", "x"} <= set(result[v].dims)]]
+        elif result.dtype == bool:
+            maps = result.astype("uint8")
+        out = save_raster(maps, stem + ".tif")
+        print(f"Successfully processed and saved to {out}")
+        for path in (extras(result, stem) if extras is not None else []):
+            print(f"Saved {path}")
+    except Exception as e:
+        print(f"Error running {name}: {e}")
+        sys.exit(1)
+
+
+def _weights(path: Optional[str]):
+    """--weights: a raster of observation weights in [0, 1] on the grid and dates of the input."""
+    if path is None:
+        return None
+    from ._load import load_raster
+
+    return load_raster(path, masked=True, chunks="auto")
+
+
+def run_phenology_cli(args: argparse.Namespace) -> None:
+    from ._series_api import phenology
+
+    _run_cube_cli(args, "phenology", lambda cube: phenology(
+        cube, curve=args.curve, method=args.method, weights=_weights(args.weights), annual=not args.not_annual,
+        max_seasons=args.max_seasons, whittaker_lambda=args.whittaker_lambda, n_jobs=args.jobs))
+
+
+def run_smooth_cli(args: argparse.Namespace) -> None:
+    from ._smooth import smooth
+
+    _run_cube_cli(args, "smooth", lambda cube: smooth(
+        cube, method=args.method, lmbda=args.lmbda, weights=_weights(args.weights), window=args.window,
+        polyorder=args.polyorder, n_jobs=args.jobs))
+
+
+def run_tmask_cli(args: argparse.Namespace) -> None:
+    from ._tmask_api import tmask
+
+    _run_cube_cli(args, "tmask", lambda cube: tmask(cube, green=args.green, swir=args.swir, scale=args.scale))
+
+
+def read_patterns(path: str) -> dict:
+    """TWDTW patterns from a CSV: columns ``pattern``, ``date`` and one value column (one
+    band) or one column per band, named as the bands of the input."""
+    import pandas as pd
+
+    table = pd.read_csv(path)
+    missing = [c for c in ("pattern", "date") if c not in table.columns]
+    if missing:
+        raise ValueError(f"{path}: the patterns need the columns pattern and date (missing {missing})")
+    values = [c for c in table.columns if c not in ("pattern", "date")]
+    if not values:
+        raise ValueError(f"{path}: no value column next to pattern and date")
+    table["date"] = pd.to_datetime(table["date"])
+    patterns = {}
+    for name, rows in table.groupby("pattern", sort=False):
+        rows = rows.set_index("date").sort_index()[values]
+        patterns[str(name)] = rows[values[0]] if len(values) == 1 else rows
+    return patterns
+
+
+def run_twdtw_cli(args: argparse.Namespace) -> None:
+    from ._twdtw_api import twdtw
+
+    patterns = read_patterns(args.patterns)
+    _run_cube_cli(args, "twdtw", lambda cube: twdtw(
+        cube, patterns, band=args.band, steepness=args.steepness, midpoint=args.midpoint,
+        cycle=None if args.no_cycle else "year", max_elapsed=args.max_elapsed, n_jobs=args.jobs))
+
+
+def run_snic_cli(args: argparse.Namespace) -> None:
+    from ._snic_api import snic
+    from .segmentation import snic_to_polygons
+
+    def polygons(result, stem):
+        if not args.polygons:
+            return []
+        snic_to_polygons(result, include_means=True).to_file(stem + ".gpkg")
+        return [stem + ".gpkg"]
+
+    _run_cube_cli(args, "snic", lambda cube: snic(
+        cube, spacing=args.spacing, compactness=args.compactness, grid=args.grid, n_jobs=args.jobs),
+        lazy=False, extras=polygons)
+
+
+def run_classify_cli(args: argparse.Namespace) -> None:
+    from ._classify_api import classify, train_classifier
+
+    def compute(cube):
+        import joblib
+
+        if args.model is not None and args.samples is None:
+            model = joblib.load(args.model)
+        elif args.samples is not None:
+            model = train_classifier(cube, args.samples, label=args.label)
+            if args.model is not None:
+                joblib.dump(model, args.model)
+                print(f"Saved the model to {args.model}")
+        else:
+            raise ValueError("give --samples (to train) or --model (a model saved by an earlier run)")
+        return classify(cube, model, probability=args.probability)
+
+    _run_cube_cli(args, "classify", compute)
+
+
+def run_som_cli(args: argparse.Namespace) -> None:
+    from ._som_api import som
+
+    def prototypes(result, stem):
+        import pandas as pd
+        from ._snic_api import _feature_names
+
+        protos = result.prototypes
+        dims = [d for d in protos.dims if d != "neuron"]
+        names = _feature_names(protos, dims) if dims != ["feature"] else [str(f) for f in protos.feature.values]
+        table = pd.DataFrame(protos.values.reshape(protos.sizes["neuron"], -1), columns=names)
+        table.insert(0, "n_pixels", result.n_pixels.values)
+        table.insert(0, "j", result.j.values)
+        table.insert(0, "i", result.i.values)
+        table.insert(0, "neuron", result.neuron.values)
+        table.to_csv(stem + "_prototypes.csv", index=False)
+        return [stem + "_prototypes.csv"]
+
+    _run_cube_cli(args, "som", lambda cube: som(
+        cube, x=args.x, y=args.y, sample=args.sample if args.sample > 0 else None, algorithm=args.algorithm,
+        sigma=args.sigma, learning_rate=args.learning_rate, seed=args.seed, n_jobs=args.jobs),
+        extras=prototypes)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="zeit: Change Detection Python Library")
     subparsers = parser.add_subparsers(dest="command", help="Available algorithms")
@@ -249,6 +398,70 @@ def main() -> None:
     mmu_parser.add_argument("output", help="Path to save the filtered GeoTIFF")
     mmu_parser.add_argument("--mmu-pixels", type=int, default=11, help="Minimum patch size in pixels; smaller patches are removed (default: 11)")
 
+    # The cube functions: any raster load_raster reads, <output_dir>/<prefix>.tif out
+    def _add_cube_args(p, prefix, what="Path to the input raster (dates in the band names, as save_raster writes them)"):
+        p.add_argument("input", help=what)
+        p.add_argument("output_dir", help="Directory to save the outputs")
+        p.add_argument("--chunk-size", type=int, default=512, help="Size of the image chunks to process at once (default: 512)")
+        p.add_argument("--jobs", type=int, default=-1, help="Number of CPU cores to use (-1 for all, default: -1)")
+        p.add_argument("--prefix", default=prefix, help=f"Name of the output file (default: {prefix})")
+
+    phen_parser = subparsers.add_parser("phenology", help="Land surface phenology: fit a seasonal curve, extract its metrics")
+    _add_cube_args(phen_parser, "phenology")
+    phen_parser.add_argument("--curve", default="beck", choices=["beck", "elmore", "gu", "klos", "zhang", "ag", "dl"], help="Curve fitted to each season (default: beck)")
+    phen_parser.add_argument("--method", default="threshold", choices=["threshold", "derivative", "gu", "klosterman"], help="How transition dates are read from the curve (default: threshold)")
+    phen_parser.add_argument("--weights", default=None, help="Raster of observation weights in [0, 1] on the input's grid and dates (e.g. from zeit.qc_sentinel2_scl)")
+    phen_parser.add_argument("--not-annual", action="store_true", help="Metrics per season instead of per year")
+    phen_parser.add_argument("--max-seasons", type=int, default=None, help="Seasons to report (default: the number of years)")
+    phen_parser.add_argument("--whittaker-lambda", type=float, default=10.0, help="Whittaker smoothing before the fit (default: 10)")
+
+    sm_parser = subparsers.add_parser("smooth", help="Smooth every pixel's series (Whittaker or Savitzky-Golay)")
+    _add_cube_args(sm_parser, "smooth")
+    sm_parser.add_argument("--method", choices=["whittaker", "savgol"], default="whittaker", help="Smoother (default: whittaker)")
+    sm_parser.add_argument("--lmbda", type=float, default=10.0, help="Whittaker: smoothness (default: 10)")
+    sm_parser.add_argument("--weights", default=None, help="Whittaker: raster of observation weights in [0, 1] on the input's grid and dates")
+    sm_parser.add_argument("--window", type=int, default=5, help="Savitzky-Golay: window length (default: 5)")
+    sm_parser.add_argument("--polyorder", type=int, default=2, help="Savitzky-Golay: polynomial order (default: 2)")
+
+    tm_parser = subparsers.add_parser("tmask", help="Flag clouds and shadows from each pixel's series (Tmask): 1 clear, 0 not")
+    _add_cube_args(tm_parser, "tmask", what="Path to a (time, band) stack with bands named date_band, as save_raster writes them")
+    tm_parser.add_argument("--green", default="green", help="Name of the green band (default: green)")
+    tm_parser.add_argument("--swir", default="swir1", help="Name of the SWIR-1 band (default: swir1)")
+    tm_parser.add_argument("--scale", type=float, default=10000.0, help="Reflectance scale of the stack (default: 10000; 1 for 0-1 floats)")
+
+    tw_parser = subparsers.add_parser("twdtw", help="Classify every pixel's series by TWDTW against patterns")
+    _add_cube_args(tw_parser, "twdtw")
+    tw_parser.add_argument("--patterns", required=True, help="CSV of the patterns: columns pattern, date and one value column (or one column per band)")
+    tw_parser.add_argument("--band", default=None, help="With a multi-band input and one-band patterns: the band to classify")
+    tw_parser.add_argument("--steepness", type=float, default=0.1, help="Steepness of the logistic time weight (default: 0.1)")
+    tw_parser.add_argument("--midpoint", type=float, default=50.0, help="Midpoint of the logistic time weight, in days (default: 50)")
+    tw_parser.add_argument("--max-elapsed", type=float, default=None, help="Never match observations farther apart than this many days")
+    tw_parser.add_argument("--no-cycle", action="store_true", help="Measure elapsed time between dates, not days of the year")
+
+    sn_parser = subparsers.add_parser("snic", help="Segment an image or a series into SNIC superpixels")
+    _add_cube_args(sn_parser, "snic", what="Path to the input raster (an image, a stack or a series)")
+    sn_parser.add_argument("--spacing", type=float, default=10, help="Pixels between seeds (default: 10)")
+    sn_parser.add_argument("--compactness", type=float, default=0.5, help="Larger: more regular segments (default: 0.5, for 0-1 data)")
+    sn_parser.add_argument("--grid", choices=["rectangular", "diamond", "hexagonal", "random"], default="rectangular", help="Seed grid (default: rectangular)")
+    sn_parser.add_argument("--polygons", action="store_true", help="Also write the segments as polygons with their means (<prefix>.gpkg)")
+
+    cl_parser = subparsers.add_parser("classify", help="Classify every pixel with a random forest trained on sample points")
+    _add_cube_args(cl_parser, "classes", what="Path to the raster to classify (each band, or date and band, a feature)")
+    cl_parser.add_argument("--samples", default=None, help="Vector file of sample points with their class")
+    cl_parser.add_argument("--label", default="class", help="Column of the samples holding the class (default: class)")
+    cl_parser.add_argument("--model", default=None, help="With --samples: where to save the trained model; without: a model to use (joblib)")
+    cl_parser.add_argument("--probability", action="store_true", help="Also write each class's probability")
+
+    som_parser = subparsers.add_parser("som", help="Cluster the pixels with a Self-Organizing Map")
+    _add_cube_args(som_parser, "som")
+    som_parser.add_argument("--x", type=int, default=3, help="Neurons along the first side of the grid (default: 3)")
+    som_parser.add_argument("--y", type=int, default=3, help="Neurons along the second side of the grid (default: 3)")
+    som_parser.add_argument("--sample", type=int, default=50000, help="Pixels to train on, at random (0 for all; default: 50000)")
+    som_parser.add_argument("--algorithm", choices=["online", "batch"], default="online", help="Training algorithm (default: online)")
+    som_parser.add_argument("--sigma", type=float, default=1.0, help="Initial neighbourhood radius (default: 1.0)")
+    som_parser.add_argument("--learning-rate", type=float, default=0.5, help="Initial learning rate (default: 0.5)")
+    som_parser.add_argument("--seed", type=int, default=42, help="Random seed (default: 42)")
+
     args = parser.parse_args()
 
     if args.command == "landtrendr":
@@ -265,6 +478,20 @@ def main() -> None:
         run_mann_kendall_cli(args)
     elif args.command == "mmu-filter":
         run_mmu_filter_cli(args)
+    elif args.command == "phenology":
+        run_phenology_cli(args)
+    elif args.command == "smooth":
+        run_smooth_cli(args)
+    elif args.command == "tmask":
+        run_tmask_cli(args)
+    elif args.command == "twdtw":
+        run_twdtw_cli(args)
+    elif args.command == "snic":
+        run_snic_cli(args)
+    elif args.command == "classify":
+        run_classify_cli(args)
+    elif args.command == "som":
+        run_som_cli(args)
     else:
         parser.print_help()
 

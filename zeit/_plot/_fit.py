@@ -2,7 +2,8 @@
 
 ``pixel_series`` reads the full series of one cell; ``overlays`` turns a result of zeit at
 that cell into things to draw over it: lines (LandTrendr's segments, CCDC's harmonic models,
-the Mann-Kendall trend, a smoothed series, the TWDTW pattern aligned with the series),
+the Mann-Kendall trend, a smoothed series, the TWDTW pattern aligned with the series, the
+prototype of a SOM neuron),
 vertical marks (breaks) and spans (an event's duration). The
 viewer and the static plots draw the same overlays.
 
@@ -126,6 +127,8 @@ def overlays(result: Any, series: Dict[str, Any], *, shape: Sequence[int], band:
                 out.append({"kind": "vline", "x": series["x"][valid[int(idx)]], "label": label, "color": FIT_COLOR})
     if "distances" in at and "pattern_value" in result:                   # TWDTW
         out.extend(_twdtw(result, at, series, band))
+    if "prototypes" in result and "label" in at and "distance" in at:      # SOM
+        out.extend(_som(result, at, series, band))
     if "slope" in at and "intercept" in at and "tau" in at:                # Mann-Kendall
         slope, intercept = float(at.slope), float(at.intercept)
         if np.isfinite(slope) and np.isfinite(intercept):
@@ -179,6 +182,25 @@ def _series_fit(fit: xr.DataArray, series: Dict[str, Any], shape: Sequence[int],
     at = at.compute()
     label = fit.attrs.get("smoothing") or str(fit.name or "fit")
     return [{"kind": "line", "x": _ms(at.time.values), "y": clean(at.values), "label": label, "color": FIT_COLOR}]
+
+
+def _som(result: xr.Dataset, at: xr.Dataset, series: Dict[str, Any], band: Any) -> List[Dict[str, Any]]:
+    """The prototype of the pixel's neuron in a ``zeit.som`` result, over its series."""
+    k = int(at.label)
+    proto = result.prototypes
+    if not series["is_time"] or k < 1 or "time" not in proto.dims:
+        return []
+    proto = proto.sel(neuron=k)
+    if "band" in proto.dims:
+        names = [str(b) for b in proto.band.values]
+        wanted = str(band) if band is not None else series["series"][0]["name"]
+        proto = proto.isel(band=names.index(wanted) if wanted in names else 0)
+    if [d for d in proto.dims if d != "time"]:
+        return []
+    proto = proto.compute()
+    where = f"{int(proto.i)}_{int(proto.j)}" if "i" in proto.coords else str(k)
+    return [{"kind": "line", "x": _ms(proto.time.values), "y": clean(proto.values),
+             "label": f"SOM neuron {where} (distance {float(at.distance):.3g})", "color": FIT_COLOR, "dashed": True}]
 
 
 def _twdtw(result: xr.Dataset, at: xr.Dataset, series: Dict[str, Any], band: Any) -> List[Dict[str, Any]]:

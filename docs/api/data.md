@@ -205,34 +205,6 @@ cube = zeit.build_time_series(
 idx = zeit.compute_indices(cube, ["NDVI", "EVI", "NBR"])   # (time, 3, y, x), still lazy
 ```
 
-### `build_local_cube` { .api }
-
-<!-- sig: zeit.local.build_local_cube -->
-```python
-zeit.local.build_local_cube(
-    data_dir, regex_pattern, date_format="%Y%m%d",
-)
-```
-
-Builds the same kind of lazy cube from a folder of GeoTIFFs, reading the date and band of each file from its name: a shortcut for `load_raster(data_dir, pattern=regex_pattern, date_format=date_format, recursive=True, chunks="auto")` that always returns `(time, band, y, x)`. Also exported as `zeit.build_local_cube`.
-
-<div class="params" markdown>
-
-| Parameter | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `data_dir` | `str` | required | Folder containing the `.tif` files. |
-| `regex_pattern` | `str` | required | Regular expression with a named group `(?P<date>...)` and, optionally, `(?P<band>...)`. |
-| `date_format` | `str` | `"%Y%m%d"` | `strptime` format of the captured date. |
-
-</div>
-
-```python
-cube = zeit.build_local_cube(
-    "/data/tiles",
-    regex_pattern=r".*_(?P<date>\d{8})_(?P<band>B\d{2})\.tif",
-)
-```
-
 ### `download_gee_timeseries` { .api }
 
 <!-- sig: zeit.gee.download_gee_timeseries -->
@@ -547,7 +519,14 @@ Extracts `{"crs": ..., "transform": ...}` from a rasterio dataset or an xarray o
 
 ## Quality bands to weights
 
-Decoders ported from `phenofit`'s `qcFUN.R`. Each turns a sensor's QA band into per-observation reliability weights in `[0, 1]` for weighted smoothing (`apply_whittaker_filter`) and phenology (`weights=`). All three are exported at the top level.
+Decoders ported from `phenofit`'s `qcFUN.R`. Each turns a sensor's QA band into per-observation reliability weights in `[0, 1]` for the `weights=` of [`zeit.smooth`](preprocessing.md#smooth) and [`zeit.phenology`](time-series.md#phenology). A QA cube (a `DataArray`, or a raster path) gives a weights cube with its dims, dates and georeferencing, lazy if it was, ready to pass along with the data it describes; the raster's NoData (and NaN) get the weight `0`. A numpy array gives a numpy array. All three are exported at the top level.
+
+```python
+cube = zeit.build_time_series(..., bands=["red", "nir", "scl"])
+ndvi = zeit.compute_indices(cube, ["NDVI"]).sel(band="NDVI")
+weights = zeit.qc_sentinel2_scl(cube.sel(band="scl"))     # (time, y, x), on the cube's grid
+pheno = zeit.phenology(ndvi, weights=weights)
+```
 
 ### `qc_sentinel2_scl` { .api }
 
@@ -562,7 +541,7 @@ Sentinel-2 L2A Scene Classification Layer: vegetation, bare soil, water, unclass
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `scl` | array | required | SCL values, any shape. |
+| `scl` | array, `DataArray` or path | required | SCL values, any shape. |
 | `wmin`, `wmid`, `wmax` | `float` | `0.2`, `0.5`, `1.0` | Weights for bad, doubtful and good observations. |
 
 </div>
@@ -580,7 +559,7 @@ MOD13 "SummaryQA" / pixel reliability: `0` good → `wmax`, `1` marginal → `wm
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `qa` | array | required | SummaryQA values, any shape. |
+| `qa` | array, `DataArray` or path | required | SummaryQA values, any shape. |
 | `wmin`, `wmid`, `wmax` | `float` | `0.2`, `0.5`, `1.0` | Weights for bad, doubtful and good observations. |
 
 </div>
@@ -588,7 +567,7 @@ MOD13 "SummaryQA" / pixel reliability: `0` good → `wmax`, `1` marginal → `wm
 ```python
 from zeit.qc import qc_modis_summary
 
-weights = qc_modis_summary(qa_cube)          # same shape as qa_cube
+weights = qc_modis_summary(qa_cube)          # a DataArray like qa_cube
 ```
 
 ### `qc_modis_state` { .api }
@@ -604,7 +583,7 @@ MOD09 500 m 16-bit "State QA": decodes cloud state, cloud shadow, aerosol quanti
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `qa` | array | required | State QA values, any shape. |
+| `qa` | array, `DataArray` or path | required | State QA values, any shape. |
 | `wmin`, `wmid`, `wmax` | `float` | `0.2`, `0.5`, `1.0` | Weights for bad, doubtful and good observations. |
 
 </div>

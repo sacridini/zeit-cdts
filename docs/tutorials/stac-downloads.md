@@ -227,20 +227,22 @@ smooth_wh = zeit.smooth(ndvi, lmbda=10, weights=weights)
 
 ## Local GeoTIFFs instead of a catalog
 
-Already have the files on disk? `build_local_cube` builds the same kind of lazy cube from a folder, parsing dates and bands from the file names.
+Already have the files on disk? `load_raster` builds the same kind of lazy cube from a folder, parsing dates and bands from the file names.
 
 ```python
-from zeit import build_local_cube
+import zeit
 
-# Assume you have files like: "SENTINEL_20220101_B02.tif"
-# The regex must capture (?P<date>...) and (?P<band>...)
-cube_local = build_local_cube(
-    data_dir="/path/to/my/tiffs",
-    regex_pattern=r".*_(?P<date>\d{8})_(?P<band>B\d{2})\.tif",
-    date_format="%Y%m%d"
-)
+# Files like "SENTINEL_20220101_B02.tif": the regex captures (?P<date>...) and (?P<band>...)
+cube_local = zeit.load_raster(
+    "/path/to/my/tiffs",
+    pattern=r"_(?P<date>\d{8})_(?P<band>B\d{2})\.tif$",
+    date_format="%Y%m%d",
+    recursive=True,
+    chunks="auto",
+)   # (time, band, y, x), lazy
 
-# You get a full xarray DataArray ready for TWDTW, SOM, or CCDC!
+# Scenes on different grids (two UTM zones, two orbits): put them on one as they are read
+cube_local = zeit.load_raster("/path/to/my/tiffs", pattern=..., like="reference.tif", chunks="auto")
 ```
 
 ## Next steps

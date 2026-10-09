@@ -4,8 +4,8 @@
 
 <div class="glance" markdown>
 <div><span class="k">Answers</span><span class="v">Which typical trajectories exist here, and where?</span></div>
-<div><span class="k">Input</span><span class="v">A 2-D array of samples × features (e.g. pixels × dates)</span></div>
-<div><span class="k">Output</span><span class="v">Prototype vectors and the best-matching prototype of each pixel</span></div>
+<div><span class="k">Input</span><span class="v">A cube, a stack or a Dataset of maps: every value of a pixel is a feature</span></div>
+<div><span class="k">Output</span><span class="v">A cluster map, the prototype trajectory of each cluster and each pixel's distance to it</span></div>
 <div><span class="k">Reference</span><span class="v">Kohonen (1990, 2013); bit-exact port of <code>minisom</code></span></div>
 </div>
 
@@ -23,109 +23,107 @@ Zeit implements both forms of the algorithm in C++:
 - **Online SOM** (Kohonen, 1990): one sample at a time, sequential by definition.
 - **Batch SOM** (Kohonen, 2013): every prototype is updated from all samples at once in each pass, parallelised with OpenMP. It is much faster on large satellite data sets.
 
-`zeit.ai.SOM` is an **operation-by-operation port of Python [`minisom`](https://github.com/JustGlowing/minisom)**. Given the same seed and arguments it draws the same initial weights and sample order and applies the same arithmetic, so the trained codebook is **bit-for-bit identical** to `MiniSom`, 30–190 times faster. See [Algorithm Fidelity](../benchmarks/fidelity.md#6-self-organizing-maps-som).
+Its engine, `zeit.ai.SOM`, is an **operation-by-operation port of Python [`minisom`](https://github.com/JustGlowing/minisom)**. Given the same seed and arguments it draws the same initial weights and sample order and applies the same arithmetic, so the trained codebook is **bit-for-bit identical** to `MiniSom`, 30–190 times faster. See [Algorithm Fidelity](../benchmarks/fidelity.md#6-self-organizing-maps-som).
 
 ## Step by step
 
-### 1. Arrange the data as samples × features
+### 1. Cluster a cube
 
-For time-series clustering, each pixel is a sample and each date (or date × band) is a feature:
-
-```python
-import numpy as np
-from zeit.ai import SOM
-
-# stack: (time, rows, cols)
-n_time, rows, cols = stack.shape
-X = stack.reshape(n_time, -1).T              # (pixels, time)
-valid = np.isfinite(X).all(axis=1)
-
-rng = np.random.default_rng(0)
-train = X[rng.choice(np.flatnonzero(valid), 30_000, replace=False)]
-```
-
-Training on a random sample is usually enough. Assigning all pixels afterwards is fast.
-
-### 2. Initialise and train
+`zeit.som` takes the cube as it is. Every value a pixel holds off `y`/`x` is a feature: each date of an index, each band of each date, or each map of a Dataset (phenology metrics, LandTrendr's event maps...).
 
 ```python
-som = SOM(x=2, y=2, input_len=n_time, sigma=0.8, learning_rate=0.5, random_seed=0)
-som.random_weights_init(train)           # or som.pca_weights_init(train)
+import zeit
 
-# Batch SOM: 20 passes over the whole sample, parallelised with OpenMP
-som.train(train, num_iters=20, algorithm="batch")
-
-prototypes = som.get_weights().reshape(-1, n_time)   # (neurons, time): one typical trajectory each
-print(som.quantization_error(train))                   # mean distance from samples to their BMU
+ndvi = zeit.load_raster("LT_Stack_NDVI_Rondonia.tif")      # (time, y, x), 40 years
+clusters = zeit.som(ndvi, x=2, y=2, sample=30_000)
 ```
 
-`sigma` is the initial neighbourhood radius in grid units. Small grids (2 × 2, 3 × 3) work as a clustering method; larger grids (10 × 10 and up) are used to explore the data or as a first step before grouping neurons.
+The SOM is trained on a random sample of pixels (`sample`, reproducible by `seed`), which is usually enough. Then every pixel goes to its best-matching neuron, block by block if the cube is lazy. Pixels with a missing value (NaN, or the raster's NoData) get no neuron.
 
-### 3. Assign every pixel
+`sigma` is the initial neighbourhood radius in grid units. Small grids (2 × 2, 3 × 3) work as a clustering method. Larger grids (10 × 10 and up) are used to explore the data, or as a first step before grouping neurons.
+
+### 2. Read the result
 
 ```python
-bmu = som.predict(X[valid])              # flat neuron index i * y + j, from 0 to x*y - 1
+clusters.label                       # (y, x): the neuron of each pixel, 1 to x * y (0: no data)
+clusters.distance                    # (y, x): distance to the neuron's prototype
+clusters.prototypes                  # (neuron, time): one typical trajectory per neuron
+clusters.n_pixels                    # (neuron): pixels in each cluster
+clusters.attrs["quantization_error"] # mean distance of the sample to its prototypes
 
-cluster_map = np.full(rows * cols, -1)
-cluster_map[valid] = bmu
-cluster_map = cluster_map.reshape(rows, cols)
+clusters.prototypes.sel(neuron=1).plot()
+zeit.save_raster(clusters, "results/som")      # label.tif and distance.tif
 ```
 
-For a single sample, `som.winner(x)` returns the grid coordinates `(i, j)` of its BMU, as in `minisom`.
+The prototypes keep the cube's dims and coordinates, so a `(time, band, y, x)` cube gives `prototypes (neuron, time, band)`. The grid position of each neuron is in the `i` and `j` coordinates (`minisom`'s `winner`). A large `distance` marks the pixels the map represents poorly, which are often the interesting ones.
+
+### 3. Look at it
+
+```python
+clusters.label.zeit.plot()           # the cluster map, one colour per neuron
+zeit.plot(ndvi, fit=clusters)        # click a pixel: its series, with its neuron's prototype
+```
 
 ### 4. Clean labelled samples (optional)
 
-SOMs are also used to check the training data of a supervised classifier: a sample whose label disagrees with the majority label of its neuron is suspicious. `filter_noisy_samples` returns a mask of the samples to **keep**:
+SOMs are also used to check the training data of a supervised classifier: a sample whose class disagrees with the majority class of its neuron is suspicious. `zeit.clean_samples` trains a SOM on the samples' features and marks each one:
 
 ```python
-keep = som.filter_noisy_samples(X_samples, y_labels)
-X_clean, y_clean = X_samples[keep], y_labels[keep]
+checked = zeit.clean_samples(stack, "samples.gpkg", label="class")
+checked[["class", "neuron", "neuron_class", "purity", "keep"]]
+rf = zeit.train_classifier(stack, checked[checked.keep], label="class")
 ```
 
-This is the idea behind `sits_som_clean_samples()` in R `sits`.
+`purity` is the share of the neuron's samples in its majority class: a neuron where two classes mix is a sign that the features cannot tell them apart. This is the idea behind `sits_som_clean_samples()` in R `sits`.
 
 ## Online or batch?
 
 | `algorithm` | Same as `minisom` | Meaning of `num_iters` | Parallel |
 | :--- | :--- | :--- | :---: |
-| `"online"` (default) | `MiniSom.train(data, num_iters, random_order, use_epochs)` | Number of single-sample updates (epochs with `use_epochs=True`) | No (sequential by definition) |
-| `"batch"` | `MiniSom.train_batch_offline(data, num_iters)` | Number of full passes over the data | Yes (`n_jobs`) |
+| `"online"` (default) | `MiniSom.train(data, num_iters)` | Number of single-sample updates (default: 20 passes over the sample) | No (sequential by definition) |
+| `"batch"` | `MiniSom.train_batch_offline(data, num_iters)` | Number of full passes over the data (default 20) | Yes (`n_jobs`) |
+
+`zeit.som` trains online by default. On small grids the batch update can leave neurons empty: a neuron that wins no sample is pulled onto its neighbour's mean and stays there, so two neurons end up identical. The online update does not do this, and on a sample of 50,000 it takes about as long. Batch pays off on large grids and samples, where it runs in parallel.
+
+## The engine
+
+`zeit.som` runs on `zeit.ai.SOM`, the engine, which you can also use directly on samples you arrange yourself, `(samples, features)`:
 
 ```python
-# Online SOM: 50,000 single-sample updates, samples drawn in random order
-som.train(X_train, num_iters=50_000, random_order=True)
+from zeit.ai import SOM
 
-# Online SOM for 5 epochs over the data
-som.train(X_train, num_iters=5, use_epochs=True)
+som = SOM(x=2, y=2, input_len=X.shape[1], sigma=0.8, learning_rate=0.5, random_seed=0)
+som.random_weights_init(X)               # or som.pca_weights_init(X)
+som.train(X, num_iters=20, algorithm="batch")
+prototypes = som.get_weights().reshape(-1, X.shape[1])
+bmu = som.predict(X)                     # flat neuron index i * y + j, from 0 to x*y - 1
+keep = som.filter_noisy_samples(X, labels)
 ```
 
-!!! warning "`num_iters` depends on the algorithm"
-    With the default `algorithm="online"`, `num_iters=20` means 20 single-sample updates, far too few for real data. For large data sets use `algorithm="batch"` with tens of passes, or `"online"` with tens of thousands of updates (or `use_epochs=True`).
-
-`train` continues from the current weights, like `minisom`. Batch results are identical for any `n_jobs`.
+`train` continues from the current weights, like `minisom`, and batch results are identical for any `n_jobs`. With `sample=None` and the same arguments (note that `zeit.som` lets the learning rate fall to 0, `decay_function="linear_decay_to_zero"`, where the engine and `minisom` default to `"asymptotic_decay"`), `zeit.som` gives exactly the engine's prototypes, and `label` is `som.predict + 1`. All the methods are listed in the [API reference](../api/time-series.md#som_1).
 
 ## Parameters
 
 | Parameter | Default | Effect |
 | :--- | :---: | :--- |
-| `x`, `y` | required | Grid size. `x * y` is the number of prototypes. |
-| `input_len` | required | Number of features per sample. |
+| `x`, `y` | `3`, `3` | Grid size. `x * y` is the number of prototypes. |
+| `sample` | `50000` | Pixels to train on (`None`: all). |
+| `algorithm` | `"online"` | `"online"` or `"batch"`. |
+| `num_iters` | `None` | Updates (online) or passes (batch); default 20 passes. |
 | `sigma` | `1.0` | Initial spread of the neighbourhood function. |
-| `learning_rate` | `0.5` | Initial learning rate (online training). |
-| `decay_function` | `"asymptotic_decay"` | Learning-rate decay: `"asymptotic_decay"`, `"inverse_decay_to_zero"`, `"linear_decay_to_zero"`. |
-| `neighborhood_function` | `"gaussian"` | `"gaussian"`, `"mexican_hat"`, `"bubble"` or `"triangle"`. |
+| `learning_rate` | `0.5` | Initial learning rate. |
+| `decay` | `"linear_decay_to_zero"` | Online: the learning rate falls to 0, so the prototypes settle (`minisom`'s `"asymptotic_decay"` ends at a third of it). |
+| `neighborhood` | `"gaussian"` | `"gaussian"`, `"mexican_hat"`, `"bubble"` or `"triangle"`. |
 | `topology` | `"rectangular"` | `"rectangular"` or `"hexagonal"` grid. |
-| `sigma_decay_function` | `"asymptotic_decay"` | `"asymptotic_decay"`, `"inverse_decay_to_one"`, `"linear_decay_to_one"`. |
-| `random_seed` | `42` | Seed for initialisation and sample order (the same draws as `minisom`). |
-
-All the methods are listed in the [API reference](../api/time-series.md#som).
+| `init` | `"random"` | `"random"` (sample pixels), `"pca"` (first two principal components) or `None`. |
+| `seed` | `42` | Seed of the sample, the initialisation and the sample order. |
 
 ## Good practice
 
 - **Scale features consistently.** The distance treats every feature equally. If you mix bands with different ranges, standardise them first.
-- **Handle gaps before training.** Samples with `NaN` should be filled (for example with [`zeit.smooth`](../api/preprocessing.md#smooth)) or left out.
-- **Interpret prototypes, not colours.** Plot `som.get_weights()` to understand what each cluster means, as in the figure above.
-- **Reproducibility.** Results depend on `random_seed` and on the initialisation. Fix both, and you get the same codebook as `minisom` with the same settings.
+- **Fill gaps, or accept that gappy pixels get no neuron.** Pixels with a missing value are left out. [`zeit.smooth`](../api/preprocessing.md#smooth) fills them.
+- **Interpret prototypes, not colours.** Plot `clusters.prototypes` to understand what each cluster means, as in the figure above.
+- **Reproducibility.** Results depend on `seed`, the sample and the initialisation. Fix them, and you get the same result every run, and the same codebook as `minisom` with the same settings.
 
 ## References
 

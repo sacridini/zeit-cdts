@@ -301,6 +301,138 @@ zeit mmu-filter ./results/lt_event_yod.tif ./results/lt_event_yod_mmu.tif --mmu-
 
 ---
 
+## The other cube functions
+
+`phenology`, `smooth`, `tmask`, `twdtw`, `snic`, `classify` and `som` run the Python function of the same name on any raster [`load_raster`](api/data.md#load_raster) reads, with the dates in the band names (as `save_raster` writes them, `yr1985`, `2020-01-15` or `2020-01-15_red` for a time × band stack). They share the same syntax and options, and write `<output_dir>/<prefix>.tif`, one band per map (or per date), computed block by block in one pass:
+
+```bash
+zeit <command> <input> <output_dir> [OPTIONS]
+```
+
+| Option | Type | Default | Description |
+| :--- | :---: | :---: | :--- |
+| `--chunk-size` | `int` | `512` | Size of the image chunks to process at once. |
+| `--jobs` | `int` | `-1` | Number of CPU cores to use. |
+| `--prefix` | `str` | the command | Name of the output file, without extension. |
+
+### 8. Phenology (`phenology`)
+
+[`zeit.phenology`](api/time-series.md#phenology): one band per metric (and year). See the [phenology tutorial](tutorials/phenology.md).
+
+| Option | Type | Default | Description |
+| :--- | :---: | :---: | :--- |
+| `--curve` | `str` | `beck` | `beck`, `elmore`, `gu`, `klos`, `zhang`, `ag` or `dl`. |
+| `--method` | `str` | `threshold` | `threshold`, `derivative`, `gu` or `klosterman`. |
+| `--weights` | `filepath` | *None* | A raster of observation weights in `[0, 1]` on the input's grid and dates (e.g. written from [`zeit.qc_sentinel2_scl`](api/data.md#qc_sentinel2_scl)). |
+| `--not-annual` | flag | | Metrics per season instead of per calendar year. |
+| `--max-seasons` | `int` | years | Seasons to report. |
+| `--whittaker-lambda` | `float` | `10` | Whittaker smoothing before the fit. |
+
+```bash
+zeit phenology ./data/s2_ndvi_2019_2023.tif ./results --curve elmore --weights ./data/s2_weights.tif
+```
+
+### 9. Smoothing (`smooth`)
+
+[`zeit.smooth`](api/preprocessing.md#smooth): the smoothed series, same dates and type.
+
+| Option | Type | Default | Description |
+| :--- | :---: | :---: | :--- |
+| `--method` | `str` | `whittaker` | `whittaker` (uneven dates, gaps filled) or `savgol`. |
+| `--lmbda` | `float` | `10` | Whittaker: smoothness. |
+| `--weights` | `filepath` | *None* | Whittaker: a raster of observation weights in `[0, 1]`. |
+| `--window`, `--polyorder` | `int` | `5`, `2` | Savitzky-Golay: window length and polynomial order. |
+
+```bash
+zeit smooth ./data/ndvi_16d.tif ./results --lmbda 20
+```
+
+### 10. Cloud and shadow screening (`tmask`)
+
+[`zeit.tmask`](api/preprocessing.md#tmask) on a `(time, band)` stack (bands named `date_band`): one band per date, `1` clear, `0` cloud, shadow or no data.
+
+| Option | Type | Default | Description |
+| :--- | :---: | :---: | :--- |
+| `--green`, `--swir` | `str` | `green`, `swir1` | Names of the green and SWIR-1 bands. |
+| `--scale` | `float` | `10000` | Reflectance scale of the stack (`1` for 0-1 floats). |
+
+```bash
+zeit tmask ./data/landsat_sr_stack.tif ./results
+```
+
+### 11. TWDTW classification (`twdtw`)
+
+[`zeit.twdtw`](api/time-series.md#twdtw): bands `label`, `distance` and one distance per pattern. The patterns come from a CSV with the columns `pattern`, `date` and one value column (or one column per band, named as the input's bands):
+
+```text
+pattern,date,ndvi
+soy,2022-10-01,0.25
+soy,2022-11-01,0.48
+...
+pasture,2022-10-01,0.55
+```
+
+| Option | Type | Default | Description |
+| :--- | :---: | :---: | :--- |
+| `--patterns` | `filepath` | required | The CSV of patterns. |
+| `--band` | `str` | *None* | A multi-band input with one-band patterns: the band to classify. |
+| `--steepness`, `--midpoint` | `float` | `0.1`, `50` | The logistic time weight (midpoint in days). |
+| `--max-elapsed` | `float` | *None* | Never match observations farther apart than this many days. |
+| `--no-cycle` | flag | | Measure elapsed time between the dates, not between days of the year. |
+
+```bash
+zeit twdtw ./data/ndvi_2022.tif ./results --patterns ./data/patterns.csv
+```
+
+### 12. SNIC segmentation (`snic`)
+
+[`zeit.snic`](api/time-series.md#snic): the segment labels (the input is read into memory). `--polygons` also writes `<prefix>.gpkg`, the segments as polygons with their means.
+
+| Option | Type | Default | Description |
+| :--- | :---: | :---: | :--- |
+| `--spacing` | `float` | `10` | Pixels between seeds. |
+| `--compactness` | `float` | `0.5` | Larger: more regular segments (in data units). |
+| `--grid` | `str` | `rectangular` | `rectangular`, `diamond`, `hexagonal` or `random`. |
+| `--polygons` | flag | | Also write the polygons. |
+
+```bash
+zeit snic ./data/s2_ndvi_2022.tif ./results --spacing 8 --polygons
+```
+
+### 13. Classification (`classify`)
+
+[`zeit.train_classifier`](api/post-processing.md#train_classifier) and [`zeit.classify`](api/post-processing.md#classify) in one call: a random forest trained on sample points (each band, or date and band, a feature) classifies every pixel. Bands `label` (and each class's probability with `--probability`).
+
+| Option | Type | Default | Description |
+| :--- | :---: | :---: | :--- |
+| `--samples` | `filepath` | *None* | Vector file of points with their class. |
+| `--label` | `str` | `class` | Column of the samples holding the class. |
+| `--model` | `filepath` | *None* | With `--samples`: where to save the trained model (joblib). Without: a saved model to classify with. |
+| `--probability` | flag | | Also write each class's probability. |
+
+```bash
+zeit classify ./data/s2_2022.tif ./results --samples ./data/samples.gpkg --model ./results/rf.joblib
+zeit classify ./data/s2_2023.tif ./results_2023 --model ./results/rf.joblib      # the same model, next year
+```
+
+### 14. SOM clustering (`som`)
+
+[`zeit.som`](api/time-series.md#som): bands `label` and `distance`, and `<prefix>_prototypes.csv` with one row per neuron (`neuron`, its grid position `i`/`j`, `n_pixels`, then the prototype, one column per date or date and band).
+
+| Option | Type | Default | Description |
+| :--- | :---: | :---: | :--- |
+| `--x`, `--y` | `int` | `3`, `3` | Neurons of the grid. |
+| `--sample` | `int` | `50000` | Pixels to train on, at random (`0` for all). |
+| `--algorithm` | `str` | `online` | `online` or `batch`. |
+| `--sigma`, `--learning-rate` | `float` | `1.0`, `0.5` | Initial neighbourhood radius and learning rate. |
+| `--seed` | `int` | `42` | Random seed. |
+
+```bash
+zeit som ./data/LT_Stack_NDVI_Rondonia.tif ./results --x 2 --y 2 --sample 30000
+```
+
+---
+
 ## Note on AI Tools (Deep Learning)
 
 Currently, the AI tools (`zeit.ai`) are **not** exposed via the CLI. 

@@ -12,7 +12,7 @@ import warnings
 import numpy as np
 import pytest
 
-from zeit.ai import SOM
+from zeit._som import SOM
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PARITY = np.load(os.path.join(HERE, "data", "som_minisom_parity.npz"))

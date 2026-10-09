@@ -1,7 +1,7 @@
 import warnings
 
 import numpy as np
-from .. import _core
+from . import _core
 
 _LR_DECAYS = {'asymptotic_decay': 0, 'inverse_decay_to_zero': 1, 'linear_decay_to_zero': 2}
 _SIGMA_DECAYS = {'asymptotic_decay': 0, 'inverse_decay_to_one': 1, 'linear_decay_to_one': 2}

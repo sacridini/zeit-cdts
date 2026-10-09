@@ -302,21 +302,16 @@ zeit.plot(ndvi, fit=classes)                          # click a pixel: its serie
 
 ## Unsupervised Clustering (SOM)
 
-Unsupervised classification and dimensionality reduction of time series with a C++ port of Python `minisom` (online and Batch SOM) that reproduces its results bit-for-bit, 30-190x faster.
+Unsupervised classification of whole trajectories: `zeit.som` trains a self-organizing map on a sample of the pixels and puts every pixel in its best-matching neuron. The engine is a C++ port of Python `minisom` (online and Batch SOM) that reproduces its results bit-for-bit, 30-190x faster.
 
 ```python
-from zeit.ai import SOM
+ndvi = zeit.load_raster("LT_Stack_NDVI_Rondonia.tif")
+clusters = zeit.som(ndvi, x=3, y=3, sample=50_000)   # label, distance, prototypes (neuron, time)
+clusters.prototypes.sel(neuron=1).plot()              # a typical trajectory
+zeit.plot(ndvi, fit=clusters)                         # click a pixel: its series and its prototype
 
-# Flatten cube to (Pixels, Features)
-X_train = cube_16d.values.reshape(-1, cube_16d.shape[2] * cube_16d.shape[3])
-
-# Train a 10x10 SOM grid (Batch SOM, 20 passes over the data, OpenMP-parallel)
-som = SOM(x=10, y=10, input_len=X_train.shape[1], sigma=1.5)
-som.random_weights_init(X_train)
-som.train(X_train, num_iters=20, algorithm="batch", n_jobs=-1)
-
-# Predict Best Matching Units (BMUs) for new data
-bmus = som.predict(X_train, n_jobs=-1)
+# Before training a classifier: flag samples whose class is not their neuron's
+checked = zeit.clean_samples(cube, "samples.gpkg", label="class")
 ```
 
 ## Pre and Post-Processing

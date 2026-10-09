@@ -82,6 +82,14 @@ class ZeitAccessor:
         from zeit._snic_api import snic
         return snic(self._obj, **kwargs)
 
+    def som(self, **kwargs: Any) -> xr.Dataset:
+        """
+        Clusters the pixels of this map or cube with a Self-Organizing Map: the same as
+        ``zeit.som(da, **kwargs)``.
+        """
+        from zeit._som_api import som
+        return som(self._obj, **kwargs)
+
     def tmask(self, **kwargs: Any) -> xr.DataArray:
         """
         Tmask cloud and shadow screening of this (time, band, y, x) cube: the same as

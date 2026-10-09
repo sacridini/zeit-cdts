@@ -4,6 +4,6 @@ from .tempcnn import TempCNN
 from .foundation import GeoFoundationViT
 from .dataset import STACCubeDataset
 from .losses import FocalLoss, TverskyLoss, ContrastiveSiameseLoss
-from .som import SOM
+from .._som import SOM
 
 __all__ = ['SiameseChangeDetector', 'UTAE', 'LTAE', 'LightTAE', 'TempCNN', 'GeoFoundationViT', 'STACCubeDataset', 'FocalLoss', 'TverskyLoss', 'ContrastiveSiameseLoss', 'SOM']
