@@ -77,7 +77,7 @@ def test_date_band_descriptions_give_a_4d_cube(tmp_path):
     array = np.arange(4 * 3 * 3, dtype=np.int16).reshape(4, 3, 3)
     cube = load_raster(write_stack(tmp_path / "s.tif", array, labels))
     assert cube.dims == ("time", "band", "y", "x")
-    assert cube.band.values.tolist() == ["nir", "red"] or cube.band.values.tolist() == ["red", "nir"]
+    assert cube.band.values.tolist() == ["red", "nir"]   # the file's order, not alphabetical
     np.testing.assert_array_equal(cube.sel(time="2021-02-01", band="nir").values, array[3])
     np.testing.assert_array_equal(cube.sel(time="2021-01-01", band="red").values, array[0])
 

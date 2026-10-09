@@ -117,12 +117,30 @@ def predict(coefs: Union[np.ndarray, List[float]], dates: Union[np.ndarray, List
             + c[6] * np.cos(3 * w * t) + c[7] * np.sin(3 * w * t))
 
 
-def predict_synthetic_image(ccdc_coefs_stack: np.ndarray, target_julian_day: int, num_bands: int = 6) -> np.ndarray:
+def predict_synthetic_image(segments: Any, date: Any = None, num_bands: int = 6, *,
+                            target_julian_day: Optional[int] = None) -> Any:
     """
-    Generates a cloud-free synthetic image for a specific day using CCDC harmonic coefficients.
-    ccdc_coefs_stack: 4D numpy array output from run_ccdc_array() or read from _coefs.tif,
-    shaped (max_segments, 3 + num_bands * 9, rows, cols); target_julian_day is a Python ordinal day.
+    Generates a cloud-free synthetic image for a date from CCDC harmonic coefficients.
+
+    segments: the result of ``zeit.ccdc`` (an ``xarray.Dataset``); returns a georeferenced
+        (band, y, x) DataArray. Each pixel uses the segment covering the date (before the first
+        segment, the first; after the last, the last); pixels without a model are NaN.
+        A numpy stack shaped (max_segments, 3 + num_bands * 9, rows, cols), as written by older
+        versions, is also accepted and gives a (num_bands, rows, cols) array.
+    date: a date (string, datetime, ``numpy.datetime64``) or a Python ordinal day.
+        ``target_julian_day`` is its former name.
+    num_bands: numpy stacks only.
     """
+    if date is None:
+        date = target_julian_day
+    if date is None:
+        raise ValueError("give the date to predict")
+    import xarray as xr
+    if isinstance(segments, xr.Dataset):
+        from ._ccdc_api import predict_image
+        return predict_image(segments, date)
+    ccdc_coefs_stack = np.asarray(segments)
+    target_julian_day = int(date)
     _, _, rows, cols = ccdc_coefs_stack.shape
 
     W = 2.0 * np.pi / 365.25

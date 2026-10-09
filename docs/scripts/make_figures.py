@@ -511,7 +511,7 @@ def fig_quickstart():
 
 
 def fig_ccdc():
-    from zeit.ccdc import run_ccdc, predict
+    from zeit._ccdc import run_ccdc, predict
     rng = np.random.default_rng(RNG_SEED)
     dates, cloudy = _landsat_dates(2008, 2021)
     ty = frac_year(dates)

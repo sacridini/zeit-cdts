@@ -114,7 +114,7 @@ def _from_fractional_year(value: float) -> pd.Timestamp:
     year = int(np.floor(value))
     start = pd.Timestamp(year, 1, 1)
     days = (pd.Timestamp(year + 1, 1, 1) - start).days
-    return start + pd.Timedelta(days=(value - year) * days)
+    return start + pd.Timedelta(np.timedelta64(int(round((value - year) * days * 86400)), "s"))
 
 
 def years(time: Any) -> np.ndarray:

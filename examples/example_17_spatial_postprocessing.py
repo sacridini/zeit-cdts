@@ -97,7 +97,7 @@ def main():
     print("\n[2/4] Applying the Minimum Mapping Unit (MMU) filter (file-based, removes patches < 9 px)...")
     out_mmu = os.path.join("data", "spatial_mmu_filtered.tif")
     zeit.apply_mmu_filter(in_tif, out_mmu, mmu_pixels=9)
-    mmu_result, _ = load_raster(out_mmu)
+    mmu_result = load_raster(out_mmu).values[None]   # (1, rows, cols)
     n_disturbed_after = int((mmu_result[0] != 0).sum())
     print(f"    Disturbed pixels after MMU filtering: {n_disturbed_after} "
           f"(the 3 real patches total {5*5 + 4*4 + 3*4} px - the rest was noise, now removed).")

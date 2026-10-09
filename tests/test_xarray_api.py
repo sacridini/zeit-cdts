@@ -26,23 +26,22 @@ def test_xarray_ccdc_accessor():
     # Dummy fractional years
     dates = np.linspace(2000.0, 2010.0, time)
     
-    # Run CCDC lazily with Strategy A (n_jobs=-1)
+    # Run CCDC lazily with Strategy A (n_jobs=-1): the accessor delegates to zeit.ccdc,
+    # which puts the cube in (time, band, y, x) order and reads the dates
     max_segments = 4
-    return_coefs = True
-    params_per_seg = 3 + (bands * 9) if return_coefs else 1  # rmse + 8 coefficients per band
-    
-    result = da_arr.zeit.run_ccdc(dates=dates, max_segments=max_segments, return_coefs=return_coefs, n_jobs=-1)
-    
+    result = da_arr.zeit.ccdc(dates=dates, max_segments=max_segments, n_jobs=-1)
+
     # Check that it's still lazy (Dask array inside)
-    assert isinstance(result.data, da.Array)
-    
+    assert isinstance(result.coefs.data, da.Array)
+
     # Check expected output dimensions
-    assert result.dims == ("segment", "parameter", "y", "x")
-    assert result.shape == (max_segments, params_per_seg, y, x)
-    
+    assert result.coefs.dims == ("segment", "band", "coef", "y", "x")
+    assert result.coefs.shape == (max_segments, bands, 8, y, x)
+    assert result.t_start.dims == ("segment", "y", "x")
+
     # Compute the graph and verify execution completes without crashing
     computed_result = result.compute()
-    assert computed_result.shape == (max_segments, params_per_seg, y, x)
+    assert computed_result.rmse.shape == (max_segments, bands, y, x)
 
 def test_xarray_landtrendr_accessor():
     """

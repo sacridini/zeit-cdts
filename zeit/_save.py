@@ -215,19 +215,21 @@ def _prepare(data: Any, path: Path, *, like: Any, crs: Any, transform: Optional[
     da = data if isinstance(data, xr.DataArray) else None
     if da is not None:
         da = _spatial_last(da)
+        if da.dtype.kind == "M":  # dates (e.g. CCDC's t_break) are written as decimal years
+            da = _decimal_years(da)
     ndim = np.ndim(data)
-    if ndim not in (2, 3, 4):
-        raise ValueError(f"a raster has 2, 3 or 4 dimensions, got shape {np.shape(data)}")
+    if ndim < 2:
+        raise ValueError(f"a raster has at least 2 dimensions, got shape {np.shape(data)}")
 
     # Band names and dates, before the cube is flattened to (band, y, x).
     names, times = _band_labels(da)
     if band_names is not None:
         names = list(band_names)
     array = da.data if da is not None else data
-    if ndim == 4:
-        array = array.reshape((array.shape[0] * array.shape[1],) + tuple(array.shape[2:]))
-    elif ndim == 2:
+    if ndim == 2:
         array = array[None, ...]
+    elif ndim > 3:
+        array = array.reshape((int(np.prod(array.shape[:-2])),) + tuple(array.shape[-2:]))
     count, height, width = array.shape
     if names is not None and len(names) != count:
         raise ValueError(f"{len(names)} band names for {count} bands")
@@ -317,10 +319,15 @@ def _spatial_last(da: xr.DataArray) -> xr.DataArray:
     if rename:
         da = da.rename(rename)
     if "y" in da.dims and "x" in da.dims:
-        lead = [d for d in ("time", "band") if d in da.dims]
-        rest = [d for d in da.dims if d not in (*lead, "y", "x")]
-        da = da.transpose(*rest, *lead, "y", "x")
+        da = da.transpose(*[d for d in da.dims if d not in ("y", "x")], "y", "x")
     return da
+
+
+def _decimal_years(da: xr.DataArray) -> xr.DataArray:
+    """Dates as decimal years (2020-07-02 -> ~2020.5); NaT becomes NaN."""
+    days_in_year = xr.where(da.dt.is_leap_year, 366.0, 365.0)
+    years = da.dt.year + (da.dt.dayofyear - 1) / days_in_year
+    return years.where(da.notnull()).astype(np.float64).assign_attrs(units="decimal year")
 
 
 def _date_label(times: pd.DatetimeIndex) -> List[str]:
@@ -336,10 +343,11 @@ def _band_labels(da: Optional[xr.DataArray]) -> Tuple[Optional[List[str]], Optio
     lead = da.dims[:-2]
     has_time = "time" in lead and "time" in da.coords and np.issubdtype(da.time.dtype, np.datetime64)
     times = pd.DatetimeIndex(da.time.values) if has_time else None
-    if da.ndim == 4:
-        first = _date_label(times) if times is not None else [str(v) for v in _coord(da, lead[0])]
-        second = [str(v) for v in _coord(da, lead[1])]
-        return [f"{a}_{b}" for a in first for b in second], None
+    if da.ndim >= 4:
+        import itertools
+        labels = [_date_label(times) if dim == "time" and times is not None else [str(v) for v in _coord(da, dim)]
+                  for dim in lead]
+        return ["_".join(parts) for parts in itertools.product(*labels)], None
     if times is not None:
         return _date_label(times), times
     values = _coord(da, lead[0])

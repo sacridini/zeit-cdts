@@ -82,8 +82,8 @@
 | [`landtrendr`](change-detection.md#landtrendr) | LandTrendr on a file, cube, array or single pixel |
 | [`extract_events`](change-detection.md#extract_events) | LandTrendr vertices to event maps |
 | [`apply_vertices`](change-detection.md#apply_vertices) | Fit another band to the same vertices |
-| [`run_ccdc_array`](change-detection.md#run_ccdc_array) / [`run_ccdc_image`](change-detection.md#run_ccdc_image) / [`run_ccdc`](change-detection.md#run_ccdc) | CCDC: array, file, pixel |
-| [`predict_synthetic_image`](change-detection.md#predict_synthetic_image) / [`predict`](change-detection.md#predict) | Evaluate CCDC models on any date |
+| [`ccdc`](change-detection.md#ccdc) | CCDC on a file, cube, array or single pixel |
+| [`predict_synthetic_image`](change-detection.md#predict_synthetic_image) | Evaluate CCDC models on any date |
 | [`run_bfast_monitor_dask`](change-detection.md#run_bfast_monitor_dask) | Near-real-time monitoring |
 | [`run_bfast_lite_dask`](change-detection.md#run_bfast_lite_dask) | Optimal multiple breakpoints |
 | [`run_bfast_dask`](change-detection.md#run_bfast_dask) | Trend and seasonal breaks |

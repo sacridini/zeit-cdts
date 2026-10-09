@@ -92,7 +92,7 @@ cube_16d = regularize_time_series(cube, freq="16D", method="medoid")
 
 ## Change Detection (LandTrendr & CCDC)
 
-Continuous structural monitoring using robust breakpoint and harmonic regression models directly on xarray Datacubes (`zeit.landtrendr(cube)`, or pandas-like accessors such as `cube.zeit.run_ccdc(...)`).
+Continuous structural monitoring using robust breakpoint and harmonic regression models directly on xarray Datacubes (`zeit.landtrendr(cube)`, `zeit.ccdc(cube)`, or pandas-like accessors such as `cube.zeit.ccdc(...)`).
 
 ### LandTrendr (Trajectory-based Disturbance)
 Identify structural breakpoints in time-series (e.g., detecting exactly when deforestation occurred). One function, `zeit.landtrendr`, takes a raster file, an in-memory or Dask cube, a NumPy stack or a single pixel's series, and scales LandTrendr to massive datasets using C++ OpenMP and Dask.
@@ -124,40 +124,33 @@ zeit.save_raster(loss, "lt_rondonia")   # one GeoTIFF per map: yod.tif, magnitud
 ```
 
 ### CCDC / COLD (Harmonic Modeling)
-Extracts harmonic coefficients (Intercept, Slopes, Sine, Cosine) and detects intra-annual changes by fitting mathematical curves to multi-spectral data.
+Extracts harmonic coefficients (Intercept, Slopes, Sine, Cosine) and detects intra-annual changes by fitting mathematical curves to multi-spectral data. Like LandTrendr, one function, `zeit.ccdc`, takes a raster file, an in-memory or Dask cube, a NumPy stack or a single pixel's series.
 
 ```python
-import numpy as np
-from zeit.ccdc import predict_synthetic_image
+import zeit
 from zeit.classify import train_ccdc_classifier, classify_ccdc_stack
 
-# 1. Provide Julian dates and a Quality Assurance mask (Cloud/Shadow)
-# cube_multi: 4D array (Bands, Time, Y, X)
-# qa_mask: 3D array (Time, Y, X) with 0 for clear sky, 1 for clouds
-dates_julian = np.array([100, 116, 132, 148, 164, 180])
+# 1. A dense multi-band stack: surface reflectance x 10000 (Blue, Green, Red, NIR, SWIR1, SWIR2)
+#    plus a band of Fmask codes (0 clear, 1 water, 2 shadow, 3 snow, 4 cloud, 255 fill)
+cube = zeit.load_raster("landsat_sr.tif")   # (time, band, y, x); dates from band names 2020-01-15_blue ...
 
-# 2. Run CCDC directly as an xarray accessor
-ccdc_results = cube_multi.zeit.run_ccdc(
-    dates=dates_julian,
-    qa_stack=qa_mask, # Automatically skips clouded pixels in regression
-    max_segments=6, 
-    return_coefs=True, 
-    n_jobs=-1
-)
+# 2. Run CCDC on every pixel; the QA band is named, and left out of the spectral bands
+segments = zeit.ccdc(cube, qa="fmask", max_segments=6)
+# xarray.Dataset: t_start, t_end, t_break (segment, y, x), n_segments (y, x),
+# rmse (segment, band, y, x), coefs (segment, band, coef, y, x)
+# Dask cubes stay lazy; zeit.ccdc("big.tif", qa="fmask", chunks="auto") works block by block.
 
-# Run the C++ engine to generate the harmonic coefficient stack
-coef_stack = ccdc_results.compute()
+first_break = segments.t_break.isel(segment=0)   # date of the first change (NaT = none)
+zeit.save_raster(segments, "ccdc_out")           # one GeoTIFF per variable, dates as decimal years
 
 # 3. Generate Synthetic Images (Harmonic Reconstruction)
 # Predict what the surface should look like on any arbitrary date without clouds!
-# Output shape: (Bands, Y, X)
-synthetic_image = predict_synthetic_image(
-    ccdc_coefs_stack=coef_stack.values, 
-    target_julian_day=200, # Predict for Julian day 200
-    num_bands=6
-)
+synthetic_image = zeit.predict_synthetic_image(segments, "2020-07-15")   # (band, y, x)
 
 # 4. Land Cover Classification using the Harmonic Coefficients
+# The coefficients of the first segment as a feature stack: bands blue_a0 ... swir2_b3
+zeit.save_raster(segments.coefs.isel(segment=0).fillna(0), "output/ccdc_coefs.tif")
+
 # Train a Random Forest using harmonic coefficients as features
 rf_model = train_ccdc_classifier(
     X_train=training_coefs, # Your extracted training samples
@@ -165,7 +158,7 @@ rf_model = train_ccdc_classifier(
     n_estimators=100
 )
 
-# Classify the entire CCDC cube into a categorical land cover map block-by-block
+# Classify the entire coefficient stack into a categorical land cover map block-by-block
 # (Handles memory efficiently by reading/writing chunks)
 classify_ccdc_stack(
     clf=rf_model,

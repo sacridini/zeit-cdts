@@ -100,7 +100,7 @@ zeit.classify.classify_ccdc_stack(
 )
 ```
 
-Applies a classifier to every pixel of a CCDC coefficient GeoTIFF (for example from `run_ccdc_image`), block by block, and writes a `uint8` class map. Pixels whose first two bands are both zero are left as `0`. Also exported as `zeit.classify_ccdc_stack`.
+Applies a classifier to every pixel of a feature GeoTIFF, block by block, and writes a `uint8` class map. A natural feature stack is the coefficients of one [`zeit.ccdc`](change-detection.md#ccdc) segment written with `save_raster`, one band per band and coefficient (`blue_a0`, `blue_c1`, …, `swir2_b3`). Pixels whose first two bands are both zero are left as `0`. Also exported as `zeit.classify_ccdc_stack`.
 
 <div class="params" markdown>
 
@@ -116,8 +116,12 @@ Applies a classifier to every pixel of a CCDC coefficient GeoTIFF (for example f
 ```python
 from zeit.classify import train_ccdc_classifier, classify_ccdc_stack
 
-clf = train_ccdc_classifier(X_train, y_train)
-classify_ccdc_stack(clf, "results/ccdc_break_coefs.tif", "results/land_cover.tif")
+segments = zeit.ccdc(cube, qa="fmask")
+features = segments.coefs.isel(segment=0).fillna(0)     # first segment; 0 where a pixel has no model
+zeit.save_raster(features, "results/coefs.tif")          # 48 bands: blue_a0 ... swir2_b3
+
+clf = train_ccdc_classifier(X_train, y_train)            # X_train: coefs.tif sampled at labelled points
+classify_ccdc_stack(clf, "results/coefs.tif", "results/land_cover.tif")
 ```
 
 ## Masks
@@ -137,7 +141,7 @@ Persistent water mask from the first CCDC model of each pixel: water is brighter
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `ccdc_coefs_stack` | `np.ndarray` | required | `(segments, parameters, rows, cols)` from `run_ccdc_array`. |
+| `ccdc_coefs_stack` | `np.ndarray` | required | `(segments, parameters, rows, cols)` in the numpy layout of older CCDC versions: per segment `t_start`, `t_end`, `t_break`, then each band's RMSE and 8 coefficients. |
 | `green_band_idx` | `int` | required | 0-based index of the Green band. |
 | `swir_band_idx` | `int` | required | 0-based index of the SWIR band. |
 
@@ -146,7 +150,7 @@ Persistent water mask from the first CCDC model of each pixel: water is brighter
 **Returns** a `uint8` `(rows, cols)` mask, `1` = water.
 
 !!! bug "Known issue"
-    The current implementation locates each band's intercept assuming 7 parameters per band, while CCDC outputs 9 (RMSE plus 8 coefficients). For any band other than the first, the wrong coefficient is read. Until this is fixed, compute the mask from the intercepts directly: the intercept of band `b` is at parameter index `4 + 9 * b`.
+    The current implementation locates each band's intercept assuming 7 parameters per band, while CCDC outputs 9 (RMSE plus 8 coefficients). For any band other than the first, the wrong coefficient is read. Until this is fixed, compute the mask from the intercepts directly: in a [`zeit.ccdc`](change-detection.md#ccdc) result they are `segments.coefs.sel(segment=1, coef="a0")`; in the numpy layout, the intercept of band `b` is at parameter index `4 + 9 * b`.
 
 ## Validation
 

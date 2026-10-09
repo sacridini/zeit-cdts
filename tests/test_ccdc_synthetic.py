@@ -1,5 +1,5 @@
 import numpy as np
-from zeit.ccdc import predict_synthetic_image
+from zeit._ccdc import predict_synthetic_image
 
 def test_predict_synthetic_image():
     # Shape: (max_segments=2, params_per_seg=3 + bands*9, rows=2, cols=2); with

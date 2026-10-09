@@ -3,7 +3,6 @@ import sys
 from typing import Optional, List
 
 from .raster import (
-    run_ccdc_image,
     run_bfast_monitor_image, run_bfast_lite_image, run_bfast_image, run_mann_kendall_image,
 )
 from .spatial import apply_mmu_filter
@@ -49,41 +48,42 @@ def run_landtrendr(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 def run_ccdc_cli(args: argparse.Namespace) -> None:
+    import os
+    from ._ccdc_api import ccdc
+    from ._load import load_raster
+    from ._save import save_raster
+
     try:
-        # User needs to provide a list of dates. We'll read it from a text/csv file.
-        # Alternatively, if not provided, we can simulate dates for testing (but throw warning)
-        import os
-        import numpy as np
-        
-        dates: List[int] = []
-        if args.dates_file and os.path.exists(args.dates_file):
-            with open(args.dates_file, 'r') as f:
-                dates = [int(line.strip()) for line in f if line.strip().isdigit()]
-        else:
-            print("WARNING: No --dates-file provided. Assuming 1 observation every 16 days (Landsat).")
-            # We don't know the number of dates until we open the file, so we'll 
-            # let process_file_ccdc handle it or we can hack it.
-            # Actually, we should force it or read the TIF first.
-            import rasterio
-            with rasterio.open(args.input) as src:
-                num_dates = src.count // args.num_bands
-            dates = list(np.arange(1, 1 + num_dates * 16, 16))
-            
-        run_ccdc_image(
-            input_path=args.input,
-            output_dir=args.output_dir,
-            dates=dates,
-            num_bands=args.num_bands,
-            qa_band_idx=args.qa_band,
-            max_segments=args.max_segments,
-            chunk_size=args.chunk_size,
-            n_jobs=args.jobs,
-            prefix=args.prefix,
-            conseq_anom=6 if args.cold else args.conse
-        )
+        dates = None
+        if args.dates_file:
+            # One date per line: an ISO date (2020-01-15) or a Python ordinal day (737439).
+            with open(args.dates_file) as f:
+                lines = [line.strip() for line in f if line.strip()]
+            dates = [int(v) if v.isdigit() and len(v) > 4 else v for v in lines]
+            dates = [_timestamp(v) for v in dates]
+        cube = load_raster(args.input, chunks={"time": -1, "band": -1, "y": args.chunk_size, "x": args.chunk_size})
+        bands, qa = None, None
+        if "time" in cube.dims:          # dates in the band names (date_band)
+            if args.qa_band >= 0:
+                qa = str(cube.band.values[args.qa_band])
+        else:                            # interleaved by date: --dates-file and --num-bands
+            bands = [f"b{i + 1}" for i in range(args.num_bands)]
+            if args.qa_band >= 0:
+                qa = bands[args.qa_band]
+        segments = ccdc(cube, qa=qa, dates=dates, bands=bands, max_segments=args.max_segments,
+                        conseq_anom=6 if args.cold else args.conse, n_jobs=args.jobs)
+        os.makedirs(args.output_dir, exist_ok=True)
+        # One call: every output is computed in the same pass over the image.
+        save_raster({f"{args.prefix}_{name}": segments[name] for name in segments.data_vars}, args.output_dir)
+        print(f"Successfully processed and saved layers to {args.output_dir}")
     except Exception as e:
         print(f"Error running CCDC: {e}")
         sys.exit(1)
+
+
+def _timestamp(value):
+    import pandas as pd
+    return pd.Timestamp.fromordinal(value) if isinstance(value, int) else pd.Timestamp(value)
 
 def run_bfast_monitor_cli(args: argparse.Namespace) -> None:
     try:
@@ -204,11 +204,11 @@ def main() -> None:
     
     # CCDC Subparser
     ccdc_parser = subparsers.add_parser("ccdc", help="Run CCDC algorithm")
-    ccdc_parser.add_argument("input", help="Path to input stacked multi-band GeoTIFF")
+    ccdc_parser.add_argument("input", help="Path to input stacked multi-band GeoTIFF (bands named date_band, as save_raster writes them, or interleaved by date with --dates-file and --num-bands)")
     ccdc_parser.add_argument("output_dir", help="Directory to save the outputs")
-    ccdc_parser.add_argument("--num-bands", type=int, default=6, help="Number of bands per date in the stack (default: 6)")
-    ccdc_parser.add_argument("--qa-band", type=int, default=-1, help="Index of QA band for cloud masking within the block (0-based, default: -1 for none)")
-    ccdc_parser.add_argument("--dates-file", help="Path to text file containing Julian dates (one per line)")
+    ccdc_parser.add_argument("--num-bands", type=int, default=6, help="With --dates-file: number of bands per date in a stack interleaved by date (default: 6)")
+    ccdc_parser.add_argument("--qa-band", type=int, default=-1, help="0-based index, among the bands of each date, of an Fmask QA band (default: -1 for none)")
+    ccdc_parser.add_argument("--dates-file", help="Text file with one date per line (ISO date or Python ordinal day), for a stack without dates in its band names")
     ccdc_parser.add_argument("--max-segments", type=int, default=6, help="Maximum number of segments (default: 6)")
     ccdc_parser.add_argument("--chunk-size", type=int, default=512, help="Size of the image chunks to process at once (default: 512)")
     ccdc_parser.add_argument("--jobs", type=int, default=-1, help="Number of CPU cores to use (-1 for all, default: -1)")

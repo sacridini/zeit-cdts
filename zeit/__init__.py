@@ -1,11 +1,11 @@
 from ._landtrendr import desawtooth, apply_vertices
 from ._lt import landtrendr
+from ._ccdc_api import ccdc
 from .raster import (
-    run_ccdc_array, run_ccdc_image,
     run_bfast_monitor_image, run_bfast_lite_image, run_bfast_image, run_mann_kendall_image,
 )
 from .metrics import extract_events
-from .ccdc import predict_synthetic_image
+from ._ccdc import predict_synthetic_image
 from .twdtw import run_twdtw, run_twdtw_batch
 try:
     from .classify import train_ccdc_classifier, classify_ccdc_stack
@@ -46,7 +46,7 @@ except ImportError:
 
 __all__ = [
     "landtrendr", "desawtooth", "apply_vertices",
-    "run_ccdc_array", "run_ccdc_image",
+    "ccdc",
     "run_bfast_monitor_image", "run_bfast_lite_image", "run_bfast_image", "run_mann_kendall_image",
     "extract_events", "predict_synthetic_image",
     "train_ccdc_classifier", "classify_ccdc_stack",

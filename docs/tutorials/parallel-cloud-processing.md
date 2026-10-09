@@ -11,7 +11,7 @@
 
 ## Two levels of parallelism
 
-**Threads within one machine.** Every algorithm's per-pixel loop runs in C++ with OpenMP. `n_jobs=-1` (the default) uses all cores but one, and needs nothing else: `zeit.landtrendr`, `run_ccdc_array` and friends are already parallel.
+**Threads within one machine.** Every algorithm's per-pixel loop runs in C++ with OpenMP. `n_jobs=-1` (the default) uses all cores but one, and needs nothing else: `zeit.landtrendr`, `zeit.ccdc` and friends are already parallel.
 
 **Chunks across processes or machines.** For data larger than memory, or more machines, wrap the data in a Dask-backed xarray cube and call the algorithm through the `.zeit` accessor (or `zeit.landtrendr`, which takes Dask cubes directly). Zeit maps the C++ code over spatial chunks, and Dask schedules those chunks on its workers.
 

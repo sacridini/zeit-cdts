@@ -8,7 +8,7 @@
 | Method | Input dims | Output | Parameters as in |
 | :--- | :--- | :--- | :--- |
 | `landtrendr` | `(time, y, x)` | `xr.Dataset` of vertices | [`zeit.landtrendr`](change-detection.md#landtrendr) |
-| `run_ccdc` | `(band, time, y, x)` | `(segment, parameter, y, x)` | [`run_ccdc_array`](change-detection.md#run_ccdc_array) |
+| `ccdc` | `(time, band, y, x)` | `xr.Dataset` of segments | [`zeit.ccdc`](change-detection.md#ccdc) |
 | `run_bfast_monitor` | `(time, y, x)` | `(metric, y, x)` | [`run_bfast_monitor_dask`](change-detection.md#run_bfast_monitor_dask) |
 | `run_bfast_lite` | `(time, y, x)` | `(metric, y, x)` | [`run_bfast_lite_dask`](change-detection.md#run_bfast_lite_dask) |
 | `run_bfast` | `(time, y, x)` | `(metric, y, x)` | [`run_bfast_dask`](change-detection.md#run_bfast_dask) |
@@ -37,17 +37,20 @@ loss = zeit.extract_events(lt, min_magnitude=2000)         # still lazy
 zeit.save_raster(loss, "results/")                         # computed while written
 ```
 
-### `run_ccdc` { .api .meth }
+### `ccdc` { .api .meth }
 
-<!-- sig: zeit.xarray_api.ZeitAccessor.run_ccdc -->
+<!-- sig: zeit.xarray_api.ZeitAccessor.ccdc -->
 ```python
-DataArray.zeit.run_ccdc(
-    dates, qa_stack=None, max_segments=6, return_coefs=True,
-    conseq_anom=6, n_jobs=-1, **ccdc_kwargs,
-)
+DataArray.zeit.ccdc(**kwargs)
 ```
 
-CCDC for every pixel of a `(band, time, y, x)` cube of reflectance × 10,000. `qa_stack` is a `(time, y, x)` array of Fmask codes (all clear if omitted). Extra keyword arguments go to `run_ccdc`.
+CCDC on this `(time, band, y, x)` cube of reflectance × 10,000: the same as [`zeit.ccdc(cube, **kwargs)`](change-detection.md#ccdc), with the same keyword arguments (`qa`, `bands`, `max_segments`, `conseq_anom`, …) and the same `xarray.Dataset` of segments. The dates come from the `time` coordinate. A dask-backed cube stays lazy and is computed block by block, with `time` and `band` in one chunk.
+
+```python
+cube = cube.chunk({"time": -1, "band": -1, "y": 512, "x": 512})
+segments = cube.zeit.ccdc(qa="fmask")       # QA band by name; still lazy
+zeit.save_raster(segments, "ccdc_out/")      # computed while written
+```
 
 ### `run_bfast_monitor` { .api .meth }
 

@@ -1,11 +1,8 @@
 import os
 import numpy as np
-from multiprocessing import Pool
-from functools import partial
 import rasterio
 from rasterio.windows import Window
 
-from .metrics import extract_events
 from typing import Tuple, List, Dict, Any, Union, Optional
 
 def run_landtrendr_array(years: "np.ndarray", raster_stack: "np.ndarray", max_segments: int = 6, pval_threshold: float = 0.05, n_jobs: int = -1,
@@ -70,36 +67,17 @@ def run_landtrendr_array(years: "np.ndarray", raster_stack: "np.ndarray", max_se
 # ---------------------------------------------------------
 # CCDC Raster Engine
 # ---------------------------------------------------------
-from .ccdc import run_ccdc
-
-def _process_pixel_ccdc(args: Tuple[int, int, np.ndarray, np.ndarray], dates: Union[np.ndarray, List[int]], max_segments: int, conseq_anom: int = 6) -> Tuple[int, int, List[Dict[str, Any]]]:
-    row, col, values, qa = args
-    
-    if np.all(values == 0) or np.all(np.isnan(values)):
-        return row, col, []
-        
-    # Dates where the pixel has NaN in any band have no observation (Fmask 255)
-    nan_mask = np.any(np.isnan(values), axis=0)
-    qa = np.where(nan_mask, 255, qa)
-    values = np.where(nan_mask[None, :], 0.0, values)
-    
-    try:
-        segments = run_ccdc(dates, values, qa, conseq_anom=conseq_anom)
-        return row, col, segments
-    except Exception:
-        return row, col, []
-
 def run_ccdc_array(dates: "np.ndarray", raster_stack: "np.ndarray", qa_stack: "np.ndarray", max_segments: int = 6, n_jobs: int = -1, return_coefs: bool = True, conseq_anom: int = 6, **ccdc_kwargs) -> "np.ndarray":
     """
     Apply CCDC across a 4D numpy array (bands, time, rows, cols) using C++ OpenMP batch processing.
 
     dates are Python ordinal days, raster_stack surface reflectance x 10000 and
-    qa_stack (time, rows, cols) Fmask codes -- see zeit.ccdc.run_ccdc. Extra
-    keyword arguments are passed on to zeit.ccdc.run_ccdc_batch.
+    qa_stack (time, rows, cols) Fmask codes -- see zeit._ccdc.run_ccdc. Extra
+    keyword arguments are passed on to zeit._ccdc.run_ccdc_batch.
     Returns (max_segments, 3 + bands * 9, rows, cols): t_start, t_end, t_break,
     then per band rmse and the 8 harmonic coefficients.
     """
-    from .ccdc import run_ccdc_batch
+    from ._ccdc import run_ccdc_batch
     import os as _os
     
     if n_jobs == -1:
@@ -132,74 +110,6 @@ def run_ccdc_array(dates: "np.ndarray", raster_stack: "np.ndarray", qa_stack: "n
             output_stack[i, p, :, :] = np.where(mask, segments_array[:, :, i, p], 0)
             
     return output_stack
-
-def run_ccdc_image(input_path: str, output_dir: str, dates: "np.ndarray", num_bands: int = 6, qa_band_idx: int = -1,
-                   max_segments: int = 6, chunk_size: int = 512, n_jobs: int = -1, prefix: str = "ccdc_break", return_coefs: bool = True, conseq_anom: int = 6) -> None:
-    """
-    High-level function to process a full GeoTIFF stack using CCDC with chunking.
-    Assumes the stack is interleaved by date.
-    """
-    if not os.path.exists(input_path):
-        raise FileNotFoundError(f"Input file not found: {input_path}")
-        
-    os.makedirs(output_dir, exist_ok=True)
-    
-    with rasterio.open(input_path) as src:
-        total_layers = src.count
-        num_dates = total_layers // num_bands
-        
-        if len(dates) != num_dates:
-            raise ValueError(f"Provided {len(dates)} dates, but image has {num_dates} dates.")
-            
-        profile = src.profile
-        height, width = src.height, src.width
-        
-        print(f"CCDC Image dimensions: {width}x{height} pixels, {num_dates} dates, {num_bands} bands per date")
-        
-        out_path = os.path.join(output_dir, f"{prefix}_coefs.tif")
-        p = profile.copy()
-        
-        params_per_seg = (3 + num_bands * 9) if return_coefs else 1
-        total_bands = max_segments * params_per_seg
-        
-        p.update(count=total_bands, dtype='float32', nodata=0, driver='GTiff')
-        
-        dst_breaks = rasterio.open(out_path, 'w', **p)
-        
-        print(f"Processing CCDC in chunks of {chunk_size}x{chunk_size}...")
-        for row in range(0, height, chunk_size):
-            for col in range(0, width, chunk_size):
-                window = Window(col, row, min(chunk_size, width - col), min(chunk_size, height - row))
-                print(f"  Chunk: Row {row}-{row+window.height}, Col {col}-{col+window.width}")
-                
-                stack = src.read(window=window)
-                stack = stack.reshape((num_dates, num_bands, window.height, window.width))
-                stack = np.transpose(stack, (1, 0, 2, 3))
-                
-                if qa_band_idx >= 0 and qa_band_idx < num_bands:
-                    qa_stack = stack[qa_band_idx, :, :, :].astype(int)
-                else:
-                    qa_stack = np.zeros((num_dates, window.height, window.width), dtype=int)
-                    
-                breaks_stack = run_ccdc_array(
-                    dates=dates, 
-                    raster_stack=stack, 
-                    qa_stack=qa_stack,
-                    max_segments=max_segments, 
-                    n_jobs=n_jobs,
-                    return_coefs=return_coefs,
-                    conseq_anom=conseq_anom
-                )
-                
-                # breaks_stack shape: (max_segments, params_per_seg, height, width)
-                # flatten the first two dimensions for writing
-                breaks_stack = breaks_stack.reshape((total_bands, window.height, window.width))
-                
-                dst_breaks.write(breaks_stack.astype('float32'), window=window)
-                
-        dst_breaks.close()
-            
-    print(f"Successfully processed CCDC and saved break dates to {output_dir}")
 
 # ---------------------------------------------------------
 # Shared chunked-image engine for per-pixel time-series tools (bfast family,

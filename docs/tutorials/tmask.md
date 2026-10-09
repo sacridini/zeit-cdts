@@ -32,10 +32,11 @@ import numpy as np
 from datetime import date
 import zeit
 
-green, profile = zeit.io.load_raster("green_stack.tif")   # (time, rows, cols), reflectance x 10000
-swir, _ = zeit.io.load_raster("swir1_stack.tif")
+green = zeit.load_raster("green_stack.tif", dates=acquisition_dates)   # (time, y, x), reflectance x 10000
+swir = zeit.load_raster("swir1_stack.tif", dates=acquisition_dates)
 
 dates = np.array([date.fromisoformat(d).toordinal() for d in acquisition_dates])
+green, swir = green.values, swir.values
 ```
 
 ### 2. Run Tmask
@@ -71,8 +72,7 @@ ndvi_clean = np.where(clear, ndvi, np.nan)
 **To save it**:
 
 ```python
-zeit.save_raster(clear.astype(np.uint8), "results/tmask_clear.tif",
-                 crs=profile["crs"], transform=profile["transform"])
+zeit.save_raster(clear.astype(np.uint8), "results/tmask_clear.tif", like="green_stack.tif")
 ```
 
 ### For a single pixel
@@ -86,7 +86,7 @@ clear_px = run_tmask_pixel(dates, green[:, 100, 200], swir[:, 100, 200])
 ## Good practice
 
 - **Use Tmask as a second pass.** Apply the sensor's own QA mask first (Landsat `QA_PIXEL`, Sentinel-2 `SCL`, or `apply_cloud_mask=True` in `build_time_series`) to remove the obvious clouds, then Tmask to catch what it missed.
-- **CCDC already includes it.** `run_ccdc` runs the original's Tmask screen internally. Running it beforehand is only needed for other algorithms.
+- **CCDC already includes it.** `zeit.ccdc` runs the original's Tmask screen internally. Running it beforehand is only needed for other algorithms.
 - **It costs a robust fit per pixel.** For large areas, process in spatial blocks or with Dask.
 
 ## References

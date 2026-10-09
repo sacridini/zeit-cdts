@@ -2,64 +2,19 @@ import xarray as xr
 import dask.array as da
 import numpy as np
 from typing import Optional, Any
-from zeit.raster import run_ccdc_array
 
 @xr.register_dataarray_accessor("zeit")
 class ZeitAccessor:
     def __init__(self, xarray_obj: xr.DataArray) -> None:
         self._obj = xarray_obj
 
-    def run_ccdc(self, dates: np.ndarray, qa_stack: Optional[Any] = None, max_segments: int = 6, return_coefs: bool = True, conseq_anom: int = 6, n_jobs: int = -1, **ccdc_kwargs) -> xr.DataArray:
+    def ccdc(self, **kwargs: Any) -> xr.Dataset:
         """
-        Runs CCDC on an xarray DataArray using Dask for out-of-core and parallel execution.
-        Assumes DataArray shape: (bands, time, y, x), surface reflectance x 10000,
-        with qa_stack as Fmask codes (see zeit.ccdc.run_ccdc). Output parameters
-        per segment: t_start, t_end, t_break, then per band rmse and 8 coefficients.
-        
-        Strategy A: Dask handles cross-node distribution (map_blocks), OpenMP handles multi-core within the node (n_jobs=-1).
-        WARNING: If using n_jobs=-1, ensure Dask is configured to run with only 1 worker process per physical machine!
+        Runs CCDC on this (time, band, y, x) cube: the same as ``zeit.ccdc(cube, **kwargs)``.
+        Dask-backed cubes stay lazy and are computed block by block (time and band in one chunk).
         """
-        arr = self._obj.data
-        bands, time_steps, rows, cols = self._obj.shape
-        
-        if qa_stack is None:
-            qa_stack = da.zeros((time_steps, rows, cols), dtype=int, chunks=(time_steps, arr.chunks[2], arr.chunks[3]))
-        elif isinstance(qa_stack, xr.DataArray):
-            qa_stack = qa_stack.data
-            
-        params_per_seg = (3 + bands * 9) if return_coefs else 1
-        
-        def _ccdc_block(block, qa_block):
-            if block.size == 0:
-                return np.zeros((max_segments, params_per_seg, block.shape[2], block.shape[3]), dtype=np.float32)
-            
-            return run_ccdc_array(
-                dates, block, qa_block, 
-                max_segments=max_segments, 
-                n_jobs=n_jobs, 
-                return_coefs=return_coefs,
-                conseq_anom=conseq_anom,
-                **ccdc_kwargs
-            )
-            
-        out = da.map_blocks(
-            _ccdc_block,
-            arr,
-            qa_stack,
-            dtype=np.float32,
-            drop_axis=[0, 1], # drop bands and time
-            new_axis=[0, 1],  # add max_segments and params_per_seg
-            chunks=(max_segments, params_per_seg, arr.chunks[2], arr.chunks[3])
-        )
-        
-        return xr.DataArray(
-            out,
-            dims=["segment", "parameter", "y", "x"],
-            coords={
-                "y": self._obj.coords.get("y"),
-                "x": self._obj.coords.get("x")
-            }
-        )
+        from zeit._ccdc_api import ccdc
+        return ccdc(self._obj, **kwargs)
 
     def landtrendr(self, **kwargs: Any) -> xr.Dataset:
         """

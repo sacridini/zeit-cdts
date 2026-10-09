@@ -74,7 +74,7 @@ zeit landtrendr ./data/nbr_stack_1990_2020.tif ./results \
 
 ## 2. Continuous Change Detection (`ccdc`)
 
-The `ccdc` command runs the Continuous Change Detection and Classification algorithm (or its more conservative variant, COLD) on a highly dense, multi-band, and multi-date GeoTIFF stack.
+The `ccdc` command runs [`zeit.ccdc`](api/change-detection.md#ccdc) on a dense, multi-band, multi-date GeoTIFF, reading it block by block, and writes each pixel's segments as GeoTIFFs. Values must be surface reflectance × 10,000, bands ordered Blue, Green, Red, NIR, SWIR1, SWIR2 [, thermal].
 
 ### Syntax
 ```bash
@@ -84,41 +84,50 @@ zeit ccdc <input> <output_dir> [OPTIONS]
 ### Positional Arguments
 | Argument | Type | Description |
 | :--- | :---: | :--- |
-| **`input`** | `filepath` | Path to the input stacked GeoTIFF. Bands must be interleaved by date (e.g., Date1-Band1, Date1-Band2, Date2-Band1, etc.). |
-| **`output_dir`** | `dirpath` | Directory where the resulting harmonic coefficients and structural break dates will be saved. |
+| **`input`** | `filepath` | Path to the input GeoTIFF. Either its bands are named `date_band` (`2020-01-15_blue`, `2020-01-15_green`, …, as `zeit.save_raster` writes a `(time, band, y, x)` cube), and the dates are read from them; or it is interleaved by date (Date1-Band1, Date1-Band2, …, Date2-Band1, …) without such names, with `--dates-file` and `--num-bands`. |
+| **`output_dir`** | `dirpath` | Directory where the segment rasters will be saved. |
 
 ### Configuration Options
 
 | Option | Type | Default | Description |
 | :--- | :---: | :---: | :--- |
-| `--num-bands` | `int` | `6` | The number of spectral bands provided per observation date. |
-| `--qa-band` | `int` | `-1` | The zero-based index of the Quality Assessment (QA) mask band within the block of bands for a single date. `-1` disables QA masking. |
-| `--dates-file` | `str` | *None* | Path to a plain text file containing the observation dates (one integer per line, usually in Julian days). If omitted, assumes a 16-day Landsat interval. |
-| `--max-segments`| `int` | `6` | The maximum number of distinct change segments to retain per pixel. |
-| `--chunk-size` | `int` | `512` | Size of the image chunks to process simultaneously. |
-| `--jobs` | `int` | `-1` | Number of CPU cores to use. `-1` uses all available cores. |
-| `--cold` | `flag` | `False` | Switches logic to the **COLD** algorithm variant, increasing the required consecutive anomalies for a break from 3 to 6. |
+| `--dates-file` | `str` | *None* | Text file with one date per line, an ISO date (`2020-01-15`) or a Python ordinal day (`737439`), for a stack without dates in its band names. |
+| `--num-bands` | `int` | `6` | With `--dates-file`: the number of bands per date in a stack interleaved by date, including the QA band. |
+| `--qa-band` | `int` | `-1` | The zero-based index, among the bands of each date, of a band of Fmask codes (`0` clear, `1` water, `2` shadow, `3` snow, `4` cloud, `255` no observation). It is not used as a spectral band. `-1`: no QA band, every observation is clear. |
+| `--max-segments`| `int` | `6` | The maximum number of segments to retain per pixel. |
+| `--conse` | `int` | `6` | Consecutive anomalous observations that confirm a break (`conseq_anom`), as in the original CCDC. |
+| `--chunk-size` | `int` | `512` | Size of the image blocks (in pixels) processed at once. |
+| `--jobs` | `int` | `-1` | Number of CPU threads. `-1` uses all cores but one. |
+| `--cold` | `flag` | `False` | Deprecated: the same as `--conse 6`, now the default. |
 | `--prefix` | `str` | `ccdc` | Prefix added to all output GeoTIFF files. |
 
+### Outputs
+
+| File | Bands | Content |
+| :--- | :--- | :--- |
+| `<prefix>_t_start.tif`, `<prefix>_t_end.tif` | one per segment | First and last date of each segment, as decimal years (NaN past the last segment). |
+| `<prefix>_t_break.tif` | one per segment | Date of the break that ended each segment, as a decimal year (NaN: no break). |
+| `<prefix>_n_segments.tif` | 1 | Number of segments per pixel. |
+| `<prefix>_rmse.tif` | one per segment and band (`1_blue`, …) | RMSE of each band's fit. |
+| `<prefix>_coefs.tif` | one per segment, band and coefficient (`1_blue_a0`, `1_blue_c1`, …) | The harmonic coefficients `a0, c1, a1, b1, a2, b2, a3, b3` (see [`zeit.ccdc`](api/change-detection.md#ccdc)). |
+
+In a stack interleaved by date, the bands are named `b1`, `b2`, … (`1_b1_a0`, …).
+
 ### End-to-End Example
-Run CCDC on an image with 6 spectral bands and 1 QA band (7 total bands per date). The 7th band (index 6) is the QA mask. The dates are provided in a text file:
+Run CCDC on a stack written by `zeit.save_raster`, whose 7th band of each date (index 6) holds the Fmask codes:
 ```bash
-zeit ccdc ./data/dense_stack.tif ./results \
-    --num-bands 7 \
+zeit ccdc ./data/landsat_sr.tif ./results \
     --qa-band 6 \
-    --dates-file ./data/dates.txt \
     --max-segments 8 \
     --jobs -1
 ```
 
-Run the COLD algorithm on the exact same dataset:
+The same on a stack interleaved by date, with 6 spectral bands and 1 QA band per date, and the dates in a text file:
 ```bash
-zeit ccdc ./data/dense_stack.tif ./results_cold \
-    --num-bands 7 \
-    --qa-band 6 \
+zeit ccdc ./data/dense_stack.tif ./results \
     --dates-file ./data/dates.txt \
-    --cold \
-    --jobs -1
+    --num-bands 7 \
+    --qa-band 6
 ```
 
 ---

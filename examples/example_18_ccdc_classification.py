@@ -2,7 +2,8 @@
 Example 18: CCDC-Based Land Cover Classification End-to-End
 
 Loads a synthetic CCDC coefficient stack (no network needed - in a real
-pipeline this would come from `zeit.run_ccdc_image`), trains a Random Forest
+pipeline this would be `zeit.ccdc` coefficients written with `zeit.save_raster`,
+e.g. `segments.coefs.isel(segment=0)`), trains a Random Forest
 classifier on a handful of labeled training samples with
 `zeit.train_ccdc_classifier`, applies it chunk-by-chunk to the full
 coefficient GeoTIFF with `zeit.classify_ccdc_stack`, and loads the result
@@ -76,7 +77,7 @@ def main():
     class_path = os.path.join("data", "ccdc_land_cover_classification.tif")
     zeit.classify_ccdc_stack(clf, coef_path, class_path, chunk_size=32)
 
-    predicted, _ = load_raster(class_path)
+    predicted = load_raster(class_path).values[None]   # (1, rows, cols)
     accuracy = (predicted[0] == truth).mean()
     print(f"    Agreement between the classified map and the injected ground truth: {accuracy:.1%}")
 

@@ -394,7 +394,8 @@ def _normalize(da: xr.DataArray, *, dates: Any, start_year: Optional[int]) -> xr
     if "time" not in da.dims and "band" in da.dims:
         coord = da.indexes.get("band")
         if isinstance(coord, pd.MultiIndex) and list(coord.names) == ["time", "spectral"]:
-            da = da.unstack("band").rename(spectral="band")
+            order = list(dict.fromkeys(coord.get_level_values("spectral")))  # unstack sorts; keep the file's order
+            da = da.unstack("band").rename(spectral="band").sel(band=order)
         elif isinstance(coord, pd.DatetimeIndex):
             da = da.rename(band="time")
         elif "spectral" in da.dims:

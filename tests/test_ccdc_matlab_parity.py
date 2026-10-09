@@ -16,7 +16,7 @@ import os
 import numpy as np
 import pytest
 
-from zeit.ccdc import predict, run_ccdc
+from zeit._ccdc import predict, run_ccdc
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 INPUTS = np.load(os.path.join(HERE, "data", "ccdc_matlab_parity_inputs.npz"))
@@ -62,7 +62,7 @@ def test_predict_matches_model_fit():
 def test_batch_matches_single_pixel():
     # The OpenMP batch path must give exactly the single-pixel result; NaN in a
     # band marks a date without an observation (Fmask 255).
-    from zeit.ccdc import run_ccdc_batch
+    from zeit._ccdc import run_ccdc_batch
 
     name_pairs = ["two_breaks", "unflagged_clouds", "mostly_snow_cat54"]  # same date grid
     dates = INPUTS[name_pairs[0] + "__dates"]

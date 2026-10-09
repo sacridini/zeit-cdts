@@ -130,7 +130,7 @@ Mask clouds, composite to a regular time step, smooth noise.
 
 Run change detection, trends, phenology or a classifier.
 
-`landtrendr` · `.zeit.run_ccdc`
+`landtrendr` · `ccdc`
 </div>
 
 <div markdown>

@@ -115,14 +115,28 @@ Uma função só: `zeit.landtrendr(data, *, years=None, direction="loss", max_se
 - Implementado em `zeit/_lt.py`; o resultado é idêntico ao do `run_landtrendr_array`
   (testado pixel a pixel no stack de Rondônia).
 
-## Fase 4: `zeit.ccdc` (0.30.0)
+## Fase 4: `zeit.ccdc` — **Feito** (0.30.0)
 
-Mesmo padrão para o CCDC/COLD: `zeit.ccdc(data, *, qa=None, dates=None, ...)` aceita o
-cubo `(time, band, y, x)` (e `qa` como cubo, banda do próprio cubo ou nome), tira as
-datas ordinais de `time` e devolve um `Dataset` georreferenciado por segmento.
-`predict_synthetic_image` passa a aceitar esse resultado. `run_ccdc_image`,
-`run_ccdc_array` e o accessor viram internos/delegam. O módulo `zeit/ccdc.py` vira
-`zeit/_ccdc.py`.
+Mesmo padrão para o CCDC/COLD: `zeit.ccdc(data, *, qa=None, dates=None, bands=None, ...)`
+aceita o cubo `(time, band, y, x)` (em memória ou dask), um raster com bandas
+`data_banda`, um raster intercalado por data com `dates`/`bands`, numpy com `dates` ou um
+pixel (`DataFrame` indexado por data, ou `DataArray (time, band)`), e tira as datas
+ordinais de `time`.
+
+- `qa` pode ser o nome de uma banda do cubo (sai das bandas espectrais), um cubo
+  `(time, y, x)` ou `None`; `detection_bands`, `tmask_bands` e `thermal_band` aceitam
+  nomes de banda.
+- Resultado: `Dataset` com `t_start`/`t_end`/`t_break` (datas, `NaT` além do último
+  segmento), `n_segments`, `rmse (segment, band)` e `coefs (segment, band, coef)`.
+- `predict_synthetic_image(segments, "2020-07-01")` devolve a imagem `(band, y, x)`
+  georreferenciada (também lazy); a chamada numpy antiga continua aceita.
+- `save_raster` grava datas como ano decimal e achata dimensões extras em bandas
+  nomeadas (`1_blue_a0`); `load_raster` mantém a ordem das bandas de um stack
+  `data_banda` (antes o `unstack` ordenava alfabeticamente).
+- `run_ccdc_array`/`run_ccdc_image`/accessor `run_ccdc` saíram da API pública; o módulo
+  `zeit/ccdc.py` virou `zeit/_ccdc.py`. A CLI `zeit ccdc` lê as datas dos nomes das
+  bandas ou de `--dates-file` (o fallback de datas fictícias de 16 dias saiu).
+- Implementado em `zeit/_ccdc_api.py`; idêntico ao motor de um pixel, segmento a segmento.
 
 ## Fase 5: BFAST, Mann-Kendall e fenologia (0.31.0)
 

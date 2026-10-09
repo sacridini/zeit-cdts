@@ -1,6 +1,6 @@
 # Change Detection
 
-<p class="lead">LandTrendr, CCDC and the BFAST family, at every level: one pixel, an in-memory array, a GeoTIFF on disk, or a Dask array. The xarray accessor forms are listed in <a href="../xarray/">Xarray Accessor</a>.</p>
+<p class="lead">LandTrendr and CCDC, one function each for every kind of input, and the BFAST family at every level: one pixel, an in-memory array, a GeoTIFF on disk, or a Dask array. The xarray accessor forms are listed in <a href="../xarray/">Xarray Accessor</a>.</p>
 
 ## LandTrendr
 
@@ -160,150 +160,127 @@ ftv = zeit.apply_vertices(vertex_years, years, swir1)      # the same pixel's SW
 
 ## CCDC
 
-Tutorial: [CCDC](../tutorials/ccdc.md). All CCDC functions expect **surface reflectance × 10,000**, **Python ordinal days**, and **Fmask QA codes** (`0` clear, `1` water, `2` shadow, `3` snow, `4` cloud, `255` fill).
+Tutorial: [CCDC](../tutorials/ccdc.md).
 
-### `run_ccdc` { .api }
+### `ccdc` { .api #ccdc }
 
-<!-- sig: zeit.ccdc.run_ccdc -->
+<!-- sig: zeit.ccdc -->
 ```python
-zeit.ccdc.run_ccdc(
-    dates, values, qa, min_obs=12, conseq_anom=6,
-    chi2_prob_threshold=0.99, tmax_cg_prob_threshold=0.999999,
-    detection_bands=None, num_c=8, tmask_bands=None,
-    thermal_band=None, valid_range=(0.0, 10000.0),
-    thermal_range=(-9320.0, 7070.0),
+zeit.ccdc(
+    data, qa=None, dates=None, bands=None, max_segments=6,
+    conseq_anom=6, chi2_prob_threshold=0.99,
+    tmax_cg_prob_threshold=0.999999, detection_bands=None, num_c=8,
+    tmask_bands=None, thermal_band=None, valid_range=(0.0, 10000.0),
+    thermal_range=(-9320.0, 7070.0), nodata="auto", chunks=None,
+    n_jobs=-1,
 )
 ```
 
-CCDC for a single pixel.
+Continuous Change Detection and Classification (Zhu & Woodcock 2014): fits a harmonic model to every stable period of each pixel's multi-band series and dates the breaks between them, every pixel in parallel in C++ / OpenMP. The engine is a port of the original MATLAB code, validated segment for segment against it. One function for every input: it reads what `data` is and returns the same `xarray.Dataset` of segments, georeferenced when the input is. All parameters but `data` are keyword-only. It replaces `zeit.ccdc.run_ccdc`, `run_ccdc_array`, `run_ccdc_image` and `DataArray.zeit.run_ccdc`; the accessor form is now [`DataArray.zeit.ccdc`](xarray.md#ccdc).
+
+`data` can be:
+
+| Input | Example | Where the dates and bands come from |
+| :--- | :--- | :--- |
+| A `(time, band, y, x)` cube, numpy- or dask-backed | the output of `load_raster` or `build_time_series` | Its `time` and `band` coordinates. A dask cube stays lazy. |
+| A raster file whose bands are named `date_band`, or anything [`load_raster`](data.md#load_raster) reads | `"landsat_sr.tif"` (bands `2008-01-05_blue`, …, as `save_raster` writes a cube), a folder read with `pattern=` | The dates and band names `load_raster` finds |
+| A raster interleaved by date without band names (all bands of date 1, then of date 2, …) | `"stack.tif"` | `dates=`, and `bands=`: the names of the bands of each date |
+| A numpy array `(time, band, y, x)` | `stack` | `dates=` |
+| One pixel: a `(time, band)` DataArray, or a `pandas.DataFrame` indexed by date with one column per band | `cube.isel(y=0, x=0)` | Its `time` coordinate or index |
+
+Values are **surface reflectance × 10,000** (the original's thresholds, range test and cloud screen are defined on that scale), bands ordered Blue, Green, Red, NIR, SWIR1, SWIR2 [, brightness temperature], unless `bands=` orders them. Dates can be any dates; they are converted to ordinal days internally.
 
 <div class="params" markdown>
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `dates` | 1-D array | required | Ordinal days. |
-| `values` | array | required | `(bands, dates)`: Blue, Green, Red, NIR, SWIR1, SWIR2 [, thermal]. |
-| `qa` | 1-D array | required | Fmask codes per date. |
-| `min_obs` | `int` | `12` | Kept for compatibility; the original fixes it at 12. |
-| `conseq_anom` | `int` | `6` | Consecutive anomalies that confirm a break. |
-| `chi2_prob_threshold` | `float` | `0.99` | Change probability for the chi-squared threshold. |
-| `tmax_cg_prob_threshold` | `float` | `0.999999` | Outlier probability. |
-| `detection_bands` | `list[int]` | `None` | Bands used for detection. Default: Green to SWIR2 (`[1, 2, 3, 4, 5]`). |
-| `num_c` | `int` | `8` | Maximum coefficients (4, 6 or 8). |
-| `tmask_bands` | `list[int]` | `None` | Bands for the internal Tmask screen. Default `[1, 4]`. |
-| `thermal_band` | `int` | `None` | Index of a brightness-temperature band (°C × 100). |
+| `data` | path, `DataArray`, `ndarray` or `pd.DataFrame` | required | What to run on (see the table above). |
+| `qa` | `str`, `DataArray` or `ndarray` | `None` | Fmask codes per date: `0` clear land, `1` water, `2` cloud shadow, `3` snow, `4` cloud, `255` no observation. The name of a band of the cube (it is then left out of the spectral bands), a `(time, y, x)` cube or array (`(time,)` for one pixel), or `None`: every date is clear, and dates with NaN are no observation. |
+| `dates` | list | `None` | Date of each time step (strings, datetimes, `datetime64`). Only for numpy input and cubes or rasters without dates; otherwise taken from the `time` coordinate. |
+| `bands` | list of `str` or `int` | `None` | Spectral bands to use, by name or 0-based position, in the order above. For a raster interleaved by date without band names: the names of the bands of each date (including the QA band, if any). |
+| `max_segments` | `int` | `6` | Maximum segments returned per pixel. |
+| `conseq_anom` | `int` | `6` | Consecutive anomalous observations that confirm a break (the original's `conse`). |
+| `chi2_prob_threshold` | `float` | `0.99` | Change probability for the chi-squared threshold. Lower is more sensitive. |
+| `tmax_cg_prob_threshold` | `float` | `0.999999` | Outlier probability: observations beyond it are dropped as noise (for example missed clouds). |
+| `detection_bands` | list of `str` or `int` | `None` | Bands used for change detection, by name or 0-based position among the spectral bands. Default: Green to SWIR2. |
+| `num_c` | `int` | `8` | Maximum number of harmonic coefficients (4, 6 or 8). |
+| `tmask_bands` | list of `str` or `int` | `None` | Bands of the internal Tmask cloud screen. Default: Green and SWIR1. |
+| `thermal_band` | `str` or `int` | `None` | The brightness-temperature band (°C × 100), if any. |
 | `valid_range` | `tuple` | `(0.0, 10000.0)` | Valid range of the optical bands. |
 | `thermal_range` | `tuple` | `(-9320.0, 7070.0)` | Valid range of the thermal band. |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | Value marking a missing observation besides NaN. `"auto"`: the raster's NoData value; for integer data without one, `0`. A number: that value. `None`: only NaN. |
+| `chunks` | `"auto"`, `dict` | `None` | Inputs read from disk: `None` reads the raster into memory; `"auto"` or a dict of chunk sizes keeps it lazy, so the result is computed block by block, for rasters larger than memory. |
+| `n_jobs` | `int` | `-1` | Threads. `-1` uses all cores but one. |
 
 </div>
 
-**Returns** a list of models, one dict each: `t_start`, `t_end`, `t_break` (`0` if none), `coefs` (bands × 8), `rmse`, `magnitude`, `change_prob`, `category`, `num_obs`.
+**Returns** an `xarray.Dataset`:
 
-### `run_ccdc_array` { .api }
-
-<!-- sig: zeit.raster.run_ccdc_array -->
-```python
-zeit.raster.run_ccdc_array(
-    dates, raster_stack, qa_stack, max_segments=6, n_jobs=-1,
-    return_coefs=True, conseq_anom=6, **ccdc_kwargs,
-)
-```
-
-CCDC for every pixel of an in-memory stack, in parallel. Also exported as `zeit.run_ccdc_array`.
-
-<div class="params" markdown>
-
-| Parameter | Type | Default | Description |
+| Variable | Dims | Type | Meaning |
 | :--- | :--- | :--- | :--- |
-| `dates` | 1-D array | required | Ordinal days. |
-| `raster_stack` | `np.ndarray` | required | `(bands, time, rows, cols)` reflectance × 10,000. |
-| `qa_stack` | `np.ndarray` | required | `(time, rows, cols)` Fmask codes. |
-| `max_segments` | `int` | `6` | Model slots in the output. |
-| `n_jobs` | `int` | `-1` | Threads. |
-| `return_coefs` | `bool` | `True` | Return full models; `False` returns only break dates. |
-| `conseq_anom` | `int` | `6` | As in `run_ccdc`. |
-| `chi2_prob_threshold`, `tmax_cg_prob_threshold`, `detection_bands`, `num_c`, `tmask_bands`, `thermal_band`, `valid_range`, `thermal_range` | | | Passed through (`**ccdc_kwargs`), as in `run_ccdc`. |
+| `t_start`, `t_end` | `(segment, y, x)` | datetime64 | First and last date of each segment; `NaT` past the last one. |
+| `t_break` | `(segment, y, x)` | datetime64 | Date of the break that ended the segment; `NaT` if it ended without one, and past the last segment. |
+| `n_segments` | `(y, x)` | uint8 | Number of segments (`0`: no model). |
+| `rmse` | `(segment, band, y, x)` | float32 | RMSE of each band's fit; NaN past the last segment. |
+| `coefs` | `(segment, band, coef, y, x)` | float32 | The harmonic model of each band, `coef` = `a0`, `c1`, `a1`, `b1`, `a2`, `b2`, `a3`, `b3`; NaN past the last segment. |
 
-</div>
+The model is `a0 + c1·t + a1 cos(wt) + b1 sin(wt) + a2 cos(2wt) + b2 sin(2wt) + a3 cos(3wt) + b3 sin(3wt)` on the original's time axis: `t` = ordinal day + 366 (MATLAB datenum), `w` = 2π / 365.25. [`predict_synthetic_image`](#predict_synthetic_image) evaluates it on any date. The `x`/`y` coordinates and CRS of the input are kept, so the result goes straight to [`save_raster`](data.md#save_raster): one GeoTIFF per variable, dates as decimal years (NaN: none), and `coefs.tif` with one band per segment, band and coefficient (`1_blue_a0`, `1_blue_c1`, …). `attrs` records the parameters. A single pixel's result has no `y`/`x` dims. With a dask cube or `chunks=`, the result is lazy.
 
-**Returns** `(max_segments, 3 + 9 × bands, rows, cols)`: per model `t_start`, `t_end`, `t_break`, then for each band its RMSE and 8 coefficients.
-
-### `run_ccdc_image` { .api }
-
-<!-- sig: zeit.raster.run_ccdc_image -->
 ```python
-zeit.raster.run_ccdc_image(
-    input_path, output_dir, dates, num_bands=6, qa_band_idx=-1,
-    max_segments=6, chunk_size=512, n_jobs=-1, prefix="ccdc_break",
-    return_coefs=True, conseq_anom=6,
-)
+cube = zeit.load_raster("landsat_sr.tif")          # (time, band, y, x): blue ... swir2 and fmask
+segments = zeit.ccdc(cube, qa="fmask")             # QA band by name, left out of the spectral bands
+first_break = segments.t_break.isel(segment=0)     # NaT where nothing changed
+july = zeit.predict_synthetic_image(segments, "2020-07-01")   # (band, y, x)
+zeit.save_raster(segments, "ccdc_out")             # t_start.tif, ..., coefs.tif
+
+# A raster larger than memory: lazy, computed block by block while it is written
+segments = zeit.ccdc("landsat_sr.tif", qa="fmask", chunks="auto")
+zeit.save_raster(segments, "ccdc_out")
+
+# A stack interleaved by date without band names
+segments = zeit.ccdc("stack.tif", dates=dates, qa="fmask",
+                     bands=["blue", "green", "red", "nir", "swir1", "swir2", "fmask"])
+
+# One pixel: a DataFrame indexed by date, one column per band
+px = zeit.ccdc(df, qa="fmask")
+px[["t_start", "t_end", "t_break"]].to_dataframe().dropna(subset=["t_start"])
 ```
-
-CCDC on a date-interleaved GeoTIFF (all bands of date 1, then of date 2, …), block by block. Writes `<prefix>_coefs.tif` with `max_segments × (3 + 9 × num_bands)` bands. Also exported as `zeit.run_ccdc_image`; CLI: `zeit ccdc`.
-
-<div class="params" markdown>
-
-| Parameter | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `input_path` | `str` | required | Date-interleaved GeoTIFF. |
-| `output_dir` | `str` | required | Output folder. |
-| `dates` | 1-D array | required | Ordinal days, one per date in the file. |
-| `num_bands` | `int` | `6` | Bands per date in the file (including the QA band, if any). |
-| `qa_band_idx` | `int` | `-1` | Position of the QA band (Fmask codes) within each date. `-1`: no QA band, everything clear. |
-| `max_segments` | `int` | `6` | Model slots. |
-| `chunk_size` | `int` | `512` | Block size in pixels. |
-| `n_jobs` | `int` | `-1` | Threads. |
-| `prefix` | `str` | `"ccdc_break"` | Output file prefix. |
-| `return_coefs` | `bool` | `True` | As in `run_ccdc_array`. |
-| `conseq_anom` | `int` | `6` | As in `run_ccdc`. |
-
-</div>
 
 ### `predict_synthetic_image` { .api }
 
-<!-- sig: zeit.ccdc.predict_synthetic_image -->
+<!-- sig: zeit.predict_synthetic_image -->
 ```python
-zeit.ccdc.predict_synthetic_image(
-    ccdc_coefs_stack, target_julian_day, num_bands=6,
+zeit.predict_synthetic_image(
+    segments, date=None, num_bands=6, target_julian_day=None,
 )
 ```
 
-Evaluates the CCDC model active on a given date for every pixel, giving a cloud-free image for any day. Also exported as `zeit.predict_synthetic_image`.
+Evaluates each pixel's CCDC model on a date, giving a cloud-free image for any day, including days without an acquisition. Each pixel uses the segment that covers the date; before the first segment, the first one; after the last, the last one.
 
 <div class="params" markdown>
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `ccdc_coefs_stack` | `np.ndarray` | required | Output of `run_ccdc_array` (or the `_coefs.tif` reshaped to `(segments, params, rows, cols)`). |
-| `target_julian_day` | `int` | required | Ordinal day to predict. |
-| `num_bands` | `int` | `6` | Bands to predict. |
+| `segments` | `xr.Dataset` | required | The result of [`ccdc`](#ccdc), in memory or dask (a lazy result gives a lazy image). |
+| `date` | `str`, `datetime`, `datetime64` or `int` | required | The date to predict; an `int` is a Python ordinal day. |
+| `num_bands` | `int` | `6` | Legacy numpy stacks only (below): number of bands. |
+| `target_julian_day` | `int` | `None` | Former name of `date`. |
 
 </div>
 
-**Returns** `(num_bands, rows, cols)` float32.
+**Returns** a `(band, y, x)` `DataArray` on the grid and CRS of `segments` (`(band,)` for one pixel), NaN where a pixel has no model.
 
 ```python
-from datetime import date
-img = zeit.predict_synthetic_image(results, date(2019, 7, 15).toordinal())
+july = zeit.predict_synthetic_image(segments, "2019-07-15")
+zeit.save_raster(july, "synthetic_2019-07-15.tif")
+
+# One pixel's curve, on the first day of every month
+px = zeit.ccdc(df, qa="fmask")
+days = pd.date_range("2010-01-01", "2020-12-01", freq="MS")
+nir = [float(zeit.predict_synthetic_image(px, d).sel(band="nir")) for d in days]
 ```
 
-### `predict` { .api }
-
-<!-- sig: zeit.ccdc.predict -->
-```python
-zeit.ccdc.predict(coefs, dates)
-```
-
-Evaluates one band's 8 coefficients (from `run_ccdc`'s `coefs`) at any ordinal day or days.
-
-<div class="params" markdown>
-
-| Parameter | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `coefs` | array | required | 8 coefficients of one band. |
-| `dates` | `int` or array | required | Ordinal day(s). |
-
-</div>
+The numpy layout of older versions, `(max_segments, 3 + 9 × bands, rows, cols)` (per segment `t_start`, `t_end` and `t_break` in ordinal days, then each band's RMSE and 8 coefficients), is still accepted: `predict_synthetic_image(stack, target_julian_day=day, num_bands=6)` returns a `(num_bands, rows, cols)` float32 array.
 
 ## BFAST family
 
