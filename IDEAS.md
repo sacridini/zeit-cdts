@@ -172,6 +172,88 @@ cubo e saída `Dataset` georreferenciado com uma variável por métrica.
 - README, quickstart, conceitos, tutoriais, exemplos e CLI já foram migrados em cada fase;
   `sync_api --check` e `mkdocs build --strict` limpos.
 
+## Fase 7 (proposta): `zeit.plot`
+
+Uma função para ver qualquer coisa do zeit: o cubo carregado, um resultado (`Dataset` do
+LandTrendr, CCDC, BFAST...), um mapa ou a série de um pixel. O foco são rasters, e
+principalmente séries temporais densas e grandes (centenas de datas, milhares de pixels de
+lado), que precisam rodar fluidas. Vetores entram como sobreposição.
+
+```python
+zeit.plot(ndvi)                          # cubo (time, y, x): slider no tempo, legenda contínua
+zeit.plot(loss.yod)                      # mapa de anos: paleta sequencial com anos na legenda
+zeit.plot(classes, basemap="satellite")  # categórico, sobre imagem de satélite
+zeit.plot(ndvi, window=True)             # janela separada, fora do Jupyter
+zeit.plot(ndvi, vector="talhoes.gpkg")   # contornos por cima
+```
+
+### O que ela precisa fazer
+
+- **Entender o dado** (a mesma ideia do resto da API): `DataArray`/`Dataset`, numpy,
+  caminho de arquivo (via `load_raster(chunks="auto")`), resultado de algoritmo. Um `time`
+  vira slider; um `band` com 3 bandas nomeadas (red/green/blue) vira RGB; um `Dataset` vira
+  um seletor de variáveis.
+- **Escolher as cores sozinha:**
+  - inteiros com poucos valores, `bool` ou classes → categórico, cor por valor e legenda
+    com os rótulos (do colormap embutido no GeoTIFF, quando houver);
+  - floats → contínuo, limites robustos (percentis 2–98, calculados numa amostra e não
+    no cubo inteiro);
+  - valores em torno de 0 (slope, magnitude, diferença) → divergente centrado em 0;
+  - datas e anos (`yod`, `t_break`) → sequencial com anos na legenda;
+  - NaN/NoData transparentes. Tudo sobrescrevível (`cmap=`, `vmin=`, `vmax=`, `kind=`).
+- **Slider rápido** no tempo, com play/pause e passo ajustável; datas no título.
+- **Legenda/colorbar** sempre, e inspeção de valor ao passar o mouse.
+- **Basemap opcional** com imagem de satélite (Esri World Imagery) ou mapa (OSM/Carto),
+  reprojetado para o CRS do raster, com transparência ajustável na camada de cima.
+- **Clicar num pixel e ver a série dele** num painel ligado, com o ajuste do algoritmo
+  quando houver (vértices do LandTrendr, modelo do CCDC, quebras do BFAST). É o uso mais
+  comum na hora de calibrar parâmetros.
+- **Jupyter e fora dele:** widget no notebook, janela própria em script (`window=True`,
+  padrão fora do Jupyter), e figura estática (PNG/PDF) para relatórios.
+
+### Tecnologias avaliadas
+
+| Ferramenta | Pontos fortes | Limites para o zeit |
+| :--- | :--- | :--- |
+| **fastplotlib** (pygfx/WGPU) | Renderiza na GPU (Vulkan/DX12/Metal); `ImageWidget` com sliders de tempo para pilhas de imagens, aceita arrays "array-like"; roda no Jupyter (jupyter_rfb) e em janela Qt/glfw com o mesmo código | Sem noção de mapa (CRS, basemap); desempenho com arrays lazy (dask/zarr) no slider precisa ser medido; ainda em versão 0.x |
+| **napari** | Visualizador n-D maduro; usa dask/zarr para carregar só o que aparece na tela; já usado com centenas de cenas Sentinel; pirâmides multiescala | Janela Qt (no notebook é limitado); dependência pesada; sem basemap |
+| **HoloViz** (hvplot + datashader + Panel/GeoViews) | Basemaps prontos, CRS, `panel serve`/navegador fora do Jupyter; datashader agrega rasters enormes | Cada passo do slider faz ida e volta ao servidor e re-sombreamento (relatos de ~7 s por raster grande): lento para séries densas |
+| **lonboard** (deck.gl) | GPU no navegador, excelente para vetores grandes | Focado em vetores; raster só como bitmap; só Jupyter |
+| **leafmap / localtileserver** | Basemaps e COGs em mapa web | Um servidor de tiles por imagem; lento para passar por muitas datas |
+| **matplotlib** | Universal, figuras estáticas de publicação | CPU; lento para animar séries grandes |
+
+### Proposta de arquitetura
+
+- **Motor interativo: fastplotlib.** É o único que junta GPU, slider de pilhas de imagens e o
+  mesmo código no Jupyter e em janela separada. O zeit acrescenta a parte geográfica que
+  ele não tem: transformação de pixel para coordenadas, basemap como camada de imagem por
+  baixo, vetores como linhas por cima.
+- **Estático: matplotlib**, para `zeit.plot(..., static=True)` e exportar figuras.
+- **napari como alternativa opcional** (`backend="napari"`) para cubos muito maiores que a
+  memória, se a medição mostrar que o fastplotlib não dá conta.
+
+### Otimizações (o centro do trabalho)
+
+- **Ler só o que cabe na tela:** usar as overviews do GeoTIFF/COG ou reduzir o cubo
+  (`coarsen`) para a resolução da janela antes de mandar à GPU; ao dar zoom, carregar a
+  janela em resolução maior.
+- **Pré-carregar quadros:** uma thread lê os próximos quadros do slider enquanto o atual é
+  mostrado, com cache LRU limitado em memória; com dask, `persist` de um bloco de datas.
+- **Cores na GPU:** mandar os dados uma vez e aplicar colormap e limites no shader (trocar
+  paleta ou contraste não relê nada); quantizar para `uint8`/`float16` quando possível.
+- **Estatísticas por amostra:** percentis e "é categórico?" a partir de uma amostra de
+  pixels e datas, nunca do cubo inteiro.
+- **Basemap em cache:** baixar os tiles uma vez por extensão/zoom (xyzservices) e
+  reprojetar uma única imagem de fundo.
+- Medir: tempo até o primeiro quadro e quadros por segundo no slider com o stack de Rondônia
+  (40 × 1671 × 1686) e com um cubo Sentinel-2 de centenas de datas.
+
+### Dependências
+
+`fastplotlib` (e `pygfx`, `wgpu`), `jupyter_rfb` e `simplejpeg` para o notebook, `glfw` ou
+Qt para a janela, `xyzservices` para os basemaps; como extra opcional
+(`pip install zeit-cdts[plot]`), sem pesar no `import zeit`.
+
 ## Para depois
 
 - `zeit.landtrendr(..., ftv=[...])`: fitted-to-vertices de outras bandas com os vértices
