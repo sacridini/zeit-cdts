@@ -2,6 +2,7 @@ import xarray as xr
 import dask.array as da
 import numpy as np
 from typing import Optional, Any
+from pathlib import Path
 
 @xr.register_dataarray_accessor("zeit")
 class ZeitAccessor:
@@ -96,6 +97,22 @@ class ZeitAccessor:
             coords={k: v for k, v in coords.items() if v is not None},
         )
 
+    def save(self, path: Any, **kwargs: Any) -> Path:
+        """
+        Writes this map, cube or result to a raster: the same as ``zeit.save_raster(da, path, **kwargs)``.
+        Returns the path written.
+        """
+        from zeit._save import save_raster
+        return save_raster(self._obj, path, **kwargs)
+
+    def plot(self, **kwargs: Any) -> Any:
+        """
+        Shows this map or cube: the same as ``zeit.plot(da, **kwargs)`` (the viewer in a notebook,
+        a window in a script, a figure with ``static=True`` or ``save=``).
+        """
+        from zeit._plot import plot
+        return plot(self._obj, **kwargs)
+
     def to_zarr_optimized(self, store_path: str, chunk_size: dict = {"y": 512, "x": 512}) -> None:
         """
         Optimizes and saves the DataArray directly to a Zarr store, ideal for cloud storage (S3/GCS) 
@@ -106,3 +123,27 @@ class ZeitAccessor:
         optimized_ds.to_dataset(name="data").to_zarr(store_path, mode="w", consolidated=True)
 
 
+@xr.register_dataset_accessor("zeit")
+class ZeitDatasetAccessor:
+    """``.zeit`` on a Dataset, such as the result of ``zeit.landtrendr`` or ``zeit.ccdc``:
+    write it or show it without leaving the chain of calls."""
+
+    def __init__(self, xarray_obj: xr.Dataset) -> None:
+        self._obj = xarray_obj
+
+    def save(self, path: Any, **kwargs: Any) -> Path:
+        """
+        Writes this result: the same as ``zeit.save_raster(ds, path, **kwargs)`` (a path without an
+        extension becomes a folder with one GeoTIFF per variable, a ``.tif`` one multiband raster).
+        Returns the path written.
+        """
+        from zeit._save import save_raster
+        return save_raster(self._obj, path, **kwargs)
+
+    def plot(self, **kwargs: Any) -> Any:
+        """
+        Shows this result: the same as ``zeit.plot(ds, **kwargs)``, with a selector of its variables
+        (or one of them with ``var=``).
+        """
+        from zeit._plot import plot
+        return plot(self._obj, **kwargs)

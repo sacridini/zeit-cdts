@@ -109,3 +109,37 @@ def test_xarray_to_zarr(tmp_path):
     assert ds_zarr["data"].shape == (3, y, x)
     assert ds_zarr["data"].chunks == ((3,), (4, 4), (4, 4))
 
+
+
+def _georeferenced_ndvi():
+    import pandas as pd
+    from rasterio.transform import from_origin
+
+    rng = np.random.default_rng(3)
+    years = np.arange(2000, 2016)
+    base = np.interp(years, [2000, 2007, 2008, 2015], [8000, 8100, 3000, 7000])
+    values = (base[:, None, None] + rng.normal(0, 100, (years.size, 6, 7))).astype(np.float32)
+    tr = from_origin(600000, 8000000, 30, 30)
+    cube = xr.DataArray(values, dims=("time", "y", "x"),
+                        coords={"time": pd.to_datetime([f"{y}-01-01" for y in years]),
+                                "y": tr.f - 30 * (np.arange(6) + 0.5), "x": tr.c + 30 * (np.arange(7) + 0.5)},
+                        name="ndvi")
+    return cube.rio.write_crs("EPSG:32722").rio.write_transform(tr)
+
+
+def test_results_save_and_plot_through_the_accessor(tmp_path):
+    cube = _georeferenced_ndvi()
+    lt = zeit.landtrendr(cube)
+    folder = lt.zeit.save(tmp_path / "lt")
+    assert folder == tmp_path / "lt"
+    zeit.save_raster(lt, tmp_path / "lt_direct")
+    assert sorted(p.name for p in folder.iterdir()) == sorted(p.name for p in (tmp_path / "lt_direct").iterdir())
+    back = zeit.load_raster(folder / "rmse.tif")
+    np.testing.assert_allclose(back.values, lt.rmse.values, equal_nan=True)
+
+    path = cube.zeit.save(tmp_path / "ndvi.tif")
+    assert (zeit.load_raster(path).time.values == cube.time.values).all()
+
+    for obj, name in ((lt, "lt.png"), (lt.n_vertices, "map.png"), (cube, "cube.png")):
+        obj.zeit.plot(static=True, save=str(tmp_path / name))
+        assert (tmp_path / name).stat().st_size > 0

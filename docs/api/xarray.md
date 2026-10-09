@@ -1,6 +1,6 @@
 # Xarray Accessor
 
-<p class="lead"><code>import zeit</code> registers a <code>.zeit</code> accessor on every <code>xarray.DataArray</code>. Its methods run the C++ algorithms over Dask chunks, so they work on cubes larger than memory and on clusters. On a dask-backed cube the algorithms are lazy: call <code>.compute()</code>, or write the result with <code>save_raster</code> or <code>to_zarr_optimized</code>. An in-memory cube gives an in-memory result.</p>
+<p class="lead"><code>import zeit</code> registers a <code>.zeit</code> accessor on every <code>xarray.DataArray</code> (and, to save or show results, on every <code>xarray.Dataset</code>). Its methods run the C++ algorithms over Dask chunks, so they work on cubes larger than memory and on clusters. On a dask-backed cube the algorithms are lazy: call <code>.compute()</code>, or write the result with <code>save_raster</code> or <code>to_zarr_optimized</code>. An in-memory cube gives an in-memory result.</p>
 
 !!! warning "Chunk in space, never in time"
     Each pixel needs its whole history, so keep `time` (and `band`, for CCDC) in a single chunk: `cube.chunk({"time": -1, "y": 512, "x": 512})`. See [Parallel & Cloud Processing](../tutorials/parallel-cloud-processing.md).
@@ -15,6 +15,8 @@
 | `mann_kendall` | `(time, y, x)` | `xr.Dataset` of metrics | [`zeit.mann_kendall`](time-series.md#mann_kendall) |
 | `phenology` | `(time, y, x)` | `xr.Dataset` of metrics, by year or season | [`zeit.phenology`](time-series.md#phenology) |
 | `run_snic` | `(..., y, x)` | `xr.Dataset` of labels and means | [`run_snic`](time-series.md#run_snic) |
+| `save` | any with `y`, `x` (also on a `Dataset`) | writes a raster, returns its path | [`zeit.save_raster`](data.md#save_raster) |
+| `plot` | any with `y`, `x` (also on a `Dataset`) | the viewer, a window or a figure | [`zeit.plot`](plot.md) |
 | `to_zarr_optimized` | any with `y`, `x` | writes a Zarr store | below |
 
 Each algorithm method returns an `xr.Dataset` with one variable per output, selected by name: `result.slope`, `result["TRS5.sos"]`.
@@ -127,6 +129,44 @@ DataArray.zeit.run_snic(
 ```
 
 Returns an `xr.Dataset` with `labels` `(y, x)`, the mean trajectory of each segment `means` `(segment, …)` keeping the cube's other coordinates, and `centroid_row`, `centroid_col`, `n_pixels`.
+
+## Saving and showing results
+
+The results of the algorithms are `Dataset`s; `.zeit.save` and `.zeit.plot` write or show them (or any map or cube) without leaving a chain of calls:
+
+```python
+zeit.landtrendr(ndvi).zeit.save("results/lt")               # one GeoTIFF per variable
+zeit.extract_events(lt).yod.zeit.plot(basemap="satellite")  # one map
+lt.zeit.plot()                                              # a selector of the variables
+```
+
+### `save` { .api .meth }
+
+<!-- sig: zeit.xarray_api.ZeitAccessor.save -->
+```python
+DataArray.zeit.save(path, **kwargs)
+```
+
+<!-- sig: zeit.xarray_api.ZeitDatasetAccessor.save -->
+```python
+Dataset.zeit.save(path, **kwargs)
+```
+
+Writes this map, cube or result: the same as [`zeit.save_raster(data, path, **kwargs)`](data.md#save_raster), with its keyword arguments (`nodata`, `dtype`, `compress`, `driver`, …). A `Dataset` with a path without extension becomes a folder with one GeoTIFF per variable; with `.tif`, one multiband raster. Returns the `Path` written. A lazy result is computed while it is written.
+
+### `plot` { .api .meth }
+
+<!-- sig: zeit.xarray_api.ZeitAccessor.plot -->
+```python
+DataArray.zeit.plot(**kwargs)
+```
+
+<!-- sig: zeit.xarray_api.ZeitDatasetAccessor.plot -->
+```python
+Dataset.zeit.plot(**kwargs)
+```
+
+Shows this map, cube or result: the same as [`zeit.plot(data, **kwargs)`](plot.md), with its keyword arguments (`var`, `fit`, `basemap`, `vector`, `static`, `save`, …): the interactive viewer in a notebook, a window in a script, a figure with `static=True` or `save=`. A `Dataset` opens with a selector of its variables.
 
 ## Storage
 

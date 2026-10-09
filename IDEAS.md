@@ -328,7 +328,7 @@ kernel por quadro, com no máximo 2 quadros em trânsito (fps ≤ 2/latência: 1
 opcional para a janela nativa; `xyzservices` para nomear os basemaps. Tudo no extra
 `pip install zeit-cdts[plot]`, sem pesar no `import zeit`.
 
-## Fase 8: grade de referência, FTV e resultados que se salvam
+## Fase 8: grade de referência, FTV e resultados que se salvam — **Feito** (0.38.0–0.40.0)
 
 Os três itens que estavam em "Para depois". Vêm antes da Fase 9 porque o `like=` é o que
 destrava combinar fontes (Landsat com Sentinel, um cubo com uma máscara de outra grade, cenas
@@ -434,12 +434,13 @@ vértice.
 - O `apply_vertices` (que só interpola os valores brutos) ficou, com a documentação
   apontando para o `ftv=`.
 
-### 8c: resultados com `.save()` e `.plot()`
+### 8c: resultados com `.save()` e `.plot()` — **Feito** (0.40.0)
 
-Os `Dataset`s de resultado ganham `.zeit.save(caminho)` e `.zeit.plot(...)` pelo accessor
-que já existe (`xarray_api.py`), delegando para `save_raster` e `zeit.plot`, como os
-`Saveable` do landschaft: `zeit.landtrendr(ndvi).zeit.save("lt")`. Também nos
-`DataArray`s (`ndvi.zeit.plot()`).
+`.zeit.save(caminho, **kwargs)` e `.zeit.plot(**kwargs)` em qualquer `DataArray` e, por um
+accessor novo (`ZeitDatasetAccessor`), em qualquer `Dataset`, delegando para
+`save_raster` e `zeit.plot`, como os `Saveable` do landschaft:
+`zeit.landtrendr(ndvi).zeit.save("lt")`, `lt.zeit.plot()`, `loss.yod.zeit.plot()`. O
+`sync_api` nomeia os métodos do accessor de Dataset como `Dataset.zeit.<método>`.
 
 ## Fase 9: o resto da API no padrão do cubo
 

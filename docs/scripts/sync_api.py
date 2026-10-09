@@ -52,6 +52,8 @@ def display_name(path):
     # Methods of the xarray accessor read as `DataArray.zeit.method`.
     if ".ZeitAccessor." in path:
         return "DataArray.zeit." + path.rsplit(".", 1)[1]
+    if ".ZeitDatasetAccessor." in path:
+        return "Dataset.zeit." + path.rsplit(".", 1)[1]
     return path
 
 
