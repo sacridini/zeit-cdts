@@ -23,7 +23,7 @@ def extract_events(vertices_stack: np.ndarray, event_type: str = "loss", sort_by
             band (magnitude / rmse) is added to the output, and sort_by="dsnr" becomes usable.
 
     Returns:
-        dict: A dictionary of 2D numpy arrays for 'year', 'magnitude', 'duration',
+        dict: A dictionary of 2D numpy arrays for 'yod' (year of detection), 'magnitude', 'duration',
               'pre_val', 'post_val', 'rate', and (when rmse_map is given) 'dsnr'.
     """
     if sort_by.lower() == "dsnr" and rmse_map is None:

@@ -125,7 +125,7 @@ events = extract_events(
 )
 
 # You now have 2D maps ready to be exported to GeoTIFF!
-yod_map = events["year"]        # Year of Disturbance (YOD)
+yod_map = events["yod"]         # Year of Disturbance (YOD)
 mag_map = events["magnitude"]   # Magnitude of the disturbance
 dur_map = events["duration"]    # How many years the disturbance took
 pre_map = events["pre_val"]     # Value before disturbance

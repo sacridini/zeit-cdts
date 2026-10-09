@@ -26,6 +26,6 @@ if __name__ == '__main__':
     events = extract_events(lt_vertices, event_type="gain", sort_by="greatest")
 
     out_tif = os.path.join("data", "lt_disturbance_year.tif")
-    save_raster(events['year'], out_tif, reference_cube=cube, nodata=0)
+    save_raster(events['yod'], out_tif, reference_cube=cube, nodata=0)
 
     print(f"Done! Output saved to {out_tif}")
