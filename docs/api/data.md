@@ -399,7 +399,7 @@ cube_16d = zeit.regularize_time_series(cube, freq="16D", method="medoid")
 zeit.io.load_raster(
     source, dates=None, start_year=None, band=None, chunks=None,
     clip=None, masked="auto", pattern=None, date_format=None,
-    recursive=False, like=None, validate=None,
+    recursive=False, like=None, resampling="auto", validate=None,
 )
 ```
 
@@ -431,7 +431,8 @@ Without dates, the band axis keeps the name `band` and the algorithms ask for `y
 | `pattern` | `str` | `None` | Several files: regular expression with a named group `date` and optionally `band`, matched against each file name. |
 | `date_format` | `str` | `None` | `strptime` format of the dates in file names or band descriptions (e.g. `"%Y%m%d"`). |
 | `recursive` | `bool` | `False` | Folders: also search sub-folders. |
-| `like` | path or `DataArray` | `None` | numpy input: a raster on the same grid whose coordinates and CRS georeference the array. |
+| `like` | path, `DataArray` or `Dataset` | `None` | A reference raster whose grid the result takes (CRS, cells, extent and `x`/`y` coordinates), so that the two line up cell by cell; see [On the grid of another raster](#on-the-grid-of-another-raster). numpy input: a raster on the same grid whose coordinates and CRS georeference the array. |
+| `resampling` | `str` | `"auto"` | With `like`: `"auto"` takes the nearest cell for integer rasters and interpolates floats bilinearly (QA bands always take the nearest cell); or a GDAL method: `"nearest"`, `"bilinear"`, `"cubic"`, `"cubic_spline"`, `"lanczos"`, `"average"`, `"mode"`, `"min"`, `"max"`, `"med"`, `"q1"`, `"q3"`, `"rms"`. |
 | `validate` | `str` | `None` | `"landtrendr"`, `"ccdc"` or `"cold"`: warn when the series looks unfit for that algorithm (too few dates, values that do not look scaled). |
 
 </div>
@@ -446,6 +447,24 @@ ndvi.time.dt.year.values[[0, -1]]                         # array([1985, 2024])
 ndvi = zeit.load_raster("ndvi_stack.tif", start_year=1985, chunks="auto")   # lazy
 s2 = zeit.load_raster("S2/", pattern=r"_(?P<date>\d{8})_(?P<band>B\d{2})\.tif$")   # (time, band, y, x)
 ```
+
+#### On the grid of another raster
+
+`like=` puts the data on the grid of a reference raster, reprojecting and resampling it: Landsat at 30 m onto a Sentinel-2 grid at 10 m, a land-cover map onto the grid of a cube, or a folder of scenes from different orbits or UTM zones onto one grid.
+
+```python
+s2 = zeit.load_raster("S2_ndvi.tif")
+landsat = zeit.load_raster("landsat_ndvi.tif", like=s2)              # bilinear for floats
+classes = zeit.load_raster("mapbiomas_2020.tif", like=s2)           # nearest cell for integers
+scenes = zeit.load_raster("scenes/", like="S2_ndvi.tif", chunks="auto")   # each file onto the grid
+bool((landsat.x == s2.x).all())                                     # True: they line up
+```
+
+- **Every date on its own.** Each date (and band) is resampled with its own NoData, as GDAL warping that date alone: a cloud in one date never leaks into the interpolation of another. (GDAL's warp of a multiband raster takes a cell as valid when *any* band is, so a cloudy cell of one date enters the bilinear or average of that date and spreads its NoData.)
+- **GDAL's resampling, faster.** The kernels are GDAL's (`gdalwarpkernel.cpp`, ported to C++ through landschaft), run in parallel; the source coordinates of the cells are computed once for every date. On a cube of 240 dates of 1000 × 1000 cells (UTM to EPSG:3035), nearest takes 0.5 s, bilinear 0.7 s and average 0.9 s, against 2.4 s, 22.6 s and 6.4 s for `rioxarray`'s `reproject_match`.
+- **The same values however it runs**: in memory, lazily (`chunks=`) or from a file, with any number of threads. A file is read only in the window the grid sees, and a lazy cube stays lazy.
+- **No warp when it is not needed**: a grid with the same CRS and cells, a whole number of cells apart, is only a crop (and padding with NoData) of the data.
+- Cells outside the data are NoData (NaN for floats; integer rasters keep their NoData value, or get the largest value of unsigned types and the smallest of signed ones).
 
 ### `save_raster` { .api }
 

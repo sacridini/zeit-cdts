@@ -12,6 +12,7 @@
 #include "bfast_lite.h"
 #include "bfast.h"
 #include "snic.h"
+#include "warp_python.hpp"
 
 namespace py = pybind11;
 
@@ -302,4 +303,8 @@ PYBIND11_MODULE(_core, m) {
            "Run SNIC on a planar [features, rows, cols] image from [n, 2] (row, col) seeds, tiles in parallel with OpenMP",
            py::arg("data"), py::arg("seeds"), py::arg("compactness") = 10.0,
            py::arg("tile_height") = 0, py::arg("tile_width") = 0, py::arg("n_jobs") = -1);
+
+    // Warp sub-module (GDAL's resampling kernels, for load_raster(..., like=))
+    py::module_ wp = m.def_submodule("warp", "GDAL's warp kernel on fixed source coordinates");
+    zeit::warp::register_python(wp);
 }

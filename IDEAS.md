@@ -328,9 +328,130 @@ kernel por quadro, com no máximo 2 quadros em trânsito (fps ≤ 2/latência: 1
 opcional para a janela nativa; `xyzservices` para nomear os basemaps. Tudo no extra
 `pip install zeit-cdts[plot]`, sem pesar no `import zeit`.
 
+## Fase 8: grade de referência, FTV e resultados que se salvam
+
+Os três itens que estavam em "Para depois". Vêm antes da Fase 9 porque o `like=` é o que
+destrava combinar fontes (Landsat com Sentinel, um cubo com uma máscara de outra grade, cenas
+de órbitas diferentes numa pasta).
+
+### 8a: `load_raster(..., like=)` com o warp do landschaft em C++ — **Feito** (0.38.0)
+
+`zeit.load_raster(source, *, like=None, resampling="auto", ...)` devolve o cubo **na grade
+de `like`**: o mesmo CRS, transform, tamanho e as mesmas coordenadas `x`/`y` (bit a bit,
+para o xarray alinhar sem reindexar). `time` e `band` não mudam. Uma função só também para
+o que já está carregado: `zeit.load_raster(cube, like=ref)` faz o papel do `match_grid`.
+
+- `like`: `DataArray`/`Dataset` ou caminho de raster; só a grade é lida (nada de dados).
+  Com numpy continua como hoje (georreferencia, tamanho igual obrigatório): nos dois casos
+  o resultado está na grade de `like`.
+- `resampling="auto"`: nearest para inteiros e `bool` (classes, QA, índices escalados
+  Int16: o valor é um que foi observado, e bits de QA nunca se misturam), bilinear para
+  floats; bandas de QA pelo nome (`qa`, `fmask`, `scl`, `pixel_qa`...) sempre nearest. Ou
+  um método do GDAL (`"nearest"`, `"bilinear"`, `"cubic"`, `"average"`, `"mode"`...).
+- **Máscara por data, não a unificada do GDAL.** O kernel do landschaft segue o GDAL:
+  uma célula é válida se *alguma* banda não for NoData. Numa série temporal cada data tem
+  as próprias nuvens, então uma célula NaN numa data e válida nas outras entraria no
+  bilinear/average dessa data e espalharia o NaN (o `average` de uma célula grossa com um
+  pixel nublado daria NaN em vez da média dos limpos). Aqui cada plano `(time, band)` tem
+  a própria máscara; o resultado de cada data é o do GDAL warpando aquela data sozinha
+  (é com isso que os testes comparam).
+- **Coordenadas uma vez só:** a grade de coordenadas de origem (nós exatos a cada 16
+  células, refinados onde a interpolação erra mais que a tolerância) é calculada uma vez
+  por par de grades e serve para todas as datas e bandas. Numa série de 240 datas o custo
+  da transformação (PROJ) é pago uma vez, não 240.
+- **Sem warp quando não precisa:** mesma grade → nada; mesmo CRS, mesma resolução e
+  deslocamento inteiro de células → recorte/preenchimento por índices (o caso comum de
+  "cortar na extensão da referência").
+- **Lazy e por janela:** com `chunks=`, o resultado é dask em blocos fixos ancorados na
+  origem de `like`, cada um lendo só a janela de origem que vê (mais o raio do filtro);
+  `time` mantém os chunks. De um arquivo grande, só a região de `like` é lida. Em memória,
+  lazy, de arquivo e com qualquer número de threads, os mesmos bits.
+- **Pasta de cenas com grades diferentes:** `load_raster("cenas/", like="ref.tif")`
+  warpa cada arquivo para a grade de `like` antes de empilhar (hoje um arquivo fora da
+  grade do primeiro dá erro, `_load.py`).
+- `clip=` junto com `like=`: o recorte é aplicado na grade de `like`.
+
+Implementação: o kernel do landschaft 1.35.0 (o porte do `gdalwarpkernel.cpp` do GDAL
+3.12, validado bit a bit contra o GDAL no landschaft) em `src/warp.cpp`/`.hpp`, com os
+bindings em `src/warp_python.cpp` (`_core.warp.warp`, `coords`, `lattice_checks`); a parte
+de rasters do `_reproject.py` (grade de coordenadas, escala dos kernels, tarefas lazy) em
+`zeit/_warp.py`, e o transformador do GDAL do rasterio por ctypes (pyproj de reserva) em
+`zeit/_gdaltransform.py`. Vetores e o método `sum` (que no landschaft roda o próprio GDAL)
+ficaram de fora. Mudanças em relação ao landschaft:
+
+- `WarpSpec::per_band`: cada banda com a própria fonte e destino de uma banda só (máscara e
+  AvoidNoData próprios), usando a mesma linha de coordenadas; o zeit sempre usa.
+- O número de threads vai em cada chamada (`n_threads`), e o OpenMP da thread que chama
+  volta ao que era depois: o `omp_set_num_threads` não pode mudar o padrão
+  (`omp_get_max_threads() - 1`) dos outros motores.
+- Tarefas lazy divididas também nos grupos de datas (os chunks do cubo), não só em linhas e
+  colunas: um cubo de 240 datas não vira uma tarefa de 240 × 1024².
+- O recorte por índices (mesmo CRS e células, deslocamento inteiro) não passa pelo kernel;
+  o resultado é o do GDAL, que também toma o nearest numa translação de células inteiras.
+- QA pelo nome sempre nearest, separado das outras bandas e reordenado no fim.
+
+Licença: o código é do mesmo autor e entra no zeit como GPL-2.0-or-later; o GDAL (MIT)
+está no `THIRD_PARTY_NOTICES.md`.
+
+Testes (`tests/test_warp.py`, 74): cada data igual ao GDAL warpando aquela data sozinha
+(`tolerance=0`, os 13 métodos; uint8/uint16/int16/int32/float64, com e sem NoData; NaN em
+lugares diferentes por data); um `average` cuja célula grossa tem um pixel nublado numa
+data só; a tolerância padrão perto da exata; sem a DLL do GDAL (pyproj); memória = lazy =
+arquivo = qualquer número de threads; o recorte igual ao GDAL; `load_raster` com `like=`
+DataArray/caminho, `clip=`, `masked=`, pasta com uma cena em EPSG:4326 entre cenas em UTM;
+bandas de QA.
+
+Medido (cubo de 240 × 1000 × 1000 float32 com nuvens por data, UTM 33N → EPSG:3035,
+i5-13600K, 19 threads), contra o `rioxarray.reproject_match`: nearest 0,46 s contra 2,4 s,
+bilinear 0,70 s contra 22,6 s, average 0,90 s contra 6,4 s. O rioxarray deixa NaN a mais
+em 0,13% das células no bilinear (as bordas das nuvens, pela máscara unificada).
+
+### 8b: `zeit.landtrendr(..., ftv=[...])`
+
+Fitted-to-vertices como no LT-GEE: segmenta uma banda (`band=`) e ajusta as outras com os
+mesmos anos de vértice. `ftv=["nbr", "tcw"]` (nomes de banda do cubo `(time, band, y, x)`
+ou do `Dataset`) acrescenta ao resultado `ftv_<banda>` `(time, y, x)` com a série ajustada
+e `vertex_value_<banda>` `(vertex, y, x)`. O ajuste é linear por partes e contínuo, com os
+anos dos vértices fixos (como o `ftv_` do LT-GEE); o `apply_vertices` atual só interpola os
+valores brutos nos anos dos vértices, o que não é a mesma coisa: conferir contra uma
+exportação do LT-GEE antes de decidir se ele sai ou passa a chamar o novo. Em C++, junto
+do motor do LandTrendr (um pixel, todas as bandas).
+
+### 8c: resultados com `.save()` e `.plot()`
+
+Os `Dataset`s de resultado ganham `.zeit.save(caminho)` e `.zeit.plot(...)` pelo accessor
+que já existe (`xarray_api.py`), delegando para `save_raster` e `zeit.plot`, como os
+`Saveable` do landschaft: `zeit.landtrendr(ndvi).zeit.save("lt")`. Também nos
+`DataArray`s (`ndvi.zeit.plot()`).
+
+## Fase 9: o resto da API no padrão do cubo
+
+As Fases 3–5 levaram os algoritmos de mudança para "uma função, qualquer entrada, saída
+georreferenciada". O que sobrou ainda recebe numpy cru, datas montadas à mão ou caminhos de
+entrada e saída:
+
+| Hoje | Depois |
+| :--- | :--- |
+| `run_twdtw`, `run_twdtw_batch`, `classify_twdtw(values, dates, patterns)` (fora do `__all__`) | `zeit.twdtw(cube, patterns)`: padrões como `dict` nome → série (`DataFrame`/`DataArray` com datas) ou amostras de pixels; saída `Dataset` com `label`, `distance` e a distância por padrão |
+| `run_tmask_pixel`, `apply_tmask_stack(dates, green, swir)` | `zeit.tmask(cube)`: bandas `green`/`swir1` pelo nome no cubo `(time, band, y, x)`, datas de `time`; saída máscara `(time, y, x)` `bool` |
+| `apply_savgol_filter`, `apply_whittaker_filter` (numpy, Whittaker fora do `__all__`) | `zeit.smooth(cube, method="whittaker"\|"savgol", ...)`: mantém `time`, georreferência e dtype; Whittaker com pesos pelo espaçamento das datas e NaN como peso 0 |
+| `run_snic`, `snic_grid`, `snic_to_polygons` | `zeit.snic(cube, spacing=...)`: `Dataset` com `segment (y, x)` e médias; `.to_polygons()` já com CRS e transform |
+| `train_ccdc_classifier`, `classify_ccdc_stack(clf, path, path)` | `zeit.classify(result_ou_cubo, model)`: aceita o `Dataset` do `zeit.ccdc` (coeficientes numa data, via `predict_synthetic_image`) ou qualquer cubo; treino a partir de pontos (`GeoDataFrame` com a coluna da classe) |
+| `apply_mmu_filter(path, path)`, `apply_majority_filter`, `apply_bayesian_filter` (numpy) | mesmos nomes recebendo e devolvendo `DataArray` |
+| `extract_water_mask(coefs, idx, idx)` | bandas pelo nome a partir do resultado do `zeit.ccdc` |
+| `regularize_time_series(cube, freq)` | `load_raster(..., freq="16D")` ou `zeit.regularize(cube)` com o tempo do cubo; decidir na hora |
+
+- Mesmo roteiro das fases anteriores: entrada lida pelo `load_raster`, motor antigo vira
+  bloco interno, resultado idêntico ao motor, CLI/docs/exemplos migrados na mesma fase,
+  linha nova na página "Upgrading to the one-function API".
+- `zeit.plot(cube, fit=...)` passa a desenhar também o TWDTW (padrão alinhado) e a curva
+  suavizada.
+- Pode ser dividida (9a TWDTW e suavização, que são as que mais aparecem nos tutoriais;
+  9b TMASK, SNIC e classificação).
+
 ## Para depois
 
-- `zeit.landtrendr(..., ftv=[...])`: fitted-to-vertices de outras bandas com os vértices
-  da banda de segmentação, como no LT-GEE.
-- `load_raster(..., like=)`: reprojetar/reamostrar para a grade de outro raster.
-- Resultados com `.save(pasta)` e `.plot()`, como os `Saveable` do landschaft.
+- `load_raster(..., crs=, res=)`: reprojetar para um CRS ou resolução sem um raster de
+  referência (o mesmo warp do 8a; `like=` cobre o caso mais comum).
+- `zeit.plot`: medir de verdade o caso de notebook remoto (JupyterHub, Colab), que ficou
+  como estimativa no 7a.

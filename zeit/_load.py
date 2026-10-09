@@ -55,6 +55,7 @@ def load_raster(
     date_format: Optional[str] = None,
     recursive: bool = False,
     like: Any = None,
+    resampling: str = "auto",
     validate: Optional[str] = None,
 ) -> xr.DataArray:
     """Read a time series (or a single map) as a georeferenced cube.
@@ -103,8 +104,20 @@ def load_raster(
     recursive
         Folder only: also search sub-folders.
     like
-        numpy input only: a raster (path or DataArray) on the same grid, whose
-        coordinates and CRS georeference the array.
+        A reference raster (path, ``DataArray`` or ``Dataset``) whose grid the result
+        takes: its CRS, cells, extent and ``x``/``y`` coordinates, so that the two line
+        up cell by cell. The data is reprojected and resampled onto it (each date on its
+        own, with its own NoData); cells outside the data are NoData. A file is read
+        only in the window the grid sees, and a lazy cube stays lazy. Folders of
+        rasters on different grids are put on it file by file. With a numpy array:
+        a raster on the same grid, whose coordinates and CRS georeference the array.
+    resampling
+        With ``like``: ``"auto"`` (default) takes the nearest cell for integer rasters
+        (classes, QA flags, indices scaled to integers keep values that were observed)
+        and interpolates floats bilinearly; QA bands (``qa``, ``fmask``, ``scl``...)
+        always take the nearest cell. Or a GDAL method: ``"nearest"``, ``"bilinear"``,
+        ``"cubic"``, ``"cubic_spline"``, ``"lanczos"``, ``"average"``, ``"mode"``,
+        ``"min"``, ``"max"``, ``"med"``, ``"q1"``, ``"q3"``, ``"rms"``.
     validate
         ``"landtrendr"``, ``"ccdc"`` or ``"cold"``: warn when the series looks unfit for
         that algorithm (too few dates, values that do not look scaled).
@@ -130,6 +143,13 @@ def load_raster(
     (('time', 'y', 'x'), array([1985, 2024]))
     >>> ndvi = zeit.load_raster("ndvi_stack.tif", start_year=1985, chunks="auto")
     >>> s2 = zeit.load_raster("S2/", pattern=r"_(?P<date>\\d{8})_(?P<band>B\\d{2})\\.tif$")
+
+    On the grid of another raster (e.g. Landsat at 30 m onto a Sentinel-2 grid at 10 m):
+
+    >>> s2 = zeit.load_raster("s2_ndvi.tif")
+    >>> landsat = zeit.load_raster("landsat_ndvi.tif", like=s2)
+    >>> bool((landsat.x == s2.x).all())
+    True
     """
     if masked not in ("auto", True, False):
         raise ValueError(f"masked must be 'auto', True or False, got {masked!r}")
@@ -137,8 +157,14 @@ def load_raster(
         raise ValueError(f"validate must be one of {sorted(_VALIDATE)}, got {validate!r}")
     if dates is not None and start_year is not None:
         raise ValueError("give dates or start_year, not both")
+    from ._warp import RESAMPLING_NAMES
+    if resampling != "auto" and resampling not in RESAMPLING_NAMES:
+        raise ValueError(f"unknown resampling {resampling!r}; use 'auto' or one of {', '.join(RESAMPLING_NAMES)}")
+    is_array = isinstance(source, np.ndarray) or (hasattr(source, "dask")
+                                                  and not isinstance(source, (xr.DataArray, xr.Dataset)))
+    grid = grid_of(like) if like is not None and not is_array else None
 
-    if isinstance(source, np.ndarray) or (hasattr(source, "dask") and not isinstance(source, (xr.DataArray, xr.Dataset))):
+    if is_array:
         da = _from_array(source, like)
     elif isinstance(source, (xr.DataArray, xr.Dataset)):
         da = _from_xarray(source, band)
@@ -149,12 +175,15 @@ def load_raster(
             da = _open_one(files[0], band=band, chunks=chunks, date_format=date_format)
         else:
             da = _open_many(files, band=band, chunks=chunks, pattern=pattern, date_format=date_format,
-                            dates=dates, start_year=start_year)
+                            dates=dates, start_year=start_year, grid=grid, resampling=resampling)
         band = None
 
     if band is not None and "band" in da.dims:
         da = da.sel(band=band)
     da = _normalize(da, dates=dates, start_year=start_year)
+    if grid is not None:
+        from ._warp import to_grid
+        da = to_grid(da, grid, resampling)
     if clip is not None:
         da = _clip(da, clip)
     da = _mask(da, masked)
@@ -288,7 +317,8 @@ def _sidecar_dates(path: str, count: int) -> Optional[pd.DatetimeIndex]:
 
 
 def _open_many(files: List[str], *, band: Any, chunks: Any, pattern: Optional[str],
-               date_format: Optional[str], dates: Any, start_year: Optional[int]) -> xr.DataArray:
+               date_format: Optional[str], dates: Any, start_year: Optional[int], grid: Any = None,
+               resampling: str = "auto") -> xr.DataArray:
     import re
 
     regex = re.compile(pattern) if pattern else None
@@ -334,12 +364,17 @@ def _open_many(files: List[str], *, band: Any, chunks: Any, pattern: Optional[st
             layer = layer.isel(band=0)
         layer = layer.drop_vars("band", errors="ignore")
         layer.attrs.pop("long_name", None)
-        grid = (layer.shape, layer.rio.transform(), layer.rio.crs)
+        if grid is not None:  # every file onto the reference grid
+            from ._warp import to_grid
+            layers.append(to_grid(layer, grid, resampling))
+            continue
+        here = (layer.shape, layer.rio.transform(), layer.rio.crs)
         if reference is None:
-            reference = (grid, path)
-        elif grid != reference[0]:
+            reference = (here, path)
+        elif here != reference[0]:
             raise ValueError(f"{os.path.basename(path)} is not on the grid of {os.path.basename(reference[1])}: "
-                             "every file of a series needs the same CRS, size and transform")
+                             "every file of a series needs the same CRS, size and transform, "
+                             "or pass like= to put them on one grid")
         layers.append(layer)
 
     if explicit:
@@ -358,6 +393,45 @@ def _open_many(files: List[str], *, band: Any, chunks: Any, pattern: Optional[st
         raise ValueError("two files have the same date; use pattern= with a band group for multi-band series")
     cube = xr.concat(layers, dim="band", coords="minimal", compat="override", join="override")
     return cube.assign_coords(band=pd.Index(times, name="band"))
+
+
+def grid_of(like: Any):
+    """The grid (``_warp.Grid``) of a reference raster: a DataArray or Dataset, or a path
+    (a raster file is only opened for its grid; anything else load_raster reads is read
+    lazily)."""
+    from rasterio.crs import CRS
+
+    from ._warp import Grid, transform_of
+
+    if isinstance(like, (str, os.PathLike)):
+        path = os.path.expanduser(os.fspath(like))
+        if os.path.isfile(path) and not path.lower().endswith((".nc", ".nc4", ".netcdf")):
+            with rasterio.open(path) as src:
+                t, (h, w), crs = src.transform, (src.height, src.width), src.crs
+            if crs is None:
+                raise ValueError(f"like={like!r} has no CRS")
+            x = t.c + t.a * (np.arange(w) + 0.5)
+            y = t.f + t.e * (np.arange(h) + 0.5)
+            return Grid(t, (h, w), CRS.from_user_input(crs), x, y)
+        like = load_raster(like, chunks="auto")
+    if not isinstance(like, (xr.DataArray, xr.Dataset)):
+        raise TypeError(f"like= takes a raster path, a DataArray or a Dataset, got {type(like).__name__}")
+    ref = like
+    rename = {d: _DIM_ALIASES[str(d).lower()] for d in ref.dims if str(d).lower() in _DIM_ALIASES
+              and _DIM_ALIASES[str(d).lower()] in ("x", "y") and _DIM_ALIASES[str(d).lower()] not in ref.dims}
+    if rename:
+        ref = ref.rename(rename)
+    if "y" not in ref.dims or "x" not in ref.dims:
+        raise ValueError("like= needs a raster with y and x dimensions")
+    if ref.rio.crs is None:
+        raise ValueError("like= has no CRS")
+    if isinstance(ref, xr.Dataset):
+        ref = next(ref[v] for v in ref.data_vars if {"y", "x"} <= set(ref[v].dims))
+    t = transform_of(ref)
+    if t.b or t.d:
+        raise ValueError("like=: rotated grids are not supported")
+    return Grid(t, (ref.sizes["y"], ref.sizes["x"]), CRS.from_user_input(ref.rio.crs), ref["x"].values,
+                ref["y"].values)
 
 
 def _from_xarray(obj: Union[xr.DataArray, xr.Dataset], band: Any) -> xr.DataArray:

@@ -23,6 +23,7 @@ compiled `zeit._core` extension as a whole is distributed under the terms of
 | `zeit/ai/utae.py` (U-TAE, L-TAE) | [VSainteuf/utae-paps](https://github.com/VSainteuf/utae-paps), Garnot & Landrieu (2021) | MIT |
 | `zeit/ai/tempcnn.py` (architecture) | R package [sits](https://github.com/e-sensing/sits), `sits_tempcnn()` | GPL-2.0 |
 | `zeit/segmentation.py` (seed grids) | R package [snic](https://github.com/rolfsimoes/snic), `snic_grid()` | GPL-2.0 |
+| `src/warp.cpp` (resampling kernels of `load_raster(..., like=)`) | [GDAL](https://gdal.org) 3.12, `alg/gdalwarpkernel.cpp`, Warmerdam, Rouault et al. (via landschaft, same author as Zeit) | MIT |
 | `src/landtrendr.cpp` (LandTrendr) | [KennedyResearch/LandTrendr-2012](https://github.com/KennedyResearch/LandTrendr-2012), Kennedy et al. (2010), IDL | no license published — see below |
 
 SNIC (`src/snic.cpp`) is implemented from the paper (Achanta & Süsstrunk,
@@ -51,6 +52,7 @@ NonLinearOptimization module; full notice in
 
 The following copyright notices apply to the MIT-licensed code listed above:
 
+- Copyright (c) 2003, Frank Warmerdam; Copyright (c) 2008-2013, Even Rouault (GDAL, `gdalwarpkernel.cpp`)
 - Copyright (c) 2018 Global Environmental Remote Sensing Lab (GERSL/CCDC)
 - Copyright (c) 2019 Md. Manjurul Hussain Shourov (pymannkendall)
 - Copyright (c) 2021 VSainteuf (utae-paps)
