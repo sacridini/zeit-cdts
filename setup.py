@@ -92,7 +92,7 @@ class BuildExt(build_ext):
 
 setup(
     name='zeit-cdts',
-    version='0.44.0',
+    version='0.45.0',
     packages=find_packages(include=['zeit', 'zeit.*']),
     package_data={'zeit._plot': ['*.js', '*.css']},
     ext_modules=ext_modules,
