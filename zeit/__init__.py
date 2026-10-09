@@ -1,3 +1,18 @@
+# Windows: on import, rasterio adds every PATH folder holding gdal*.dll to the DLL search
+# path (e.g. a standalone C:\Program Files\GDAL). That folder's own libexpat, OpenSSL or
+# SQLite then shadow Python's when those standard-library modules are first imported
+# afterwards ("DLL load failed while importing pyexpat"). Importing them first keeps Python's.
+import sys as _sys
+
+if _sys.platform == "win32":
+    for _module in ("pyexpat", "_ssl", "_hashlib", "_sqlite3", "_lzma", "_bz2", "_ctypes"):
+        try:
+            __import__(_module)
+        except ImportError:
+            pass
+    del _module
+del _sys
+
 from ._landtrendr import desawtooth, apply_vertices
 from ._lt import landtrendr
 from ._ccdc_api import ccdc
