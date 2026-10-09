@@ -75,58 +75,45 @@ run_tmask_pixel(dates, green, swir)
 
 ## Smoothing
 
-### `apply_whittaker_filter` { .api }
+### `smooth` { .api }
 
-<!-- sig: zeit.smooth.apply_whittaker_filter -->
+<!-- sig: zeit.smooth -->
 ```python
-zeit.smooth.apply_whittaker_filter(
-    cube, lmbd=10.0, axis=0, weights=None,
+zeit.smooth(
+    data, method="whittaker", lmbda=10.0, weights=None, window=5,
+    polyorder=2, nodata="auto", chunks=None, n_jobs=-1,
 )
 ```
 
-Whittaker smoother along the time axis. It balances closeness to the data against roughness, controlled by `lmbd`, and accepts per-observation weights so that cloudy observations (weight 0) are ignored and gaps are filled. Usually the better choice for vegetation indices. Import from `zeit.smooth`.
+Smooths time series along `time`, keeping their dates, georeferencing and type. One function for every input: a cube `(time, y, x)` or `(time, band, y, x)` in memory or dask, anything [`load_raster`](data.md#load_raster) reads, or one pixel's `pandas.Series` indexed by dates. It replaces `apply_whittaker_filter` and `apply_savgol_filter`.
+
+- **Whittaker** (default; Eilers 2003): a penalised least-squares curve that follows the data more or less closely (`lmbda`). The dates may be unevenly spaced: the penalty uses the time between them, measured in median steps of the series, so `lmbda` means the same on any spacing (on an even series it is the classic smoother). Missing observations (NaN, NoData) weigh 0 and are filled by the curve; `weights` down-weights hazy ones.
+- **Savitzky-Golay** (`method="savgol"`): a local polynomial over `window` dates, as scipy's `savgol_filter`, for evenly spaced series (regularise first with [`regularize_time_series`](data.md#regularize_time_series)). Missing observations are first interpolated linearly in time.
 
 <div class="params" markdown>
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `cube` | `np.ndarray` | required | Array with a time axis, e.g. `(time, rows, cols)`. |
-| `lmbd` | `float` | `10.0` | Smoothness. Larger values give smoother curves. |
-| `axis` | `int` | `0` | Time axis. |
-| `weights` | `np.ndarray` | `None` | Same shape as `cube`: `0` ignores an observation, `1` trusts it. Values in between down-weight it (see `zeit.qc`). |
+| `data` | `DataArray`, path or `pd.Series` | required | The series to smooth (see above). |
+| `method` | `str` | `"whittaker"` | `"whittaker"` or `"savgol"`. |
+| `lmbda` | `float` | `10.0` | Whittaker: smoothness, larger is smoother (`10` light for a 16-day NDVI series, `1000` strong). |
+| `weights` | array or `DataArray` | `None` | Whittaker: a weight per observation, same shape as `data` (`1` clear, `0.2` hazy, `0` cloudy; see [`qc_sentinel2_scl`](data.md#qc_sentinel2_scl)). |
+| `window` | `int` | `5` | Savitzky-Golay: window length in dates (odd). |
+| `polyorder` | `int` | `2` | Savitzky-Golay: order of the local polynomial. |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | Value marking a missing observation: the raster's NoData (`0` for integer data without one), a number, or `None`. |
+| `chunks` | `"auto"`, `dict` | `None` | Inputs read from disk: `None` reads into memory; otherwise the result is lazy. |
+| `n_jobs` | `int` | `-1` | Whittaker: threads. `-1` uses all cores but one. |
 
 </div>
 
-```python
-from zeit.smooth import apply_whittaker_filter
-
-smooth = apply_whittaker_filter(ndvi, lmbd=10, weights=clear.astype(float))
-```
-
-### `apply_savgol_filter` { .api }
-
-<!-- sig: zeit.smooth.apply_savgol_filter -->
-```python
-zeit.smooth.apply_savgol_filter(
-    cube, window_length=5, polyorder=2, axis=0,
-)
-```
-
-Savitzky-Golay filter along the time axis (a moving local polynomial fit). Simple and fast, but every observation counts equally, so cloud drops pull the curve down. Zeros in the input are kept as zeros (no-data). Also exported as `zeit.apply_savgol_filter`.
-
-<div class="params" markdown>
-
-| Parameter | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `cube` | `np.ndarray` | required | `(time, rows, cols)` or `(time, bands, rows, cols)`. |
-| `window_length` | `int` | `5` | Window length in observations. Must be odd and at most the series length. |
-| `polyorder` | `int` | `2` | Order of the local polynomial. |
-| `axis` | `int` | `0` | Time axis. |
-
-</div>
+**Returns** an `xarray.DataArray` with the same dims and coordinates (a `pandas.Series` for a Series). Floats keep their type; integer data with a NoData value (NDVI × 10000 in Int16) is rounded back to its type, NoData where a pixel has no observation at all; integer data without one comes back as float32. `attrs["smoothing"]` names the method, and [`zeit.plot(cube, fit=smoothed)`](plot.md) draws the curve over a clicked pixel's series.
 
 ```python
-smooth = zeit.apply_savgol_filter(ndvi, window_length=7, polyorder=2)
+ndvi = zeit.load_raster("S2_ndvi_2022.tif")                    # (time, y, x), clouds as NaN
+smooth = zeit.smooth(ndvi, lmbda=100)                          # gaps filled by the curve
+weighted = zeit.smooth(ndvi, weights=zeit.qc_sentinel2_scl(scl))
+sg = zeit.smooth(ndvi_16d, method="savgol", window=7)
+zeit.plot(ndvi, fit=smooth)                                    # click a pixel: raw and smoothed
 ```
 
 ### `desawtooth` { .api }

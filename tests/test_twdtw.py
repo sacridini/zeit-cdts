@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-from zeit.twdtw import run_twdtw, run_twdtw_batch, classify_twdtw
+from zeit._twdtw import run_twdtw, run_twdtw_batch, classify_twdtw
 
 def test_run_twdtw_single():
     ts_values = np.array([0.1, 0.2, 0.8, 0.9, 0.2, 0.1])

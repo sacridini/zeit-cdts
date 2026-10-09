@@ -729,7 +729,10 @@ def fig_phenology():
 
 
 def fig_twdtw():
-    from zeit.twdtw import run_twdtw
+    import pandas as pd
+
+    import zeit
+    from zeit._twdtw_api import match
     rng = np.random.default_rng(RNG_SEED + 6)
     pdates = np.arange(0, 365, 16)
     ft = pdates / 365
@@ -744,8 +747,10 @@ def fig_twdtw():
     }
     # A soybean field planted ~3 weeks later than the reference pattern.
     query = np.interp(ft - 0.06, ft, patterns["Soybean"], period=1) + rng.normal(0, 0.03, len(ft))
-    dists = {k: run_twdtw(query, pdates, p, pdates) for k, p in patterns.items()}
-    _, path = run_twdtw(query, pdates, patterns["Soybean"], pdates, return_path=True)
+    dates = pd.Timestamp("2021-01-01") + pd.to_timedelta(pdates, unit="D")
+    result = zeit.twdtw(pd.Series(query, dates), {k: pd.Series(p, dates) for k, p in patterns.items()})
+    dists = dict(zip(patterns, result.distances.values))
+    path = match(result, query, dates, list(patterns).index("Soybean"))
     colors = {"Soybean": BLUE, "Pasture": ORANGE, "Forest": AQUA}
 
     fig = plt.figure(figsize=(13.5, 4.1))
@@ -788,7 +793,9 @@ def fig_twdtw():
 
 
 def fig_smoothing():
-    from zeit.smooth import apply_savgol_filter, apply_whittaker_filter
+    import pandas as pd
+
+    import zeit
     rng = np.random.default_rng(RNG_SEED + 8)
     t = np.arange(0, 4, 1 / 23)
     truth = 0.55 + _harmonic(t, -0.2, 0.08)
@@ -796,8 +803,9 @@ def fig_smoothing():
     cloud = rng.random(len(t)) < 0.2
     y[cloud] -= rng.uniform(0.15, 0.4, cloud.sum())
     w = (~cloud).astype(float)
-    sg = apply_savgol_filter(y[:, None, None], window_length=7, polyorder=2)[:, 0, 0]
-    wh = apply_whittaker_filter(y[:, None, None], lmbd=10, weights=w[:, None, None])[:, 0, 0]
+    series = pd.Series(y, pd.date_range("2020-01-01", periods=len(t), freq="16D"))
+    sg = zeit.smooth(series, method="savgol", window=7, polyorder=2).to_numpy()
+    wh = zeit.smooth(series, lmbda=10, weights=w).to_numpy()
 
     fig, ax = plt.subplots(figsize=(12, 3.8))
     x = 2020 + t

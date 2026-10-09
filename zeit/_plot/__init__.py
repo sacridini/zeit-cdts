@@ -191,6 +191,9 @@ def style_for(frames: Frames, *, kind=None, cmap=None, vmin=None, vmax=None, cla
     else:
         value = nodata
     sample = frames.sample()
+    if classes is None and kind is None:
+        from ._style import classes_from_attrs
+        classes = classes_from_attrs(da.attrs)
     options = dict(name=frames.name, dtype=da.dtype, rgb=frames.rgb, kind=kind, cmap=cmap, vmin=vmin, vmax=vmax,
                    classes=classes, label=frames.name)
     style = infer_style(sample, nodata=value, **options)

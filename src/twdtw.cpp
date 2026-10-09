@@ -19,15 +19,16 @@ namespace twdtw {
 class TWDTW_LUT {
 public:
     std::vector<double> lut;
-    TWDTW_LUT(const TWDTWParams& p, int max_diff = 2000) {
+    double cycle_length;
+    TWDTW_LUT(const TWDTWParams& p, int max_diff = 2000) : cycle_length(p.cycle_length) {
         lut.resize(max_diff + 1);
         for(int i = 0; i <= max_diff; ++i) {
             lut[i] = p.alpha / (1.0 + std::exp(-p.beta * (i - p.gamma)));
         }
     }
     inline double get(int t1, int t2) const {
-        int dt = std::abs(t1 - t2);
-        if (dt >= lut.size()) return lut.back();
+        int dt = elapsed_time(t1, t2, cycle_length);
+        if (dt >= static_cast<int>(lut.size())) return lut.back();
         return lut[dt];
     }
 };
@@ -62,7 +63,7 @@ TWDTWResult fit_twdtw(const std::vector<double>& ts_values,
         for (int i = 1; i <= n; ++i) {
             double min_in_row = std::numeric_limits<double>::infinity();
             for (int j = 1; j <= m; ++j) {
-                if (std::abs(ts_dates[i - 1] - pattern_dates[j - 1]) > params.max_time_warp) continue;
+                if (elapsed_time(ts_dates[i - 1], pattern_dates[j - 1], params.cycle_length) > params.max_time_warp) continue;
 
                 double spatial_dist = 0.0;
                 if (num_bands == 1) {
@@ -130,7 +131,7 @@ TWDTWResult fit_twdtw(const std::vector<double>& ts_values,
             double min_in_row = std::numeric_limits<double>::infinity();
 
             for (int j = 1; j <= m; ++j) {
-                if (std::abs(ts_dates[i - 1] - pattern_dates[j - 1]) > params.max_time_warp) {
+                if (elapsed_time(ts_dates[i - 1], pattern_dates[j - 1], params.cycle_length) > params.max_time_warp) {
                     curr_row[j] = std::numeric_limits<double>::infinity();
                     continue;
                 }
@@ -219,7 +220,7 @@ pybind11::array_t<double> fit_twdtw_batch(
         for (int t = 0; t < T; ++t) {
             int t_date = ts_dates[t];
             for (int p = 0; p < P; ++p) {
-                if (std::abs(t_date - pat_dates[p]) <= params.max_time_warp) {
+                if (elapsed_time(t_date, pat_dates[p], params.cycle_length) <= params.max_time_warp) {
                     valid_window[t] = true;
                     for (int b = 0; b < num_bands; ++b) {
                         double val = pat_vals[p * num_bands + b];
@@ -238,8 +239,32 @@ pybind11::array_t<double> fit_twdtw_batch(
             for (int t = 0; t < T * num_bands; ++t) {
                 ts_vals[t] = values_ptr[y * X * T * num_bands + x * T * num_bands + t];
             }
-            
-            if (use_lb) {
+            // Dates with a missing value (NaN in any band) leave this pixel's series,
+            // as R's twdtw drops incomplete cases.
+            std::vector<int> pixel_dates;
+            bool complete = true;
+            for (int t = 0; t < T && complete; ++t) {
+                for (int b = 0; b < num_bands; ++b) {
+                    if (std::isnan(ts_vals[t * num_bands + b])) { complete = false; break; }
+                }
+            }
+            if (!complete) {
+                std::vector<double> kept;
+                for (int t = 0; t < T; ++t) {
+                    bool ok = true;
+                    for (int b = 0; b < num_bands; ++b) ok = ok && !std::isnan(ts_vals[t * num_bands + b]);
+                    if (!ok) continue;
+                    for (int b = 0; b < num_bands; ++b) kept.push_back(ts_vals[t * num_bands + b]);
+                    pixel_dates.push_back(ts_dates[t]);
+                }
+                ts_vals.swap(kept);
+                if (pixel_dates.empty()) {
+                    result_ptr[y * X + x] = std::numeric_limits<double>::quiet_NaN();
+                    continue;
+                }
+            }
+
+            if (use_lb && complete) {
                 double lb_dist = 0.0;
                 bool valid_lb = true;
                 for (int t = 0; t < T; ++t) {
@@ -273,7 +298,8 @@ pybind11::array_t<double> fit_twdtw_batch(
                 }
             }
 
-            TWDTWResult res = fit_twdtw(ts_vals, ts_dates, pat_vals, pat_dates, num_bands, params, abort_threshold, false);
+            TWDTWResult res = fit_twdtw(ts_vals, complete ? ts_dates : pixel_dates, pat_vals, pat_dates, num_bands,
+                                        params, abort_threshold, false);
             result_ptr[y * X + x] = res.distance;
         }
     }

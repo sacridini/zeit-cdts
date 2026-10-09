@@ -81,8 +81,7 @@
 | [`qc_sentinel2_scl`](data.md#qc_sentinel2_scl), [`qc_modis_summary`](data.md#qc_modis_summary), [`qc_modis_state`](data.md#qc_modis_state) | QA bands to observation weights |
 | **Pre-processing** | |
 | [`apply_tmask_stack`](preprocessing.md#apply_tmask_stack) / [`run_tmask_pixel`](preprocessing.md#run_tmask_pixel) | Time-series cloud and shadow detection |
-| [`apply_whittaker_filter`](preprocessing.md#apply_whittaker_filter) | Weighted Whittaker smoothing |
-| [`apply_savgol_filter`](preprocessing.md#apply_savgol_filter) | Savitzky-Golay smoothing |
+| [`smooth`](preprocessing.md#smooth) | Whittaker (uneven dates, gaps, weights) or Savitzky-Golay smoothing of a cube or series |
 | [`desawtooth`](preprocessing.md#desawtooth) | LandTrendr spike removal |
 | **Change detection** | |
 | [`landtrendr`](change-detection.md#landtrendr) | LandTrendr on a file, cube, array or single pixel |
@@ -96,7 +95,7 @@
 | **Time-series analysis** | |
 | [`mann_kendall`](time-series.md#mann_kendall) | Trend test and Theil-Sen slope |
 | [`phenology`](time-series.md#phenology) | 19 phenology metrics per year or season |
-| [`classify_twdtw`](time-series.md#classify_twdtw) / [`run_twdtw`](time-series.md#run_twdtw) / [`run_twdtw_batch`](time-series.md#run_twdtw_batch) | Time-weighted DTW |
+| [`twdtw`](time-series.md#twdtw) | Classification by time-weighted DTW, on a file, cube or single pixel |
 | [`run_snic`](time-series.md#run_snic) / [`snic_to_polygons`](time-series.md#snic_to_polygons) / [`snic_grid`](time-series.md#snic_grid) | Superpixel segmentation |
 | [`SOM`](time-series.md#som) | Self-organizing maps, online and batch (bit-exact `minisom` port) |
 | **Post-processing** | |

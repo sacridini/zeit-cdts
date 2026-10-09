@@ -20,7 +20,8 @@ ext_modules = [
          'src/twdtw.cpp', 'src/som.cpp', 'src/phenology_math.cpp',
          'src/phenology_curves.cpp', 'src/phenology.cpp', 'src/mann_kendall.cpp',
          'src/bfast_monitor.cpp', 'src/bfast_lite.cpp', 'src/stl_decompose.cpp',
-         'src/bfast.cpp', 'src/snic.cpp', 'src/warp.cpp', 'src/warp_python.cpp'],
+         'src/bfast.cpp', 'src/snic.cpp', 'src/warp.cpp', 'src/warp_python.cpp',
+         'src/whittaker.cpp'],
         include_dirs=[
             get_pybind_include(),
             get_pybind_include(user=True),

@@ -13,6 +13,7 @@
 #include "bfast.h"
 #include "snic.h"
 #include "warp_python.hpp"
+#include "whittaker.h"
 
 namespace py = pybind11;
 
@@ -119,7 +120,8 @@ PYBIND11_MODULE(_core, m) {
         .def_readwrite("beta", &zeit::twdtw::TWDTWParams::beta)
         .def_readwrite("gamma", &zeit::twdtw::TWDTWParams::gamma)
         .def_readwrite("max_time_warp", &zeit::twdtw::TWDTWParams::max_time_warp)
-        .def_readwrite("subsequence_matching", &zeit::twdtw::TWDTWParams::subsequence_matching);
+        .def_readwrite("subsequence_matching", &zeit::twdtw::TWDTWParams::subsequence_matching)
+        .def_readwrite("cycle_length", &zeit::twdtw::TWDTWParams::cycle_length);
 
     py::class_<zeit::twdtw::TWDTWResult>(tw, "TWDTWResult")
         .def(py::init<>())
@@ -312,6 +314,15 @@ PYBIND11_MODULE(_core, m) {
            "Run SNIC on a planar [features, rows, cols] image from [n, 2] (row, col) seeds, tiles in parallel with OpenMP",
            py::arg("data"), py::arg("seeds"), py::arg("compactness") = 10.0,
            py::arg("tile_height") = 0, py::arg("tile_width") = 0, py::arg("n_jobs") = -1);
+
+    // Smoothing sub-module (zeit.smooth)
+    py::module_ sm = m.def_submodule("smooth", "Smoothers of time series");
+    sm.def("whittaker", &zeit::smooth::whittaker,
+           "Whittaker smoother of one series at positions x (divided differences; NaN weighs 0)",
+           py::arg("x"), py::arg("y"), py::arg("w"), py::arg("lmbda"));
+    sm.def("whittaker_batch", &zeit::smooth::whittaker_batch,
+           "Whittaker smoother of (pixels, time) values at positions x, with OpenMP; weights (pixels, time) or empty",
+           py::arg("values"), py::arg("x"), py::arg("weights"), py::arg("lmbda"), py::arg("n_jobs") = -1);
 
     // Warp sub-module (GDAL's resampling kernels, for load_raster(..., like=))
     py::module_ wp = m.def_submodule("warp", "GDAL's warp kernel on fixed source coordinates");

@@ -296,48 +296,22 @@ first_break_idx = result.breakpoint_idx_1  # NaN where n_breaks == 0
 
 ## Time-Series Classification (TWDTW)
 
-The C++ TWDTW engine handles multivariate sequences simultaneously using Eigen's $L^2$ norms and aggressively skips non-matching pixels using $O(N)$ Lower Bounding techniques.
+Classify pixels by their likeness to a few reference series, one per class, with Time-Weighted Dynamic Time Warping. The distances are those of the R package twdtw (checked to 1e-12), computed in C++ with OpenMP; a pattern of one year matches the same season of any year, and cloudy dates are left out of each pixel's series.
 
 ```python
-from zeit.twdtw import classify_twdtw
-import numpy as np
+import pandas as pd
+import zeit
 
-# 1. Prepare your regularized data (Y, X, Time, Bands) and temporal axis
-dates = np.arange(1, 366, 16) # Day of the year (DOY) for a 16-day composite
+# Patterns: a typical series per class, indexed by dates (a DataFrame for several bands)
+patterns = {"Forest": forest_ndvi, "Soy": soy_ndvi, "Pasture": pasture_ndvi}
 
-# 2. Extract or define temporal patterns (Signatures)
-# A signature is a 1D or 2D array representing the expected phenological curve of a class.
-# Example: 23 time steps, 4 bands (Red, Green, Blue, NIR)
-forest_sig = np.random.rand(23, 4)  
-soy_sig = np.random.rand(23, 4)
+ndvi = zeit.load_raster("S2_ndvi_2022.tif")          # (time, y, x)
+classes = zeit.twdtw(ndvi, patterns)                  # label, distance, distances
 
-patterns = {
-    "Forest": (forest_sig, dates),
-    "Agriculture": (soy_sig, dates)
-}
-
-# 3. Run the TWDTW Classifier using the C++ OpenMP engine
-# It calculates the multi-dimensional distance using the L2 Norm (Euclidean) 
-# and aligns the series dynamically in time, bounded by max_time_warp.
-classes_map, dist_map, class_names = classify_twdtw(
-    values_array=cube_16d.values, 
-    dates_array=dates, 
-    patterns=patterns, 
-    alpha=0.1,             # Steepness of the time penalty
-    beta=0.05,             # Midpoint of the time penalty
-    max_time_warp=60,      # Max allowed temporal shift in days
-    n_jobs=-1              # Use all CPU cores minus 1 to keep OS responsive
-)
-
-# 4. Filter predictions by similarity (distance)
-# TWDTW distance represents similarity (lower is better).
-# Mask out pixels that matched poorly with all known signatures (Unclassified)
-max_acceptable_distance = 15.0
-final_classification = np.where(
-    dist_map < max_acceptable_distance, 
-    classes_map, 
-    -1 # Assign -1 for Unclassified/Unknown pixels
-)
+# Pixels that matched poorly with every pattern: unknown (0)
+known = classes.label.where(classes.distance < 15, 0)
+classes.label.zeit.plot()                             # legend: Forest, Soy, Pasture
+zeit.plot(ndvi, fit=classes)                          # click a pixel: its series and best match
 ```
 
 ## Unsupervised Clustering (SOM)
@@ -364,14 +338,14 @@ bmus = som.predict(X_train, n_jobs=-1)
 Before classifying, it is highly recommended to smooth temporal trajectories. After classifying, pixel-based maps often suffer from noise. Zeit provides fast functions to regularize your data in both dimensions:
 
 ```python
-from zeit import apply_savgol_filter, apply_majority_filter, apply_mmu_filter, save_raster
-from zeit.smooth import apply_whittaker_filter
+import zeit
+from zeit import apply_majority_filter, apply_mmu_filter, save_raster
 
-# Temporal Smoothing: Savitzky-Golay (fast, general-purpose)...
-smoothed_array = apply_savgol_filter(raw_array, window_length=5, polyorder=2)
+# Temporal smoothing: Whittaker (uneven dates, NaN gaps filled, per-observation weights)...
+smoothed = zeit.smooth(cube, lmbda=10.0, weights=clear_sky_weights)
 
-# ...or Whittaker (often better for NDVI/EVI, supports per-observation weights)
-smoothed_array = apply_whittaker_filter(raw_array, lmbd=10.0, weights=clear_sky_weights)
+# ...or Savitzky-Golay, for evenly spaced series
+smoothed = zeit.smooth(cube, method="savgol", window=5, polyorder=2)
 
 # Spatial Regularization (Mode filter)
 regularized_map = apply_majority_filter(classified_map, size=3)

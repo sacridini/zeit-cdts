@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 
 from zeit.ai.som import SOM
-from zeit.smooth import apply_whittaker_filter
+from zeit._smooth import apply_whittaker_filter
 from zeit.spatial import apply_bayesian_filter
 
 def test_som_filter():

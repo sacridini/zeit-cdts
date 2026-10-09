@@ -123,7 +123,7 @@ All the methods are listed in the [API reference](../api/time-series.md#som).
 ## Good practice
 
 - **Scale features consistently.** The distance treats every feature equally. If you mix bands with different ranges, standardise them first.
-- **Handle gaps before training.** Samples with `NaN` should be filled (for example with `apply_whittaker_filter`) or left out.
+- **Handle gaps before training.** Samples with `NaN` should be filled (for example with [`zeit.smooth`](../api/preprocessing.md#smooth)) or left out.
 - **Interpret prototypes, not colours.** Plot `som.get_weights()` to understand what each cluster means, as in the figure above.
 - **Reproducibility.** Results depend on `random_seed` and on the initialisation. Fix both, and you get the same codebook as `minisom` with the same settings.
 

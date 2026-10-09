@@ -46,7 +46,7 @@ The table below reports the primary and secondary agreement metrics for all eval
 | **Phenology (Beck)** | R `phenofit::curvefits` | Real 25-yr EVI raster (178,710 joined rows) | **MAE = 17.02 days** (across 17 metrics) | SOS metrics agree tightly (MAE 3.7d, 99.1% in 15d); EOS/senescence diverges | <span class="bm-pill bm-pill--compared">compared</span> |
 | **Phenology (Elmore)**| R `phenofit::curvefits` | Real 25-yr EVI raster (179,805 joined rows) | **MAE = 18.48 days** (across 17 metrics) | 82.4% of observations within 15 days of reference | <span class="bm-pill bm-pill--compared">compared</span> |
 | **Phenology (Gu)** | R `phenofit::curvefits` | Real 25-yr EVI raster (177,983 joined rows) | **MAE = 35.38 days** (across 17 metrics) | Asymmetric Gu formulation exhibits highest sensitivity in tail fitting | <span class="bm-pill bm-pill--compared">compared</span> |
-| **TWDTW** | R `twdtw` / `dtwSat` | 45 multi-class temporal trajectories | **100% classification agreement** | Distance correlation = 0.9381; both hit 100% accuracy vs ground truth | <span class="bm-pill bm-pill--compared">compared</span> |
+| **TWDTW** | R `twdtw` / `dtwSat` | 45 multi-class temporal trajectories; 12 series × pattern pairs | **Distances identical to R `twdtw` (1e-12)** with `zeit.twdtw` | 100% classification agreement on the 45 trajectories; both hit 100% accuracy vs ground truth | <span class="bm-pill bm-pill--compared">compared</span> |
 | **TempCNN** | R `sits::sits_tempcnn` | 4 bands, 24 timesteps, 5 classes | **max abs diff = 5.59e-9** | Pearson correlation = 1.000000; 1:1 parameter name mapping | <span class="bm-pill bm-pill--compared">compared</span> |
 | **LightTAE (LTAE)** | R `sits::sits_lighttae` | 4 bands, 24 steps, 16 heads, 5 classes | **max abs diff = 8.94e-8** | Pearson correlation = 1.000000; exact layer-for-layer port | <span class="bm-pill bm-pill--compared">compared</span> |
 | **Official U-TAE** | Official `utae-paps` repo | Segmentation U-Net + LTAE2d (B=1, T=6) | **max abs diff = 0.0 (exact match)** | Exact bitwise agreement on both regular and padded sampling paths | <span class="bm-pill bm-pill--compared">compared</span> |
@@ -147,7 +147,8 @@ TWDTW (Maus *et al.* 2016) calculates the optimal alignment between satellite ti
 
 - Evaluated against R `twdtw` on 45 temporal trajectories across three land-cover classes (Single Crop, Double Crop, Forest).
 - **100% Classification Agreement:** Zeit and the original R package produced identical land-cover classifications for all tested series.
-- **Distance Metric Correlation:** The raw TWDTW distance matrices had a Pearson correlation of **0.9381**. Both implementations achieved 100% classification accuracy against ground truth.
+- **Distance Metric Correlation:** With the earlier engine's own time weight, the raw distances had a Pearson correlation of **0.9381**. Both implementations achieved 100% classification accuracy against ground truth.
+- **Identical distances (`zeit.twdtw`, 0.41):** with R twdtw's logistic weight and its day-of-year cycle, `zeit.twdtw` gives R `twdtw` 1.0.1's distances to 1e-12 on one- and two-band series, cloudy dates and patterns inside four-year series (`tests/test_twdtw_api.py`, fixtures from R in `tests/data`).
 
 ---
 

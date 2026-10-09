@@ -125,99 +125,68 @@ seasons = zeit.phenology(ndvi_16d, annual=False, max_seasons=3)
 
 ## Pattern matching (TWDTW)
 
-Tutorial: [Pattern Matching](../tutorials/twdtw.md). The time weight is `alpha / (1 + exp(-beta * (Δt - gamma)))`, with `Δt` in days.
+Tutorial: [Pattern Matching](../tutorials/twdtw.md).
 
-### `classify_twdtw` { .api }
+### `twdtw` { .api }
 
-<!-- sig: zeit.twdtw.classify_twdtw -->
+<!-- sig: zeit.twdtw -->
 ```python
-zeit.twdtw.classify_twdtw(
-    values_array, dates_array, patterns, alpha=0.1, beta=0.05,
-    gamma=50.0, max_time_warp=365, subsequence_matching=False,
+zeit.twdtw(
+    data, patterns, band=None, steepness=0.1, midpoint=50.0,
+    cycle="year", max_elapsed=None, nodata="auto", chunks=None,
     n_jobs=-1,
 )
 ```
 
-Compares every pixel with every class pattern and keeps the closest.
+Classifies time series by Time-Weighted Dynamic Time Warping (Maus et al. 2016): each pattern, a typical series of a class, is matched against every pixel's series, and the class of a pixel is the pattern with the lowest distance. The distance is that of the R package [twdtw](https://cran.r-project.org/package=twdtw) (checked against it to 1e-12): the pattern may match any stretch of the series, each pair of matched observations costs their Euclidean distance plus a logistic time weight
+
+$$
+w(\Delta t) = \frac{1}{1 + e^{-\text{steepness}\,(\Delta t - \text{midpoint})}}
+$$
+
+of the days $\Delta t$ between them, and dates a pixel has no value for are left out of its series. One function for every input; it replaces `classify_twdtw`, `run_twdtw` and `run_twdtw_batch`.
+
+| Input | Example | Where the dates come from |
+| :--- | :--- | :--- |
+| A cube `(time, y, x)`, or `(time, band, y, x)` for several bands; anything `load_raster` reads | `ndvi` | Its `time` coordinate. A dask cube stays lazy. |
+| One pixel: a `pandas.Series` (or a `DataFrame`, one column per band) indexed by dates | `series` | Its index |
+
+Patterns are `{name: series}`: a `pandas.Series` indexed by dates, a `DataFrame` with one column per band, or a `DataArray` with `time` (and `band`). With several bands, the cube's bands are taken by the patterns' column names.
 
 <div class="params" markdown>
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `values_array` | `np.ndarray` | required | `(rows, cols, time)` or `(rows, cols, time, bands)`. Time comes after space. |
-| `dates_array` | 1-D array | required | Day number of each observation. |
-| `patterns` | `dict` | required | `{class_name: (pattern_values, pattern_days)}`. |
-| `alpha` | `float` | `0.1` | Maximum time cost. |
-| `beta` | `float` | `0.05` | Steepness of the time cost, per day. |
-| `gamma` | `float` | `50.0` | Gap in days at which the time cost is half of `alpha`. |
-| `max_time_warp` | `int` | `365` | Largest allowed shift, in days. |
-| `subsequence_matching` | `bool` | `False` | Match a short pattern anywhere in a longer series. |
-| `n_jobs` | `int` | `-1` | Threads. |
+| `data` | `DataArray`, path, `pd.Series` or `pd.DataFrame` | required | The series to classify (see the table above). |
+| `patterns` | `dict` | required | `{name: pattern}`, one per class. Names cannot hold spaces. |
+| `band` | `str` | `None` | A cube with a `band` dim and one-band patterns: the band to classify. |
+| `steepness` | `float` | `0.1` | Steepness of the logistic time weight, per day. |
+| `midpoint` | `float` | `50.0` | Days apart at which a pair costs half a unit more (R's `time_weight = c(0.1, 50)`). |
+| `cycle` | `str` or `None` | `"year"` | `"year"`: the days between dates are counted between days of the year, around it (31 December and 1 January are a day apart), so a pattern of one year matches the same season of any year. `None`: between the dates themselves. |
+| `max_elapsed` | `float` | `None` | Pairs farther apart than this many days are never matched. `None`: no limit. |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | Value marking a missing observation: the raster's NoData (`0` for integer data without one), a number, or `None`. |
+| `chunks` | `"auto"`, `dict` | `None` | Inputs read from disk: `None` reads into memory; otherwise the result is lazy. |
+| `n_jobs` | `int` | `-1` | Threads. `-1` uses all cores but one. |
 
 </div>
 
-**Returns** `(classes, distance, names)`: the index of the best class per pixel, its distance, and the class names in index order.
+**Returns** an `xarray.Dataset`:
+
+| Variable | Dims | Meaning |
+| :--- | :--- | :--- |
+| `label` | `(y, x)` | The class: `1` for the first pattern, `2` for the second… (`0`: no observation). Its `flag_meanings` hold the names, which `zeit.plot` shows in the legend. |
+| `distance` | `(y, x)` | TWDTW distance to that pattern. High values mean no pattern fits well. |
+| `distances` | `(pattern, y, x)` | Distance to every pattern. |
+| `pattern_value`, `pattern_time` | `(pattern, pattern_step[, band])` | The patterns, so that `zeit.plot(cube, fit=result)` draws the best one aligned with a clicked pixel's series. `save_raster` skips them. |
 
 ```python
-classes, distance, names = zeit.twdtw.classify_twdtw(np.moveaxis(stack, 0, -1), days, patterns)
+patterns = {"soy": soy, "pasture": pasture, "forest": forest}   # pandas Series indexed by dates
+classes = zeit.twdtw(ndvi, patterns)
+classes.label.zeit.plot(basemap="satellite")                     # legend: soy, pasture, forest
+unknown = classes.label.where(classes.distance < 3, 0)          # 0 where nothing fits
+zeit.plot(ndvi, fit=classes)                                     # click a pixel: its best match
+zeit.save_raster(classes, "twdtw")                               # label.tif, distance.tif, distances.tif
 ```
-
-### `run_twdtw` { .api }
-
-<!-- sig: zeit.twdtw.run_twdtw -->
-```python
-zeit.twdtw.run_twdtw(
-    ts_values, ts_dates, pattern_values, pattern_dates, alpha=0.1,
-    beta=0.05, gamma=50.0, max_time_warp=365,
-    subsequence_matching=False, abort_threshold=inf,
-    return_path=False,
-)
-```
-
-TWDTW distance between one series and one pattern. Also exported as `zeit.run_twdtw`.
-
-<div class="params" markdown>
-
-| Parameter | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `ts_values` | array | required | `(time,)` or `(time, bands)`. |
-| `ts_dates` | 1-D array | required | Day numbers of the series. |
-| `pattern_values` | array | required | `(time,)` or `(time, bands)`. |
-| `pattern_dates` | 1-D array | required | Day numbers of the pattern. |
-| `alpha`, `beta`, `gamma`, `max_time_warp`, `subsequence_matching` | | `0.1`, `0.05`, `50.0`, `365`, `False` | As in `classify_twdtw`. |
-| `abort_threshold` | `float` | `inf` | Stop early once the distance exceeds this. |
-| `return_path` | `bool` | `False` | Also return the alignment as `(series_index, pattern_index)` pairs. |
-
-</div>
-
-**Returns** the distance, or `(distance, path)`.
-
-### `run_twdtw_batch` { .api }
-
-<!-- sig: zeit.twdtw.run_twdtw_batch -->
-```python
-zeit.twdtw.run_twdtw_batch(
-    values_array, dates_array, pattern_values, pattern_dates,
-    alpha=0.1, beta=0.05, gamma=50.0, max_time_warp=365,
-    subsequence_matching=False, abort_threshold=inf, n_jobs=-1,
-)
-```
-
-Distance from every pixel to one pattern. Also exported as `zeit.run_twdtw_batch`.
-
-<div class="params" markdown>
-
-| Parameter | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `values_array` | `np.ndarray` | required | `(rows, cols, time)` or `(rows, cols, time, bands)`. |
-| `dates_array` | 1-D array | required | Day numbers. |
-| `pattern_values`, `pattern_dates` | array | required | The pattern. |
-| `alpha`, `beta`, `gamma`, `max_time_warp`, `subsequence_matching`, `abort_threshold` | | `0.1`, `0.05`, `50.0`, `365`, `False`, `inf` | As in `run_twdtw`. |
-| `n_jobs` | `int` | `-1` | Threads. |
-
-</div>
-
-**Returns** a `(rows, cols)` distance map.
 
 ## Segmentation (SNIC)
 

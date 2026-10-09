@@ -14,6 +14,8 @@
 | `bfast` | `(time, y, x)` | `xr.Dataset` of metrics | [`zeit.bfast`](change-detection.md#bfast) |
 | `mann_kendall` | `(time, y, x)` | `xr.Dataset` of metrics | [`zeit.mann_kendall`](time-series.md#mann_kendall) |
 | `phenology` | `(time, y, x)` | `xr.Dataset` of metrics, by year or season | [`zeit.phenology`](time-series.md#phenology) |
+| `twdtw` | `(time, y, x)` or `(time, band, y, x)` | `xr.Dataset` of classes and distances | [`zeit.twdtw`](time-series.md#twdtw) |
+| `smooth` | `(time, ...)` | the smoothed `DataArray` | [`zeit.smooth`](preprocessing.md#smooth) |
 | `run_snic` | `(..., y, x)` | `xr.Dataset` of labels and means | [`run_snic`](time-series.md#run_snic) |
 | `save` | any with `y`, `x` (also on a `Dataset`) | writes a raster, returns its path | [`zeit.save_raster`](data.md#save_raster) |
 | `plot` | any with `y`, `x` (also on a `Dataset`) | the viewer, a window or a figure | [`zeit.plot`](plot.md) |
@@ -117,6 +119,32 @@ pheno = ndvi_16d.zeit.phenology(curve="beck", weights=weights)
 sos = pheno["TRS5.sos"]                  # (year, y, x), day of year
 ```
 
+
+### `twdtw` { .api .meth }
+
+<!-- sig: zeit.xarray_api.ZeitAccessor.twdtw -->
+```python
+DataArray.zeit.twdtw(patterns, **kwargs)
+```
+
+TWDTW classification of this cube: the same as [`zeit.twdtw(cube, patterns, **kwargs)`](time-series.md#twdtw), with the same keyword arguments (`steepness`, `midpoint`, `cycle`, `max_elapsed`, …) and the same `xarray.Dataset`. A dask-backed cube stays lazy.
+
+```python
+classes = ndvi.zeit.twdtw({"soy": soy, "pasture": pasture})
+```
+
+### `smooth` { .api .meth }
+
+<!-- sig: zeit.xarray_api.ZeitAccessor.smooth -->
+```python
+DataArray.zeit.smooth(**kwargs)
+```
+
+Smoothing of this cube along `time`: the same as [`zeit.smooth(cube, **kwargs)`](preprocessing.md#smooth) (`method`, `lmbda`, `weights`, …).
+
+```python
+smooth = ndvi.zeit.smooth(lmbda=100)
+```
 
 ### `run_snic` { .api .meth }
 

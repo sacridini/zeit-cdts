@@ -12,7 +12,21 @@ struct TWDTWParams {
     double gamma = 50.0;
     int max_time_warp = 365; // Sakoe-Chiba band
     bool subsequence_matching = false; // Open-ended DTW
+    // Length of the time cycle in date units (366 for days of the year): the time
+    // elapsed between two dates goes around it, as R's twdtw (cycle_length = "year",
+    // time_scale = "day"). 0: the plain difference of the dates.
+    double cycle_length = 0.0;
 };
+
+// Time elapsed between two dates, around the cycle when there is one (twdtw's ellapsed).
+inline int elapsed_time(int a, int b, double cycle_length) {
+    int r = a > b ? a - b : b - a;
+    if (cycle_length > 0.0 && r > cycle_length / 2.0) {
+        double wrapped = cycle_length - r;
+        r = static_cast<int>(wrapped < 0 ? -wrapped : wrapped);
+    }
+    return r;
+}
 
 struct TWDTWResult {
     double distance;

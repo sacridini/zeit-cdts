@@ -464,8 +464,39 @@ entrada e saída:
   linha nova na página "Upgrading to the one-function API".
 - `zeit.plot(cube, fit=...)` passa a desenhar também o TWDTW (padrão alinhado) e a curva
   suavizada.
-- Pode ser dividida (9a TWDTW e suavização, que são as que mais aparecem nos tutoriais;
-  9b TMASK, SNIC e classificação).
+- Dividida em 9a (TWDTW e suavização, que são as que mais aparecem nos tutoriais) e 9b
+  (TMASK, SNIC, classificação, filtros, máscara de água e regularização).
+
+### 9a: `zeit.twdtw` e `zeit.smooth` — **Feito** (0.41.0)
+
+- `zeit.twdtw(data, patterns, *, band, steepness=0.1, midpoint=50, cycle="year",
+  max_elapsed, nodata, chunks, n_jobs)`: a distância do pacote R twdtw 1.0.1 (Maus), não
+  mais a parametrização própria (`alpha`, `beta`, `gamma`): peso logístico
+  `1 / (1 + exp(-steepness (Δt - midpoint)))`, Δt entre dias do ano dando a volta no ano
+  (`cycle_length` novo no `TWDTWParams`, 0 mantém o antigo), o padrão casando em qualquer
+  trecho da série (`subsequence_matching`), datas sem valor fora da série de cada pixel
+  (o lote do C++ passou a descartar NaN, como o `complete.cases` do R; antes uma nuvem
+  estragava a distância do pixel). Paridade com o R (`tests/test_twdtw_api.py`, fixtures
+  geradas no R 4.4.2 em `tests/data`): 12 pares série × padrão iguais a 1e-12 (uma e duas
+  bandas, datas nubladas, padrão dentro de quatro anos de série).
+- Padrões como `pandas.Series`/`DataFrame` indexados por datas ou `DataArray`; cubo
+  `(time[, band], y, x)` (bandas pelo nome), arquivo ou um pixel. Resultado: `label`
+  (1.., 0 sem valor, nomes no `flag_meanings` que o `zeit.plot` agora lê para a legenda),
+  `distance`, `distances (pattern, y, x)` e os próprios padrões (`pattern_value`,
+  `pattern_time`), que o `save_raster` pula (variáveis sem `y`/`x`) e o
+  `zeit.plot(cube, fit=resultado)` usa para desenhar o melhor padrão alinhado à série do
+  pixel clicado (`_twdtw_api.match`).
+- `zeit.smooth(data, *, method="whittaker"|"savgol", lmbda, weights, window, polyorder,
+  nodata, chunks, n_jobs)`: Whittaker novo em C++ (`src/whittaker.cpp`, Cholesky de banda
+  2) com diferenças divididas para datas irregulares, medidas em passos medianos (numa
+  série regular é o clássico, igual ao `apply_whittaker_filter`), NaN com peso 0 (as
+  lacunas são preenchidas) e `weights`; Savitzky-Golay do scipy com as lacunas
+  interpoladas antes. Mantém dims, datas e georreferência; inteiros com NoData voltam ao
+  tipo. `zeit.plot(cube, fit=suavizado)` desenha a curva.
+- `zeit/twdtw.py` e `zeit/smooth.py` viraram `_twdtw.py` e `_smooth.py` (os nomes são as
+  funções); `run_twdtw`, `run_twdtw_batch` e `apply_savgol_filter` saíram do `zeit`.
+  Accessor: `cube.zeit.twdtw(...)`, `cube.zeit.smooth(...)`. Docs, tutorial (figura
+  regerada), README, exemplo 15 e página de migração atualizados.
 
 ## Para depois
 

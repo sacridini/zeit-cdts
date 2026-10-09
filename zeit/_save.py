@@ -137,6 +137,8 @@ def _layers(data: Union[xr.Dataset, Mapping]) -> Dict[str, Any]:
     for name, value in items:
         if value is None or np.ndim(value) < 2:
             continue
+        if isinstance(value, xr.DataArray) and not {"y", "x"} <= set(value.dims):
+            continue  # not a map (e.g. the patterns of a twdtw result)
         layers[str(name)] = value
     if not layers:
         raise ValueError("nothing to write: no 2-D or 3-D maps in the data")

@@ -46,12 +46,17 @@ Each algorithm is now one function. It takes a pixel's series, a numpy stack wit
 | `zeit.run_bfast_image(...)` / `cube.zeit.run_bfast(...)` | `zeit.bfast(cube)` (the `time` metric is now `break_time`) |
 | `zeit.run_mann_kendall_image(...)` / `cube.zeit.run_mann_kendall()` | `zeit.mann_kendall(cube)` |
 | `cube.zeit.run_phenology(dates=dates_doy, curve_type=0, base_year=...)` | `zeit.phenology(cube, curve="beck")`: day numbering and base year come from the dates |
+| `zeit.twdtw.classify_twdtw(np.moveaxis(stack, 0, -1), days, {name: (values, days)})` | `zeit.twdtw(cube, {name: series})`: patterns as `pandas.Series` indexed by dates, dates from `time`, a `Dataset` with `label`, `distance` and `distances` |
+| `run_twdtw(values, days, pattern, pattern_days)` | `zeit.twdtw(series, {name: pattern}).distance` |
+| `alpha=0.1, beta=0.05, gamma=50` (time weight `alpha / (1 + exp(-beta (Δt - gamma)))`) | `steepness=0.1, midpoint=50` (R twdtw's `1 / (1 + exp(-steepness (Δt - midpoint)))`), days of the year around the year (`cycle="year"`), the pattern matched in any stretch of the series |
+| `zeit.apply_savgol_filter(stack, window_length=7)` | `zeit.smooth(cube, method="savgol", window=7)` |
+| `zeit.smooth.apply_whittaker_filter(stack, lmbd=10, weights=w)` | `zeit.smooth(cube, lmbda=10, weights=w)` (uneven dates and NaN handled) |
 
 Results that were a `DataArray` with a `metric` (or `vertex_info`, `parameter`) dimension are now a `Dataset` with one variable per metric: `result.sel(metric="trend")` becomes `result.trend`.
 
 ## Modules
 
-The engines moved to private modules, so that each algorithm's name is its function: `zeit/landtrendr.py`, `ccdc.py`, `bfast.py` and `phenology.py` are now `_landtrendr.py`, `_ccdc.py`, `_bfast.py` and `_phenology.py`. Imports such as `from zeit.landtrendr import run_landtrendr` no longer work; use the functions above.
+The engines moved to private modules, so that each algorithm's name is its function: `zeit/landtrendr.py`, `ccdc.py`, `bfast.py`, `phenology.py`, `twdtw.py` and `smooth.py` are now `_landtrendr.py`, `_ccdc.py`, `_bfast.py`, `_phenology.py`, `_twdtw.py` and `_smooth.py`. Imports such as `from zeit.landtrendr import run_landtrendr` no longer work; use the functions above.
 
 ## Command line
 

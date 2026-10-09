@@ -2,7 +2,8 @@
 
 ``pixel_series`` reads the full series of one cell; ``overlays`` turns a result of zeit at
 that cell into things to draw over it: lines (LandTrendr's segments, CCDC's harmonic models,
-the Mann-Kendall trend), vertical marks (breaks) and spans (an event's duration). The
+the Mann-Kendall trend, a smoothed series, the TWDTW pattern aligned with the series),
+vertical marks (breaks) and spans (an event's duration). The
 viewer and the static plots draw the same overlays.
 
 x values are milliseconds since 1970 when the series has dates (what JavaScript's Date and
@@ -79,7 +80,10 @@ def _at(result: xr.Dataset, world: Sequence[float], cell: Sequence[int], shape: 
 
 
 def overlays(result: Any, series: Dict[str, Any], *, shape: Sequence[int], band: Any = None) -> List[Dict[str, Any]]:
-    """What ``result`` (a zeit result Dataset) says about the pixel of ``series``."""
+    """What ``result`` (a zeit result Dataset, or a series such as ``zeit.smooth``'s) says
+    about the pixel of ``series``."""
+    if isinstance(result, xr.DataArray):
+        return _series_fit(result, series, shape, band)
     if result is None or not isinstance(result, xr.Dataset):
         return []
     at = _at(result, series["world"], series["cell"], shape)
@@ -120,6 +124,8 @@ def overlays(result: Any, series: Dict[str, Any], *, shape: Sequence[int], band:
             idx = float(at[name])
             if np.isfinite(idx) and 0 <= int(idx) < len(valid):
                 out.append({"kind": "vline", "x": series["x"][valid[int(idx)]], "label": label, "color": FIT_COLOR})
+    if "distances" in at and "pattern_value" in result:                   # TWDTW
+        out.extend(_twdtw(result, at, series, band))
     if "slope" in at and "intercept" in at and "tau" in at:                # Mann-Kendall
         slope, intercept = float(at.slope), float(at.intercept)
         if np.isfinite(slope) and np.isfinite(intercept):
@@ -155,3 +161,46 @@ def _ccdc(at: xr.Dataset, series: Dict[str, Any], band: Any) -> List[Dict[str, A
             out.append({"kind": "vline", "x": _ms([brk])[0], "label": "CCDC break" if k == 0 else None,
                         "color": FIT_COLOR, "dashed": True})
     return out
+
+
+def _series_fit(fit: xr.DataArray, series: Dict[str, Any], shape: Sequence[int], band: Any) -> List[Dict[str, Any]]:
+    """A series over time at the pixel (e.g. ``zeit.smooth``'s), as a line."""
+    if "time" not in fit.dims or not series["is_time"]:
+        return []
+    at = _at(fit, series["world"], series["cell"], shape)
+    if at is None:
+        return []
+    if "band" in at.dims:
+        names = [str(b) for b in np.atleast_1d(at.band.values)]
+        name = str(band) if band is not None else series["series"][0]["name"]
+        at = at.isel(band=names.index(name) if name in names else 0)
+    if [d for d in at.dims if d != "time"]:
+        return []
+    at = at.compute()
+    label = fit.attrs.get("smoothing") or str(fit.name or "fit")
+    return [{"kind": "line", "x": _ms(at.time.values), "y": clean(at.values), "label": label, "color": FIT_COLOR}]
+
+
+def _twdtw(result: xr.Dataset, at: xr.Dataset, series: Dict[str, Any], band: Any) -> List[Dict[str, Any]]:
+    """The best pattern of a ``zeit.twdtw`` result, aligned with the pixel's series."""
+    from .._twdtw_api import match
+
+    if not series["is_time"] or int(at.label) < 1:
+        return []
+    k = int(at.label) - 1
+    name = str(result.pattern.values[k])
+    values = np.array([np.nan if v is None else v for v in series["series"][0]["y"]], dtype=float)
+    dates = pd.to_datetime(np.asarray(series["x"], dtype=float), unit="ms")
+    pattern = result.pattern_value.isel(pattern=k)
+    b = None
+    if "band" in pattern.dims:
+        bands = [str(v) for v in result.band.values]
+        wanted = str(band) if band is not None else series["series"][0]["name"]
+        b = bands.index(wanted) if wanted in bands else 0
+        pattern = pattern.isel(band=b)
+    steps = pattern.values[~pd.isna(result.pattern_time.isel(pattern=k).values)]
+    path = match(result, values, dates, k, band=b)
+    if not path:
+        return []
+    return [{"kind": "line", "x": [series["x"][i] for i, _ in path], "y": clean([steps[j] for _, j in path]),
+             "label": f"TWDTW: {name} (distance {float(at.distance):.3g})", "color": FIT_COLOR, "markers": True}]

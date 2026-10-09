@@ -192,6 +192,19 @@ def _robust(values: np.ndarray) -> Tuple[float, float]:
     return float(lo), float(hi)
 
 
+def classes_from_attrs(attrs: Dict[str, Any]) -> Optional[Dict[float, str]]:
+    """``{value: name}`` from CF's ``flag_values`` and ``flag_meanings`` (e.g. the ``label``
+    of ``zeit.twdtw``), or None."""
+    values, meanings = attrs.get("flag_values"), attrs.get("flag_meanings")
+    if values is None or not isinstance(meanings, str):
+        return None
+    values = np.atleast_1d(np.asarray(values)).tolist()
+    names = meanings.split()
+    if len(values) != len(names):
+        return None
+    return {float(v): n for v, n in zip(values, names)}
+
+
 def _classes(classes: Any, uniques: Optional[np.ndarray], dtype: np.dtype) -> List[Tuple[float, str, str]]:
     """(value, label, colour) per class, from ``classes=`` or the values found."""
     if isinstance(classes, dict):

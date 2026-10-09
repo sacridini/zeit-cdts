@@ -22,8 +22,8 @@ Nearly every algorithm in Zeit works **one pixel at a time**. It reads a pixel's
 | A multi-band cube | `(time, band, rows, cols)` | What `build_time_series` returns (as an xarray `DataArray`), and what `zeit.ccdc` takes. |
 | Per-pixel results | `xarray.Dataset` of `(rows, cols)` maps | One variable per output, with the cube's coordinates and CRS: `result.slope`, `result["TRS5.sos"]`. Outputs with several values per pixel add a leading dim, such as `(vertex, y, x)` or `(year, y, x)`. |
 
-!!! warning "Two exceptions"
-    `zeit.twdtw.classify_twdtw` expects `(rows, cols, time)` with time **last**, and the deep-learning models follow PyTorch conventions (for example `(batch, channels, time)` for TempCNN). Their pages say so explicitly.
+!!! warning "An exception"
+    The deep-learning models follow PyTorch conventions (for example `(batch, channels, time)` for TempCNN). Their pages say so explicitly.
 
 ## Dates: each family has its own convention
 
@@ -37,7 +37,7 @@ This is the single most common source of confusion, because each algorithm keeps
 | BFAST, BFAST Monitor, BFAST Lite | Nothing for a cube with dates: the **regular series** of R's `ts`, `start_time` (fractional year) and `frequency` (observations per year), is read from them. Both for a series without dates. | `start_time=2010.0, frequency=23` for 16-day composites |
 | Mann-Kendall | Nothing. The slope is per **time step**, so use one value per year for a per-year slope (or `method="seasonal"`). | |
 | Phenology | Nothing for a cube with dates (read from its `time` coordinate); any **dates** for a numpy array or a single series | `dates=pd.date_range("2019-01-01", periods=69, freq="16D")` |
-| TWDTW | Any **consistent day count**, for example day of year | `[1, 17, 33, ...]` |
+| TWDTW | Nothing for a cube with dates (read from its `time` coordinate); patterns are series indexed by **dates**, matched by day of year around the year | `pd.Series(values, pd.date_range("2021-01-01", periods=23, freq="16D"))` |
 | SNIC, SOM | Nothing. Time is just another feature. | |
 
 Converting from pandas / xarray timestamps:

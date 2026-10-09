@@ -60,6 +60,21 @@ class ZeitAccessor:
         from zeit._series_api import bfast
         return bfast(self._obj, **kwargs)
 
+    def twdtw(self, patterns: Any, **kwargs: Any) -> xr.Dataset:
+        """
+        Classifies this (time, y, x) or (time, band, y, x) cube by TWDTW: the same as
+        ``zeit.twdtw(cube, patterns, **kwargs)``.
+        """
+        from zeit._twdtw_api import twdtw
+        return twdtw(self._obj, patterns, **kwargs)
+
+    def smooth(self, **kwargs: Any) -> xr.DataArray:
+        """
+        Smooths this cube along time: the same as ``zeit.smooth(cube, **kwargs)``.
+        """
+        from zeit._smooth import smooth
+        return smooth(self._obj, **kwargs)
+
     def run_snic(self, spacing: Any = 10,
                  compactness: float = 0.5, seeds: Optional[np.ndarray] = None,
                  grid: str = "rectangular", padding: Optional[Any] = None,

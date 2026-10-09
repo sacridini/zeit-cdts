@@ -209,7 +209,7 @@ The index is computed on every observation before the statistics, so `NDVI_media
 
 ## 6. Smooth noisy series
 
-Even after masking and compositing, some cloud-affected values remain. Two smoothers work along the time axis of a `(time, rows, cols)` array:
+Even after masking and compositing, some cloud-affected values remain. `zeit.smooth` smooths a cube along `time`, keeping its dates and georeferencing:
 
 <figure markdown>
   ![A noisy NDVI series with cloud drops, smoothed with Savitzky-Golay and with a QA-weighted Whittaker smoother](../assets/figures/smoothing.png)
@@ -217,15 +217,13 @@ Even after masking and compositing, some cloud-affected values remain. Two smoot
 </figure>
 
 ```python
-from zeit.smooth import apply_savgol_filter, apply_whittaker_filter
-
-smooth_sg = apply_savgol_filter(ndvi, window_length=7, polyorder=2)
+smooth_sg = zeit.smooth(ndvi, method="savgol", window=7, polyorder=2)
 
 weights = clear.astype(float)             # 1 = clear, 0 = cloudy, or QA weights from zeit.qc
-smooth_wh = apply_whittaker_filter(ndvi, lmbd=10, weights=weights)
+smooth_wh = zeit.smooth(ndvi, lmbda=10, weights=weights)
 ```
 
-`lmbd` sets the smoothness of the Whittaker filter: larger values give a stiffer curve. For per-observation weights from a QA band, see `zeit.qc` (`qc_sentinel2_scl`, `qc_modis_summary`, `qc_modis_state`).
+`lmbda` sets the smoothness of the Whittaker smoother: larger values give a stiffer curve. It takes unevenly spaced dates as they are, and observations that are NaN (masked clouds) weigh 0, so the curve fills them. For per-observation weights from a QA band, see `zeit.qc` (`qc_sentinel2_scl`, `qc_modis_summary`, `qc_modis_state`). `zeit.plot(ndvi, fit=smooth_wh)` draws the curve over any pixel you click.
 
 ## Local GeoTIFFs instead of a catalog
 

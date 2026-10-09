@@ -1,5 +1,5 @@
 import numpy as np
-from zeit.smooth import apply_savgol_filter
+from zeit._smooth import apply_savgol_filter
 
 def test_savgol_filter():
     # Create a dummy time series (10 timesteps, 1 band, 2x2 pixels)
