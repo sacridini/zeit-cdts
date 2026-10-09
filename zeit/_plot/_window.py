@@ -182,12 +182,12 @@ class _Handler(BaseHTTPRequestHandler):
         route = self._route()
         if route is None:
             return
+        files = self.window.files()
         if route in ("/", "/index.html"):
             self._send(200, self.window.page().encode("utf-8"), "text/html; charset=utf-8")
-        elif route == "/viewer.js":
-            self._send(200, (HERE / "viewer.js").read_bytes(), "text/javascript; charset=utf-8")
-        elif route == "/viewer.css":
-            self._send(200, (HERE / "viewer.css").read_bytes(), "text/css; charset=utf-8")
+        elif route in files:
+            body, content_type = files[route]
+            self._send(200, body, content_type)
         else:
             self._send(404, b"not found", "text/plain; charset=utf-8")
 
@@ -349,7 +349,10 @@ class Window:
     """
 
     def __init__(self, session: Session, *, height: Optional[int] = None, fps: int = 8, port: int = 0,
-                 title: Optional[str] = None):
+                 title: Optional[str] = None, kind: str = "viewer"):
+        if kind not in ("viewer", "interpret"):
+            raise ValueError(f"kind must be 'viewer' or 'interpret', got {kind!r}")
+        self.kind = kind
         self.session = session
         self.height = height
         self.fps = fps
@@ -370,8 +373,22 @@ class Window:
 
     def page(self) -> str:
         options = {"fps": int(self.fps), "height": int(self.height) if self.height else None}
-        return (PAGE.replace("__TITLE__", _escape(str(self.title)))
-                .replace("__OPTIONS__", json.dumps(options)))
+        page = PAGE if self.kind == "viewer" else PAGE.replace(
+            'import { mount } from "./viewer.js";', 'import { mountInterpret as mount } from "./interpret.js";').replace(
+            '<link rel="stylesheet" href="viewer.css">',
+            '<link rel="stylesheet" href="viewer.css"><link rel="stylesheet" href="interpret.css">')
+        return page.replace("__TITLE__", _escape(str(self.title))).replace("__OPTIONS__", json.dumps(options))
+
+    def files(self) -> Dict[str, Any]:
+        """The files the page loads: route -> (bytes, content type)."""
+        js, css = "text/javascript; charset=utf-8", "text/css; charset=utf-8"
+        out = {"/viewer.js": ((HERE / "viewer.js").read_bytes(), js),
+               "/viewer.css": ((HERE / "viewer.css").read_bytes(), css)}
+        if self.kind == "interpret":
+            from ._widget import interpret_bundle
+            out["/interpret.js"] = (interpret_bundle().encode("utf-8"), js)
+            out["/interpret.css"] = ((HERE / "interpret.css").read_bytes(), css)
+        return out
 
     # ------------------------------------------------------------------ showing
     def open(self, how: Union[bool, str] = True) -> None:
@@ -453,7 +470,8 @@ def _close_all() -> None:
 
 
 def show_window(session: Session, *, height: Optional[int] = None, fps: int = 8, block: Optional[bool] = None,
-                open: Union[bool, str] = True, port: int = 0, title: Optional[str] = None) -> Window:  # noqa: A002
+                open: Union[bool, str] = True, port: int = 0, title: Optional[str] = None,  # noqa: A002
+                kind: str = "viewer") -> Window:
     """Show a Session's viewer in its own window, outside a notebook.
 
     Parameters
@@ -475,13 +493,15 @@ def show_window(session: Session, *, height: Optional[int] = None, fps: int = 8,
         Port on 127.0.0.1 (0: any free port).
     title
         Window title (default: the plot's title or variable name).
+    kind
+        ``"viewer"`` (``zeit.plot``) or ``"interpret"`` (``zeit.interpret``).
 
     Returns
     -------
     Window
         The served page: ``url``, ``close()``, ``wait()``.
     """
-    window = Window(session, height=height, fps=fps, port=port, title=title)
+    window = Window(session, height=height, fps=fps, port=port, title=title, kind=kind)
     if open:
         window.open(open)
     if block is None:

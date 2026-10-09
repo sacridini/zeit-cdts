@@ -1,6 +1,6 @@
 # Post-processing
 
-<p class="lead">Clean up maps, classify CCDC results, derive masks, and review results against reference points.</p>
+<p class="lead">Clean up maps, classify CCDC results and derive masks.</p>
 
 ## Spatial filters
 
@@ -161,37 +161,4 @@ water = zeit.extract_water_mask(segments)
 
 ## Validation
 
-### `generate_landtrendr_accuracy_dashboard` { .api }
-
-<!-- sig: zeit.validation.generate_landtrendr_accuracy_dashboard -->
-```python
-zeit.validation.generate_landtrendr_accuracy_dashboard(
-    cube, points, lt_results=None,
-    output_html="lt_accuracy_dashboard.html", window_size=25,
-    year_dim="time",
-)
-```
-
-Builds a self-contained HTML page for reviewing LandTrendr results at reference points. For each point it shows the index trajectory, the fitted segments, and true-colour image chips for every year, and lets you record the observed year of change. It computes agreement (including Kappa) live and exports the labels as CSV. Also exported as `zeit.generate_landtrendr_accuracy_dashboard`.
-
-<div class="params" markdown>
-
-| Parameter | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `cube` | `xr.DataArray` | required | The input cube, with time, band, y and x dimensions (true-colour bands are detected automatically). |
-| `points` | `str`, GeoDataFrame or list | required | Vector file path, GeoDataFrame, or list of `(lon, lat)` tuples. An `id` column is used if present. |
-| `lt_results` | `xr.DataArray` or `xr.Dataset` | `None` | LandTrendr / `extract_events` output, to show predicted years and fits. |
-| `output_html` | `str` | `"lt_accuracy_dashboard.html"` | Output page. |
-| `window_size` | `int` | `25` | Chip size in pixels (odd). |
-| `year_dim` | `str` | `"time"` | Name of the time dimension of `cube`. |
-
-</div>
-
-```python
-zeit.generate_landtrendr_accuracy_dashboard(
-    cube=annual_cube,
-    points="data/validation_points.shp",
-    lt_results=events_ds,
-    output_html="validation.html",
-)
-```
+Accuracy assessment and area estimation, and labelling reference points by eye, have a page of their own: [Validation](validation.md).

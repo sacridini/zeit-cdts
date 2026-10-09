@@ -233,6 +233,7 @@ export class Viewer {
     const pad = (y1 - y0) * 0.08 || 1; y0 -= pad; y1 += pad;
     const sx = (x) => M.l + ((x - x0) / (x1 - x0)) * (W - M.l - M.r);
     const sy = (y) => H - M.b - ((y - y0) / (y1 - y0)) * (H - M.t - M.b);
+    this.chartScale = { x0, x1, y0, y1, W, H, M, sx, sy };   // for what is drawn over the chart (zeit.interpret)
     const svg = el("svg", { width: W, height: H, viewBox: `0 0 ${W} ${H}`, class: "zv-svg" });
     for (const v of niceTicks(y0, y1, 5)) {
       svg.append(el("line", { x1: M.l, x2: W - M.r, y1: sy(v), y2: sy(v), class: "zv-grid" }));
@@ -286,6 +287,7 @@ export class Viewer {
       this.show(best);
     });
     this.chart.replaceChildren(svg);
+    this.emit("chart", svg);
   }
 
   // ------------------------------------------------------------------ data

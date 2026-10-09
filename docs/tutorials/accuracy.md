@@ -44,12 +44,21 @@ points.to_file("loss_points.gpkg")
 
 ### 3. Label the points
 
-Open `loss_points.gpkg` and add a `ref` column with `change` or `no change` for each point, and, for change, a `ref_date` with when it happened. Look at imagery before and after, and decide without looking at the map (`stratum_name` tells you what the map says, so hide it). QGIS, Collect Earth or field visits all work; what matters is that each point's label is your best judgement of what happened on the ground.
+```python
+s = zeit.interpret(landsat, points, rgb=["swir1", "nir", "red"], series="nbr",
+                   map=loss, fit=zeit.landtrendr(ndvi), save="loss_reference.gpkg")
+```
+
+`zeit.interpret` goes through the points one by one: the map is centred on each, a strip of chips shows the place every year, and the chart its series. Press `1` or `2` for the class, click the chart (or press `d` on the image where the change appears) to date it, and `Enter` to save and move on. Each label is written to `loss_reference.gpkg` at once: close the window and run the same line tomorrow to go on.
+
+By default it is **blind**: what the map and LandTrendr say at a point shows only once you have labelled it. A reference swayed by the map would only measure how much you agree with it. When every point has a label, the **Review** tab shows the accuracies, and a click on a cell of the error matrix (say, map "change", reference "no change") lists those points to look at again.
+
+QGIS, Collect Earth or field visits work as well: what `zeit.accuracy` needs is a `ref` column (and `ref_date` for dates) in the points.
 
 ### 4. Estimate accuracy and area
 
 ```python
-acc = zeit.accuracy(loss, "loss_points.gpkg", date_tolerance=1)
+acc = s.accuracy(date_tolerance=1)          # or zeit.accuracy(loss, "loss_reference.gpkg", date_tolerance=1)
 print(acc)
 ```
 
@@ -79,7 +88,7 @@ The reference describes the ground, not the map, so one set of labelled points a
 
 ```python
 ccdc_loss = zeit.extract_events(zeit.ccdc(cube), band="nir", event_type="loss")
-acc_ccdc = zeit.accuracy(ccdc_loss, "loss_points.gpkg", strata=loss)
+acc_ccdc = zeit.accuracy(ccdc_loss, "loss_reference.gpkg", strata=loss)
 ```
 
 !!! tip "Validation checked against the reference implementations"

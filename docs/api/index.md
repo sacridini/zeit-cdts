@@ -35,13 +35,13 @@
 
     ---
 
-    Spatial filters, CCDC classification, water masks, validation dashboard.
+    Spatial filters, CCDC classification, water masks.
 
 -   :material-check-decagram-outline:{ .lg .middle } **[Validation](validation.md)**
 
     ---
 
-    Stratified samples, accuracies and error-adjusted areas with confidence intervals.
+    Stratified samples, labelling points by eye, accuracies and error-adjusted areas with confidence intervals.
 
 -   :material-map-search-outline:{ .lg .middle } **[Visualisation](plot.md)**
 
@@ -111,10 +111,10 @@
 | [`apply_majority_filter`](post-processing.md#apply_majority_filter) / [`apply_bayesian_filter`](post-processing.md#apply_bayesian_filter) | Smooth class maps |
 | [`train_classifier`](post-processing.md#train_classifier) / [`classify`](post-processing.md#classify) | Train at sample points, classify any cube, metrics or CCDC models |
 | [`extract_water_mask`](post-processing.md#extract_water_mask) | Water mask from CCDC |
-| [`generate_landtrendr_accuracy_dashboard`](post-processing.md#generate_landtrendr_accuracy_dashboard) | Interactive validation page |
 | **Validation** | |
 | [`sampling_design`](validation.md#sampling_design) | Sample size and allocation per stratum (Olofsson et al. 2014) |
 | [`stratified_sample`](validation.md#stratified_sample) | Stratified random points of a map |
+| [`interpret`](validation.md#interpret) | Label reference points by eye: chips, series, keyboard, review |
 | [`accuracy`](validation.md#accuracy) | Accuracies and error-adjusted areas with confidence intervals |
 | **Visualisation** | |
 | [`plot`](plot.md#plot) | Any cube, map, result or pixel: interactive viewer in a notebook or window, or a matplotlib figure |

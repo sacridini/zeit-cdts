@@ -67,3 +67,36 @@ def handle_safely(session: Session, request):
 
 def make_widget(session: Session, *, height: int = 480, fps: int = 8):
     return viewer_class()(session, height=height, fps=fps)
+
+
+def interpret_bundle() -> str:
+    """viewer.js and interpret.js as one module: anywidget loads a single module, and the
+    window serves the same text. The viewer's own default export (its widget) gives way to
+    the interpreter's."""
+    viewer = (HERE / "viewer.js").read_text(encoding="utf-8")
+    marker = "export default {"
+    if viewer.count(marker) != 1:
+        raise RuntimeError("viewer.js: expected one default export")
+    return viewer.replace(marker, "const viewerWidget = {") + chr(10) + (HERE / "interpret.js").read_text(encoding="utf-8")
+
+
+_INTERPRET_CLASS = None
+
+
+def make_interpret_widget(session: Session, *, height: int = 480):
+    """The notebook widget of zeit.interpret."""
+    global _INTERPRET_CLASS
+    if _INTERPRET_CLASS is None:
+        import traitlets
+
+        base = viewer_class()
+
+        class InterpretViewer(base):
+            """Reference labelling (zeit.interpret)."""
+
+            _esm = interpret_bundle()
+            _css_text = traitlets.Unicode((HERE / "viewer.css").read_text(encoding="utf-8") + chr(10)
+                                          + (HERE / "interpret.css").read_text(encoding="utf-8")).tag(sync=True)
+
+        _INTERPRET_CLASS = InterpretViewer
+    return _INTERPRET_CLASS(session, height=height)

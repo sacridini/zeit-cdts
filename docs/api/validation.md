@@ -1,6 +1,6 @@
 # Validation
 
-<p class="lead">How accurate is a map, and how much area really changed? Draw a stratified random sample of the map, label it, and get the error matrix, the accuracies and the error-adjusted area of each class with their confidence intervals, following the good practices of Olofsson et al. (2014).</p>
+<p class="lead">How accurate is a map, and how much area really changed? Draw a stratified random sample of the map, label it by eye, and get the error matrix, the accuracies and the error-adjusted area of each class with their confidence intervals, following the good practices of Olofsson et al. (2014).</p>
 
 The three functions work on any map: classes from [`classify`](post-processing.md#classify), [`ai.predict`](ai.md#predict), [`twdtw`](time-series.md#twdtw) or [`som`](time-series.md#som), a raster made elsewhere, or a map of events from [`extract_events`](change-detection.md#extract_events) or [`agreement`](change-detection.md#agreement) (stratified as "no change" and "change"). Areas come from each pixel's size, in hectares (in a geographic CRS, the area of each row on the sphere); dask maps are read lazily, a row strip at a time. Tutorial: [Accuracy & Area](../tutorials/accuracy.md).
 
@@ -8,8 +8,8 @@ The three functions work on any map: classes from [`classify`](post-processing.m
 events = zeit.extract_events(zeit.landtrendr(ndvi))
 design = zeit.sampling_design(events, expected_ua={"change": 0.7, "no change": 0.95})
 points = zeit.stratified_sample(events, design=design)
-points.to_file("to_label.gpkg")            # label a "ref" column: zeit.interpret, QGIS, the field...
-acc = zeit.accuracy(events, "labelled.gpkg")
+s = zeit.interpret(cube, points, map=events, save="reference.gpkg")   # label each point by eye
+acc = zeit.accuracy(events, s)
 print(acc)                                 # overall, user's, producer's, mapped and estimated areas
 ```
 
@@ -75,6 +75,73 @@ Draws the points: a simple random sample of pixels within each stratum, without 
 </div>
 
 **Returns** a `geopandas.GeoDataFrame` of points at the centres of the sampled pixels, in the map's CRS, with `stratum` (code), `stratum_name`, `row` and `col`. Keep the `stratum` column: [`accuracy`](#accuracy) weighs the points by it.
+
+## `interpret` { .api }
+
+<!-- sig: zeit.interpret -->
+```python
+zeit.interpret(
+    data, samples=None, classes=None, save=None, rgb=None, band=None,
+    series=None, chips="year", chip_size=33, fit=None, map=None,
+    strata=None, blind=True, interpreter=None, basemap=None, zoom=120,
+    height=480, block=None, open=True,
+)
+```
+
+Labels the reference points by eye, one after the other, in the viewer of [`zeit.plot`](plot.md) with another layout: the queue of points and a form on the right, the map centred on the current point, a strip of image chips around it (one per year, the median of its dates), and the point's series below (a click on it dates the change). Each label is written to `save` at once; calling `interpret` again with the same file resumes where it stopped. In a notebook the viewer is shown right away and the returned object follows it live; in a script it opens in its own window and returns when the window is closed. Also exported as `zeit.interpret`.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `data` | `DataArray` or path | required | The imagery: a `(time, band, y, x)` cube (`rgb` picks the image's bands), or a `(time, y, x)` index. |
+| `samples` | `GeoDataFrame` or path | `None` | The points, e.g. from [`stratified_sample`](#stratified_sample). Not needed to resume from `save`. |
+| `classes` | list of `str` | `None` | The reference classes; keys 1–9 pick them. Default: the classes of `map`. |
+| `save` | path | `None` | `.gpkg`, `.geojson` or `.parquet` written after every label; an existing file is resumed. |
+| `rgb` | three band names | `None` | The bands of the image, e.g. `["swir1", "nir", "red"]` (default: red, green, blue). |
+| `band` | band name | `None` | One band to show instead of an RGB image. |
+| `series` | band name(s) or `DataArray` | `None` | What the chart shows: bands of `data` (e.g. `"nbr"`), or a `(time, y, x)` cube of the same area. Default: the image's bands. |
+| `chips` | `"year"`, `"month"`, `"date"`, `int` or `None` | `"year"` | One chip per year (the median of its dates), month, date, every `n` images, or none. A click on a chip shows that image. |
+| `chip_size` | `int` | `33` | Side of a chip, in pixels. |
+| `fit` | result `Dataset` | `None` | A result of zeit drawn over the series, as in `zeit.plot` (`landtrendr`, `ccdc`, `extract_events`...). |
+| `map` | `DataArray`, `Dataset` or path | `None` | The map being assessed. Its value at the point is shown, and the Review tab gives its accuracy. |
+| `strata` | `DataArray`, `Dataset` or path | `None` | The map the points were stratified by, when it is not `map` (see [`accuracy`](#accuracy)). |
+| `blind` | `bool` | `True` | Hide what `map` and `fit` say at a point until it is labelled, and the review until every point is: the reference should not be swayed by the map. |
+| `interpreter` | `str` | `None` | Name recorded with each label (default: the login name). |
+| `basemap` | `str` | `None` | A web map under the data, as in `zeit.plot`. |
+| `zoom` | `int` | `120` | How many pixels across the map shows around a point. |
+| `height` | `int` | `480` | Height of the map in a notebook, in pixels. |
+| `block`, `open` | | `None`, `True` | Outside a notebook, as in `zeit.plot`: wait for the window to close (default: yes in a script); `"native"`, `"browser"`, or `False` to only serve the page. |
+
+</div>
+
+**Returns** an `Interpretation`:
+
+| Attribute | Meaning |
+| :--- | :--- |
+| `samples` | The points with `ref`, `ref_date`, `confidence` (`high`, `medium`, `low`), `note`, `status` (`todo`, `done`, `skipped`), `interpreter` and `labelled_at`. |
+| `progress` | Points `done`, `skipped` and in the queue (`total`). |
+| `accuracy(map=None, **kwargs)` | [`accuracy`](#accuracy) of `map` (default: the `map` given) from the labelled points. `zeit.accuracy(map, interpretation)` works too. |
+| `save(path=None)`, `close()` | Write the labels; close the window. |
+
+| Key | Action |
+| :--- | :--- |
+| `1`–`9` | Class |
+| `Enter` | Save and go to the next point without a label |
+| `s` | Skip the point (cloudy, no imagery...) |
+| `n` / `p` | Next / previous point |
+| `d` | Date of the change = the image shown |
+| `h` / `m` / `l` | Confidence high / medium / low |
+| `←` `→`, `Space` | Previous / next image, play |
+
+A click on the series sets the date of the change; a click on a point of the map goes to it. The **Review** tab (with `map`) shows the overall, user's and producer's accuracies and the areas, with their intervals, and the error matrix in points: a click on a cell (say, map "change", reference "no change") lists its points to look at again.
+
+```python
+points = zeit.stratified_sample(loss, n=300)
+s = zeit.interpret(landsat, points, rgb=["swir1", "nir", "red"], series="nbr", map=loss,
+                   fit=lt, save="reference.gpkg")
+acc = s.accuracy(date_tolerance=1)
+```
 
 ## `accuracy` { .api }
 

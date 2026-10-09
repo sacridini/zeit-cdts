@@ -848,7 +848,7 @@ todas com intervalo de confiança. No R isso é o `sits_sampling_design`,
   por bloco, depois sorteio por bloco). `buffer=` evita pares de pontos vizinhos (fronteira
   de mudança).
 
-### 13b: `zeit.interpret`, o modo de interpretação
+### 13b: `zeit.interpret`, o modo de interpretação — **Feito** (0.50.0)
 
 Uma função própria, não um parâmetro do `zeit.plot`: interpretar 500 pontos é outra tarefa
 que explorar um cubo. É uma fila de pontos e não um pixel qualquer; devolve dados (os
@@ -949,6 +949,39 @@ Tudo em `zeit/_accuracy.py`: `sampling_design`, `stratified_sample`, `accuracy` 
   para manter o `n` total (a recomendação do Olofsson de 50–100 para classes raras).
 - Pontos sem `stratum` são pesados como amostra estratificada pelo mapa, com aviso (certo
   para amostra aleatória simples ou estratificada pelo mapa, não para pontos escolhidos).
+
+### 13b: o que foi feito (0.50.0)
+
+- `zeit/_plot/_interpret.py`: `InterpretSession` (uma `Session` do viewer com os pedidos
+  `points`, `point`, `label` e `review`), `Interpretation` e `zeit.interpret`. No navegador,
+  `interpret.js` monta o mesmo `Viewer` e acrescenta a fila, o formulário, a faixa de
+  recortes e a revisão; como o anywidget carrega um módulo só, `viewer.js` e `interpret.js`
+  viajam juntos (`interpret_bundle`), no widget e na janela (`show_window(kind="interpret")`,
+  que serve também `interpret.js`/`interpret.css`). O `viewer.js` ganhou só o evento
+  `chart` e a escala do gráfico, para o que se desenha por cima.
+- **Recortes:** a mediana de cada ano (ou mês, ou cada data) numa janela de `chip_size`
+  em volta do ponto, com as cores do mapa; completados com NoData na borda dos dados, para
+  o ponto ficar sempre no meio. Um clique num recorte mostra aquela imagem.
+- **Formulário:** classe (1–9), data (clique no gráfico ou `d` na imagem mostrada),
+  confiança (`h`/`m`/`l`), nota; Enter salva e vai ao próximo sem rótulo, `s` pula,
+  `n`/`p` navegam. Um clique num ponto do mapa vai até ele. O mapa fica centrado no ponto
+  enquanto o usuário não o mover (também quando a janela muda de tamanho).
+- **Salvar e retomar:** cada rótulo regrava o arquivo (`.gpkg`, `.geojson`, `.parquet`;
+  por um temporário e `os.replace`); o mesmo `save=` retoma a sessão.
+- **Cego:** o valor do mapa e o ajuste do algoritmo aparecem depois do rótulo; a revisão,
+  depois de todos os pontos. A revisão é o `zeit.accuracy` com os pontos rotulados, mais a
+  matriz em pontos, cujas células filtram a lista.
+- `generate_landtrendr_accuracy_dashboard` e `zeit/validation.py` saíram; o exemplo 19
+  virou o fluxo inteiro (mapa, amostra, rótulos, acurácia: o mapa dá 538 ha de perda, a
+  amostra estima 680 ± 70 ha, a área verdadeira é 675 ha).
+- Testes em `tests/test_interpret.py`: a sessão sem navegador (fila, ponto cego e
+  revelado, recortes, rótulos inválidos), salvar e retomar, a revisão contra o
+  `zeit.accuracy`, as opções (`rgb`, `band`, `series`, `chips`, `blind=False`), o widget, e
+  no Edge headless o ponto centrado, três pontos rotulados pelo teclado, um recorte clicado
+  e a revisão esperando os rótulos.
+
+**Diferenças em relação ao plano:** `.csv` ficou de fora do `save=` (perderia o CRS); a
+confiança é `high`/`medium`/`low` em vez de um número; `band=` e `zoom=` novos.
 
 ## Fase 14: degradação florestal (SMA, NDFI e CODED)
 

@@ -218,7 +218,7 @@ See [Parallel & Cloud Processing](parallel-cloud-processing.md) to run this on a
 
 - **Use a stable season.** Composite the same months every year, so phenology is not mistaken for change.
 - **Mask clouds before compositing.** Residual clouds create spikes. `spike_threshold` removes most of them, but clean input always wins.
-- **Validate on the ground truth you have.** `zeit.generate_landtrendr_accuracy_dashboard` builds an interactive HTML page to review points against image chips (see the [API reference](../api/post-processing.md)).
+- **Validate with a sample, not by eye on the map.** Draw a stratified sample of the map, label it with `zeit.interpret` and estimate accuracy and area with `zeit.accuracy` (see [Accuracy & Area](accuracy.md)).
 - **Compare with the published method.** Zeit reproduces the original IDL LandTrendr vertex for vertex, see [Algorithm Fidelity](../benchmarks/fidelity.md#1-landtrendr-kennedy-et-al-2010).
 
 ## References

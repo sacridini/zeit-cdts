@@ -36,7 +36,6 @@ from .regularize import regularize_time_series
 
 from .indices import compute_indices
 from .io import load_raster, save_raster, get_georef
-from .validation import generate_landtrendr_accuracy_dashboard
 
 try:
     import zeit.xarray_api # This registers the xarray accessor automatically
@@ -52,6 +51,7 @@ _LAZY = {
     "train_classifier": "._classify_api",
     "classify": "._classify_api",
     "plot": "._plot",
+    "interpret": "._plot._interpret",
 }
 _LAZY_MODULES = {"ai", "cube"}
 
@@ -88,7 +88,6 @@ __all__ = [
     "build_spectral_temporal_metrics",
     "compute_indices",
     "regularize_time_series",
-    "load_raster", "save_raster", "plot",
-    "generate_landtrendr_accuracy_dashboard",
+    "load_raster", "save_raster", "plot", "interpret",
     "ai"
 ]
