@@ -1,3 +1,4 @@
+import threading
 from typing import Any, Dict, Optional, Union
 
 import numpy as np
@@ -78,6 +79,12 @@ except ImportError:  # pure Python fallback
     prange = range
     _extract = _extract_py
 
+# One call of the parallel kernel at a time: dask runs blocks in threads, and numba's
+# "workqueue" threading layer (the one on macOS, without TBB or OpenMP) aborts the process
+# when a parallel kernel is entered from two threads at once. The kernel uses every core
+# itself, so taking turns costs nothing.
+_EXTRACT_LOCK = threading.Lock()
+
 
 def extract_events(lt: Any, event_type: Optional[str] = None, sort_by: str = "greatest",
                    min_magnitude: float = 0.0, min_duration: int = 1, pre_val_threshold: float = 0.0,
@@ -136,9 +143,10 @@ def _extract_array(vertices_stack: np.ndarray, event_type: str, sort_by: str, mi
         # Numba needs a concretely-typed array even when DSNR isn't scored/output.
         rmse_map = np.zeros((rows, cols), dtype=np.float32)
 
-    out = _extract(np.ascontiguousarray(vertices_stack, dtype=np.float32), rmse_map, max_vertices, rows, cols,
-                   event_type.lower() == "loss", _SORT_IDS[sort_by.lower()],
-                   float(min_magnitude), float(min_duration), float(pre_val_threshold))
+    with _EXTRACT_LOCK:
+        out = _extract(np.ascontiguousarray(vertices_stack, dtype=np.float32), rmse_map, max_vertices, rows, cols,
+                       event_type.lower() == "loss", _SORT_IDS[sort_by.lower()],
+                       float(min_magnitude), float(min_duration), float(pre_val_threshold))
     result = dict(zip(("yod", "magnitude", "duration", "pre_val", "post_val", "rate", "dsnr"), out))
     if not has_rmse:
         del result["dsnr"]
