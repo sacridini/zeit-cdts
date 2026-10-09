@@ -210,8 +210,8 @@ def test_regularize_one_band_and_files(tmp_path):
     out = zeit.regularize_time_series(cube, freq="16D", method="medoid")
     assert out.dims == ("time", "y", "x") and out.rio.crs == cube.rio.crs
     first = cube.isel(time=slice(0, 4))   # the observations of the first 16 days
-    med = first.median("time")
-    pick = np.abs(first - med).argmin("time")
+    exact = first.astype(np.float64)      # four dates: the median is between two, a tie the first date wins
+    pick = np.abs(exact - exact.median("time")).argmin("time")
     np.testing.assert_array_equal(out.isel(time=0).values, first.isel(time=pick).values)
     path = zeit.save_raster(cube, tmp_path / "cube.tif")
     from_file = zeit.regularize_time_series(path, freq="16D")

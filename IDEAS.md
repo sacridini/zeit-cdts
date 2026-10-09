@@ -731,9 +731,25 @@ amostras e como chamá-lo; outros modelos continuam com o `SampleSet` e um laço
 - `"tversky"` ficou de fora do `loss=` (o `TverskyLoss` é binário); `"focal"` é uma focal
   que ignora os pixels sem rótulo, e qualquer função `(logits, alvo)` serve.
 
+## O medoide do `regularize_time_series` em C++ — **Feito** (0.47.0)
+
+O `compute_medoid` (`_core.utils`), que ficou sem uso com a saída do `preprocessor`, passou a
+fazer o `regularize_time_series(method="medoid")`: por `apply_ufunc` em cada período do
+`resample` (lazy por blocos), com todos os pixels de um bloco numa linha só, para o OpenMP
+dividir pixels. 60 datas × 4 bandas × 300²: 0,15 s contra 1,0 s do xarray (1 banda: 0,14 s
+contra 0,31 s); lazy igual em memória.
+
+- Comparado com a versão em xarray em 5,4 milhões de valores: as diferenças são só (1)
+  empates, quando a mediana cai no meio de duas observações (número par de datas): o C++
+  calcula em `float64` e fica com a primeira data; o xarray calculava em `float32` e o
+  arredondamento decidia; e (2) pixels sem nenhuma observação com todas as bandas no
+  período, que agora saem NaN (antes: a primeira data, com o buraco). Teste contra uma
+  implementação direta em `float64`, valor a valor.
+- Corrigido junto, nos dois métodos: o NoData de um cubo inteiro (Int16 com −9999) entrava
+  nas medianas. Agora fica de fora, e o resultado volta ao tipo do cubo com NoData nos
+  períodos vazios.
+
 ## Para depois
 
-- O `compute_medoid` em C++ (`_core.utils`) ficou sem uso com a saída do `preprocessor`: o
-  `regularize_time_series(method="medoid")` poderia usá-lo em vez do `groupby` do xarray.
 - `zeit.plot`: medir de verdade o caso de notebook remoto (JupyterHub, Colab), que ficou
   como estimativa no 7a.

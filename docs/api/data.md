@@ -346,7 +346,7 @@ zeit.regularize.regularize_time_series(
 )
 ```
 
-Composites an irregular cube to a fixed time step (16-day, monthly, yearly) with the median or the medoid of each window. Periods without observations are NaN; georeferencing and NoData are kept. Stays lazy. Also exported as `zeit.regularize_time_series`.
+Composites an irregular cube to a fixed time step (16-day, monthly, yearly) with the median or the medoid of each window. Missing values (NaN and the cube's NoData) are left out; periods without observations, and pixels without one in a period, are NaN (an integer cube with NoData keeps its type, with NoData there). Georeferencing and NoData are kept. Stays lazy. Also exported as `zeit.regularize_time_series`.
 
 <div class="params" markdown>
 
@@ -354,7 +354,7 @@ Composites an irregular cube to a fixed time step (16-day, monthly, yearly) with
 | :--- | :--- | :--- | :--- |
 | `cube` | `DataArray` or path | required | Cube with a `time` dimension, `(time, y, x)` or `(time, band, y, x)`, or anything `load_raster` reads. |
 | `freq` | `str` | `"16D"` | pandas frequency: `"16D"`, `"1MS"`, `"1YS"`, … |
-| `method` | `str` | `"median"` | `"median"` (per band) or `"medoid"` (the real observation closest to the multi-band median, so a composite's bands come from one date; with one band, the observation closest to the median). |
+| `method` | `str` | `"median"` | `"median"` (per band) or `"medoid"` (the real observation closest to the multi-band median, so a composite's bands come from one date; with one band, the observation closest to the median). Only observations with every band are candidates, and on a tie the earliest wins. The medoid runs in C++, every pixel in parallel: on 60 dates of 4 bands and 300 × 300 pixels, 0.15 s against 1.0 s for xarray. |
 
 </div>
 
