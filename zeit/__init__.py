@@ -37,6 +37,7 @@ _LAZY = {
     "build_spectral_temporal_metrics": ".cube",
     "train_ccdc_classifier": ".classify",
     "classify_ccdc_stack": ".classify",
+    "plot": "._plot",
 }
 _LAZY_MODULES = {"ai", "cube", "classify"}
 
@@ -73,7 +74,7 @@ __all__ = [
     "compute_indices",
     "build_local_cube",
     "regularize_time_series",
-    "load_raster", "save_raster",
+    "load_raster", "save_raster", "plot",
     "generate_landtrendr_accuracy_dashboard",
     "ai"
 ]

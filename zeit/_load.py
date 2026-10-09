@@ -5,6 +5,7 @@ The cube is an ``xarray.DataArray`` with dims ``(time, y, x)`` (one index) or
 coordinate and its CRS, transform and NoData through ``.rio``.
 """
 
+import atexit
 import glob
 import json
 import os
@@ -26,6 +27,19 @@ RASTER_EXTENSIONS = (".tif", ".tiff", ".vrt", ".img", ".jp2", ".hdf", ".h5", ".a
 _DIM_ALIASES = {"lat": "y", "latitude": "y", "lon": "x", "long": "x", "longitude": "x",
                 "bands": "band", "variable": "band", "date": "time", "t": "time"}
 _VALIDATE = {"landtrendr": 3, "ccdc": 12, "cold": 12}
+
+
+def _close_files() -> None:
+    """Close the files xarray keeps open for lazy rasters (load_raster(..., chunks=)) before the
+    interpreter shuts down, which otherwise ends with an "Error in sys.excepthook" message."""
+    try:
+        from xarray.backends.file_manager import FILE_CACHE
+        FILE_CACHE.clear()
+    except Exception:  # noqa: BLE001 - at exit, nothing to report
+        pass
+
+
+atexit.register(_close_files)
 
 
 def load_raster(
@@ -234,6 +248,8 @@ def _open_one(path: str, *, band: Any, chunks: Any, date_format: Optional[str]) 
         if np.isscalar(band):
             da = da.squeeze("band", drop=False)
     da.attrs["source"] = path
+    if da.name is None:
+        da.name = os.path.splitext(os.path.basename(path.rstrip("/\\")))[0]
     return da
 
 

@@ -278,7 +278,12 @@ kernel por quadro, com no máximo 2 quadros em trânsito (fps ≤ 2/latência: 1
 ### Próximos passos (7b em diante)
 
 1. 7b: estático com matplotlib + a inferência de cores e legendas (compartilhada com o
-   viewer interativo).
+   viewer interativo). **Feito** (0.33.0): `zeit/_plot/` (`_data.Frames` vê qualquer
+   entrada como quadros 2-D, toda dimensão além de `y`/`x` vira eixo de quadros com
+   rótulos como os do `save_raster`; `_style.infer_style` escolhe contínuo, divergente,
+   categórico, anos ou RGB a partir de uma amostra; `_static` desenha mapa, grade de datas
+   ou série). `load_raster` passou a nomear o cubo pelo arquivo (a paleta de vegetação vem
+   do NDVI/NBR no nome) e fecha os arquivos lazy na saída do Python.
 2. 7c: viewer interativo (o protótipo B evoluído): pan/zoom, colorbar, valor sob o mouse,
    play/pause, pré-carga progressiva, seletor de variável para Datasets, RGB.
 3. 7d: clicar num pixel e ver a série com o ajuste do algoritmo.

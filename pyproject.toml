@@ -31,11 +31,17 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+plot = [
+    "matplotlib",
+    "anywidget>=0.9"
+]
 dev = [
     "pytest",
     "pytest-cov",
     "pymannkendall",
-    "minisom==2.3.6"
+    "minisom==2.3.6",
+    "matplotlib",
+    "anywidget>=0.9"
 ]
 
 [project.urls]
