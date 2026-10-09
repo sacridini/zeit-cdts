@@ -91,7 +91,7 @@ class BuildExt(build_ext):
 
 setup(
     name='zeit-cdts',
-    version='0.27.0',
+    version='0.28.0',
     packages=find_packages(include=['zeit', 'zeit.*']),
     ext_modules=ext_modules,
     setup_requires=['pybind11>=2.10.0'],
