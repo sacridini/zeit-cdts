@@ -158,14 +158,16 @@ def infer_style(sample: np.ndarray, *, name: str = "", dtype: Any = None, rgb: b
         return Style("rgb", vmin=vmin if vmin is not None else lo, vmax=vmax if vmax is not None else hi, label=text)
 
     uniques = np.unique(finite) if finite.size and finite.dtype.kind in "iub" else None
+    years_found = uniques[uniques != 0] if uniques is not None else None   # 0: "no event" in year maps
     looks_years = (lname in YEAR_NAMES or lname.endswith("_year") or dtype.kind == "M") or (
-        uniques is not None and uniques.size and uniques.min() >= 1800 and uniques.max() <= 2200 and uniques.size > 1)
+        years_found is not None and years_found.size > 1 and years_found.min() >= 1800 and years_found.max() <= 2200)
     if kind == "categorical" or classes is not None or dtype == bool or (
             kind is None and uniques is not None and uniques.size <= MAX_CLASSES and not looks_years):
         return Style("categorical", classes=_classes(classes, uniques, dtype), label=text)
     if kind == "years" or (kind is None and looks_years):
-        lo = vmin if vmin is not None else float(finite.min()) if finite.size else 1985.0
-        hi = vmax if vmax is not None else float(finite.max()) if finite.size else 2025.0
+        known = finite[finite != 0] if finite.size and dtype.kind in "iu" else finite
+        lo = vmin if vmin is not None else float(known.min()) if known.size else 1985.0
+        hi = vmax if vmax is not None else float(known.max()) if known.size else 2025.0
         return Style("years", cmap=cmap or "plasma", vmin=lo, vmax=max(hi, lo + 1), label=text)
 
     lo, hi = _robust(finite)

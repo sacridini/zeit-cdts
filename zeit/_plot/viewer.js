@@ -437,7 +437,7 @@ export class Viewer {
       c.width = Math.round(r.width * dpr); c.height = Math.round(r.height * dpr);
     }
     this.cssSize = [r.width, r.height];
-    if (!this.view) this.fit();
+    if (!this.view || this.fitted) this.fit();   // keep the whole map in view until the user moves it
     this.render();
   }
 
@@ -447,6 +447,7 @@ export class Viewer {
     const W = this.meta.full_width, H = this.meta.full_height;
     const s = Math.min(r.width / W, r.height / H) || 1;
     this.view = { ox: -(r.width / s - W) / 2, oy: -(r.height / s - H) / 2, s };
+    this.fitted = true;
     this.render();
   }
 
@@ -474,6 +475,7 @@ export class Viewer {
         const dx = e.offsetX - drag.x, dy = e.offsetY - drag.y;
         if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
         this.view.ox = drag.ox - dx / this.view.s; this.view.oy = drag.oy - dy / this.view.s;
+        if (drag.moved) this.fitted = false;
         this.render(); this.scheduleDetail();
       }
       this.hover(e.offsetX, e.offsetY);
@@ -489,6 +491,7 @@ export class Viewer {
       const [cx, cy] = this.toCell(e.offsetX, e.offsetY);
       const s = Math.min(Math.max(this.view.s * Math.exp(-e.deltaY * 0.0015), 1e-3), 64);
       this.view = { s, ox: cx - e.offsetX / s, oy: cy - e.offsetY / s };
+      this.fitted = false;
       this.render(); this.scheduleDetail();
     }, { passive: false });
   }
@@ -551,7 +554,8 @@ export class Viewer {
     const tick = (t) => {
       if (!this.playing) return;
       if (t - last >= 1000 / this.fps) {
-        last = t;
+        // keep the average rate: step the clock by one period, unless far behind
+        last = t - last > 250 ? t : last + 1000 / this.fps;
         let next = (this.index + 1) % this.meta.n;
         if (!this.frames[next]) { this.load(this.generation); requestAnimationFrame(tick); return; }   // wait for data
         this.show(next);

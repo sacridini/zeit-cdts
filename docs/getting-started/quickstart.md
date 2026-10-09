@@ -107,6 +107,18 @@ plt.colorbar(label="First year of loss")
 plt.show()
 ```
 
+### Explore it interactively
+
+`zeit.plot` shows any cube or result (install it with `pip install zeit-cdts[plot]`). In a notebook it is an interactive viewer: space plays the years, the arrow keys step through them, and clicking a pixel shows its series with LandTrendr's fit. In a script, the same viewer opens in its own window.
+
+```python
+cube = zeit.load_raster(stack, start_year=1990)   # the same array, with its years
+zeit.plot(cube, fit=lt)                           # page through the years, click a pixel
+zeit.plot(loss)                                   # the event maps, with a variable selector
+```
+
+See [Plotting and Exploring Results](../tutorials/plotting.md) for basemaps, static figures and more.
+
 ## 6. Use your own data
 
 Swap the synthetic stack for a real one. Any GeoTIFF with one band per year works:

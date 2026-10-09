@@ -44,6 +44,7 @@ def plot(
     vector: Any = None,
     opacity: Optional[float] = None,
     vector_color: str = "#ffd400",
+    block: Optional[bool] = None,
 ):
     """Plot a map, a time series cube, a result of zeit or one pixel's series.
 
@@ -79,8 +80,11 @@ def plot(
     title, ax, figsize, colorbar, ncols
         Matplotlib layout of a static plot.
     static
-        ``True`` for a matplotlib figure; ``False`` for the interactive viewer. By default:
-        the viewer in a notebook (JupyterLab, Notebook, VS Code, Colab), a figure elsewhere.
+        ``True`` for a matplotlib figure; ``False`` for the interactive viewer. By default the
+        viewer: in a notebook (JupyterLab, Notebook, VS Code, Colab) as a widget, elsewhere
+        (a script, a terminal) in its own window. A figure instead when ``save`` is given or
+        there is no screen to show a window on (no display, CI, tests, or the environment
+        variable ``ZEIT_PLOT=static``).
     max_size
         Longest side, in cells, the maps are read at: 1024 for a static plot, 800 for the
         viewer's preview (which fetches finer cells when you zoom in). The cube is never read
@@ -110,11 +114,15 @@ def plot(
         Opacity of the data (default 1, or 0.8 over a basemap); the viewer has a slider.
     vector_color
         Colour of the outlines.
+    block
+        Window outside a notebook: wait until it is closed (like ``plt.show()``). By default
+        yes when running a script, no in an interactive interpreter.
 
     Returns
     -------
-    matplotlib.figure.Figure or Viewer
-        A figure for a static plot; the viewer widget otherwise. In the viewer: drag to pan,
+    matplotlib.figure.Figure, Viewer or Window
+        A figure for a static plot; the viewer widget in a notebook; a ``Window`` (with
+        ``url`` and ``close()``) outside one. In the viewer: drag to pan,
         wheel to zoom (finer cells are fetched when needed), double-click to reset, space to
         play, arrow keys to step; the value under the cursor is shown below the map. Frames
         are preloaded from the current one outwards and, once in the browser, paging through
@@ -139,9 +147,10 @@ def plot(
         fig = _static.plot_series(prepared, ax=ax, figsize=figsize, title=title)
         return _finish(fig, save)
 
+    from ._widget import in_notebook
+    notebook = in_notebook()
     if static is None:
-        from ._widget import in_notebook
-        static = not in_notebook()
+        static = save is not None or (not notebook and not can_open_window())
     if not static:
         from ._session import Session
         from ._widget import make_widget
@@ -150,7 +159,10 @@ def plot(
                           compress=compress, title=title, fit=fit, basemap=basemap, vector=vector,
                           opacity=opacity if opacity is not None else (0.8 if basemap else 1.0),
                           vector_color=vector_color)
-        return make_widget(session, height=height, fps=fps)
+        if notebook:
+            return make_widget(session, height=height, fps=fps)
+        from ._window import show_window
+        return show_window(session, fps=fps, title=title, block=block)
 
     frames = prepared
     max_size = max_size or 1024
@@ -188,6 +200,21 @@ def style_for(frames: Frames, *, kind=None, cmap=None, vmin=None, vmax=None, cla
         value = 0
         style = infer_style(sample, nodata=0, **options)
     return style, value
+
+
+def can_open_window() -> bool:
+    """Whether a window can be shown here: not under tests or CI, not on a display-less
+    Linux server, and not turned off with ``ZEIT_PLOT=static``."""
+    import os
+    import sys
+
+    if os.environ.get("ZEIT_PLOT", "").lower() == "static":
+        return False
+    if os.environ.get("PYTEST_CURRENT_TEST") or os.environ.get("CI"):
+        return False
+    if sys.platform.startswith("linux") and not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+        return False
+    return True
 
 
 def _cell_of(frames: Frames, pixel: Any):

@@ -33,6 +33,7 @@ Built with highly optimized C++ extensions (OpenMP and Eigen SIMD) bound to Pyth
   - **Mann-Kendall / Theil-Sen**: Pixel-wise non-parametric trend test and slope estimation for detecting statistically significant greening/browning trends.
   - **SNIC Segmentation**: Superpixel segmentation of images and whole time series cubes (one segment = similar trajectories), matching the original SNIC's labels pixel for pixel, with tile-parallel processing for large scenes.
 - **Deep Learning (`zeit.ai`):** Pre-built PyTorch architectures tailored for spatio-temporal Earth Observation (U-TAE, TempCNN, Siamese Networks), plus wrappers for Geospatial Foundation Models (ViT).
+- **Visualisation (`zeit.plot`):** One function to look at any cube, map or result: an interactive viewer in Jupyter (or its own window from a script) that pages through dense time series at the display's frame rate, with a click-a-pixel inspector showing each algorithm's fit, satellite basemaps and vector outlines; or a matplotlib figure for reports.
 - **Command-Line Interface:** Every core algorithm is also available as a `zeit` subcommand, for running change detection on GeoTIFF stacks from bash scripts, cron jobs, or HPC environments without writing Python.
 
 ---
@@ -43,6 +44,8 @@ Built with highly optimized C++ extensions (OpenMP and Eigen SIMD) bound to Pyth
 pip install zeit-cdts
 ```
 *(Note: Wheels are provided for Windows, Linux, and macOS. macOS runs in single-threaded mode by default due to Apple Clang lacking OpenMP).*
+
+For `zeit.plot` (matplotlib and anywidget), install the `plot` extra: `pip install zeit-cdts[plot]`.
 
 **For macOS users who want C++ OpenMP multi-threading:**
 Apple's default Clang compiler disables OpenMP. To achieve maximum performance and enable multi-threading, you must install the `libomp` library and manually export the compilation flags *before* forcing a local compilation:
@@ -68,9 +71,24 @@ ndvi = zeit.load_raster("LT_Stack_NDVI_Rondonia.tif")   # (time, y, x) cube, yea
 lt = zeit.landtrendr(ndvi)                               # or zeit.ccdc, zeit.bfast_monitor, zeit.mann_kendall, zeit.phenology...
 loss = zeit.extract_events(lt)                           # greatest NDVI loss per pixel
 zeit.save_raster(loss, "lt_rondonia")                    # one georeferenced GeoTIFF per metric
+zeit.plot(ndvi, fit=lt)                                  # look: page through the years, click a pixel to see its fit
 ```
 
 Coming from 0.26 or earlier? See [Upgrading to the one-function API](https://sacridini.github.io/zeit-cdts/getting-started/migrating/).
+
+## Visualisation
+
+`zeit.plot` shows any cube, map, result `Dataset` or pixel's series. In a notebook (JupyterLab, VS Code, Colab) it returns an interactive viewer; in a script it opens the same viewer in its own window; with `static=True` or `save=` it draws a matplotlib figure.
+
+```python
+ndvi = zeit.load_raster("LT_Stack_NDVI_Rondonia.tif")
+zeit.plot(ndvi)                                          # space plays the 40 years, wheel zooms, hover reads values
+zeit.plot(ndvi, fit=zeit.landtrendr(ndvi))               # click a pixel: its series and LandTrendr's segments
+zeit.plot(zeit.extract_events(zeit.landtrendr(ndvi)), basemap="satellite", vector="aoi.gpkg")
+zeit.plot(ndvi, time=["1985", "2000", "2024"], save="ndvi.png")   # a figure for a report
+```
+
+It is fast because each frame travels to the browser once, as one byte per cell, and is coloured by the GPU: paging through time then runs at the display's refresh rate without touching Python, and the cube is only ever read at screen resolution. See the [plotting tutorial](https://sacridini.github.io/zeit-cdts/tutorials/plotting/).
 
 ## Cloud-Native ARD Cubes (STAC)
 

@@ -157,3 +157,19 @@ def test_nodata_auto_for_integer_maps():
     cat = xr.DataArray(np.array([[0, 1], [2, 1]], dtype=np.uint8), dims=("y", "x"))
     style, nodata = style_for(prepare(cat)[0])
     assert style.kind == "categorical" and nodata is None             # 0 is a class here
+
+
+def test_regressions_orientation_and_year_maps_with_zeros():
+    # data without coordinates: row 0 is drawn at the top, as in the viewer
+    a = np.zeros((10, 10)); a[:3] = 1
+    ax = zeit.plot(a, static=True).axes[0]
+    assert ax.yaxis_inverted()
+    # georeferenced north-up data: the y axis grows upwards
+    assert not zeit.plot(_cube().isel(time=0), static=True).axes[0].yaxis_inverted()
+    # a year map with 0 for "no event", whatever its name: years, 0 transparent
+    from zeit._plot import style_for
+    loss = xr.DataArray(np.array([[0, 2000, 2005], [2010, 0, 2020]], dtype=np.uint16), dims=("y", "x"), name="loss")
+    style, nodata = style_for(prepare(loss)[0])
+    assert style.kind == "years" and nodata == 0 and style.vmin == 2000
+    import matplotlib.pyplot as plt
+    plt.close("all")

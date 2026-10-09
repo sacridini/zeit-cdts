@@ -110,8 +110,8 @@ def test_plot_returns_a_viewer_or_a_figure(monkeypatch):
     from zeit._plot import _widget
 
     cube = _cube()
-    assert type(zeit.plot(cube, static=False)).__name__ == "Viewer"
-    assert type(zeit.plot(cube)).__name__ == "Figure"                  # outside a notebook
+    assert type(zeit.plot(cube)).__name__ == "Figure"                  # outside a notebook, under tests
     monkeypatch.setattr(_widget, "in_notebook", lambda: True)
+    assert type(zeit.plot(cube, static=False)).__name__ == "Viewer"
     assert type(zeit.plot(cube)).__name__ == "Viewer"                  # inside one
     assert type(zeit.plot(cube[:, 2, 3])).__name__ == "Figure"         # a pixel's series is a figure

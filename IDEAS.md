@@ -172,7 +172,7 @@ cubo e saída `Dataset` georreferenciado com uma variável por métrica.
 - README, quickstart, conceitos, tutoriais, exemplos e CLI já foram migrados em cada fase;
   `sync_api --check` e `mkdocs build --strict` limpos.
 
-## Fase 7: `zeit.plot` (7a feito: prova de conceito)
+## Fase 7: `zeit.plot` — **Feito** (0.33.0–0.37.0)
 
 Uma função para ver qualquer coisa do zeit: o cubo carregado, um resultado (`Dataset` do
 LandTrendr, CCDC, BFAST...), um mapa ou a série de um pixel. O foco são rasters, e
@@ -310,7 +310,17 @@ kernel por quadro, com no máximo 2 quadros em trânsito (fps ≤ 2/latência: 1
    `~/.cache/zeit/tiles`), mosaico reprojetado para o CRS dos dados. Os tiles da CartoDB
    passaram a exigir chave: `light`/`dark` usam os fundos cinza da Esri.
 5. 7f: janela fora do notebook (pywebview ou navegador), testes (Playwright com Edge/Chromium
-   em modo headless, como no 7a) e docs.
+   em modo headless, como no 7a) e docs. **Feito** (0.37.0): `_window.show_window` serve o
+   mesmo viewer num servidor HTTP em 127.0.0.1 com token aleatório (pywebview num processo
+   filho quando instalado, senão o navegador); num script bloqueia até a janela fechar,
+   como `plt.show()`. `zeit.plot` escolhe sozinho: widget no notebook, janela num script ou
+   terminal, figura com `save=` ou sem tela (CI, testes, servidor sem display,
+   `ZEIT_PLOT=static`). Teste de ponta a ponta no Edge headless. Medido no cubo denso
+   (240 × 2048², Zarr lazy): primeiro quadro em ~1 s, as 240 datas em 8,5 s, play a 60 fps
+   exatos. A leitura dask fica em uma computação por vez (computações simultâneas se
+   atrapalham: pré-carregar lotes em threads piorou de 9 para 15 s); a codificação e a
+   compressão dos quadros rodam em paralelo. Docs: `docs/api/plot.md` e o tutorial
+   `docs/tutorials/plotting.md`.
 
 ### Dependências
 

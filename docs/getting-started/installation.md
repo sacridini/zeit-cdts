@@ -26,6 +26,13 @@ zeit --help
 
 ## Optional Dependencies
 
+To look at maps and time series with [`zeit.plot`](../api/plot.md) (matplotlib for figures, anywidget for the interactive viewer in notebooks):
+
+```bash
+pip install zeit-cdts[plot]
+pip install pywebview   # optional: show the viewer in a native window outside notebooks
+```
+
 For development and running tests, you can install the optional development dependencies:
 
 ```bash

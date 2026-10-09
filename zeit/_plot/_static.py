@@ -56,6 +56,7 @@ def plot_maps(frames: Frames, style: Style, indices: Sequence[int], *, nodata: O
     n = len(indices)
     step = frames.step_for(max_size)
     extent = frames.extent()
+    pixel_space = extent[2] > extent[3]   # no coordinates: rows count downwards
     if not frames.y_down():
         extent = (extent[0], extent[1], extent[3], extent[2])
     if ax is not None:
@@ -98,7 +99,8 @@ def plot_maps(frames: Frames, style: Style, indices: Sequence[int], *, nodata: O
             if len(points):
                 points.plot(ax=a, color=vector_color, markersize=12)
         a.set_xlim(min(extent[0], extent[1]), max(extent[0], extent[1]))
-        a.set_ylim(min(extent[2], extent[3]), max(extent[2], extent[3]))
+        low, high = min(extent[2], extent[3]), max(extent[2], extent[3])
+        a.set_ylim((high, low) if pixel_space else (low, high))
         if n > 1 or frames.n > 1:
             a.set_title(frames.labels[i], fontsize=10)
         if n > 1:

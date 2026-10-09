@@ -136,9 +136,9 @@ Run change detection, trends, phenology or a classifier.
 <div markdown>
 **Map the result**
 
-Turn per-pixel output into maps and write GeoTIFF or Zarr.
+Turn per-pixel output into maps, look at them, and write GeoTIFF or Zarr.
 
-`extract_events` · `save_raster`
+`extract_events` · `plot` · `save_raster`
 </div>
 
 </div>
@@ -155,6 +155,7 @@ The same analysis in three styles. Pick the one that fits your data:
     lt = zeit.landtrendr(ndvi)                            # looks for NDVI drops (direction="loss")
     loss = zeit.extract_events(lt, min_magnitude=2000)    # greatest loss per pixel
 
+    zeit.plot(ndvi, fit=lt)                               # page through the years, click a pixel to see its fit
     zeit.save_raster(loss, "lt_results")                  # one GeoTIFF per map: yod.tif, magnitude.tif, ...
     ```
 
@@ -225,7 +226,7 @@ The same analysis in three styles. Pick the one that fits your data:
 
     ---
 
-    Data access, cloud masking, smoothing, change detection, trends, phenology, segmentation and deep learning all use the same array conventions.
+    Data access, cloud masking, smoothing, change detection, trends, phenology, segmentation, deep learning and plotting all use the same array conventions.
 
     [:octicons-arrow-right-24: API reference](api/index.md)
 

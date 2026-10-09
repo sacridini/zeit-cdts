@@ -37,6 +37,12 @@
 
     Spatial filters, CCDC classification, water masks, validation dashboard.
 
+-   :material-map-search-outline:{ .lg .middle } **[Visualisation](plot.md)**
+
+    ---
+
+    `zeit.plot`: a fast time-series viewer, pixel inspector, basemaps and static figures.
+
 -   :material-brain:{ .lg .middle } **[Deep Learning](ai.md)**
 
     ---
@@ -99,6 +105,8 @@
 | [`train_ccdc_classifier`](post-processing.md#train_ccdc_classifier) / [`classify_ccdc_stack`](post-processing.md#classify_ccdc_stack) | Classify CCDC coefficients |
 | [`extract_water_mask`](post-processing.md#extract_water_mask) | Water mask from CCDC |
 | [`generate_landtrendr_accuracy_dashboard`](post-processing.md#generate_landtrendr_accuracy_dashboard) | Interactive validation page |
+| **Visualisation** | |
+| [`plot`](plot.md#plot) | Any cube, map, result or pixel: interactive viewer in a notebook or window, or a matplotlib figure |
 | **Deep learning** (`zeit.ai`) | |
 | [`TempCNN`](ai.md#tempcnn), [`LightTAE`](ai.md#lighttae), [`LTAE`](ai.md#ltae) | Pixel time-series classifiers |
 | [`UTAE`](ai.md#utae) | Spatio-temporal patch segmentation |

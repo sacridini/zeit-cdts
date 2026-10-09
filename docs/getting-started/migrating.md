@@ -57,6 +57,10 @@ The engines moved to private modules, so that each algorithm's name is its funct
 
 The CLI runs on the same functions. `zeit landtrendr` reads the years from the band names (`--start-year` is only needed without them), and `--no-data-value` defaults to the raster's NoData. `zeit ccdc` reads the dates from `date_band` band names or from `--dates-file`. The BFAST and Mann-Kendall commands infer `--start-time` and `--frequency` from the band dates. See [Command line](../cli.md).
 
+## Plotting
+
+New in 0.33: [`zeit.plot`](../api/plot.md) shows any cube, map, result or pixel's series, as an interactive viewer in a notebook or window, or as a matplotlib figure (`pip install zeit-cdts[plot]`).
+
 ## Faster import
 
 `import zeit` no longer loads PyTorch, Transformers or the STAC libraries: `zeit.ai`, the cube builders (`build_time_series`, …) and the CCDC classifier are loaded on first use.

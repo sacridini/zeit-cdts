@@ -16,6 +16,7 @@ Requests:
 
 import math
 import zlib
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -25,6 +26,9 @@ from ._data import Frames, prepare
 from ._style import Style
 
 Reply = Tuple[Dict[str, Any], List[bytes]]
+#: Threads turning a batch's frames into compressed colour indices (numpy and zlib release
+#: the GIL). Reading stays one dask computation at a time: concurrent ones slow each other.
+ENCODE_WORKERS = 4
 
 
 class Session:
@@ -41,6 +45,7 @@ class Session:
         self.fit = fit
         self.basemap, self.vector = basemap, vector
         self.opacity, self.vector_color, self.vector_width = float(opacity), vector_color, float(vector_width)
+        self._pool: Optional[ThreadPoolExecutor] = None
         self.handlers: Dict[str, Callable[[Dict[str, Any]], Reply]] = {
             "meta": self._meta, "frames": self._frames, "detail": self._detail, "select": self._select,
             "pixel": self._pixel, "vectors": self._vectors,
@@ -61,6 +66,7 @@ class Session:
         options = dict(self.style_options) if first else {}
         self.style, self.nodata = style_for(frames, **options)
         self.step = frames.step_for(self.max_size)
+
         self.flip = not frames.y_down()   # frames always go top row first
 
     def variables(self) -> List[str]:
@@ -115,8 +121,16 @@ class Session:
     def _frames(self, request: Dict[str, Any]) -> Reply:
         start = int(request["start"])
         count = max(1, min(int(request.get("count", 1)), self.frames.n - start))
-        block = self.frames.block(start, count, self.step)
-        return {"start": start, "count": count}, [self._encode(frame) for frame in block]
+        block = self.frames.block(start, count, self.step)   # one read (dask parallelises it)
+        if self._pool is None:
+            self._pool = ThreadPoolExecutor(ENCODE_WORKERS, thread_name_prefix="zeit-plot")
+        return {"start": start, "count": count}, list(self._pool.map(self._encode, block))
+
+    def close(self) -> None:
+        """Stop the encoding threads (the viewer is gone)."""
+        if self._pool is not None:
+            self._pool.shutdown(wait=False, cancel_futures=True)
+            self._pool = None
 
     def _detail(self, request: Dict[str, Any]) -> Reply:
         """A window of one frame, in full-resolution cell coordinates (top row first)."""
