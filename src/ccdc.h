@@ -19,6 +19,11 @@ struct CCDCSegment {
     int num_obs = 0;                        // clear observations used by the model
 };
 
+// MATLAB's robustfit as CCDC's autoTmask runs it (bisquare, tune 4.685, at most 5
+// iterations; robust_fit in ccdc.cpp): the coefficients [intercept, x columns...] of y on
+// the n x n_columns predictors x (row-major), an intercept added.
+std::vector<double> robustfit_bisquare(const std::vector<double>& x, int n_columns, const std::vector<double>& y);
+
 struct CCDCParams {
     int min_obs = 12;                       // kept for API compatibility; the original's 3 x 4 is fixed
     int conseq_anom = 6;                    // the original's `conse`

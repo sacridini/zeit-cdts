@@ -1,8 +1,9 @@
 """``zeit.tmask``: time-series cloud and shadow screening of a cube, one call.
 
-Tmask (Zhu & Woodcock 2014) as zeit's engine runs it per pixel (``_tmask.run_tmask_pixel``):
-a robust harmonic fit of the green and SWIR bands over every clear-candidate date, and the
-dates whose green rises (cloud) or whose SWIR drops (shadow) too far from it are flagged.
+Tmask (Zhu & Woodcock 2014) as zeit's C++ engine runs it on every pixel in parallel
+(``_core.tmask``): a robust harmonic fit of the green and SWIR bands over every
+clear-candidate date (MATLAB's robustfit, bisquare, as CCDC's autoTmask), and the dates
+whose green rises (cloud) or whose SWIR drops (shadow) too far from it are flagged.
 """
 
 from typing import Any, Union
@@ -103,19 +104,12 @@ def tmask(
 
 
 def _screen(values: np.ndarray, ordinals: np.ndarray, scale: float) -> np.ndarray:
-    """One (time, 2, y, x) block of green and SWIR -> (time, y, x) clear."""
-    from ._tmask import run_tmask_pixel
+    """One (time, 2, y, x) block of green and SWIR -> (time, y, x) clear (C++, every pixel in
+    parallel)."""
+    from . import _core
 
     t, _, rows, cols = values.shape
-    clear = np.zeros((t, rows, cols), dtype=bool)
-    green, swir = values[:, 0], values[:, 1]
-    with np.errstate(invalid="ignore"):
-        valid = np.isfinite(green) & np.isfinite(swir) & (green > 0) & (swir > 0)
-    for r in range(rows):
-        for c in range(cols):
-            ok = valid[:, r, c]
-            if ok.sum() > _MIN_OBSERVATIONS:
-                clear[ok, r, c] = run_tmask_pixel(ordinals[ok], green[ok, r, c], swir[ok, r, c], scale)
-            else:
-                clear[ok, r, c] = True
-    return clear
+    green = np.ascontiguousarray(np.moveaxis(values[:, 0], 0, -1).reshape(-1, t), dtype=np.float64)
+    swir = np.ascontiguousarray(np.moveaxis(values[:, 1], 0, -1).reshape(-1, t), dtype=np.float64)
+    clear = _core.tmask.tmask_batch(green, swir, ordinals, scale, _MIN_OBSERVATIONS)
+    return np.moveaxis(clear.astype(bool).reshape(rows, cols, t), -1, 0)

@@ -1,96 +1,46 @@
-"""The Tmask engine (one pixel, and a numpy stack); ``zeit.tmask`` is in ``_tmask_api``."""
+"""The Tmask engine (one pixel, and a numpy stack), in C++ (``_core.tmask``);
+``zeit.tmask`` is in ``_tmask_api``.
+
+Tmask (Zhu & Woodcock 2014): a robust fit of a0 + c1 t + a1 cos(wt) + b1 sin(wt) to the
+green and SWIR series of a pixel (MATLAB's robustfit, bisquare, as CCDC's autoTmask runs
+it); an observation whose green rises above the fit by more than 0.04 (cloud) or whose SWIR
+drops below it by more than 0.04 (shadow), in reflectance, is flagged. Before 0.43 the fit
+was scikit-learn's HuberRegressor, about 190 times slower per core.
+"""
 import numpy as np
-import warnings
 
-def run_tmask_pixel(dates_julian: np.ndarray, green_band: np.ndarray, swir_band: np.ndarray, scale_factor: float = 10000.0) -> np.ndarray:
-    """
-    Implements the Tmask (Time-series based cloud masking) algorithm for a single pixel.
-    Reference: Zhu and Woodcock (2014) - Automated cloud, cloud shadow, and snow detection.
-    
-    dates_julian: Array of Julian dates (Day of Year or continuous DOY).
-    green_band: Reflectance array for Green band.
-    swir_band: Reflectance array for SWIR (usually SWIR1, ~1.6um).
-    scale_factor: The multiplier applied to reflectance (e.g., 10000 for standard Landsat/Sentinel).
-    
-    Returns: A boolean array where True means CLEAR, False means CLOUD/SHADOW.
-    """
-    # Number of observations
-    n = len(dates_julian)
-    mask = np.ones(n, dtype=bool)
-    
-    # If not enough data, assume all clear (or all masked)
-    if n < 5:
-        return mask
-        
-    # Scale to 0-1 for standard thresholds
-    green = green_band / scale_factor
-    swir = swir_band / scale_factor
-    
-    # Create harmonic design matrix: [1, t, cos(2pi t / 365.25), sin(2pi t / 365.25)]
-    w = 2.0 * np.pi / 365.25
-    X = np.column_stack((
-        np.ones(n),
-        dates_julian,
-        np.cos(w * dates_julian),
-        np.sin(w * dates_julian)
-    ))
-    
-    from sklearn.linear_model import HuberRegressor
+from . import _core
 
-    # Tmask uses a robust estimator to fit the time-series model.
-    # HuberRegressor is a great approximation of IRLS for this purpose.
-    huber_green = HuberRegressor(epsilon=1.35, max_iter=100)
-    huber_swir = HuberRegressor(epsilon=1.35, max_iter=100)
-    
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        try:
-            huber_green.fit(X, green)
-            huber_swir.fit(X, swir)
-        except ValueError:
-            return mask
-            
-    # Predict expected surface reflectance
-    pred_green = huber_green.predict(X)
-    pred_swir = huber_swir.predict(X)
-    
-    # Residuals
-    res_green = green - pred_green
-    res_swir = swir - pred_swir
-    
-    # Tmask Rules (Zhu & Woodcock 2014)
-    # Clouds have unusually high Green reflectance compared to prediction.
-    # Shadows have unusually low SWIR reflectance compared to prediction.
-    CLOUD_THRESHOLD = 0.04
-    SHADOW_THRESHOLD = -0.04
-    
-    is_cloud = res_green > CLOUD_THRESHOLD
-    is_shadow = res_swir < SHADOW_THRESHOLD
-    
-    # Combine masks
-    mask[is_cloud | is_shadow] = False
-    
-    return mask
 
-def apply_tmask_stack(dates: np.ndarray, green_stack: np.ndarray, swir_stack: np.ndarray, scale_factor: float = 10000.0) -> np.ndarray:
+def run_tmask_pixel(dates_julian: np.ndarray, green_band: np.ndarray, swir_band: np.ndarray,
+                    scale_factor: float = 10000.0) -> np.ndarray:
     """
-    Vectorized wrapper to apply Tmask to a 3D numpy stack.
+    Tmask of a single pixel's observations.
+
+    dates_julian: dates in days (Python ordinal days, or any day count).
+    green_band, swir_band: the green and SWIR (SWIR1, ~1.6 um) reflectance.
+    scale_factor: the reflectance scale (10000 for reflectance x 10000).
+
+    Returns a boolean array, True = clear, False = cloud or shadow. With fewer than 5
+    observations nothing is flagged.
+    """
+    clear = _core.tmask.tmask_pixel(np.asarray(dates_julian, dtype=np.float64).tolist(),
+                                    np.asarray(green_band, dtype=np.float64).tolist(),
+                                    np.asarray(swir_band, dtype=np.float64).tolist(), float(scale_factor))
+    return np.asarray(clear, dtype=bool)
+
+
+def apply_tmask_stack(dates: np.ndarray, green_stack: np.ndarray, swir_stack: np.ndarray,
+                      scale_factor: float = 10000.0) -> np.ndarray:
+    """
+    Tmask of a (time, y, x) stack. Observations not above 0 are left out of the fit and
+    reported clear, as before (``zeit.tmask`` reports them not clear); pixels with 5 or
+    fewer valid observations are not screened.
     """
     t, h, w = green_stack.shape
-    out_mask = np.ones((t, h, w), dtype=bool)
-    
-    for i in range(h):
-        for j in range(w):
-            g_pixel = green_stack[:, i, j]
-            s_pixel = swir_stack[:, i, j]
-            # Ignore NoData pixels
-            valid = (g_pixel > 0) & (s_pixel > 0)
-            if np.sum(valid) > 5:
-                pixel_mask = run_tmask_pixel(dates[valid], g_pixel[valid], s_pixel[valid], scale_factor)
-                
-                # Reconstruct full length mask
-                full_mask = np.ones(t, dtype=bool)
-                full_mask[valid] = pixel_mask
-                out_mask[:, i, j] = full_mask
-                
-    return out_mask
+    green = np.ascontiguousarray(np.moveaxis(green_stack, 0, -1).reshape(-1, t), dtype=np.float64)
+    swir = np.ascontiguousarray(np.moveaxis(swir_stack, 0, -1).reshape(-1, t), dtype=np.float64)
+    clear = _core.tmask.tmask_batch(green, swir, np.asarray(dates, dtype=np.float64), float(scale_factor))
+    valid = (green > 0) & (swir > 0) & np.isfinite(green) & np.isfinite(swir)
+    out = np.where(valid, clear.astype(bool), True)
+    return np.moveaxis(out.reshape(h, w, t), -1, 0)

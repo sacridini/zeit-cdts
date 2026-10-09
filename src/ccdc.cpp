@@ -819,6 +819,15 @@ std::vector<CCDCSegment> fit_one(const std::vector<int>& dates, const std::vecto
 
 }  // namespace
 
+std::vector<double> robustfit_bisquare(const std::vector<double>& x, int n_columns, const std::vector<double>& y) {
+    const int n = static_cast<int>(y.size());
+    Eigen::MatrixXd X(n, n_columns);
+    for (int i = 0; i < n; ++i)
+        for (int j = 0; j < n_columns; ++j) X(i, j) = x[static_cast<std::size_t>(i) * n_columns + j];
+    Eigen::VectorXd b = robust_fit(X, Eigen::Map<const Eigen::VectorXd>(y.data(), n));
+    return std::vector<double>(b.data(), b.data() + b.size());
+}
+
 std::vector<CCDCSegment> fit_ccdc(const std::vector<int>& dates,
                                   const std::vector<std::vector<double>>& band_values,
                                   const std::vector<int>& qa,

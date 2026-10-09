@@ -530,6 +530,21 @@ entrada e saída:
 - Testes em `tests/test_cube_tools_api.py`; docs, tutoriais (TMASK, SNIC, CCDC,
   LandTrendr), README, exemplos 12, 14, 17 e 18 e página de migração atualizados.
 
+### Tmask em C++ — **Feito** (0.43.0)
+
+- `src/tmask.cpp` (`_core.tmask`): o mesmo modelo (`a0 + c1 t + a1 cos wt + b1 sin wt`) e os
+  mesmos limiares (0,04 de reflectância), mas o ajuste robusto passou do `HuberRegressor`
+  do sklearn (L-BFGS-B, impossível de reproduzir bit a bit) para o `robustfit` do MATLAB
+  (bisquare, como no artigo e no `autoTmask` do CCDC), reaproveitando o `robust_fit` já
+  validado do `ccdc.cpp` por um invólucro público (`robustfit_bisquare`), sem mexer nele.
+- Medido (140 datas): 58 µs por pixel numa thread contra 11 ms do sklearn (~190×), 9 µs
+  com 19 threads. Num cubo sintético com 15% de nuvens e 10% de sombras: 99,98% de
+  concordância com o motor antigo; o C++ acertou todas as contaminações, o sklearn deixou
+  passar 12 de 400 × 140.
+- `tests/test_tmask_engine.py`: o `robustfit` contra uma porta Python independente do
+  algoritmo do MATLAB (1e-8), nuvens e sombras injetadas, séries curtas e as convenções do
+  `apply_tmask_stack`. O sklearn não é mais usado pelo Tmask.
+
 ## Para depois
 
 - `load_raster(..., crs=, res=)`: reprojetar para um CRS ou resolução sem um raster de

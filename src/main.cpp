@@ -14,6 +14,7 @@
 #include "snic.h"
 #include "warp_python.hpp"
 #include "whittaker.h"
+#include "tmask.h"
 
 namespace py = pybind11;
 
@@ -314,6 +315,21 @@ PYBIND11_MODULE(_core, m) {
            "Run SNIC on a planar [features, rows, cols] image from [n, 2] (row, col) seeds, tiles in parallel with OpenMP",
            py::arg("data"), py::arg("seeds"), py::arg("compactness") = 10.0,
            py::arg("tile_height") = 0, py::arg("tile_width") = 0, py::arg("n_jobs") = -1);
+
+    // Tmask sub-module (zeit.tmask)
+    py::module_ tm = m.def_submodule("tmask", "Tmask cloud and shadow screening of time series");
+    tm.def("tmask_pixel", &zeit::tmask::tmask_pixel,
+           "Tmask of one pixel's observations: 1 clear, 0 cloud or shadow",
+           py::arg("days"), py::arg("green"), py::arg("swir"), py::arg("scale") = 10000.0,
+           py::arg("cloud_threshold") = 0.04, py::arg("shadow_threshold") = 0.04);
+    tm.def("tmask_batch", &zeit::tmask::tmask_batch,
+           "Tmask of (pixels, time) green and SWIR with OpenMP: (pixels, time) uint8, 1 clear",
+           py::arg("green"), py::arg("swir"), py::arg("days"), py::arg("scale") = 10000.0,
+           py::arg("min_observations") = 5, py::arg("cloud_threshold") = 0.04,
+           py::arg("shadow_threshold") = 0.04, py::arg("n_jobs") = -1);
+    tm.def("robustfit", &zeit::ccdc::robustfit_bisquare,
+           "MATLAB robustfit (bisquare, at most 5 iterations) as CCDC runs it: [intercept, coefficients]",
+           py::arg("x"), py::arg("n_columns"), py::arg("y"));
 
     // Smoothing sub-module (zeit.smooth)
     py::module_ sm = m.def_submodule("smooth", "Smoothers of time series");
