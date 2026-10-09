@@ -128,6 +128,31 @@ def _metrics_dataset(out: Any, names: List[str], cube: xr.DataArray, pixel: bool
     return ds
 
 
+def _with_break_dates(ds: xr.Dataset, cube: xr.DataArray, start_time: float, frequency: int,
+                      names: Dict[str, str], drop: bool) -> xr.Dataset:
+    """Adds the date of each break (``names``: index variable -> date variable) from its
+    index into the series: the cube's dates when it has them, else the regular ``ts`` axis.
+    With ``drop``, the index variables go."""
+    n = cube.sizes["time"]
+    if "time" in cube.coords:
+        dates = pd.DatetimeIndex(cube.time.values).values.astype("datetime64[ns]")
+    else:
+        from .metrics import _decimal_year_days
+        days = _decimal_year_days(xr.DataArray(start_time + np.arange(n) / frequency)).values
+        dates = days.astype(np.int64).astype("datetime64[D]").astype("datetime64[ns]")
+
+    def _take(idx):
+        idx = np.asarray(idx, dtype=np.float64)
+        ok = np.isfinite(idx) & (idx >= 0) & (idx < n)
+        return np.where(ok, dates[np.where(ok, idx, 0).astype(np.int64)], np.datetime64("NaT", "ns"))
+
+    for index_name, date_name in names.items():
+        ds[date_name] = xr.apply_ufunc(_take, ds[index_name], dask="parallelized", output_dtypes=["datetime64[ns]"])
+        if drop:
+            ds = ds.drop_vars(index_name)
+    return ds
+
+
 def _regular_time(cube: xr.DataArray, start_time: Optional[float], frequency: Optional[int]) -> Tuple[float, int]:
     """``ts``-style regular time axis (``start_time + i / frequency``) from the cube's dates."""
     if frequency is None or start_time is None:
@@ -210,8 +235,9 @@ def bfast_monitor(data: Any, monitor_start: Any, *, dates: Optional[Sequence[Any
     Returns
     -------
     xarray.Dataset
-        ``breakpoint`` (decimal year of the break, NaN if none), ``breakpoint_idx``,
-        ``magnitude``, ``sigma``, ``n_history``, ``has_break``, ``valid``.
+        ``breakpoint`` (decimal year of the break on R's regular ``ts`` axis, NaN if
+        none), ``breakpoint_idx``, ``magnitude``, ``sigma``, ``n_history``, ``has_break``,
+        ``valid``, and ``break_date``: the date of the first observation flagged as a break.
     """
     from ._bfast import BFM_METRIC_NAMES, run_bfast_monitor_dask
 
@@ -223,9 +249,10 @@ def bfast_monitor(data: Any, monitor_start: Any, *, dates: Optional[Sequence[Any
     out = run_bfast_monitor_dask(arr, start_time=start_time, monitor_start_time=_as_time(monitor_start),
                                  frequency=frequency, order=order, h=h, period=period, alpha=alpha,
                                  min_valid=min_valid, n_jobs=_jobs(n_jobs))
-    return _metrics_dataset(out, BFM_METRIC_NAMES, cube, pixel, lazy, dict(
+    ds = _metrics_dataset(out, BFM_METRIC_NAMES, cube, pixel, lazy, dict(
         algorithm="bfastmonitor", start_time=start_time, frequency=frequency,
         monitor_start=_as_time(monitor_start), order=order, h=h, period=period, alpha=alpha, min_valid=min_valid))
+    return _with_break_dates(ds, cube, start_time, frequency, {"breakpoint_idx": "break_date"}, drop=False)
 
 
 def bfast_lite(data: Any, *, dates: Optional[Sequence[Any]] = None, start_time: Optional[float] = None,
@@ -245,9 +272,13 @@ def bfast_lite(data: Any, *, dates: Optional[Sequence[Any]] = None, start_time: 
     Returns
     -------
     xarray.Dataset
-        ``n_breaks``, ``rss``, ``lwz``, ``n_valid``, ``valid`` and ``breakpoint_idx_1`` ..
-        ``breakpoint_idx_{max_breaks}`` (0-based indices into the pixel's valid observations,
-        NaN past ``n_breaks``).
+        ``n_breaks``, ``rss``, ``lwz``, ``n_valid``, ``valid``; and per break ``k`` (1 ..
+        ``max_breaks``, NaN past ``n_breaks``): ``breakpoint_idx_k`` (0-based index into the
+        series, missing observations included, of the last observation before the break),
+        ``magnitude_k`` (the model after the break minus the model before it, both on the
+        first observation after the break) and ``break_date_k`` (the date of that first
+        observation after the break).
+        ``zeit.extract_events`` picks one break per pixel.
     """
     from ._bfast import bfl_metric_names, run_bfast_lite_dask
 
@@ -258,9 +289,11 @@ def bfast_lite(data: Any, *, dates: Optional[Sequence[Any]] = None, start_time: 
     arr, lazy = _as_dask(cube)
     out = run_bfast_lite_dask(arr, start_time=start_time, frequency=frequency, order=order, h=h,
                               max_breaks_output=max_breaks, min_valid=min_valid, n_jobs=_jobs(n_jobs))
-    return _metrics_dataset(out, bfl_metric_names(max_breaks), cube, pixel, lazy, dict(
+    ds = _metrics_dataset(out, bfl_metric_names(max_breaks), cube, pixel, lazy, dict(
         algorithm="bfastlite", start_time=start_time, frequency=frequency, order=order, h=h,
         max_breaks=max_breaks, min_valid=min_valid))
+    names = {f"first_after_idx_{k}": f"break_date_{k}" for k in range(1, max_breaks + 1)}
+    return _with_break_dates(ds, cube, start_time, frequency, names, drop=True)
 
 
 def bfast(data: Any, *, dates: Optional[Sequence[Any]] = None, start_time: Optional[float] = None,
@@ -284,7 +317,11 @@ def bfast(data: Any, *, dates: Optional[Sequence[Any]] = None, start_time: Optio
     xarray.Dataset
         ``n_trend_breaks``, ``n_season_breaks``, ``magnitude``, ``break_time`` (decimal year of the
         largest trend break), ``n_iter``, ``n_valid``, ``valid``, ``trend_breakpoint_idx_*`` and
-        ``season_breakpoint_idx_*`` (0-based indices into the valid observations).
+        ``season_breakpoint_idx_*`` (0-based indices into the series, missing observations
+        included, of the last observation before each break), and per trend break
+        ``trend_magnitude_*`` (the jump of the trend; ``magnitude`` is the largest of them)
+        and ``trend_break_date_*`` (the date of the first observation after the break). ``zeit.extract_events`` picks one
+        trend break per pixel.
     """
     from ._bfast import bf_metric_names, run_bfast_dask
 
@@ -298,10 +335,12 @@ def bfast(data: Any, *, dates: Optional[Sequence[Any]] = None, start_time: Optio
                          max_iter=max_iter, level=level, min_valid=min_valid, n_jobs=_jobs(n_jobs))
     names = bf_metric_names(max_breaks_trend, max_breaks_season)
     names = ["break_time" if n == "time" else n for n in names]  # "time" would clash with the time coordinate
-    return _metrics_dataset(out, names, cube, pixel, lazy, dict(
+    ds = _metrics_dataset(out, names, cube, pixel, lazy, dict(
         algorithm="bfast", start_time=start_time, frequency=frequency, order=order, h=h,
         max_breaks_trend=max_breaks_trend, max_breaks_season=max_breaks_season, max_iter=max_iter,
         level=level, min_valid=min_valid))
+    names = {f"trend_first_after_idx_{k}": f"trend_break_date_{k}" for k in range(1, max_breaks_trend + 1)}
+    return _with_break_dates(ds, cube, start_time, frequency, names, drop=True)
 
 
 for _fn in (bfast_monitor, bfast_lite, bfast):

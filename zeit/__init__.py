@@ -17,7 +17,7 @@ from ._landtrendr import desawtooth, apply_vertices
 from ._lt import landtrendr
 from ._ccdc_api import ccdc
 from ._series_api import bfast_monitor, bfast_lite, bfast, mann_kendall, phenology
-from .metrics import extract_events
+from .metrics import extract_events, agreement
 from ._ccdc import predict_synthetic_image
 from ._twdtw_api import twdtw
 
@@ -75,7 +75,7 @@ __all__ = [
     "ccdc",
     "bfast_monitor", "bfast_lite", "bfast", "mann_kendall", "phenology",
     "twdtw", "smooth", "tmask", "snic", "som", "clean_samples",
-    "extract_events", "predict_synthetic_image",
+    "extract_events", "agreement", "predict_synthetic_image",
     "train_classifier", "classify",
     "apply_mmu_filter", "apply_majority_filter",
     "snic_grid", "snic_to_polygons",

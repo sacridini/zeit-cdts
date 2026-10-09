@@ -54,8 +54,11 @@ struct BFResult {
     double n_iter = std::nan("");      // number of iterations run before convergence (or hitting max_iter)
     double n_valid = std::nan("");
     double valid = 0.0;
-    std::vector<double> trend_breakpoint_idx;  // 0-based indices into the (NaN-dropped) valid series
-    std::vector<double> season_breakpoint_idx; // 0-based indices into the (NaN-dropped) valid series
+    // 0-based indices into the full series (NaN rows included) of the last observation before each break
+    std::vector<double> trend_breakpoint_idx;
+    std::vector<double> season_breakpoint_idx;
+    std::vector<double> trend_magnitude;       // per trend break, the jump `magnitude` is the largest of
+    std::vector<double> trend_first_after_idx; // per trend break, the index of the first observation after it
 };
 
 // Runs bfast on a single pixel's time series.
@@ -71,10 +74,12 @@ BFResult bfast(
     double level = 0.05);
 
 // Batch entry point: values_array [n_pixels, n_time] -> out
-// [7 + max_breaks_trend + max_breaks_season, n_pixels]. Row order:
+// [7 + 3 * max_breaks_trend + max_breaks_season, n_pixels]. Row order:
 // n_trend_breaks, n_season_breaks, magnitude, time, n_iter, n_valid, valid,
 // trend_breakpoint_idx_1..max_breaks_trend,
-// season_breakpoint_idx_1..max_breaks_season (NaN-padded past each count).
+// season_breakpoint_idx_1..max_breaks_season,
+// trend_magnitude_1..max_breaks_trend,
+// trend_first_after_idx_1..max_breaks_trend (NaN-padded past each count).
 pybind11::array_t<double> fit_bfast_batch(
     pybind11::array_t<double> values_array,
     double start_time,

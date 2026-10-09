@@ -89,7 +89,7 @@ loss = zeit.extract_events(
 )
 
 list(loss.data_vars)
-# ['yod', 'magnitude', 'duration', 'pre_val', 'post_val', 'rate', 'dsnr']
+# ['yod', 'date', 'magnitude', 'duration', 'pre_val', 'post_val', 'rate', 'dsnr']
 ```
 
 `loss` is an `xarray.Dataset` of `(y, x)` maps, georeferenced like `ndvi`:
@@ -97,6 +97,7 @@ list(loss.data_vars)
 | Map | Meaning |
 | :--- | :--- |
 | `yod` | Year of the vertex where the loss begins, i.e. the **last year before the drop** (`0` = no event). The first year in which the loss is visible is `yod + 1`. |
+| `date` | That first year with the loss, as a date (January 1 of `yod + 1`; `NaT` = no event). The same variable on events of CCDC and BFAST holds the exact date of the break. |
 | `magnitude` | Size of the drop, in the units of your data. |
 | `duration` | Years the drop took. `1` is abrupt, larger values are gradual. |
 | `pre_val`, `post_val` | Fitted value before and after. |

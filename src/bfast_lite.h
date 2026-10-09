@@ -27,7 +27,12 @@ struct BFLResult {
     double lwz = std::nan("");        // LWZ score at the selected number of breaks
     double n_valid = std::nan("");    // number of valid (non-NaN) observations used
     double valid = 0.0;               // 1.0 if the series had enough observations to fit at all
-    std::vector<double> breakpoint_idx; // 0-based indices into the (NaN-dropped) valid series, size = n_breaks
+    std::vector<double> breakpoint_idx; // 0-based indices into the full series (NaN rows included) of the last
+                                        // observation before each break, size = n_breaks
+    std::vector<double> magnitude;      // per break: the right segment's model minus the left one's, both at the
+                                        // first observation after the break, size = n_breaks
+    std::vector<double> first_after_idx; // 0-based index into the full series of the first observation after
+                                         // each break, size = n_breaks
 };
 
 // Runs bfastlite on a single pixel's time series.
@@ -40,9 +45,10 @@ BFLResult bfast_lite(
     int max_breaks_output = 5);
 
 // Batch entry point: values_array [n_pixels, n_time] -> out
-// [5 + max_breaks_output, n_pixels]. Row order: n_breaks, rss, lwz, n_valid,
-// valid, breakpoint_idx_1 .. breakpoint_idx_{max_breaks_output} (NaN-padded
-// past n_breaks).
+// [5 + 3 * max_breaks_output, n_pixels]. Row order: n_breaks, rss, lwz, n_valid,
+// valid, breakpoint_idx_1 .. breakpoint_idx_{max_breaks_output}, magnitude_1 ..
+// magnitude_{max_breaks_output}, first_after_idx_1 .. first_after_idx_{max_breaks_output}
+// (NaN-padded past n_breaks).
 pybind11::array_t<double> fit_bfast_lite_batch(
     pybind11::array_t<double> values_array,
     double start_time,

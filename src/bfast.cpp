@@ -482,6 +482,8 @@ BFResult bfast_impl(
     if (trend_fit.n_breaks > 0) {
         double best_jump = 0.0;
         int best_row = -1;
+        res.trend_magnitude.resize(trend_fit.n_breaks);
+        res.trend_first_after_idx.resize(trend_fit.n_breaks);
         for (int i = 0; i < trend_fit.n_breaks; ++i) {
             int end_left = trend_fit.breakpoints[i];
             int start_right = end_left + 1;
@@ -490,6 +492,8 @@ BFResult bfast_impl(
             double y1 = Xt.row(end_left).dot(bl);
             double y2 = Xt.row(start_right).dot(br);
             double jump = y2 - y1;
+            res.trend_magnitude[i] = jump;
+            res.trend_first_after_idx[i] = (double)valid_rows[start_right];
             if (i == 0 || std::fabs(jump) > std::fabs(best_jump)) {
                 best_jump = jump;
                 best_row = valid_rows[end_left];
@@ -547,7 +551,7 @@ pybind11::array_t<double> fit_bfast_batch(
     int n_time = (int)buf.shape[1];
     double* ptr = static_cast<double*>(buf.ptr);
 
-    const int n_metrics = 7 + max_breaks_trend + max_breaks_season;
+    const int n_metrics = 7 + 3 * max_breaks_trend + max_breaks_season;
     pybind11::array_t<double> out_arr({n_metrics, n_pixels});
     double* out_ptr = static_cast<double*>(out_arr.request().ptr);
     for (int i = 0; i < n_metrics * n_pixels; ++i) out_ptr[i] = std::nan("");
@@ -583,6 +587,9 @@ pybind11::array_t<double> fit_bfast_batch(
             out_ptr[6 * n_pixels + p] = r.valid;
             for (int b = 0; b < (int)r.trend_breakpoint_idx.size() && b < max_breaks_trend; ++b) {
                 out_ptr[(size_t)(7 + b) * n_pixels + p] = r.trend_breakpoint_idx[b];
+                out_ptr[(size_t)(7 + max_breaks_trend + max_breaks_season + b) * n_pixels + p] = r.trend_magnitude[b];
+                out_ptr[(size_t)(7 + 2 * max_breaks_trend + max_breaks_season + b) * n_pixels + p] =
+                    r.trend_first_after_idx[b];
             }
             for (int b = 0; b < (int)r.season_breakpoint_idx.size() && b < max_breaks_season; ++b) {
                 out_ptr[(size_t)(7 + max_breaks_trend + b) * n_pixels + p] = r.season_breakpoint_idx[b];

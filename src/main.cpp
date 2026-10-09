@@ -265,7 +265,9 @@ PYBIND11_MODULE(_core, m) {
         .def_readwrite("lwz", &zeit::bfastlite::BFLResult::lwz)
         .def_readwrite("n_valid", &zeit::bfastlite::BFLResult::n_valid)
         .def_readwrite("valid", &zeit::bfastlite::BFLResult::valid)
-        .def_readwrite("breakpoint_idx", &zeit::bfastlite::BFLResult::breakpoint_idx);
+        .def_readwrite("breakpoint_idx", &zeit::bfastlite::BFLResult::breakpoint_idx)
+        .def_readwrite("magnitude", &zeit::bfastlite::BFLResult::magnitude)
+        .def_readwrite("first_after_idx", &zeit::bfastlite::BFLResult::first_after_idx);
 
     bfl.def("bfast_lite", &zeit::bfastlite::bfast_lite,
            "Run bfastlite on a single pixel time series (unit-testing helper)",
@@ -291,7 +293,9 @@ PYBIND11_MODULE(_core, m) {
         .def_readwrite("n_valid", &zeit::bfast::BFResult::n_valid)
         .def_readwrite("valid", &zeit::bfast::BFResult::valid)
         .def_readwrite("trend_breakpoint_idx", &zeit::bfast::BFResult::trend_breakpoint_idx)
-        .def_readwrite("season_breakpoint_idx", &zeit::bfast::BFResult::season_breakpoint_idx);
+        .def_readwrite("season_breakpoint_idx", &zeit::bfast::BFResult::season_breakpoint_idx)
+        .def_readwrite("trend_magnitude", &zeit::bfast::BFResult::trend_magnitude)
+        .def_readwrite("trend_first_after_idx", &zeit::bfast::BFResult::trend_first_after_idx);
 
     bf.def("bfast", &zeit::bfast::bfast,
            "Run bfast on a single pixel time series (unit-testing helper)",

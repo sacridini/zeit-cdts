@@ -224,8 +224,12 @@ def test_extract_events_dataset(cube_path):
     path, stack = cube_path
     lt = zeit.landtrendr(path)
     ev = zeit.extract_events(lt, min_magnitude=1500)
-    assert set(ev.data_vars) == {"yod", "magnitude", "duration", "pre_val", "post_val", "rate", "dsnr"}
+    assert list(ev.data_vars) == ["yod", "date", "magnitude", "duration", "pre_val", "post_val", "rate", "dsnr"]
     assert ev.yod.dtype == np.uint16 and ev.rio.crs.to_epsg() == 4326
+    # date: the first year that shows the change
+    has = ev.yod.values > 0
+    assert (pd.DatetimeIndex(ev.date.values[has]).year == ev.yod.values[has] + 1).all()
+    assert pd.isna(ev.date.values[~has]).all()
     # pixels with a 3000 drop: found in the right year; stable pixels: no event
     rows, cols = stack.shape[1:]
     for r in range(rows):

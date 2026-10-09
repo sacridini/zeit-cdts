@@ -157,7 +157,7 @@ def test_xarray_accessor_bfast_monitor():
 
     assert isinstance(res, xr.Dataset)
     assert res.has_break.dims == ("y", "x")
-    assert list(res.data_vars) == BFM_METRIC_NAMES
+    assert list(res.data_vars) == BFM_METRIC_NAMES + ["break_date"]
 
     computed = res.compute()
     assert np.all(computed.has_break.values == 1.0)

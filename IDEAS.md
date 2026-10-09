@@ -588,7 +588,9 @@ módulos que o `load_raster` e o `regularize_time_series` já cobrem.
 | CLI: `landtrendr`, `ccdc`, `bfast-monitor`, `bfast-lite`, `bfast`, `mann-kendall`, `mmu-filter` | mais `phenology`, `smooth`, `tmask`, `twdtw`, `snic`, `classify` e `som` |
 | `qc_modis_summary`, `qc_modis_state`, `qc_sentinel2_scl` só numpy; a docstring do módulo aponta para o `run_phenology`, que saiu na Fase 5 | recebem e devolvem `DataArray` (dims, `time`, georreferência), prontos para o `weights=` do `zeit.phenology` e do `zeit.smooth` |
 | `build_local_cube(pasta, regex, date_format)` | sai: `load_raster(pasta, pattern=, date_format=, recursive=True, chunks="auto")` |
-| `zeit.preprocessor.cbers_to_landtrendr`, `cbers_to_ccdc` (fora do `__all__`, com `print`; o segundo grava um CSV de datas que o `zeit.ccdc` não precisa mais) | saem: `regularize_time_series(cubo, freq="YS", method="medoid")` e ### `zeit.som` e `zeit.clean_samples`
+| `zeit.preprocessor.cbers_to_landtrendr`, `cbers_to_ccdc` (fora do `__all__`, com `print`; o segundo grava um CSV de datas que o `zeit.ccdc` não precisa mais) | saem: `regularize_time_series(cubo, freq="YS", method="medoid")` e `zeit.ccdc(cubo)` |
+
+### `zeit.som` e `zeit.clean_samples`
 
 `zeit.som(data, *, x=3, y=3, sample=50000, num_iters=None, algorithm="online", sigma=1.0,
 learning_rate=0.5, decay="linear_decay_to_zero", neighborhood="gaussian",
@@ -653,8 +655,6 @@ em `zeit/_som_api.py`:
   Corrigido (`skipna=False`); fora os empates, o composto é o do `cbers_to_landtrendr`.
 - Sem página de migração: a documentação atual foi atualizada no lugar, e a página
   "Upgrading to the one-function API" (das Fases 1–9) saiu do site e do README.
-
-ra tudo o que saiu.
 
 ## Fase 11: `zeit.ai` de cubo a mapa — **Feito** (0.46.0)
 
@@ -749,7 +749,198 @@ contra 0,31 s); lazy igual em memória.
   nas medianas. Agora fica de fora, e o resultado volta ao tipo do cubo com NoData nos
   períodos vazios.
 
+## Objetivo das próximas fases: carregar, rodar, exportar, **validar**
+
+Com as Fases 1–11 o fluxo carregar → rodar → exportar está fechado para todos os
+algoritmos. O que falta é o passo que todo artigo ou relatório de mudança pede: dizer
+quanto o mapa acerta e quanta área mudou, com intervalo de confiança. Hoje só há o
+`generate_landtrendr_accuracy_dashboard` (`zeit/validation.py`), que é um HTML só do
+LandTrendr, sem desenho amostral nem estimativa de área. As Fases 12 e 13 fecham esse
+ciclo; a 14 abre a frente de degradação florestal, que é o que o público do zeit (Amazônia,
+Brazil Data Cube) mais monitora.
+
+```python
+lt = zeit.landtrendr(ndvi)
+mapa = zeit.extract_events(lt)                                   # ou de zeit.ccdc, zeit.bfast...
+pts = zeit.stratified_sample(mapa.yod, n=500)                    # desenho amostral
+pts = zeit.plot(ndvi, fit=lt, samples=pts)                       # interpretar e rotular
+acc = zeit.accuracy(mapa.yod, pts, reference="ref")              # Olofsson et al. (2014)
+acc.area                                                         # área ajustada ± IC95
+```
+
+## Fase 12: um esquema só de eventos de mudança — **Feito** (0.48.0)
+
+Cada algoritmo de mudança devolvia a mudança no próprio formato: vértices no LandTrendr
+(`vertex_year`/`vertex_value`), `t_start`/`t_end`/`t_break` e coeficientes no CCDC,
+`breakpoint`/`magnitude` no BFAST Monitor, índices de quebra no BFAST Lite e no BFAST.
+Comparar algoritmos, validar ou combinar mapas pedia código diferente para cada um. O
+`extract_events` já tinha o esquema certo, mas só lia o LandTrendr.
+
+| Antes | Depois |
+| :--- | :--- |
+| `extract_events(lt)` só com o `Dataset` do LandTrendr (ou numpy de vértices) | `extract_events(resultado)` com o `Dataset` de `zeit.landtrendr`, `zeit.ccdc` (`band=`), `zeit.bfast_monitor`, `zeit.bfast_lite` e `zeit.bfast` |
+| comparar dois algoritmos = código próprio | `zeit.agreement(mapa_a, mapa_b, ..., tolerance=1)` |
+| combinar algoritmos = fora do zeit | receita na referência: os eventos empilhados como atributos do `train_classifier` (ensemble no estilo LCMS), testada |
+
+### O que foi feito
+
+- **As mesmas variáveis para todos:** `yod`, `date`, `magnitude`, `duration`, `pre_val`,
+  `post_val`, `rate`, `dsnr`, com os mesmos tipos (o LandTrendr ganhou `date`). Convenção
+  de tempo única, a do LandTrendr: `yod` é o ano da **última observação antes** da mudança
+  e `date` a data da **primeira que a mostra**. Assim um desmatamento de fevereiro de 2005
+  dá o mesmo `yod` num composto anual de julho (LandTrendr) e na série de 16 dias (CCDC,
+  BFAST), e a comparação entre algoritmos não ganha um ano de viés.
+- **Candidatos por pixel e uma escolha só** (`_select_event`, lazy por um peso one-hot como o
+  `segment_at`): cada algoritmo vira uma pilha de eventos candidatos (mudança com sinal,
+  valores antes e depois, ruído do ajuste, datas) e o `sort_by` escolhe igual para todos.
+  - **CCDC:** cada quebra seguida de outro segmento; a mudança é o modelo do segmento
+    seguinte menos o do anterior, os dois na data da quebra. Com `band=`, numa banda (com
+    direção); sem, o comprimento do vetor de mudança nas `detection_bands` da rodada
+    (`event_type="any"`), e o DSNR é o vetor padronizado banda a banda pelo RMSE. Uma
+    quebra no fim da série, ainda sem modelo depois, não tem magnitude e fica de fora.
+  - **BFAST Monitor:** a quebra, com a mediana dos resíduos do monitoramento e o `sigma`.
+  - **BFAST Lite e BFAST:** cada quebra (de tendência, no clássico). Os motores em C++
+    passaram a devolver a magnitude de cada quebra (no Lite, os dois modelos na primeira
+    observação depois da quebra, para o sazonal se cancelar; no clássico, o salto da
+    tendência de cada quebra, do qual o `magnitude` antigo é o maior) e o índice da
+    primeira observação válida depois dela. Os resultados ganharam `magnitude_k`,
+    `break_date_k` (Lite), `trend_magnitude_k`, `trend_break_date_k` (clássico) e
+    `break_date` (Monitor), com as datas reais do cubo: o eixo `ts` do R (início + i/23)
+    escorrega ~3 dias por ano das datas de 16 dias, e com nuvens a primeira observação
+    depois da quebra não é `idx + 1`.
+- `event_type="any"` novo para os algoritmos de quebra (padrão deles); `pre_val_threshold`
+  só onde há valor antes (LandTrendr, CCDC com `band=`); `sort_by="dsnr"` no BFAST Lite
+  pelo desvio padrão residual (`sqrt(rss / n_valid)`), indisponível no clássico.
+- **`zeit.agreement`:** `yod` de consenso (o ano com mais mapas a até `tolerance` anos;
+  empate: o ano que mais mapas dão exatamente, depois o mais antigo), `n_detected`,
+  `n_agree`, `spread` e `agrees (map, y, x)`; mapas em grades diferentes dão erro apontando
+  o `load_raster(like=)`.
+- **Bug corrigido:** os `breakpoint_idx` do BFAST Lite e do BFAST sempre foram índices na
+  série inteira (o C++ volta pelo `valid_rows`), mas a documentação dizia "entre as
+  observações válidas" e o `zeit.plot` os tratava assim: com nuvens, a quebra era desenhada
+  na data errada. Agora o `zeit.plot` usa o índice direto e desenha os eventos de quebra
+  como uma linha na `date`.
+- Testes em `tests/test_events.py` (13): quebras sintéticas conhecidas em cada algoritmo
+  (data, ano, magnitude, direção), o vetor de mudança do CCDC, lazy igual a em memória,
+  lacunas e `sort_by="newest"`, o mesmo esquema entre LandTrendr e BFAST, `agreement`
+  (tolerância, desempates, grade), o ensemble pelo `train_classifier` e o viewer. O
+  LandTrendr continua idêntico (só ganhou `date`).
+
+## Fase 13: avaliação de acurácia e estimativa de área
+
+As boas práticas de Olofsson et al. (2014) e o "Good Practices" do GFOI: amostra
+estratificada pelo mapa, rótulos de referência interpretados, matriz de confusão
+ponderada pela área de cada estrato, acurácias do usuário e do produtor e área ajustada,
+todas com intervalo de confiança. No R isso é o `sits_sampling_design`,
+`sits_stratified_sampling` e `sits_accuracy`; em Python não há nada no padrão do cubo.
+
+### 13a: desenho amostral
+
+- `zeit.sampling_design(mapa, *, expected_ua=0.75, std_error=0.01, alloc="equal"|
+  "proportional"|"neyman"|dict, min_per_stratum=50)`: tamanho total da amostra
+  (Cochran, eq. 13 do Olofsson) e alocação por estrato, como `DataFrame` (estrato, área em
+  pixels e em hectares a partir do transform, proporção, n). Estratos = valores do mapa;
+  `yod` e outros mapas contínuos aceitam `bins=` (ex.: "mudança" × "sem mudança", ou um
+  estrato por período).
+- `zeit.stratified_sample(mapa, n=None, *, design=None, buffer=None, seed=42)`:
+  `GeoDataFrame` de pontos nos centros dos pixels, no CRS do mapa, com `stratum` e o peso
+  de inclusão. Lazy por blocos (um mapa nacional não precisa caber na memória: contagem
+  por bloco, depois sorteio por bloco). `buffer=` evita pares de pontos vizinhos (fronteira
+  de mudança).
+
+### 13b: `zeit.interpret`, o modo de interpretação
+
+Uma função própria, não um parâmetro do `zeit.plot`: interpretar 500 pontos é outra tarefa
+que explorar um cubo. É uma fila de pontos e não um pixel qualquer; devolve dados (os
+rótulos são o produto); dura dias (salva sozinha e retoma); e mostrar o mapa e o ajuste do
+algoritmo enviesa o intérprete (a interpretação de referência deve ser cega ao mapa). O
+`zeit.plot` continua só mostrando; as duas funções dividem o motor do viewer (`Session`,
+WebGL, série do pixel, basemap, janela fora do notebook) com layouts diferentes.
+
+```python
+pts = zeit.stratified_sample(mapa.yod, n=500)
+s = zeit.interpret(cubo, pts, classes=["estável", "perda", "ganho"],
+                   rgb=["red", "green", "blue"], save="referencia.gpkg")
+acc = zeit.accuracy(mapa.yod, s)            # ou s.accuracy(mapa.yod)
+```
+
+`zeit.interpret(data, samples, *, classes, save=None, rgb=None, chips="year", fit=None,
+map=None, blind=True, interpreter=None, basemap=None)`:
+
+- **Tela por ponto:** à esquerda, a lista de pontos com o estado (feito, pulado, dúvida) e o
+  progresso; no centro, a imagem centralizada no pixel com o slider no tempo e o basemap, e
+  embaixo uma faixa de recortes em volta do ponto, um por ano (`chips=`; RGB com `rgb=`, o
+  índice sem), como no TimeSync; à direita, a série do pixel (clique marca a data do
+  evento) e o formulário: classe (teclas 1–9), confiança, comentário. Enter salva e vai
+  para o próximo; setas navegam.
+- **Cego por padrão:** com `blind=True`, o valor do mapa (`map=`) e o ajuste do algoritmo
+  (`fit=`) ficam escondidos até o ponto ser rotulado.
+- **Salva a cada rótulo** em `save=` (`.gpkg`, `.parquet` ou `.csv`); chamar de novo com o
+  mesmo arquivo retoma de onde parou. Colunas `ref`, `ref_date`, `confidence`, `note`,
+  `interpreter`, `labelled_at`, mais o que a amostra já tinha (`stratum`, peso).
+- **Aba de revisão**, depois de rotular: matriz de confusão e acurácias (global, do usuário,
+  do produtor, área ± IC95) ao vivo, pelos pesos do desenho amostral; clicar numa célula
+  ("mapa: perda, referência: estável") filtra a lista para esses pontos, que podem ser
+  reabertos e corrigidos.
+- **Retorno:** um objeto `Interpretation` com `.samples` (o `GeoDataFrame`) e
+  `.accuracy(mapa)`; no notebook o widget é exibido e o objeto atualiza ao vivo; num script
+  abre a janela e bloqueia até fechar, como o `zeit.plot`.
+- O `zeit.accuracy` aceita esse objeto ou qualquer `GeoDataFrame` com a coluna de
+  referência (interpretado no QGIS, no Collect Earth, em campo).
+- O `generate_landtrendr_accuracy_dashboard` sai, substituído por isso.
+- Testes: a sessão sem navegador (pedidos `meta`/`sample`/`label` direto na `Session`,
+  como os do viewer), salvar e retomar, o modo cego, e um teste de ponta a ponta no Edge
+  headless rotulando três pontos pelo teclado.
+
+### 13c: `zeit.accuracy`
+
+- `zeit.accuracy(mapa, amostras, *, reference="ref", strata=None, date_tolerance=None)`:
+  o valor do mapa em cada ponto contra o rótulo; estratos do próprio mapa ou de `strata=`
+  (outro mapa, quando a amostra foi estratificada por algo diferente do mapa avaliado).
+- Resultado (um objeto com `__repr__` legível e `.to_dataframe()`):
+  `confusion` (contagens e proporções de área), `overall`, `users`, `producers` (com erro
+  padrão e IC95), `area` (área ajustada por classe em hectares, ± IC95) e a área mapeada
+  ao lado, para mostrar o viés.
+- `date_tolerance=` para mapas de data de mudança: acerto se a classe bate e a data do
+  mapa está a até N anos (ou dias) da `ref_date`; acurácia da data à parte.
+- Sem amostra estratificada (pontos de campo, por exemplo): matriz de confusão simples,
+  com aviso de que a área não é estimável.
+- Testes: os números do exemplo numérico do Olofsson et al. (2014, tabelas 8–10)
+  reproduzidos; paridade com o `sits_accuracy` em fixtures geradas no R, como as do TWDTW;
+  em mapa sintético com erro conhecido, a cobertura do IC95 perto de 95% em muitas
+  sementes.
+
+## Fase 14: degradação florestal (SMA, NDFI e CODED)
+
+O zeit detecta bem desmatamento (perda forte e permanente), mas degradação (corte
+seletivo, fogo de sub-bosque) é sutil e curta, e quem a mede usa frações de mistura
+espectral e o NDFI (Souza et al. 2005), não NDVI. O `compute_indices` hoje tem NDVI, EVI,
+SAVI, kNDVI, NBR, NDMI, NDWI e MNDWI, e nada no zeit faz unmixing.
+
+- **`zeit.unmix(cube, endmembers="souza2005"|DataFrame, *, bands=None, sum_to_one=True,
+  nonneg=True, shade=True)`**: frações por pixel e data (`(time, endmember, y, x)`) e o
+  `rmse` do ajuste. Motor em C++ (mínimos quadrados não negativos, Lawson–Hanson, com a
+  restrição de soma 1 por linha aumentada), OpenMP por pixel, lazy por blocos. Endmembers
+  padrão GV, NPV, solo e nuvem do Souza et al. (2005) para Landsat; Sentinel-2 pelas bandas
+  equivalentes (a confirmar com a literatura antes de virar padrão).
+- **NDFI** no `compute_indices`: `(GVs − (NPV + Soil)) / (GVs + NPV + Soil)`, com
+  `GVs = GV / (1 − Shade)`; escala −1..1 (ou 0..200 como no Imazon, `scale=`). Lido pelo
+  nome como os outros índices (`compute_indices(cube, ["NDFI"])`).
+- **`zeit.coded(cube, *, monitor_start, ...)`**: o CODED (Bullock et al. 2020), CCDC sobre o
+  NDFI com regras próprias de detecção (quedas curtas que se recuperam contam como
+  degradação, quedas permanentes como desmatamento). Reaproveita o motor do `zeit.ccdc`;
+  saída no esquema da Fase 12 com uma variável `class` (degradação, desmatamento, sem
+  mudança), então a Fase 13 valida sem código novo.
+- Paridade: o unmixing contra o `scipy.optimize.nnls` em pixels aleatórios; o CODED contra
+  a implementação de referência do GEE (fixtures exportadas de pixels de Rondônia).
+- Exemplo e tutorial em Rondônia: frações, NDFI, o CODED, e a área de degradação estimada
+  com a Fase 13.
+
 ## Para depois
 
 - `zeit.plot`: medir de verdade o caso de notebook remoto (JupyterHub, Colab), que ficou
   como estimativa no 7a.
+- Harmonizar Landsat e Sentinel-2 (ajuste de bandpass do HLS, Claverie et al. 2018) para
+  séries densas que misturam os dois sensores: `zeit.harmonize(cube, to="landsat8")`, com
+  o sensor de cada data lido do STAC ou de uma coordenada `platform`. Hoje um cubo misto
+  tem um degrau entre sensores que vira quebra falsa no CCDC e no BFAST.

@@ -111,7 +111,7 @@ def test_fit_bfast_batch_shape_and_break_detection():
         max_breaks_trend=max_bt, max_breaks_season=max_bs,
     )
 
-    assert out.shape == (7 + max_bt + max_bs, n_pixels)
+    assert out.shape == (7 + 3 * max_bt + max_bs, n_pixels)
     n_trend_row = 0
     assert out[n_trend_row, 0] == 1
     assert out[n_trend_row, 1] == 0
@@ -144,7 +144,7 @@ def test_run_bfast_dask_shape_and_break():
 
     out = run_bfast_dask(data, start_time=2000.0, frequency=FREQ,
                           max_breaks_trend=max_bt, max_breaks_season=max_bs)
-    assert out.shape == (7 + max_bt + max_bs, rows, cols)
+    assert out.shape == (7 + 3 * max_bt + max_bs, rows, cols)
 
     computed = out.compute()
     assert np.all(computed[0] == 1)  # n_trend_breaks row
@@ -165,7 +165,8 @@ def test_xarray_accessor_bfast():
     assert isinstance(res, xr.Dataset)
     assert res.n_trend_breaks.dims == ("y", "x")
     names = ["break_time" if n == "time" else n for n in bf_metric_names(max_bt, max_bs)]
-    assert list(res.data_vars) == names
+    assert list(res.data_vars) == [n for n in names if not n.startswith("trend_first_after_idx_")] + [
+        f"trend_break_date_{k}" for k in range(1, max_bt + 1)]
 
     computed = res.compute()
     assert np.all(computed.n_trend_breaks.values == 1)

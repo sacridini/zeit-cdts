@@ -106,45 +106,103 @@ It is a port of the original's `ftv_v1.pro` (with `apply_fitted_trajectory_v1.pr
 <!-- sig: zeit.metrics.extract_events -->
 ```python
 zeit.metrics.extract_events(
-    lt, event_type=None, sort_by="greatest", min_magnitude=0.0,
-    min_duration=1, pre_val_threshold=0.0, rmse_map=None,
+    result, event_type=None, sort_by="greatest", min_magnitude=0.0,
+    min_duration=1, pre_val_threshold=0.0, rmse_map=None, band=None,
 )
 ```
 
-Turns LandTrendr's segments into maps of one event per pixel, such as the greatest loss. Also exported as `zeit.extract_events`.
+Turns the result of any change detection algorithm into maps of one event per pixel, such as the greatest loss: the same variables whichever algorithm found the change, so maps of LandTrendr, CCDC and BFAST can be compared ([`agreement`](#agreement)), combined, or validated the same way. Also exported as `zeit.extract_events`.
+
+| Result of | Candidate events of a pixel |
+| :--- | :--- |
+| [`landtrendr`](#landtrendr) | Each segment that goes in the direction of `event_type`. |
+| [`ccdc`](#ccdc) | Each break followed by another segment; the change is the next segment's model minus the previous one's, both on the date of the break. A break at the end of the series, with no model after it yet, has no magnitude and is left out. |
+| [`bfast_monitor`](#bfast_monitor) | The break, with its `magnitude` (the median residual of the monitoring period). |
+| [`bfast_lite`](#bfast_lite) | Each break, with `magnitude_k`. |
+| [`bfast`](#bfast) | Each trend break, with `trend_magnitude_k`. |
 
 <div class="params" markdown>
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `lt` | `xr.Dataset` | required | The result of [`landtrendr`](#landtrendr), in memory or dask. A numpy vertex stack `(2 × vertices, rows, cols)`, years in the first half and values in the second, is also accepted. |
-| `event_type` | `str` | `None` | `"loss"` (index fell) or `"gain"` (index rose). Default: the `direction` LandTrendr ran with (`"loss"` for a numpy stack). |
-| `sort_by` | `str` | `"greatest"` | Which event to keep: `"greatest"` (magnitude), `"newest"`, `"fastest"`, `"longest"` or `"dsnr"`. |
+| `result` | `xr.Dataset` | required | The result of one of the algorithms above, in memory or dask. A numpy LandTrendr vertex stack `(2 × vertices, rows, cols)`, years in the first half and values in the second, is also accepted. |
+| `event_type` | `str` | `None` | `"loss"` (the value fell), `"gain"` (it rose) or `"any"` (either; the magnitude is then the size of the change). Default: the `direction` LandTrendr ran with (`"loss"` for a numpy stack), `"any"` for the other algorithms. LandTrendr takes `"loss"` or `"gain"`. |
+| `sort_by` | `str` | `"greatest"` | Which event to keep when a pixel has several: `"greatest"` (magnitude), `"newest"`, `"fastest"`, `"longest"` or `"dsnr"` (not for `bfast`, whose result keeps no noise estimate). |
 | `min_magnitude` | `float` | `0.0` | Ignore events smaller than this, in data units. A flat segment (magnitude `0`) is never an event. |
 | `min_duration` | `int` | `1` | Ignore events shorter than this many years. |
-| `pre_val_threshold` | `float` | `0.0` | For losses, ignore events starting below this value (for gains, above). `0` disables. |
+| `pre_val_threshold` | `float` | `0.0` | For losses, ignore events starting below this value (for gains, above). `0` disables. Needs the value before the change: LandTrendr, or CCDC with `band`. |
 | `rmse_map` | `np.ndarray` | `None` | Numpy stacks only: `(rows, cols)` RMSE of each pixel's fit, which adds the `dsnr` output. A LandTrendr Dataset brings its own (`rmse`). |
+| `band` | `str` | `None` | CCDC only: the band whose change is measured, e.g. `"nir"`. Without it (and with several bands), the magnitude is the length of the change vector over the run's detection bands, with no direction (`event_type="any"`). |
 
 </div>
 
-**Returns** an `xarray.Dataset` on the same grid and CRS as `lt` (lazy if `lt` is), ready for `save_raster`:
+**Returns** an `xarray.Dataset` on the same grid and CRS as `result` (lazy if `result` is), ready for `save_raster`:
 
 | Variable | Meaning |
 | :--- | :--- |
-| `yod` | Year of the vertex where the event starts, i.e. the last year before it (`0` = no event). The first year in which the change is visible is `yod + 1`. |
-| `magnitude` | Size of the change, in data units. |
-| `duration` | Years the change took. `1` is abrupt. |
-| `pre_val`, `post_val` | Fitted value before and after. |
+| `yod` | Year of the last observation before the change (`0` = no event). For LandTrendr, the year of the vertex where the event starts; the first year in which the change is visible is `yod + 1`. For BFAST, the year of the time step before `date`. |
+| `date` | Date of the first observation that shows the change (`NaT` = no event). For annual LandTrendr, January 1 of `yod + 1`; for CCDC, the break (`t_break`). |
+| `magnitude` | Size of the change, in data units, positive in the direction of `event_type`. |
+| `duration` | Years the change took. `1` is abrupt, and every break of CCDC and BFAST is. |
+| `pre_val`, `post_val` | Fitted value before and after (NaN for BFAST, whose results keep no model, and for CCDC without `band`). |
 | `rate` | `magnitude / duration`. |
-| `dsnr` | Magnitude divided by the fit's RMSE (LT-GEE's disturbance signal-to-noise ratio). Values above 2–3 are rarely noise. |
+| `dsnr` | Magnitude divided by the noise of the fit (LT-GEE's disturbance signal-to-noise ratio): LandTrendr's RMSE, the CCDC segment's RMSE (over several bands, the change vector standardized band by band), BFAST Monitor's `sigma`, BFAST Lite's residual standard deviation. Values above 2–3 are rarely noise. |
 
-For a numpy vertex stack, a dict of `(rows, cols)` arrays with the same keys (`dsnr` only with `rmse_map`).
+For a numpy vertex stack, a dict of `(rows, cols)` arrays with the LandTrendr variables except `date` (`dsnr` only with `rmse_map`).
 
 ```python
 lt = zeit.landtrendr(ndvi)
 loss = zeit.extract_events(lt, min_magnitude=2000)
 first_year_of_loss = (loss.yod + 1).where(loss.yod > 0)
 regrowth = zeit.extract_events(lt, event_type="gain", sort_by="newest")   # same fit, rises
+
+segments = zeit.ccdc(cube)
+nir_loss = zeit.extract_events(segments, band="nir", event_type="loss")   # the greatest NIR drop
+any_change = zeit.extract_events(segments, sort_by="newest")              # the latest break, any direction
+
+bfm = zeit.extract_events(zeit.bfast_monitor(ndvi_16d, "2022-01-01"), event_type="loss")
+```
+
+### `agreement` { .api }
+
+<!-- sig: zeit.agreement -->
+```python
+zeit.agreement(*events, tolerance=1)
+```
+
+Where and when several change maps agree, e.g. LandTrendr, CCDC and BFAST on the same area. Each map is the result of [`extract_events`](#extract_events) (or any `yod` map), so every algorithm is compared by the year of the last observation before the change.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `events` | `xr.Dataset`, `DataArray` or `dict` | required | Two or more maps of events on the same grid, or one `dict` of name → map. Without a `dict`, maps are named after their algorithm. Maps on different grids go through [`load_raster(m, like=...)`](data.md#on-the-grid-of-another-raster) first. |
+| `tolerance` | `int` | `1` | Years two events may be apart and still agree (`0`: the same year). |
+
+</div>
+
+**Returns** an `xarray.Dataset` on the grid of the maps:
+
+| Variable | Meaning |
+| :--- | :--- |
+| `yod` | The consensus year: the one the most maps agree with within `tolerance` (ties: the year more maps give exactly, then the earliest); `0` where no map has an event. |
+| `n_detected` | How many maps have an event at the pixel. |
+| `n_agree` | How many of them agree with the consensus year. |
+| `spread` | Latest minus earliest year among the maps with an event; NaN without one. |
+| `agrees` | `(map, y, x)`: `1` for the maps that agree with the consensus year. |
+
+```python
+lt = zeit.extract_events(zeit.landtrendr(nbr_annual))
+cc = zeit.extract_events(zeit.ccdc(cube), band="nbr", event_type="loss")
+bf = zeit.extract_events(zeit.bfast_lite(nbr_16d), event_type="loss")
+agree = zeit.agreement({"landtrendr": lt, "ccdc": cc, "bfast": bf}, tolerance=1)
+confident = agree.yod.where(agree.n_agree >= 2, 0)        # change two of the three algorithms see
+
+# An ensemble in the LCMS way: the events of each algorithm as the features of a classifier
+features = xr.merge([ev[["magnitude", "dsnr"]].fillna(0).rename({v: f"{name}_{v}" for v in ("magnitude", "dsnr")})
+                     for name, ev in {"lt": lt, "ccdc": cc, "bfast": bf}.items()], compat="override")
+model = zeit.train_classifier(features, "reference.gpkg", label="change")
+change = zeit.classify(features, model)
 ```
 
 ### `apply_vertices` { .api }
@@ -356,13 +414,14 @@ Near-real-time disturbance monitoring (`bfastmonitor`, Verbesselt et al. 2012): 
 
 | Variable | Meaning |
 | :--- | :--- |
-| `breakpoint` | Decimal year of the first detected break; NaN if none. |
+| `breakpoint` | Decimal year of the first detected break on R's regular `ts` axis (`start_time + breakpoint_idx / frequency`); NaN if none. |
 | `breakpoint_idx` | 0-based index of that observation in the series. |
 | `magnitude` | Median residual over the monitoring period: size and direction of the shift (negative: lower than expected). |
 | `sigma` | Residual standard error of the history fit. |
 | `n_history` | Valid observations in the history. |
 | `has_break` | `1` if a break was detected, else `0`. |
 | `valid` | `0` if the history was too short to fit; the other variables are then NaN. |
+| `break_date` | Date of the break's observation, from the data's dates (`NaT` if none). |
 
 The `x`/`y` coordinates and CRS of the input are kept, so the result goes straight to [`save_raster`](data.md#save_raster): one GeoTIFF per variable for a folder, or one band per variable for a `.tif` path. `attrs` records the parameters, including the `start_time` and `frequency` used. A single pixel's result has no `y`/`x` dims. With a dask cube or `chunks=`, the result is lazy.
 
@@ -417,12 +476,14 @@ Multiple breakpoints in one pass (`bfastlite`, Masiliūnas et al. 2021): fits `r
 | `lwz` | Value of the LWZ criterion. |
 | `n_valid` | Valid observations used. |
 | `valid` | `1` if the series had enough observations to fit. |
-| `breakpoint_idx_1` … `breakpoint_idx_{max_breaks}` | 0-based index of each break among the pixel's valid observations, in chronological order; NaN past `n_breaks`. |
+| `breakpoint_idx_1` … `breakpoint_idx_{max_breaks}` | 0-based index in the series (missing observations included) of the last observation before each break, in chronological order; NaN past `n_breaks`. |
+| `magnitude_1` … `magnitude_{max_breaks}` | The model after each break minus the model before it, both on the first observation after the break (the seasonal terms cancel, the change of level, trend and season shape remains). |
+| `break_date_1` … `break_date_{max_breaks}` | Date of the first observation after each break (`NaT` past `n_breaks`). |
 
 ```python
 bfl = zeit.bfast_lite(ndvi, max_breaks=3)
-first = bfl.breakpoint_idx_1                              # NaN where n_breaks == 0
-first_year = bfl.start_time + first / bfl.frequency       # decimal year, for a series without gaps
+first = bfl.break_date_1                                  # NaT where n_breaks == 0
+loss = zeit.extract_events(bfl, event_type="loss")        # the greatest drop of each pixel
 ```
 
 ### `bfast` { .api #bfast }
@@ -465,8 +526,10 @@ Classic iterative BFAST (Verbesselt et al. 2010): an STL seasonal seed, then alt
 | `n_iter` | Iterations until convergence (or `max_iter`). |
 | `n_valid` | Valid observations used. |
 | `valid` | `1` if the series was long enough to fit. |
-| `trend_breakpoint_idx_1` … `_{max_breaks_trend}` | 0-based index of each trend break among the valid observations; NaN past `n_trend_breaks`. |
+| `trend_breakpoint_idx_1` … `_{max_breaks_trend}` | 0-based index in the series (missing observations included) of the last observation before each trend break; NaN past `n_trend_breaks`. |
 | `season_breakpoint_idx_1` … `_{max_breaks_season}` | The same for season breaks. |
+| `trend_magnitude_1` … `_{max_breaks_trend}` | The jump of the trend at each trend break; `magnitude` is the largest of them. |
+| `trend_break_date_1` … `_{max_breaks_trend}` | Date of the first observation after each trend break. |
 
 ```python
 bf = zeit.bfast(ndvi)

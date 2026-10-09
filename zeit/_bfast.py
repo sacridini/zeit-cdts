@@ -116,9 +116,10 @@ def run_bfast_monitor_dask(
 
 def bfl_metric_names(max_breaks_output: int) -> "list[str]":
     """Row names for run_bfast_lite_dask's output, given max_breaks_output."""
-    return ["n_breaks", "rss", "lwz", "n_valid", "valid"] + [
-        f"breakpoint_idx_{i + 1}" for i in range(max_breaks_output)
-    ]
+    return (["n_breaks", "rss", "lwz", "n_valid", "valid"]
+            + [f"breakpoint_idx_{i + 1}" for i in range(max_breaks_output)]
+            + [f"magnitude_{i + 1}" for i in range(max_breaks_output)]
+            + [f"first_after_idx_{i + 1}" for i in range(max_breaks_output)])
 
 
 def run_bfast_lite_dask(
@@ -173,7 +174,7 @@ def run_bfast_lite_dask(
     returned as invalid (`valid=0`, all other metrics NaN).
     """
     def _block(block):
-        n_metrics = 5 + max_breaks_output
+        n_metrics = 5 + 3 * max_breaks_output
         if block.size == 0:
             return np.full((n_metrics, block.shape[1], block.shape[2]), np.nan, dtype=np.float32)
 
@@ -191,11 +192,11 @@ def run_bfast_lite_dask(
             max_breaks_output=max_breaks_output,
             min_valid=min_valid,
             n_jobs=n_jobs,
-        )  # (5+max_breaks_output, pixels)
+        )  # (5+3*max_breaks_output, pixels)
 
         return out.reshape(n_metrics, rows, cols).astype(np.float32)
 
-    n_metrics = 5 + max_breaks_output
+    n_metrics = 5 + 3 * max_breaks_output
     return da.map_blocks(
         _block,
         arr,
@@ -212,6 +213,8 @@ def bf_metric_names(max_breaks_trend: int, max_breaks_season: int) -> "list[str]
         ["n_trend_breaks", "n_season_breaks", "magnitude", "time", "n_iter", "n_valid", "valid"]
         + [f"trend_breakpoint_idx_{i + 1}" for i in range(max_breaks_trend)]
         + [f"season_breakpoint_idx_{i + 1}" for i in range(max_breaks_season)]
+        + [f"trend_magnitude_{i + 1}" for i in range(max_breaks_trend)]
+        + [f"trend_first_after_idx_{i + 1}" for i in range(max_breaks_trend)]
     )
 
 
@@ -290,7 +293,7 @@ def run_bfast_dask(
     invalid (`valid=0`, all other metrics NaN).
     """
     def _block(block):
-        n_metrics = 7 + max_breaks_trend + max_breaks_season
+        n_metrics = 7 + 3 * max_breaks_trend + max_breaks_season
         if block.size == 0:
             return np.full((n_metrics, block.shape[1], block.shape[2]), np.nan, dtype=np.float32)
 
@@ -311,11 +314,11 @@ def run_bfast_dask(
             level=level,
             min_valid=min_valid,
             n_jobs=n_jobs,
-        )  # (7+max_breaks_trend+max_breaks_season, pixels)
+        )  # (7+3*max_breaks_trend+max_breaks_season, pixels)
 
         return out.reshape(n_metrics, rows, cols).astype(np.float32)
 
-    n_metrics = 7 + max_breaks_trend + max_breaks_season
+    n_metrics = 7 + 3 * max_breaks_trend + max_breaks_season
     return da.map_blocks(
         _block,
         arr,

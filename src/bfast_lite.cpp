@@ -251,6 +251,27 @@ BFLResult bfast_lite_impl(const double* y_raw, int n_raw, const Eigen::MatrixXd&
         res.breakpoint_idx[i] = (double)valid_rows[best_breaks[i]];
     }
 
+    // Magnitude of each break: the OLS model of each segment, and the right
+    // segment's minus the left one's at the first observation after the
+    // break (both models on the same date, so the seasonal terms cancel out
+    // and only the change of level, trend and season shape remains).
+    if (best_m > 0) {
+        std::vector<Eigen::VectorXd> coefs(best_m + 1);
+        int start = 0;
+        for (int s = 0; s <= best_m; ++s) {
+            int end = s < best_m ? best_breaks[s] : n - 1;
+            int len = end - start + 1;
+            coefs[s] = X.block(start, 0, len, k).colPivHouseholderQr().solve(y.segment(start, len));
+            start = end + 1;
+        }
+        res.magnitude.resize(best_m);
+        res.first_after_idx.resize(best_m);
+        for (int i = 0; i < best_m; ++i) {
+            res.magnitude[i] = X.row(best_breaks[i] + 1).dot(coefs[i + 1] - coefs[i]);
+            res.first_after_idx[i] = (double)valid_rows[best_breaks[i] + 1];
+        }
+    }
+
     return res;
 }
 
@@ -280,7 +301,7 @@ pybind11::array_t<double> fit_bfast_lite_batch(
 
     Eigen::MatrixXd X = build_design_matrix(n_time, start_time, frequency, order);
 
-    const int n_metrics = 5 + max_breaks_output;
+    const int n_metrics = 5 + 3 * max_breaks_output;
     pybind11::array_t<double> out_arr({n_metrics, n_pixels});
     double* out_ptr = static_cast<double*>(out_arr.request().ptr);
     for (int i = 0; i < n_metrics * n_pixels; ++i) out_ptr[i] = std::nan("");
@@ -301,6 +322,8 @@ pybind11::array_t<double> fit_bfast_lite_batch(
             out_ptr[4 * n_pixels + p] = r.valid;
             for (int b = 0; b < (int)r.breakpoint_idx.size() && b < max_breaks_output; ++b) {
                 out_ptr[(size_t)(5 + b) * n_pixels + p] = r.breakpoint_idx[b];
+                out_ptr[(size_t)(5 + max_breaks_output + b) * n_pixels + p] = r.magnitude[b];
+                out_ptr[(size_t)(5 + 2 * max_breaks_output + b) * n_pixels + p] = r.first_after_idx[b];
             }
         }
     }

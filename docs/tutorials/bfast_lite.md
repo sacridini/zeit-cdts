@@ -57,10 +57,12 @@ The number of breaks varies by pixel, so the output reserves `max_breaks` slots 
 | `lwz` | Value of the LWZ criterion that was minimised. |
 | `n_valid` | Valid (non-NaN) observations used. |
 | `valid` | `1.0` if the series had enough observations to fit. |
-| `breakpoint_idx_1 … _k` | 0-based index of each break in chronological order, `NaN` past `n_breaks`. |
+| `breakpoint_idx_1 … _k` | 0-based index of the last observation before each break, in chronological order, `NaN` past `n_breaks`. |
+| `magnitude_1 … _k` | The model after each break minus the model before it, both on the first observation after the break. |
+| `break_date_1 … _k` | Date of the first observation after each break, `NaT` past `n_breaks`. |
 
-!!! note "Indices count valid observations"
-    Break indices refer to the series **after `NaN` observations are dropped**. If your series has gaps, map an index back to a date using the dates of the valid observations of that pixel.
+!!! note "Indices count every observation"
+    Break indices refer to the whole series, missing observations included, so `cube.time[idx]` is the date of the last observation before the break even when the pixel has gaps. `break_date_k` already gives the first date after it, and [`extract_events`](../api/change-detection.md#extract_events) turns the breaks into a map of one event per pixel, as for LandTrendr and CCDC.
 
 ## Parameters
 

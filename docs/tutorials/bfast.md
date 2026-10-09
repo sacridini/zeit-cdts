@@ -67,8 +67,10 @@ The `xarray.Dataset` has one `(y, x)` map per metric:
 | `n_iter` | Iterations until convergence (or `max_iter`). |
 | `n_valid` | Valid observations used. |
 | `valid` | `1.0` if the series was long enough to fit (more than `2 × frequency` observations). |
-| `trend_breakpoint_idx_1 … _k` | 0-based index of each trend break, `NaN` past `n_trend_breaks`. |
+| `trend_breakpoint_idx_1 … _k` | 0-based index (in the whole series, gaps included) of the last observation before each trend break, `NaN` past `n_trend_breaks`. |
 | `season_breakpoint_idx_1 … _k` | Same for seasonal breaks. |
+| `trend_magnitude_1 … _k` | The jump of the trend at each trend break; `magnitude` is the largest. |
+| `trend_break_date_1 … _k` | Date of the first observation after each trend break. |
 
 !!! tip "Seasonal amplitude changes are hard to detect"
     The stability test sums residuals, so a change that only makes the seasonal cycle larger or smaller averages out and is rarely significant. This is a property of the method (R behaves the same way), not a bug. If amplitude changes matter to you, look at [CCDC](ccdc.md) or [phenology metrics](phenology.md).

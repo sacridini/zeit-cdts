@@ -10,7 +10,8 @@ import rasterio
 import xarray as xr
 
 import zeit
-from zeit._bfast import BFM_METRIC_NAMES, run_bfast_dask, run_bfast_lite_dask, run_bfast_monitor_dask
+from zeit._bfast import (BFM_METRIC_NAMES, bf_metric_names, bfl_metric_names, run_bfast_dask, run_bfast_lite_dask,
+                         run_bfast_monitor_dask)
 from zeit._series_api import PHENOLOGY_METRICS, _regular_time
 from zeit.trend import MK_METRIC_NAMES, run_mann_kendall_dask
 
@@ -51,11 +52,15 @@ def test_regular_time_from_dates(cube):
 
 def test_bfast_monitor_matches_the_engine(cube):
     result = zeit.bfast_monitor(cube, "2014-01-01")
-    assert list(result.data_vars) == BFM_METRIC_NAMES
+    assert list(result.data_vars) == BFM_METRIC_NAMES + ["break_date"]
     assert result.rio.crs.to_epsg() == 4326 and result.breakpoint.dims == ("y", "x")
     assert result.attrs["frequency"] == 23 and result.attrs["monitor_start"] == 2014.0
     ref = run_bfast_monitor_dask(_dask(cube), start_time=2010.0, monitor_start_time=2014.0, frequency=23).compute()
-    np.testing.assert_allclose(result.to_array().values, ref, equal_nan=True)
+    np.testing.assert_allclose(result[BFM_METRIC_NAMES].to_array().values, ref, equal_nan=True)
+    # the date of the break is the date of its index in the series
+    idx = result.breakpoint_idx.values
+    assert (result.break_date.values[np.isfinite(idx)] == cube.time.values[idx[np.isfinite(idx)].astype(int)]).all()
+    assert np.isnat(result.break_date.values[~np.isfinite(idx)]).all()
     assert (result.has_break.values[0] == 1).all() and (result.has_break.values[1:] == 0).all()
     assert np.nanmin(result.breakpoint.values[0]) >= 2014.0
     assert zeit.bfast_monitor(cube, 2014.0).equals(result)
@@ -64,14 +69,31 @@ def test_bfast_monitor_matches_the_engine(cube):
 def test_bfast_lite_and_bfast_match_the_engine(cube):
     lite = zeit.bfast_lite(cube, max_breaks=3)
     ref = run_bfast_lite_dask(_dask(cube), start_time=2010.0, frequency=23, max_breaks_output=3).compute()
-    np.testing.assert_allclose(lite.to_array().values, ref, equal_nan=True)
+    names = bfl_metric_names(3)
+    engine = [n for n in names if not n.startswith("first_after_idx_")]
+    assert list(lite.data_vars) == engine + ["break_date_1", "break_date_2", "break_date_3"]
+    np.testing.assert_allclose(lite[engine].to_array().values, ref[[names.index(n) for n in engine]], equal_nan=True)
     assert lite.n_breaks.values[0].min() >= 1 and (lite.n_breaks.values[1:] == 0).all()
-    assert "breakpoint_idx_3" in lite
+    # break_date: the date of the first observation after the break (no gaps: the next one)
+    after = ref[names.index("first_after_idx_1")]
+    idx = lite.breakpoint_idx_1.values
+    assert (after[np.isfinite(idx)] == idx[np.isfinite(idx)] + 1).all()
+    assert (lite.break_date_1.values[np.isfinite(idx)] == cube.time.values[after[np.isfinite(idx)].astype(int)]).all()
 
     classic = zeit.bfast(cube, max_breaks_trend=2, max_breaks_season=2)
     ref = run_bfast_dask(_dask(cube), start_time=2010.0, frequency=23, max_breaks_trend=2,
                          max_breaks_season=2).compute()
-    np.testing.assert_allclose(classic.to_array().values, ref, equal_nan=True)
+    names = ["break_time" if n == "time" else n for n in bf_metric_names(2, 2)]
+    engine = [n for n in names if not n.startswith("trend_first_after_idx_")]
+    assert list(classic.data_vars) == engine + ["trend_break_date_1", "trend_break_date_2"]
+    np.testing.assert_allclose(classic[engine].to_array().values, ref[[names.index(n) for n in engine]],
+                               equal_nan=True)
+    # the largest trend jump is the one bfast reports as its magnitude
+    jumps = classic[["trend_magnitude_1", "trend_magnitude_2"]].to_array().values
+    has = np.isfinite(jumps).any(axis=0)
+    best = np.take_along_axis(jumps, np.nanargmax(np.where(np.isfinite(jumps), np.abs(jumps), -1), axis=0)[None],
+                              axis=0)[0]
+    np.testing.assert_allclose(best[has], classic.magnitude.values[has], rtol=1e-6)
     assert "break_time" in classic and "time" not in classic.data_vars
 
 
@@ -124,7 +146,7 @@ def test_inputs_pixel_numpy_dask_file(cube, tmp_path):
 
 def test_save_results(cube, tmp_path):
     folder = zeit.save_raster(zeit.bfast_monitor(cube, "2014-01-01"), tmp_path / "bfm")
-    assert sorted(p.name for p in folder.iterdir()) == sorted(f"{n}.tif" for n in BFM_METRIC_NAMES)
+    assert sorted(p.name for p in folder.iterdir()) == sorted(f"{n}.tif" for n in BFM_METRIC_NAMES + ["break_date"])
     folder = zeit.save_raster(zeit.phenology(cube), tmp_path / "pheno")
     with rasterio.open(folder / "TRS5.sos.tif") as src:
         assert src.count == 9 and src.descriptions[0] == "2010"

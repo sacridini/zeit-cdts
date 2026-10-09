@@ -68,7 +68,7 @@ def test_fit_bfast_lite_batch_shape_and_break_detection():
         values_array=values, start_time=2000.0, frequency=FREQ, max_breaks_output=max_breaks,
     )
 
-    assert out.shape == (5 + max_breaks, n_pixels)
+    assert out.shape == (5 + 3 * max_breaks, n_pixels)
     n_breaks_row = 0
     assert out[n_breaks_row, 0] >= 1
     assert out[n_breaks_row, 1] == 0
@@ -97,7 +97,7 @@ def test_run_bfast_lite_dask_shape_and_break():
     data = da.from_array(block, chunks=(time_steps, 2, 2))
 
     out = run_bfast_lite_dask(data, start_time=2000.0, frequency=FREQ, max_breaks_output=max_breaks)
-    assert out.shape == (5 + max_breaks, rows, cols)
+    assert out.shape == (5 + 3 * max_breaks, rows, cols)
 
     computed = out.compute()
     assert np.all(computed[0] >= 1)  # n_breaks row
@@ -116,7 +116,8 @@ def test_xarray_accessor_bfast_lite():
 
     assert isinstance(res, xr.Dataset)
     assert res.n_breaks.dims == ("y", "x")
-    assert list(res.data_vars) == bfl_metric_names(max_breaks)
+    assert list(res.data_vars) == [n for n in bfl_metric_names(max_breaks) if not n.startswith("first_after_idx_")] + [
+        f"break_date_{k}" for k in range(1, max_breaks + 1)]
 
     computed = res.compute()
     assert np.all(computed.n_breaks.values >= 1)

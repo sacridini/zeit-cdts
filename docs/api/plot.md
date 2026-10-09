@@ -109,7 +109,7 @@ What `fit=` draws over a pixel's series:
 | :--- | :--- |
 | [`landtrendr`](change-detection.md#landtrendr) | The fitted segments, with a marker at each vertex |
 | [`ccdc`](change-detection.md#ccdc) | Each segment's harmonic model (for the band shown, or `band=`) and its break |
-| [`extract_events`](change-detection.md#extract_events) | The event as a shaded span, from `yod` to `yod + duration` |
+| [`extract_events`](change-detection.md#extract_events) | The event as a shaded span, from `yod` to `yod + duration`; for events of CCDC and BFAST, a line on the `date` of the break |
 | [`bfast_monitor`](change-detection.md#bfast_monitor) | The break, and where monitoring starts |
 | [`bfast_lite`](change-detection.md#bfast_lite), [`bfast`](change-detection.md#bfast) | The breaks (trend and season breaks for `bfast`) |
 | [`mann_kendall`](time-series.md#mann_kendall) | The Theil-Sen line, labelled increasing, decreasing or no trend |

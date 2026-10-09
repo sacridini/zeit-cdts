@@ -102,7 +102,12 @@ def overlays(result: Any, series: Dict[str, Any], *, shape: Sequence[int], band:
                         "color": FIT_COLOR, "markers": True})
     if "t_start" in at and "coefs" in at:                                  # CCDC
         out.extend(_ccdc(at, series, band))
-    if "yod" in at and "duration" in at:                                   # extract_events
+    if "yod" in at and "date" in at and result.attrs.get("algorithm", "LandTrendr") != "LandTrendr":
+        when = at.date.values                                              # extract_events of a break
+        if not np.isnat(when) and is_time:
+            out.append({"kind": "vline", "x": _ms([when])[0], "label": f"event {str(when)[:10]}",
+                        "color": FIT_COLOR})
+    elif "yod" in at and "duration" in at:                                 # extract_events
         yod, dur = float(at.yod), float(at.duration)
         if yod > 0 and is_time:
             x0, x1 = _year_ms([yod, yod + dur])
@@ -120,11 +125,10 @@ def overlays(result: Any, series: Dict[str, Any], *, shape: Sequence[int], band:
         names = [v for v in at.data_vars if str(v).startswith(prefix)]
         if prefix == "breakpoint_idx_" and "n_breaks" not in at:
             continue
-        valid = [i for i, v in enumerate(series["series"][0]["y"]) if v is not None]
-        for name in names:
+        for name in names:   # indices into the whole series, missing observations included
             idx = float(at[name])
-            if np.isfinite(idx) and 0 <= int(idx) < len(valid):
-                out.append({"kind": "vline", "x": series["x"][valid[int(idx)]], "label": label, "color": FIT_COLOR})
+            if np.isfinite(idx) and 0 <= int(idx) < len(series["x"]):
+                out.append({"kind": "vline", "x": series["x"][int(idx)], "label": label, "color": FIT_COLOR})
     if "distances" in at and "pattern_value" in result:                   # TWDTW
         out.extend(_twdtw(result, at, series, band))
     if "prototypes" in result and "label" in at and "distance" in at:      # SOM
