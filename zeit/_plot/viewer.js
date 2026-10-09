@@ -107,6 +107,24 @@ function yearTicks(t0, t1, max) {
   return out;
 }
 
+// Bilinear interpolation in a regular control grid {nx, ny, x0, x1, y0, y1, a, b}: (x, y) -> [a, b].
+// Beyond the grid it extrapolates from the edge cells.
+function interp(g, x, y) {
+  const fx = ((x - g.x0) / (g.x1 - g.x0)) * (g.nx - 1), fy = ((y - g.y0) / (g.y1 - g.y0)) * (g.ny - 1);
+  const i = Math.min(Math.max(Math.floor(fx), 0), g.nx - 2), j = Math.min(Math.max(Math.floor(fy), 0), g.ny - 2);
+  const tx = fx - i, ty = fy - j, k = j * g.nx + i;
+  const at = (arr) => (arr[k] * (1 - tx) + arr[k + 1] * tx) * (1 - ty) + (arr[k + g.nx] * (1 - tx) + arr[k + g.nx + 1] * tx) * ty;
+  return [at(g.a), at(g.b)];
+}
+
+const tileLon = (x, z) => (x / 2 ** z) * 360 - 180;
+const tileLat = (y, z) => (Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / 2 ** z))) * 180) / Math.PI;
+const lonTile = (lon, z) => ((lon + 180) / 360) * 2 ** z;
+const latTile = (lat, z) => {
+  const r = (Math.max(Math.min(lat, 85.0511), -85.0511) * Math.PI) / 180;
+  return ((1 - Math.asinh(Math.tan(r)) / Math.PI) / 2) * 2 ** z;
+};
+
 export class Viewer {
   constructor(el, transport, options = {}) {
     this.el = el;
@@ -133,7 +151,12 @@ export class Viewer {
     this.below = h("canvas", { class: "zv-below" });
     this.canvas = h("canvas", { class: "zv-map" });
     this.above = h("canvas", { class: "zv-above" });
-    this.stage = h("div", { class: "zv-stage" }, this.below, this.canvas, this.above);
+    this.attribution = h("div", { class: "zv-attribution" });
+    this.stage = h("div", { class: "zv-stage" }, this.below, this.canvas, this.above, this.attribution);
+    this.opacity = h("input", { class: "zv-opacity", type: "range", min: 0, max: 1, step: 0.05, value: 1,
+      title: "Opacity of the data over the basemap" });
+    this.opacity.addEventListener("input", () => { this.canvas.style.opacity = this.opacity.value; });
+    this.opacityBox = h("label", { class: "zv-opacitybox" }, "opacity ", this.opacity);
     this.readout = h("div", { class: "zv-readout" }, " ");
     this.playBtn = h("button", { class: "zv-play", title: "Play / pause (space)", onclick: () => this.toggle() }, "▶");
     this.slider = h("input", { class: "zv-slider", type: "range", min: 0, max: 0, value: 0 });
@@ -146,6 +169,7 @@ export class Viewer {
     this.speed.addEventListener("change", () => { this.fps = +this.speed.value; });
     this.progress = h("div", { class: "zv-progress" }, h("div", { class: "zv-bar" }));
     this.controls = h("div", { class: "zv-controls" }, this.playBtn, this.slider, this.label, this.speed);
+    this.tiles = new Map();
     this.legend = h("div", { class: "zv-legend" });
     this.side = h("div", { class: "zv-side" });
     this.root = h("div", { class: "zv-root", tabindex: 0 },
@@ -159,6 +183,8 @@ export class Viewer {
     this.on("click", (cell) => this.inspect(cell));
     this.on("frame", () => this.drawChart());
     this.layers.push({ draw2d: (ctx, v) => v.drawPin(ctx) });
+    this.layers.push({ below: true, draw2d: (ctx, v) => v.drawBasemap(ctx) });
+    this.layers.push({ draw2d: (ctx, v) => v.drawVectors(ctx) });
   }
 
   // ------------------------------------------------------------------ pixel inspector
@@ -293,6 +319,12 @@ export class Viewer {
     this.drawLegend();
     this.view = null;
     this.pin = null; this.pixel = null; this.chart.replaceChildren();
+    this.attribution.textContent = meta.basemap ? meta.basemap.attribution : "";
+    this.attribution.style.display = meta.basemap && meta.basemap.attribution ? "" : "none";
+    this.opacity.value = meta.opacity ?? 1;
+    this.canvas.style.opacity = this.opacity.value;
+    this.vectors = null;
+    if (meta.has_vectors) this.loadVectors(this.generation);
     this.resize();          // the first ResizeObserver call may have come before the metadata
     this.label.textContent = meta.labels[this.index] || "";
     this.emit("meta", meta);
@@ -603,10 +635,11 @@ export class Viewer {
     const s = this.meta.style;
     this.legend.replaceChildren();
     this.rampCanvas = null;
-    if (s.kind === "rgb") return;
+    if (s.kind === "rgb") { this.addOpacity(); return; }
     if (s.kind === "categorical") {
       for (const [, text, color] of s.classes)
         this.legend.append(h("span", { class: "zv-chip" }, h("i", { style: `background:${color}` }), text));
+      this.addOpacity();
       return;
     }
     const ticks = h("div", { class: "zv-ticks" });
@@ -618,6 +651,101 @@ export class Viewer {
     this.rampCanvas = h("canvas", { class: "zv-ramp", width: 255, height: 1 });
     this.legend.append(h("div", { class: "zv-rampwrap" }, this.rampCanvas, ticks), h("span", { class: "zv-unit" }, s.label || ""));
     this.paintRamp();
+    this.addOpacity();
+  }
+
+  addOpacity() { if (this.meta.basemap) this.legend.append(this.opacityBox); }
+
+  // ------------------------------------------------------------------ basemap
+  lonlatOf(px, py) { return interp(this.meta.geo.forward, ...this.toCell(px, py)); }
+
+  cellOf(lon, lat) { return interp(this.meta.geo.inverse, lon, lat); }
+
+  drawBasemap(ctx) {
+    const m = this.meta;
+    if (!m || !m.basemap || !m.geo) return;
+    const [cw, ch] = this.cssSize;
+    const pts = [[0, 0], [cw, 0], [0, ch], [cw, ch], [cw / 2, 0], [cw / 2, ch], [0, ch / 2], [cw, ch / 2], [cw / 2, ch / 2]];
+    const ll = pts.map(([x, y]) => this.lonlatOf(x, y));
+    let lon0 = Math.min(...ll.map((p) => p[0])), lon1 = Math.max(...ll.map((p) => p[0]));
+    let lat0 = Math.min(...ll.map((p) => p[1])), lat1 = Math.max(...ll.map((p) => p[1]));
+    lon0 = Math.max(lon0, -180); lon1 = Math.min(lon1, 180); lat0 = Math.max(lat0, -85); lat1 = Math.min(lat1, 85);
+    if (!(lon1 > lon0) || !(lat1 > lat0)) return;
+    let z = Math.round(Math.log2((360 * cw) / ((lon1 - lon0) * 256)));
+    z = Math.min(Math.max(z, 0), m.basemap.max_zoom || 19);
+    let tx0, tx1, ty0, ty1;
+    for (;;) {
+      tx0 = Math.floor(lonTile(lon0, z)); tx1 = Math.floor(lonTile(lon1, z));
+      ty0 = Math.floor(latTile(lat1, z)); ty1 = Math.floor(latTile(lat0, z));
+      if ((tx1 - tx0 + 1) * (ty1 - ty0 + 1) <= 120 || z === 0) break;
+      z -= 1;
+    }
+    const toPx = (lon, lat) => { const [cx, cy] = this.cellOf(lon, lat);
+      return [(cx - this.view.ox) * this.view.s, (cy - this.view.oy) * this.view.s]; };
+    for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) {
+      const img = this.tile(z, tx, ty);
+      if (!img.complete || !img.naturalWidth) continue;
+      const nw = toPx(tileLon(tx, z), tileLat(ty, z)), ne = toPx(tileLon(tx + 1, z), tileLat(ty, z));
+      const sw = toPx(tileLon(tx, z), tileLat(ty + 1, z));
+      ctx.save();
+      ctx.transform((ne[0] - nw[0]) / 256, (ne[1] - nw[1]) / 256, (sw[0] - nw[0]) / 256, (sw[1] - nw[1]) / 256, nw[0], nw[1]);
+      ctx.drawImage(img, -0.6, -0.6, 257.2, 257.2);   // a hair larger: no seams between tiles
+      ctx.restore();
+    }
+  }
+
+  tile(z, x, y) {
+    const n = 2 ** z, key = `${z}/${x}/${y}`;
+    let img = this.tiles.get(key);
+    if (img) return img;
+    img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => this.render();
+    const xx = ((x % n) + n) % n;
+    img.src = this.meta.basemap.url.replace("{z}", z).replace("{x}", xx).replace("{y}", y)
+      .replace("{s}", "abc"[(x + y) % 3]).replace("{r}", "");
+    this.tiles.set(key, img);
+    if (this.tiles.size > 600) this.tiles.delete(this.tiles.keys().next().value);
+    return img;
+  }
+
+  // ------------------------------------------------------------------ vectors
+  async loadVectors(generation) {
+    try {
+      const { content, buffers } = await this.transport.request({ type: "vectors" });
+      if (generation !== this.generation || !buffers.length) return;
+      const b = buffers[0];
+      const bytes = new Uint8Array(b.buffer || b, b.byteOffset || 0, b.byteLength).slice();
+      this.vectors = { paths: content.paths, xy: new Float32Array(bytes.buffer) };
+      this.render();
+    } catch (err) { this.readout.textContent = `vectors: ${err.message || err}`; }
+  }
+
+  drawVectors(ctx) {
+    const v = this.vectors, m = this.meta;
+    if (!v) return;
+    const { ox, oy, s } = this.view;
+    ctx.save();
+    ctx.lineJoin = "round";
+    const color = m.vector_color || "#ffd400";
+    for (const pass of [0, 1]) {   // a dark halo under the colour keeps lines visible on any background
+      ctx.strokeStyle = pass ? color : "rgba(0,0,0,0.55)";
+      ctx.fillStyle = color;
+      ctx.lineWidth = pass ? (m.vector_width || 1.5) : (m.vector_width || 1.5) + 2;
+      ctx.beginPath();
+      const dots = new Path2D();
+      for (const [off, len, closed] of v.paths) {
+        const x0 = (v.xy[2 * off] - ox) * s, y0 = (v.xy[2 * off + 1] - oy) * s;
+        if (len === 1) { dots.moveTo(x0 + 3.5, y0); dots.arc(x0, y0, 3.5, 0, 2 * Math.PI); continue; }
+        ctx.moveTo(x0, y0);
+        for (let k = 1; k < len; k++) ctx.lineTo((v.xy[2 * (off + k)] - ox) * s, (v.xy[2 * (off + k) + 1] - oy) * s);
+        if (closed) ctx.closePath();
+      }
+      ctx.stroke();
+      ctx.stroke(dots);
+      if (pass) ctx.fill(dots);
+    }
+    ctx.restore();
   }
 
   paintRamp() {

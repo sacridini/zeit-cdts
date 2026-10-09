@@ -49,7 +49,8 @@ def _image(style: Style, codes: np.ndarray) -> np.ndarray:
 
 def plot_maps(frames: Frames, style: Style, indices: Sequence[int], *, nodata: Optional[float] = None,
               ax: Any = None, figsize: Any = None, title: Optional[str] = None, colorbar: bool = True,
-              max_size: Optional[int] = 1024, ncols: int = 4):
+              max_size: Optional[int] = 1024, ncols: int = 4, basemap: Any = None, vector: Any = None,
+              opacity: float = 1.0, vector_color: str = "#ffd400"):
     import matplotlib.pyplot as plt
 
     n = len(indices)
@@ -71,9 +72,33 @@ def plot_maps(frames: Frames, style: Style, indices: Sequence[int], *, nodata: O
         axes = list(grid.ravel())
         for extra in axes[n:]:
             extra.set_visible(False)
+    crs = _crs(frames)
+    background = None
+    if basemap is not None:
+        from ._overlay import static_basemap
+        background = static_basemap(frames, crs, basemap, width_px=min(2048, max(512, frames.width // step * 2)))
+    outlines = None
+    if vector is not None:
+        from ._overlay import read_vectors
+        outlines = read_vectors(vector, crs)
     for a, i in zip(axes, indices):
+        if background is not None:
+            image, (l, r, b, t), attribution = background
+            a.imshow(image, extent=(l, r, b, t), interpolation="bilinear", origin="upper")
+            if attribution:
+                a.text(0.995, 0.005, attribution, transform=a.transAxes, ha="right", va="bottom", fontsize=5,
+                       color="#333", bbox=dict(facecolor="white", alpha=0.6, lw=0, pad=1))
         a.imshow(_image(style, style.encode(frames.frame(i, step), nodata)), extent=extent,
-                 interpolation="nearest", origin="upper")
+                 interpolation="nearest", origin="upper", alpha=opacity)
+        if outlines is not None and len(outlines):
+            lines = outlines[~outlines.geom_type.isin(["Point", "MultiPoint"])]
+            points = outlines[outlines.geom_type.isin(["Point", "MultiPoint"])]
+            if len(lines):
+                lines.boundary.plot(ax=a, color=vector_color, linewidth=1.2)
+            if len(points):
+                points.plot(ax=a, color=vector_color, markersize=12)
+        a.set_xlim(min(extent[0], extent[1]), max(extent[0], extent[1]))
+        a.set_ylim(min(extent[2], extent[3]), max(extent[2], extent[3]))
         if n > 1 or frames.n > 1:
             a.set_title(frames.labels[i], fontsize=10)
         if n > 1:
@@ -83,6 +108,13 @@ def plot_maps(frames: Frames, style: Style, indices: Sequence[int], *, nodata: O
     if colorbar:
         _legend(fig, axes[:n], style)
     return fig
+
+
+def _crs(frames: Frames):
+    try:
+        return frames.da.rio.crs
+    except Exception:  # noqa: BLE001 - not georeferenced
+        return None
 
 
 def _legend(fig, axes, style: Style) -> None:

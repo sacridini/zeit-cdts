@@ -301,7 +301,14 @@ kernel por quadro, com no máximo 2 quadros em trânsito (fps ≤ 2/latência: 1
    gráfico SVG com a data atual e clique no gráfico para pular de data; em estático,
    `zeit.plot(cube, fit=lt, pixel=(x, y), static=True)`.
 4. 7e: basemap e vetores; avaliar MapLibre GL (camada WebGL própria sobre o mapa) contra
-   pan/zoom e tiles feitos à mão.
+   pan/zoom e tiles feitos à mão. **Feito** (0.36.0), à mão (sem JS externo, funciona
+   offline sem o basemap): o navegador baixa os tiles XYZ e os posiciona interpolando em
+   duas grades de controle célula ↔ lon/lat calculadas no Python (qualquer CRS, sem
+   reprojetar os quadros); `basemap="satellite"|"osm"|"light"|"dark"|"topo"`, nome do
+   xyzservices ou URL; `vector=` (arquivo, GeoDataFrame, shapely) desenhado por cima com
+   halo; slider de opacidade e atribuição. Estático: tiles baixados (cache em
+   `~/.cache/zeit/tiles`), mosaico reprojetado para o CRS dos dados. Os tiles da CartoDB
+   passaram a exigir chave: `light`/`dark` usam os fundos cinza da Esri.
 5. 7f: janela fora do notebook (pywebview ou navegador), testes (Playwright com Edge/Chromium
    em modo headless, como no 7a) e docs.
 

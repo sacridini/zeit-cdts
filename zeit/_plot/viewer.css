@@ -54,3 +54,9 @@
 .zv-svg .zv-tick { fill: var(--zv-muted); }
 .zv-svg .zv-ctitle { fill: var(--zv-fg); font-weight: 600; }
 .zv-svg .zv-now { stroke: var(--zv-accent); stroke-width: 1.5; stroke-dasharray: 2 3; }
+.zv-attribution {
+  position: absolute; right: 0; bottom: 0; padding: 1px 5px; font-size: 10px; color: #333;
+  background: rgba(255, 255, 255, 0.7); border-top-left-radius: 3px; pointer-events: none;
+}
+.zv-opacitybox { display: inline-flex; align-items: center; gap: 4px; color: var(--zv-muted); align-self: center; }
+.zv-opacity { width: 90px; accent-color: var(--zv-accent); }

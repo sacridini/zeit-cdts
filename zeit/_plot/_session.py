@@ -30,7 +30,8 @@ Reply = Tuple[Dict[str, Any], List[bytes]]
 class Session:
     def __init__(self, data: Any, *, var: Optional[str] = None, band: Any = None, rgb: Optional[bool] = None,
                  style_options: Optional[Dict[str, Any]] = None, max_size: int = 800, compress: bool = True,
-                 title: Optional[str] = None, fit: Any = None):
+                 title: Optional[str] = None, fit: Any = None, basemap: Any = None, vector: Any = None,
+                 opacity: float = 1.0, vector_color: str = "#ffd400", vector_width: float = 1.5):
         self.source = data
         self.band, self.rgb_option = band, rgb
         self.style_options = dict(style_options or {})
@@ -38,9 +39,11 @@ class Session:
         self.compress = compress
         self.title = title
         self.fit = fit
+        self.basemap, self.vector = basemap, vector
+        self.opacity, self.vector_color, self.vector_width = float(opacity), vector_color, float(vector_width)
         self.handlers: Dict[str, Callable[[Dict[str, Any]], Reply]] = {
             "meta": self._meta, "frames": self._frames, "detail": self._detail, "select": self._select,
-            "pixel": self._pixel,
+            "pixel": self._pixel, "vectors": self._vectors,
         }
         self._load(var)
 
@@ -91,7 +94,15 @@ class Session:
             "style": self.style.to_json(), "title": self.title if self.title is not None else f.name,
             "variables": self.variables(), "var": self.var, "compressed": self.compress,
             "dims": f.lead, "frame_bytes": w * h * (3 if f.rgb else 1), "has_fit": self.fit is not None,
+            "basemap": None, "geo": None, "opacity": self.opacity, "has_vectors": self.vector is not None,
+            "vector_color": self.vector_color, "vector_width": self.vector_width,
         }
+        if self.basemap is not None:
+            from ._overlay import basemap_provider, geo_grids
+            meta["basemap"] = basemap_provider(self.basemap)
+            meta["geo"] = geo_grids(f, self._crs()) if meta["basemap"] else None
+            if meta["geo"] is None:
+                meta["basemap"] = None   # not georeferenced: no basemap
         return meta, [self.style.lut().tobytes()]
 
     def _encode(self, frame: np.ndarray) -> bytes:
@@ -141,6 +152,20 @@ class Session:
     def _select(self, request: Dict[str, Any]) -> Reply:
         self._load(request["var"])
         return self._meta(request)
+
+    def _crs(self):
+        try:
+            return self.frames.da.rio.crs
+        except Exception:  # noqa: BLE001 - not georeferenced
+            return None
+
+    def _vectors(self, request: Dict[str, Any]) -> Reply:
+        from ._overlay import vector_paths
+
+        if self.vector is None:
+            return {"paths": [], "count": 0}, []
+        content, buffer = vector_paths(self.frames, self.vector, self._crs(), self.step)
+        return content, [buffer] if buffer else []
 
     def _pixel(self, request: Dict[str, Any]) -> Reply:
         """One cell's full series (top-first cell coordinates) and the fit's overlays there."""

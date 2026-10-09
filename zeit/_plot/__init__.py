@@ -40,6 +40,10 @@ def plot(
     compress: bool = True,
     fit: Any = None,
     pixel: Any = None,
+    basemap: Any = None,
+    vector: Any = None,
+    opacity: Optional[float] = None,
+    vector_color: str = "#ffd400",
 ):
     """Plot a map, a time series cube, a result of zeit or one pixel's series.
 
@@ -94,6 +98,18 @@ def plot(
     pixel
         ``(x, y)`` in the data's coordinates: a static plot of that pixel's series (with
         ``fit``), instead of maps.
+    basemap
+        A web map under the data: ``"satellite"`` (Esri World Imagery), ``"osm"``,
+        ``"light"``, ``"dark"``, ``"topo"``, an xyzservices provider or name, or a
+        ``{z}/{x}/{y}`` URL template. The data needs a CRS. The viewer loads the tiles in the
+        browser; static plots download them (cached in ``~/.cache/zeit/tiles``).
+    vector
+        Outlines drawn over the maps: a vector file, a GeoDataFrame/GeoSeries, shapely
+        geometries or a list of them (reprojected to the data's CRS).
+    opacity
+        Opacity of the data (default 1, or 0.8 over a basemap); the viewer has a slider.
+    vector_color
+        Colour of the outlines.
 
     Returns
     -------
@@ -131,7 +147,9 @@ def plot(
         from ._widget import make_widget
         options = dict(kind=kind, cmap=cmap, vmin=vmin, vmax=vmax, classes=classes, nodata=nodata)
         session = Session(data, var=var, band=band, rgb=rgb, style_options=options, max_size=max_size or 800,
-                          compress=compress, title=title, fit=fit)
+                          compress=compress, title=title, fit=fit, basemap=basemap, vector=vector,
+                          opacity=opacity if opacity is not None else (0.8 if basemap else 1.0),
+                          vector_color=vector_color)
         return make_widget(session, height=height, fps=fps)
 
     frames = prepared
@@ -140,7 +158,9 @@ def plot(
                                     nodata=nodata)
     indices = _static.resolve_frames(frames, time, default_all=True)
     fig = _static.plot_maps(frames, style, indices, nodata=nodata_value, ax=ax, figsize=figsize, title=title,
-                            colorbar=colorbar, max_size=max_size, ncols=ncols)
+                            colorbar=colorbar, max_size=max_size, ncols=ncols, basemap=basemap, vector=vector,
+                            opacity=opacity if opacity is not None else (0.8 if basemap else 1.0),
+                            vector_color=vector_color)
     return _finish(fig, save)
 
 
