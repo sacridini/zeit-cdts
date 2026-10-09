@@ -172,7 +172,7 @@ cubo e saída `Dataset` georreferenciado com uma variável por métrica.
 - README, quickstart, conceitos, tutoriais, exemplos e CLI já foram migrados em cada fase;
   `sync_api --check` e `mkdocs build --strict` limpos.
 
-## Fase 7 (proposta): `zeit.plot`
+## Fase 7: `zeit.plot` (7a feito: prova de conceito)
 
 Uma função para ver qualquer coisa do zeit: o cubo carregado, um resultado (`Dataset` do
 LandTrendr, CCDC, BFAST...), um mapa ou a série de um pixel. O foco são rasters, e
@@ -222,37 +222,76 @@ zeit.plot(ndvi, vector="talhoes.gpkg")   # contornos por cima
 | **leafmap / localtileserver** | Basemaps e COGs em mapa web | Um servidor de tiles por imagem; lento para passar por muitas datas |
 | **matplotlib** | Universal, figuras estáticas de publicação | CPU; lento para animar séries grandes |
 
-### Proposta de arquitetura
+### Resultados do 7a (prova de conceito, RTX 3060, Edge, JupyterLab local)
 
-- **Motor interativo: fastplotlib.** É o único que junta GPU, slider de pilhas de imagens e o
-  mesmo código no Jupyter e em janela separada. O zeit acrescenta a parte geográfica que
-  ele não tem: transformação de pixel para coordenadas, basemap como camada de imagem por
-  baixo, vetores como linhas por cima.
-- **Estático: matplotlib**, para `zeit.plot(..., static=True)` e exportar figuras.
-- **napari como alternativa opcional** (`backend="napari"`) para cubos muito maiores que a
-  memória, se a medição mostrar que o fastplotlib não dá conta.
+Protótipo e scripts em `scratch/plot7a/` (fora do git). Três caminhos comparados:
+**A** fastplotlib (renderiza na GPU do kernel e manda JPEG por quadro), **B** widget
+próprio (anywidget + WebGL2: o quadro vai cru em `uint8` e a paleta é aplicada na GPU do
+navegador) e **C** matplotlib (o que o ipympl faz).
 
-### Otimizações (o centro do trabalho)
+| Medida | A. fastplotlib | B. anywidget + WebGL2 | C. matplotlib |
+| :--- | :--- | :--- | :--- |
+| Custo no servidor por quadro | 8–9 ms (render + JPEG) | 1,5–1,8 ms (quantizar) | 106–133 ms |
+| Bytes por quadro | 70–230 KB (JPEG q80) | 300–450 KB cru (190–290 KB com zlib) | 265–490 KB (PNG) |
+| Quadros/s no slider, notebook local | 60 (limite padrão do rendercanvas) | **144** (o teto do navegador) com quadros pré-carregados; ~200/s pedindo ao kernel | ~8 (limite do servidor) |
+| Desenho no navegador | — | 0,1 ms por quadro | — |
+| Pré-carga Rondônia (40 × 557×562) | — | 12,5 MB em 0,18 s | — |
+| Pré-carga cubo denso (240 × 682×682) | — | 112 MB em 1,4 s | — |
 
-- **Ler só o que cabe na tela:** usar as overviews do GeoTIFF/COG ou reduzir o cubo
-  (`coarsen`) para a resolução da janela antes de mandar à GPU; ao dar zoom, carregar a
-  janela em resolução maior.
-- **Pré-carregar quadros:** uma thread lê os próximos quadros do slider enquanto o atual é
-  mostrado, com cache LRU limitado em memória; com dask, `persist` de um bloco de datas.
-- **Cores na GPU:** mandar os dados uma vez e aplicar colormap e limites no shader (trocar
-  paleta ou contraste não relê nada); quantizar para `uint8`/`float16` quando possível.
-- **Estatísticas por amostra:** percentis e "é categórico?" a partir de uma amostra de
-  pixels e datas, nunca do cubo inteiro.
-- **Basemap em cache:** baixar os tiles uma vez por extensão/zoom (xyzservices) e
-  reprojetar uma única imagem de fundo.
-- Medir: tempo até o primeiro quadro e quadros por segundo no slider com o stack de Rondônia
-  (40 × 1671 × 1686) e com um cubo Sentinel-2 de centenas de datas.
+Leitura dos dados (bomba de quadros): 0,1–7 ms por data na resolução da tela (TIF e Zarr);
+o único custo alto é a primeira leitura de um TIF intercalado por pixel (~0,75 s para o
+cubo inteiro, uma vez). Não é o gargalo.
+
+A emulação de rede do Chrome não limita websockets de forma realista, então o caso de
+notebook remoto (JupyterHub, Colab) ficou como estimativa: A precisa de uma ida e volta ao
+kernel por quadro, com no máximo 2 quadros em trânsito (fps ≤ 2/latência: 100 ms →
+~20 fps) e ~6–14 MB/s para 60 fps; B paga a pré-carga uma vez (12,5 MB: ~5 s a 20 Mbps,
+~1 s a 100 Mbps) e depois não usa mais a rede.
+
+### Decisão: caminho B como motor do `zeit.plot`
+
+- **Depois de carregado, o slider não depende do kernel nem da rede:** roda no limite do
+  navegador, e continua funcionando enquanto o kernel executa outra célula (com A, o
+  viewer congela durante qualquer célula, porque cada quadro é renderizado em Python).
+- **Não exige GPU no servidor:** quem desenha é a GPU do notebook do usuário, via WebGL.
+  Kernels em JupyterHub/servidores raramente têm GPU; o fastplotlib precisa dela (ou cai
+  em renderização por software) na máquina do kernel.
+- **Dado exato, sem JPEG:** mapas categóricos ficam nítidos, e a cor e o valor sob o mouse
+  vêm do próprio dado.
+- **Uma implementação para todo lugar:** anywidget roda em JupyterLab, Notebook 7, VS Code
+  e Colab; fora do notebook, o mesmo HTML/JS abre numa janela (pywebview) ou aba do
+  navegador servida localmente. Leve: anywidget é a única dependência nova obrigatória.
+- **Basemap direto no navegador:** os tiles XYZ (Esri World Imagery, OSM) são baixados
+  pelo próprio navegador, como num Leaflet; com basemap, os quadros vão reprojetados para
+  Web Mercator na resolução da tela (barato no servidor).
+- **Custos e mitigação:** memória do navegador e pré-carga em conexões lentas. Pré-carregar
+  progressivamente (o primeiro quadro na hora, os demais em segundo plano, primeiro em
+  resolução reduzida), comprimir os quadros, e para cubos grandes manter no navegador
+  uma janela de datas em torno do slider (LRU), pedindo o resto ao kernel (~5 ms por
+  quadro, medido).
+- **Precisão:** `uint8` dá 254 níveis para a cor (suficiente para ver); o valor exato sob o
+  mouse vem do kernel sob demanda, ou os quadros vão em `uint16` quando pedido.
+- fastplotlib fica de fora do núcleo; pode voltar como backend opcional de janela nativa
+  se a medição da janela pywebview não for boa.
+- matplotlib continua para figuras estáticas (`static=True`, PNG/PDF).
+
+### Próximos passos (7b em diante)
+
+1. 7b: estático com matplotlib + a inferência de cores e legendas (compartilhada com o
+   viewer interativo).
+2. 7c: viewer interativo (o protótipo B evoluído): pan/zoom, colorbar, valor sob o mouse,
+   play/pause, pré-carga progressiva, seletor de variável para Datasets, RGB.
+3. 7d: clicar num pixel e ver a série com o ajuste do algoritmo.
+4. 7e: basemap e vetores; avaliar MapLibre GL (camada WebGL própria sobre o mapa) contra
+   pan/zoom e tiles feitos à mão.
+5. 7f: janela fora do notebook (pywebview ou navegador), testes (Playwright com Edge/Chromium
+   em modo headless, como no 7a) e docs.
 
 ### Dependências
 
-`fastplotlib` (e `pygfx`, `wgpu`), `jupyter_rfb` e `simplejpeg` para o notebook, `glfw` ou
-Qt para a janela, `xyzservices` para os basemaps; como extra opcional
-(`pip install zeit-cdts[plot]`), sem pesar no `import zeit`.
+`anywidget` (obrigatória para o interativo, leve) e `matplotlib` (estático); `pywebview`
+opcional para a janela nativa; `xyzservices` para nomear os basemaps. Tudo no extra
+`pip install zeit-cdts[plot]`, sem pesar no `import zeit`.
 
 ## Para depois
 
