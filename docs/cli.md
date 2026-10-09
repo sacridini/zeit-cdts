@@ -30,18 +30,19 @@ zeit landtrendr <input> <output_dir> [OPTIONS]
 ### Positional Arguments
 | Argument | Type | Description |
 | :--- | :---: | :--- |
-| **`input`** | `filepath` | Path to the input multi-band GeoTIFF. Each band must represent a single year or time step in chronological order. |
+| **`input`** | `filepath` | Path to the input multi-band GeoTIFF. Each band must represent a single year, in chronological order. |
 | **`output_dir`** | `dirpath` | Directory where the resulting event maps (Year of Detection, Magnitude, Duration) will be saved. |
 
 ### Configuration Options
 
 | Option | Type | Default | Description |
 | :--- | :---: | :---: | :--- |
-| `--start-year` | `int` | `2000` | The calendar year corresponding to the first band in your stack. |
+| `--start-year` | `int` | read from the file | The calendar year of the first band. By default the years are read from the band descriptions (e.g. `yr1985`), as `zeit.load_raster` does; pass it for stacks whose bands are not named by year. |
 | `--max-segments`| `int` | `6` | The maximum number of line segments the algorithm can fit per pixel. |
 | `--jobs` | `int` | `-1` | Number of CPU cores to use for parallel processing. `-1` uses all available cores. |
 | `--chunk-size` | `int` | `512` | Size of the image chunks (in pixels) processed simultaneously to manage RAM. |
 | `--save-vertices`| `flag` | `False` | If provided, saves the raw multi-band GeoTIFF containing all fitted vertices. |
+| `--no-data-value` | `float` | the raster's NoData, or `0` | Value marking a missing year. By default the raster's NoData value, or `0` for integer stacks without one (how Earth Engine exports masked pixels). NaN is always missing. |
 
 ### Event Extraction Options
 
@@ -49,8 +50,8 @@ These options control how specific change events are extracted from the temporal
 
 | Option | Type | Default | Description |
 | :--- | :---: | :---: | :--- |
-| `--event-type` | `str` | `loss` | Type of event to map. Choices: `loss` (value decreases) or `gain` (value increases). |
-| `--sort-by` | `str` | `greatest` | How to select the event if multiple occur. Choices: `greatest`, `newest`, `fastest`, `longest`. |
+| `--event-type` | `str` | `loss` | Type of event to segment for and map. Choices: `loss` (value decreases) or `gain` (value increases). It sets both LandTrendr's `direction` and the events extracted. |
+| `--sort-by` | `str` | `greatest` | How to select the event if multiple occur. Choices: `greatest`, `newest`, `fastest`, `longest`, `dsnr`. |
 | `--min-mag` | `float`| `0.0` | Filter out events with a magnitude lower than this threshold. |
 | `--min-dur` | `int` | `1` | Filter out events shorter than this duration in years. |
 | `--pre-val-thresh`| `float`| `0.0` | Filter out events if the starting value was already below this threshold. |

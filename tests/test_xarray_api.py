@@ -70,22 +70,18 @@ def test_xarray_landtrendr_accessor():
     max_segments = 3
     max_vertices = max_segments + 1
     
-    # Run LandTrendr lazily with Strategy A (n_jobs=-1)
-    result = da_arr.zeit.run_landtrendr(years=years, max_segments=max_segments, n_jobs=-1)
-    
+    # Run LandTrendr lazily with Strategy A (n_jobs=-1): the accessor delegates to zeit.landtrendr
+    result = da_arr.zeit.landtrendr(years=years, max_segments=max_segments, n_jobs=-1)
+
     # Check laziness
-    assert isinstance(result.data, da.Array)
-    
-    # Check output shape: (2 * max_vertices, y, x) 
-    # where the first max_vertices are years, and the next are fitted values
-    assert result.dims == ("vertex_info", "y", "x")
-    assert result.shape == (2 * max_vertices, y, x)
-    
-    # Compute and verify
+    assert isinstance(result.vertex_year.data, da.Array)
+    assert result.vertex_year.dims == ("vertex", "y", "x")
+    assert result.vertex_year.shape == (max_vertices, y, x)
+
+    # Compute and verify: pixel (0,0) starts at the first year
     computed_result = result.compute()
-    assert computed_result.shape == (2 * max_vertices, y, x)
-    # The first row for pixel (0,0) should contain the start year 2000
-    assert computed_result[0, 0, 0] > 0 
+    assert computed_result.vertex_year.values[0, 0, 0] == 2000
+    assert computed_result.n_vertices.values.min() >= 2
 
 def test_xarray_to_zarr(tmp_path):
     """
@@ -102,16 +98,15 @@ def test_xarray_to_zarr(tmp_path):
     
     # Run LT lazily
     years = np.arange(2000, 2000 + time)
-    result = da_arr.zeit.run_landtrendr(years=years, max_segments=2)
-    
+    result = da_arr.zeit.landtrendr(years=years, max_segments=2, direction="gain")
+
     # Export to zarr using the accessor, optimizing chunks
     zarr_path = str(tmp_path / "test.zarr")
-    result.zeit.to_zarr_optimized(zarr_path, chunk_size={"y": 4, "x": 4})
-    
-    # Read back and verify
+    result.vertex_value.zeit.to_zarr_optimized(zarr_path, chunk_size={"y": 4, "x": 4})
+
+    # Read back and verify: 2 segments = 3 vertices
     ds_zarr = xr.open_zarr(zarr_path)
     assert "data" in ds_zarr.data_vars
-    # 2 segments = 3 max_vertices. 2 * 3 = 6 rows in vertex_info
-    assert ds_zarr["data"].shape == (6, y, x)
-    assert ds_zarr["data"].chunks == ((6,), (4, 4), (4, 4))
+    assert ds_zarr["data"].shape == (3, y, x)
+    assert ds_zarr["data"].chunks == ((3,), (4, 4), (4, 4))
 

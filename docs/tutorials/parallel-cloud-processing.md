@@ -11,9 +11,9 @@
 
 ## Two levels of parallelism
 
-**Threads within one machine.** Every algorithm's per-pixel loop runs in C++ with OpenMP. `n_jobs=-1` (the default) uses all cores but one, and needs nothing else: `run_landtrendr_array`, `run_ccdc_array` and friends are already parallel.
+**Threads within one machine.** Every algorithm's per-pixel loop runs in C++ with OpenMP. `n_jobs=-1` (the default) uses all cores but one, and needs nothing else: `zeit.landtrendr`, `run_ccdc_array` and friends are already parallel.
 
-**Chunks across processes or machines.** For data larger than memory, or more machines, wrap the data in a Dask-backed xarray cube and call the algorithm through the `.zeit` accessor. Zeit maps the C++ code over spatial chunks, and Dask schedules those chunks on its workers.
+**Chunks across processes or machines.** For data larger than memory, or more machines, wrap the data in a Dask-backed xarray cube and call the algorithm through the `.zeit` accessor (or `zeit.landtrendr`, which takes Dask cubes directly). Zeit maps the C++ code over spatial chunks, and Dask schedules those chunks on its workers.
 
 ```python
 import xarray as xr
@@ -100,7 +100,6 @@ result.zeit.to_zarr_optimized("gs://my-bucket/result.zarr")
 LandTrendr over a large annual NDVI cube stored as Zarr, on a cluster:
 
 ```python
-import numpy as np
 import xarray as xr
 from dask.distributed import Client
 import zeit
@@ -109,15 +108,18 @@ client = Client("tcp://192.168.1.10:8786")
 
 ndvi = xr.open_zarr("gs://my-bucket/annual_ndvi.zarr")["ndvi"]      # (time, y, x), 1985-2024
 ndvi = ndvi.chunk({"time": -1, "y": 512, "x": 512})
-years = np.arange(1985, 1985 + ndvi.sizes["time"])
 
-# The accessor uses the default orientation (+1): flip NDVI so that a loss
-# becomes a rise, as in the LandTrendr tutorial.
-vertices = (-ndvi).zeit.run_landtrendr(years=years, max_segments=6, n_jobs=1)
-vertices.zeit.to_zarr_optimized("gs://my-bucket/landtrendr_vertices.zarr")
+# Lazy: the years come from the time coordinate; direction="loss" looks for NDVI drops.
+lt = zeit.landtrendr(ndvi, max_segments=6, n_jobs=1)
+lt.to_zarr("gs://my-bucket/landtrendr_vertices.zarr", mode="w")     # computes, in parallel
+
+# Event maps from the saved vertices, again chunk by chunk
+lt = xr.open_zarr("gs://my-bucket/landtrendr_vertices.zarr")
+loss = zeit.extract_events(lt, min_magnitude=2000)
+loss.to_zarr("gs://my-bucket/landtrendr_loss.zarr", mode="w")       # yod, magnitude, duration, ...
 ```
 
-Event maps are then extracted from the saved vertices, block by block, with `zeit.extract_events(..., event_type="gain")` on the flipped values. The dashboard (`client.dashboard_link`, port 8787 by default) shows progress, memory and CPU for every worker.
+`zeit.landtrendr` and `extract_events` return lazy `xarray.Dataset`s here: each `to_zarr` runs the C++ code on every chunk in parallel and streams the result to storage. Saving the vertices first means they are computed once, and other event maps (`event_type="gain"`, another `sort_by`) come from them without segmenting again. The dashboard (`client.dashboard_link`, port 8787 by default) shows progress, memory and CPU for every worker.
 
 ## Troubleshooting a multi-machine cluster
 
@@ -148,7 +150,7 @@ python -c "import sys, dask, distributed; print(sys.version, dask.__version__, d
 
 ### macOS: a worker crash-loops silently the moment a task touches `zeit`
 
-**Symptom:** `dask worker` starts and registers with the scheduler fine. But as soon as a real task imports `zeit` (e.g. the first `.zeit.run_landtrendr()` call), the worker process vanishes and Dask's Nanny silently respawns it with a new port — forever. No Python traceback reaches the scheduler or client; calling `client.run(...)` against that worker just raises `CommClosedError: ... Stream is closed`.
+**Symptom:** `dask worker` starts and registers with the scheduler fine. But as soon as a real task imports `zeit` (e.g. the first `zeit.landtrendr()` call), the worker process vanishes and Dask's Nanny silently respawns it with a new port — forever. No Python traceback reaches the scheduler or client; calling `client.run(...)` against that worker just raises `CommClosedError: ... Stream is closed`.
 
 **Cause:** `zeit` depends on `torch`, and on macOS both `torch` and Zeit's own compiled C++ extension (`zeit._core`) link their own copy of the OpenMP runtime (`libomp`/`libiomp`). Loading both inside the same process aborts the whole process (`OMP: Error #15: Initializing libomp.dylib, but found libomp.dylib already initialized`) instead of raising a catchable Python exception — which is exactly what a Nanny-managed silent restart loop looks like from the outside.
 
@@ -183,7 +185,7 @@ client = Client("tcp://<scheduler-ip>:8786")
 def check():
     import socket, sys
     try:
-        from zeit.raster import run_landtrendr_array
+        from zeit import landtrendr
         return (socket.gethostname(), sys.executable, "ok")
     except Exception as e:
         return (socket.gethostname(), sys.executable, repr(e))

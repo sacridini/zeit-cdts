@@ -196,14 +196,21 @@ def rondonia():
     years = np.arange(1985, 1985 + stack.shape[0])
     valid = (stack != 0).all(axis=0)
 
-    vertices, rmse = zeit.run_landtrendr_array(
-        years, stack, max_segments=6, modifier=-1.0, return_rmse=True)
-    events = zeit.extract_events(
-        vertices, event_type="loss", sort_by="greatest",
-        min_magnitude=2000, rmse_map=rmse)
+    lt = zeit.landtrendr(stack, years=years, max_segments=6, nodata=0)   # 0 = masked year
+    events = zeit.extract_events(lt, event_type="loss", sort_by="greatest", min_magnitude=2000)
+    events = {k: v.values for k, v in events.items()}
+    vertices = lt_vertex_stack(lt)
+    rmse = lt.rmse.values
     _RONDONIA.update(stack=stack, years=years, valid=valid,
                      vertices=vertices, rmse=rmse, events=events)
     return _RONDONIA
+
+
+def lt_vertex_stack(lt):
+    """zeit.landtrendr's Dataset as a (2 * vertices, rows, cols) array: vertex years,
+    then fitted values, 0 in unused slots."""
+    return np.concatenate([lt.vertex_year.values.astype(np.float32),
+                           np.nan_to_num(lt.vertex_value.values, nan=0.0)])
 
 
 def fitted_trajectory(vertices, r, c, years):
@@ -470,12 +477,13 @@ def fig_quickstart():
     stack[:, 70:105, 50:110] = np.where(after, 0.30 + regrow, stack[:, 70:105, 50:110])
     stack = (stack * 10000).astype(np.float32)         # NDVI x 10000, like most products
 
-    vertices = zeit.run_landtrendr_array(years, stack, modifier=-1.0)
-    loss = zeit.extract_events(vertices, event_type="loss", min_magnitude=1500)
+    lt = zeit.landtrendr(stack, years=years)
+    loss = zeit.extract_events(lt, min_magnitude=1500)
     print(np.unique(loss["yod"]))
     # ------------------------------------------------------------------------
 
-    yod = loss["yod"].astype(float)
+    vertices = lt_vertex_stack(lt)
+    yod = loss["yod"].values.astype(float)
     yod[yod == 0] = np.nan
     fig = plt.figure(figsize=(12.5, 4.2))
     gs = fig.add_gridspec(1, 3, width_ratios=[1, 1, 1.6], wspace=0.18)

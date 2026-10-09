@@ -31,7 +31,7 @@ This is the single most common source of confusion, because each algorithm keeps
 
 | Algorithm | What you pass | Example |
 | :--- | :--- | :--- |
-| LandTrendr | Integer **years** | `np.arange(1985, 2025)` |
+| LandTrendr | Nothing for a cube with dates (read from its `time` coordinate); integer **years** for a numpy array or a single series | `years=np.arange(1985, 2025)` |
 | CCDC, Tmask | **Python ordinal days** (`date.toordinal()`) | `date(2020, 7, 1).toordinal()` → `737607` |
 | BFAST, BFAST Monitor, BFAST Lite | A **regular series**: `start_time` (fractional year) and `frequency` (observations per year). No per-date array. | `start_time=2010.0, frequency=23` for 16-day composites |
 | Mann-Kendall | Nothing. The slope is per **time step**, so use one value per year for a per-year slope (or `method="seasonal"`). | |
@@ -46,7 +46,7 @@ import pandas as pd
 
 t = pd.to_datetime(cube.time.values)
 
-years    = t.year.values                                   # LandTrendr
+years    = t.year.values                                   # LandTrendr (numpy input)
 ordinals = [d.toordinal() for d in t.date]                 # CCDC, Tmask
 base     = t.year.min()
 days     = t.dayofyear.values + (t.year.values - base) * 365   # Phenology
@@ -63,28 +63,31 @@ Most surface-reflectance and index products are stored as integers scaled by **1
 ## Missing data
 
 - Use **`NaN`** for missing observations in float arrays. Most algorithms skip NaNs per pixel.
-- LandTrendr's array API treats **`0`** as no-data by default (`no_data_value=0.0`), which suits masked integer products.
+- `zeit.landtrendr` also leaves out the raster's **NoData** value and, for integer data without one, **`0`** (how Earth Engine exports masked pixels). Set `nodata=` to another value, or `nodata=None` to treat only NaN as missing.
 - CCDC uses its own **QA codes** (Fmask convention: `0` clear, `1` water, `2` shadow, `3` snow, `4` cloud, `255` fill). See [CCDC](../tutorials/ccdc.md#2-build-the-qa-codes).
 
-## Five ways to call an algorithm
+## Ways to call an algorithm
 
-Most algorithms are exposed at several levels. They all run the same C++ code; pick the one that matches the size and form of your data.
+LandTrendr has a single entry point for every form of data. `zeit.landtrendr` reads what it is given and returns the same `xarray.Dataset` of vertices, georeferenced when the input is:
 
 ```mermaid
 flowchart LR
-    A["One pixel<br/><code>run_landtrendr(years, values)</code>"] --> B["NumPy cube in memory<br/><code>run_landtrendr_array(years, stack)</code>"]
-    B --> C["GeoTIFF bigger than RAM<br/><code>run_landtrendr_image(path, out_dir)</code>"]
-    B --> D["Xarray / Dask cube<br/><code>cube.zeit.run_landtrendr(years)</code>"]
-    C --> E["Shell / HPC job<br/><code>zeit landtrendr in.tif out/</code>"]
+    A["One pixel's series"] --> L["<code>zeit.landtrendr(data)</code>"]
+    B["NumPy array or cube in memory"] --> L
+    C["GeoTIFF bigger than RAM<br/>(read lazily, block by block)"] --> L
+    D["Xarray / Dask cube"] --> L
+    L --> E["xarray.Dataset of vertices"]
 ```
 
-| Level | Use it when | Example |
+| Data | Use it when | Example |
 | :--- | :--- | :--- |
-| **Pixel** | Exploring, plotting, testing parameters on a few series | `zeit.landtrendr.run_landtrendr` |
-| **Array** | The cube fits in memory | `zeit.run_landtrendr_array` |
-| **Image file** | A GeoTIFF too big for memory. It is read and written in blocks. | `zeit.run_landtrendr_image` |
-| **Xarray accessor** | Lazy Dask cubes (STAC, Zarr), clusters, cloud storage | `cube.zeit.run_landtrendr(...)` |
+| **One pixel** | Exploring, plotting, testing parameters on a few series | `zeit.landtrendr(values, years=years)` |
+| **Array or cube** | The data fits in memory | `zeit.landtrendr(cube)` |
+| **Raster file** | A GeoTIFF too big for memory. It is read and computed in blocks. | `zeit.landtrendr("stack.tif", chunks="auto")` |
+| **Dask cube** | Lazy cubes (STAC, Zarr), clusters, cloud storage | `zeit.landtrendr(cube)` or `cube.zeit.landtrendr()` |
 | **CLI** | Scripts, cron jobs and HPC schedulers, no Python needed | `zeit landtrendr ...` |
+
+The other algorithms are exposed at several levels, which all run the same C++ code: a pixel function (`zeit.ccdc.run_ccdc`), an in-memory array (`zeit.run_ccdc_array`), a GeoTIFF on disk read and written in blocks (`zeit.run_ccdc_image`), the xarray accessor for Dask cubes (`cube.zeit.run_ccdc(...)`) and the CLI (`zeit ccdc ...`). Pick the one that matches the size and form of your data.
 
 The accessor becomes available on every xarray object once you `import zeit`. See the [Xarray accessor reference](../api/xarray.md) for the full list of methods.
 

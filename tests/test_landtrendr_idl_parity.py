@@ -9,7 +9,7 @@ best_model_proportion above 1.
 """
 import numpy as np
 import pytest
-from zeit.landtrendr import run_landtrendr
+from zeit._landtrendr import run_landtrendr
 
 # Reference outputs of the ORIGINAL LandTrendr-2012 IDL code (fit_trajectory_v2.pro /
 # tbcd_v2.pro, KennedyResearch/LandTrendr-2012), produced by running it under GDL

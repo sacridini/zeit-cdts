@@ -5,24 +5,8 @@ from functools import partial
 import rasterio
 from rasterio.windows import Window
 
-from .landtrendr import run_landtrendr
 from .metrics import extract_events
 from typing import Tuple, List, Dict, Any, Union, Optional
-
-def _process_pixel_lt(args: Tuple[int, int, np.ndarray], years: Union[np.ndarray, List[int]], max_segments: int, pval_threshold: float) -> Tuple[int, int, List[Dict[str, Union[int, float]]]]:
-    """Worker function for parallel processing of a single pixel with LandTrendr."""
-    row, col, values = args
-    
-    # Mask out completely empty pixels (e.g. nodata)
-    if np.all(values == 0) or np.all(np.isnan(values)):
-        return row, col, []
-        
-    try:
-        vertices = run_landtrendr(years, values, max_segments=max_segments, pval_threshold=pval_threshold)
-        return row, col, vertices
-    except Exception:
-        # If C++ fails on a specific weird pixel, return empty
-        return row, col, []
 
 def run_landtrendr_array(years: "np.ndarray", raster_stack: "np.ndarray", max_segments: int = 6, pval_threshold: float = 0.05, n_jobs: int = -1,
                           recovery_threshold: float = 0.25, prevent_fast_recovery: bool = True,
@@ -40,7 +24,7 @@ def run_landtrendr_array(years: "np.ndarray", raster_stack: "np.ndarray", max_se
         see run_landtrendr's modifier docstring. Use -1.0 for loss (index-drop) detection,
         +1.0 (the default) for gain (index-rise) detection.
     """
-    from .landtrendr import run_landtrendr_batch
+    from ._landtrendr import run_landtrendr_batch
     import os as _os
 
     if n_jobs == -1:
@@ -216,139 +200,6 @@ def run_ccdc_image(input_path: str, output_dir: str, dates: "np.ndarray", num_ba
         dst_breaks.close()
             
     print(f"Successfully processed CCDC and saved break dates to {output_dir}")
-
-def run_landtrendr_image(input_path: str, output_dir: str, start_year: int = 2000, max_segments: int = 6,
-                            chunk_size: int = 512, n_jobs: int = -1, save_vertices: bool = False,
-                            event_type: str = "loss", sort_by: str = "greatest", min_mag: float = 0.0,
-                            min_dur: int = 1, pre_val_thresh: float = 0.0, prefix: str = "lt_event", pval_threshold: float = 0.05,
-                            output_scale_factor: float = 1.0,
-                            recovery_threshold: float = 0.25, prevent_fast_recovery: bool = True,
-                            spike_threshold: float = 0.9, best_model_proportion: float = 0.75,
-                            vertex_count_overshoot: int = 3, min_observations_needed: int = 6,
-                            no_data_value: float = 0.0, modifier: Optional[float] = None) -> None:
-    """
-    High-level function to process a full GeoTIFF file using LandTrendr with chunking to save RAM.
-
-    Segmentation is only run once per call, oriented by `modifier` (see run_landtrendr's
-    modifier docstring) -- since that orientation has to match the `event_type` being
-    extracted, `modifier` defaults to -1.0 (index-drop) for event_type="loss" and +1.0
-    (index-rise) for event_type="gain" unless explicitly overridden. A pipeline that wants
-    both loss and gain events for the same input should call this twice.
-    """
-    if modifier is None:
-        modifier = -1.0 if event_type.lower() == "loss" else 1.0
-
-    if not os.path.exists(input_path):
-        raise FileNotFoundError(f"Input file not found: {input_path}")
-        
-    os.makedirs(output_dir, exist_ok=True)
-    
-    with rasterio.open(input_path) as src:
-        num_years = src.count
-        years = np.arange(start_year, start_year + num_years)
-        profile = src.profile
-        height, width = src.height, src.width
-        
-        print(f"Image dimensions: {width}x{height} pixels, {num_years} bands/years")
-        
-        out_path = os.path.join(output_dir, "lt_vertices.tif")
-        p = profile.copy()
-        max_vertices = max_segments + 1
-        p.update(count=max_vertices * 2, dtype='float32', nodata=0, driver='GTiff')
-        
-        p_2d = profile.copy()
-        p_2d.update(count=1, driver='GTiff')
-        dtypes = {
-            "yod": "uint16", "magnitude": "float32", "duration": "uint16",
-            "pre_val": "float32", "post_val": "float32", "rate": "float32", "dsnr": "float32"
-        }
-        
-        dst_events = {}
-        for metric, dt in dtypes.items():
-            p_tmp = p_2d.copy()
-            p_tmp.update(dtype=dt)
-            if dt == 'uint16' and p_tmp.get('nodata') is not None and p_tmp['nodata'] < 0:
-                p_tmp['nodata'] = 0
-            dst_events[metric] = rasterio.open(os.path.join(output_dir, f"{prefix}_{metric}.tif"), 'w', **p_tmp)
-            
-        dst_vertices = rasterio.open(out_path, 'w', **p) if save_vertices else None
-        
-        print(f"Processing in chunks of {chunk_size}x{chunk_size}...")
-        
-        # Calcular total de chunks para a barra de progresso
-        rows_range = list(range(0, height, chunk_size))
-        cols_range = list(range(0, width, chunk_size))
-        total_chunks = len(rows_range) * len(cols_range)
-        
-        try:
-            from tqdm import tqdm
-            pbar = tqdm(total=total_chunks, desc="LandTrendr", unit="chunk")
-        except ImportError:
-            pbar = None
-            
-        for row in rows_range:
-            for col in cols_range:
-                window = Window(col, row, min(chunk_size, width - col), min(chunk_size, height - row))
-                if pbar is None:
-                    print(f"  Chunk: Row {row}-{row+window.height}, Col {col}-{col+window.width}")
-                
-                stack = src.read(window=window)
-                
-                vertices_stack, rmse_map = run_landtrendr_array(
-                    years, stack,
-                    max_segments=max_segments,
-                    pval_threshold=pval_threshold,
-                    n_jobs=n_jobs,
-                    recovery_threshold=recovery_threshold,
-                    prevent_fast_recovery=prevent_fast_recovery,
-                    spike_threshold=spike_threshold,
-                    best_model_proportion=best_model_proportion,
-                    vertex_count_overshoot=vertex_count_overshoot,
-                    min_observations_needed=min_observations_needed,
-                    no_data_value=no_data_value,
-                    return_rmse=True,
-                    modifier=modifier,
-                )
-
-                events = extract_events(
-                    vertices_stack,
-                    event_type=event_type,
-                    sort_by=sort_by,
-                    min_magnitude=min_mag,
-                    min_duration=min_dur,
-                    pre_val_threshold=pre_val_thresh,
-                    rmse_map=rmse_map,
-                )
-                
-                if output_scale_factor != 1.0:
-                    events['magnitude'] *= output_scale_factor
-                    events['pre_val'] *= output_scale_factor
-                    events['post_val'] *= output_scale_factor
-                    events['rate'] *= output_scale_factor
-                    
-                    if dst_vertices:
-                        max_vertices = max_segments + 1
-                        vertices_stack[max_vertices:, :, :] *= output_scale_factor
-
-                if dst_vertices:
-                    dst_vertices.write(vertices_stack.astype('float32'), window=window)
-                
-                for metric, data in events.items():
-                    dst_events[metric].write(data, 1, window=window)
-                    
-                if pbar is not None:
-                    pbar.update(1)
-                    
-        if pbar is not None:
-            pbar.close()
-            
-        if dst_vertices:
-            dst_vertices.close()
-        for f in dst_events.values():
-            f.close()
-
-    print(f"Successfully processed and saved layers to {output_dir}")
-
 
 # ---------------------------------------------------------
 # Shared chunked-image engine for per-pixel time-series tools (bfast family,

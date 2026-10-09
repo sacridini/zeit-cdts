@@ -130,7 +130,7 @@ Mask clouds, composite to a regular time step, smooth noise.
 
 Run change detection, trends, phenology or a classifier.
 
-`run_landtrendr_array` · `.zeit.run_ccdc`
+`landtrendr` · `.zeit.run_ccdc`
 </div>
 
 <div markdown>
@@ -145,19 +145,17 @@ Turn per-pixel output into maps and write GeoTIFF or Zarr.
 
 The same analysis in three styles. Pick the one that fits your data:
 
-=== "NumPy array"
+=== "Raster file"
 
     ```python
-    import numpy as np
     import zeit
 
-    stack = zeit.load_raster("ndvi_1985_2024.tif", start_year=1985)   # (time, y, x)
-    years = stack.time.dt.year.values
+    ndvi = zeit.load_raster("ndvi_1985_2024.tif", start_year=1985)   # (time, y, x), georeferenced
 
-    vertices = zeit.run_landtrendr_array(years, stack.values, modifier=-1.0)  # -1: look for drops
-    loss = zeit.extract_events(vertices, event_type="loss", min_magnitude=2000)
+    lt = zeit.landtrendr(ndvi)                            # looks for NDVI drops (direction="loss")
+    loss = zeit.extract_events(lt, min_magnitude=2000)    # greatest loss per pixel
 
-    zeit.save_raster(loss["yod"], "year_of_loss.tif", like=stack, nodata=0)
+    zeit.save_raster(loss, "lt_results")                  # one GeoTIFF per map: yod.tif, magnitude.tif, ...
     ```
 
 === "Xarray / Dask cube"

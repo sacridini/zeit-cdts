@@ -19,7 +19,7 @@ def test_landtrendr_memory_leak():
     iteracoes = 10
     print(f"Rodando LandTrendr C++ por {iteracoes} iterações...")
     for i in range(iteracoes):
-        _ = zeit.run_landtrendr_array(years, data, max_segments=6)
+        _ = zeit.raster.run_landtrendr_array(years, data, max_segments=6)
         gc.collect()  # Forçar o Garbage Collector do Python a rodar
         
     # 4. Tirar uma nova "foto" da memória e comparar

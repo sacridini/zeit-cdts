@@ -84,7 +84,7 @@ dtype=None, band_names=None, compress="deflate", driver=None)` devolve o `Path` 
 - Implementado em `zeit/_save.py`. O `get_georef` passou a pôr a origem no canto da
   célula (as coordenadas `x`/`y` são centros; antes ficava meio pixel deslocada).
 
-## Fase 3: `zeit.landtrendr` (0.29.0)
+## Fase 3: `zeit.landtrendr` — **Feito** (0.29.0)
 
 Uma função só: `zeit.landtrendr(data, *, years=None, direction="loss", max_segments=6,
 ... , band=None, chunks=None, n_jobs=-1)`.
@@ -105,6 +105,15 @@ Uma função só: `zeit.landtrendr(data, *, years=None, direction="loss", max_se
   `run_landtrendr_array` ficam como blocos internos; `run_landtrendr_image` e o
   accessor `run_landtrendr` são substituídos (`DataArray.zeit.landtrendr()` delega para a
   função nova). CLI, exemplos e docs passam a usar `zeit.landtrendr`.
+- `nodata="auto"`: o NoData do raster; em dados inteiros sem NoData, `0` (como o Earth
+  Engine exporta pixels mascarados; o stack de Rondônia tem 10 mil pixels com anos
+  zerados que virariam perdas falsas). `nodata=None` usa só NaN.
+- `extract_events` deixou de contar um segmento plano (magnitude 0) como evento, e o
+  numba passou a compilar uma vez por processo (antes, a cada chamada).
+- `save_raster` de um Dataset/dict grava todas as variáveis juntas, faixa a faixa: com
+  um resultado lazy, o LandTrendr roda uma vez só para todos os mapas.
+- Implementado em `zeit/_lt.py`; o resultado é idêntico ao do `run_landtrendr_array`
+  (testado pixel a pixel no stack de Rondônia).
 
 ## Fase 4: `zeit.ccdc` (0.30.0)
 
@@ -129,6 +138,8 @@ funções novas. Módulos `bfast.py` e `phenology.py` viram `_bfast.py` e `_phen
   exportar.
 - `examples/` atualizados; CLI usando as funções novas.
 - Lista de mudanças de API (o que saiu, o que substitui) na documentação.
+- `import zeit` rápido: hoje leva ~19 s, 16 deles no `zeit.ai` (torch + transformers).
+  Carregar o `zeit.ai` só quando for usado (`__getattr__` do módulo).
 
 ## Para depois
 

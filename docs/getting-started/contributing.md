@@ -47,7 +47,7 @@ mkdocs build        # link and anchor problems are reported as warnings
 
 ### API signatures
 
-Every entry in `docs/api/*.md` starts with a marker such as `<!-- sig: zeit.raster.run_landtrendr_array -->`. The signature block under it is generated from the code, and the parameter table is checked against it:
+Every entry in `docs/api/*.md` starts with a marker such as `<!-- sig: zeit.metrics.extract_events -->`. The signature block under it is generated from the code, and the parameter table is checked against it:
 
 ```bash
 python docs/scripts/sync_api.py           # regenerate signature blocks

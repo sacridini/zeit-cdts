@@ -7,7 +7,7 @@
 
 | Method | Input dims | Output | Parameters as in |
 | :--- | :--- | :--- | :--- |
-| `run_landtrendr` | `(time, y, x)` | `(vertex_info, y, x)` vertices | [`run_landtrendr_array`](change-detection.md#run_landtrendr_array) |
+| `landtrendr` | `(time, y, x)` | `xr.Dataset` of vertices | [`zeit.landtrendr`](change-detection.md#landtrendr) |
 | `run_ccdc` | `(band, time, y, x)` | `(segment, parameter, y, x)` | [`run_ccdc_array`](change-detection.md#run_ccdc_array) |
 | `run_bfast_monitor` | `(time, y, x)` | `(metric, y, x)` | [`run_bfast_monitor_dask`](change-detection.md#run_bfast_monitor_dask) |
 | `run_bfast_lite` | `(time, y, x)` | `(metric, y, x)` | [`run_bfast_lite_dask`](change-detection.md#run_bfast_lite_dask) |
@@ -21,24 +21,21 @@ Outputs with a `metric` dimension are labelled, so you can select by name: `resu
 
 ## Change detection
 
-### `run_landtrendr` { .api .meth }
+### `landtrendr` { .api .meth }
 
-<!-- sig: zeit.xarray_api.ZeitAccessor.run_landtrendr -->
+<!-- sig: zeit.xarray_api.ZeitAccessor.landtrendr -->
 ```python
-DataArray.zeit.run_landtrendr(
-    years, max_segments=6, pval_threshold=0.05, n_jobs=-1,
-)
+DataArray.zeit.landtrendr(**kwargs)
 ```
 
-LandTrendr vertices for every pixel. Returns `(vertex_info, y, x)`: vertex years, then fitted values.
+LandTrendr on this `(time, y, x)` cube: the same as [`zeit.landtrendr(cube, **kwargs)`](change-detection.md#landtrendr), with the same keyword arguments (`direction`, `max_segments`, `nodata`, `fitted`, …) and the same `xarray.Dataset` of vertices. The years come from the `time` coordinate. A dask-backed cube stays lazy and is computed block by block.
 
-!!! warning "No `modifier` here"
-    The accessor segments with the default orientation (`modifier=+1`, disturbance = index increase). For indices that **drop** with disturbance (NDVI, NBR), pass the negated index and extract `"gain"` events, which is equivalent to `modifier=-1`:
-
-    ```python
-    vertices = (-ndvi).zeit.run_landtrendr(years=years).compute()
-    loss = zeit.extract_events(vertices.values, event_type="gain", min_magnitude=0.2)
-    ```
+```python
+ndvi = ndvi.chunk({"time": -1, "y": 512, "x": 512})
+lt = ndvi.zeit.landtrendr(max_segments=6)                  # direction="loss": NDVI drops
+loss = zeit.extract_events(lt, min_magnitude=2000)         # still lazy
+zeit.save_raster(loss, "results/")                         # computed while written
+```
 
 ### `run_ccdc` { .api .meth }
 

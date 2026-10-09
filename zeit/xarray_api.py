@@ -2,7 +2,7 @@ import xarray as xr
 import dask.array as da
 import numpy as np
 from typing import Optional, Any
-from zeit.raster import run_ccdc_array, run_landtrendr_array
+from zeit.raster import run_ccdc_array
 
 @xr.register_dataarray_accessor("zeit")
 class ZeitAccessor:
@@ -61,48 +61,14 @@ class ZeitAccessor:
             }
         )
 
-    def run_landtrendr(self, years: np.ndarray, max_segments: int = 6, pval_threshold: float = 0.05, n_jobs: int = -1) -> xr.DataArray:
+    def landtrendr(self, **kwargs: Any) -> xr.Dataset:
         """
-        Runs LandTrendr on an xarray DataArray using Dask for out-of-core and parallel execution.
-        Assumes DataArray shape: (time, y, x).
-        
-        Strategy A: Dask handles cross-node distribution (map_blocks), OpenMP handles multi-core within the node (n_jobs=-1).
-        WARNING: If using n_jobs=-1, ensure Dask is configured to run with only 1 worker process per physical machine!
+        Runs LandTrendr on this (time, y, x) cube: the same as ``zeit.landtrendr(cube, **kwargs)``.
+        Dask-backed cubes stay lazy and are computed block by block (time in one chunk).
         """
-        arr = self._obj.data
-        time_steps, rows, cols = self._obj.shape
-        
-        max_vertices = max_segments + 1
-        
-        def _lt_block(block):
-            if block.size == 0:
-                return np.zeros((2 * max_vertices, block.shape[1], block.shape[2]), dtype=np.float32)
-            
-            return run_landtrendr_array(
-                years, block, 
-                max_segments=max_segments, 
-                pval_threshold=pval_threshold,
-                n_jobs=n_jobs
-            )
-            
-        out = da.map_blocks(
-            _lt_block,
-            arr,
-            dtype=np.float32,
-            drop_axis=[0], # remove time
-            new_axis=[0],  # adiciona os vertices
-            chunks=(2 * max_vertices, arr.chunks[1], arr.chunks[2])
-        )
-        
-        return xr.DataArray(
-            out,
-            dims=["vertex_info", "y", "x"],
-            coords={
-                "y": self._obj.coords.get("y"),
-                "x": self._obj.coords.get("x")
-            }
-        )
-        
+        from zeit._lt import landtrendr
+        return landtrendr(self._obj, **kwargs)
+
     def run_phenology(self, dates: np.ndarray, curve_type: int, extraction_method: int = 0, max_seasons: int = 2, whittaker_lambda: float = 10.0,
 apply_whittaker: bool = True, apply_hants: bool = False, hants_frequencies: int = 3, hants_threshold: float = 0.1, min_season_length: int = 0,
 min_amplitude: float = 0.0, min_pixel_amplitude: float = 0.1, return_annual: bool = True, base_year: int = 2001, n_jobs: int = -1,

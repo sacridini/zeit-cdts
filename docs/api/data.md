@@ -281,7 +281,7 @@ download_gee_timeseries(
 )
 ```
 
-Masked pixels are written as `-inf` (float outputs). Convert them to `NaN` before running LandTrendr, see the [worked example](../tutorials/gee-downloads.md#worked-example-a-full-landsat-tile-19852025-ready-for-landtrendr).
+Masked pixels are written as `-inf` (float outputs), the files' NoData value: `load_raster` reads them as `NaN`, which LandTrendr treats as a missing year. See the [worked example](../tutorials/gee-downloads.md#worked-example-a-full-landsat-tile-19852025-ready-for-landtrendr).
 
 ### `download_gee_image` { .api }
 
@@ -489,8 +489,8 @@ Writes a map, a stack or a result so that GIS software and `load_raster` read it
 ```python
 ndvi = zeit.load_raster("LT_Stack_NDVI_Rondonia.tif")
 zeit.save_raster(ndvi.sel(time="2020"), "ndvi_2020.tif")       # georeferencing from the cube
-zeit.save_raster(loss, "lt_rondonia")                          # dict of maps: one GeoTIFF each
-zeit.save_raster(loss["yod"], "year_of_loss.tif", like=ndvi, nodata=0)   # numpy map
+zeit.save_raster(loss, "lt_rondonia")                          # Dataset of maps: one GeoTIFF each
+zeit.save_raster(yod_array, "year_of_loss.tif", like=ndvi, nodata=0)     # numpy map
 ```
 
 ### `get_georef` { .api }

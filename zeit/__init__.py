@@ -1,6 +1,7 @@
-from .landtrendr import run_landtrendr, desawtooth, apply_vertices
+from ._landtrendr import desawtooth, apply_vertices
+from ._lt import landtrendr
 from .raster import (
-    run_landtrendr_array, run_landtrendr_image, run_ccdc_array, run_ccdc_image,
+    run_ccdc_array, run_ccdc_image,
     run_bfast_monitor_image, run_bfast_lite_image, run_bfast_image, run_mann_kendall_image,
 )
 from .metrics import extract_events
@@ -44,8 +45,7 @@ except ImportError:
     pass
 
 __all__ = [
-    "run_landtrendr", "desawtooth", "apply_vertices",
-    "run_landtrendr_array", "run_landtrendr_image",
+    "landtrendr", "desawtooth", "apply_vertices",
     "run_ccdc_array", "run_ccdc_image",
     "run_bfast_monitor_image", "run_bfast_lite_image", "run_bfast_image", "run_mann_kendall_image",
     "extract_events", "predict_synthetic_image",

@@ -92,44 +92,35 @@ cube_16d = regularize_time_series(cube, freq="16D", method="medoid")
 
 ## Change Detection (LandTrendr & CCDC)
 
-Continuous structural monitoring using robust breakpoint and harmonic regression models directly on xarray Datacubes via pandas-like accessors (`cube.zeit.run_...`).
+Continuous structural monitoring using robust breakpoint and harmonic regression models directly on xarray Datacubes (`zeit.landtrendr(cube)`, or pandas-like accessors such as `cube.zeit.run_ccdc(...)`).
 
 ### LandTrendr (Trajectory-based Disturbance)
-Identify structural breakpoints in time-series (e.g., detecting exactly when deforestation occurred). Zeit scales LandTrendr to massive datasets using C++ OpenMP and Dask `map_blocks`.
+Identify structural breakpoints in time-series (e.g., detecting exactly when deforestation occurred). One function, `zeit.landtrendr`, takes a raster file, an in-memory or Dask cube, a NumPy stack or a single pixel's series, and scales LandTrendr to massive datasets using C++ OpenMP and Dask.
 
 ```python
-import numpy as np
-from zeit.metrics import extract_events
+import zeit
 
-# 1. Prepare annual NBR data (Time, Y, X)
-years = np.array([2018, 2019, 2020, 2021, 2022, 2023])
+# 1. An annual index stack: one band per year (years read from band names such as yr1985)
+ndvi = zeit.load_raster("LT_Stack_NDVI_Rondonia.tif")   # georeferenced (time, y, x) cube
 
-# 2. Run LandTrendr across the entire Dask datacube natively
-lt_results = cube_nbr.zeit.run_landtrendr(
-    years=years, 
-    max_segments=4, 
-    pval_threshold=0.05, 
-    n_jobs=-1
-)
+# 2. Segment every pixel. direction="loss" (the default) looks for drops of the index
+#    (NDVI/NBR vegetation loss); use direction="gain" for indices that rise (e.g. SWIR).
+lt = zeit.landtrendr(ndvi, max_segments=6)
+# xarray.Dataset: vertex_year, vertex_value (vertex, y, x), n_vertices, rmse (y, x)
+# Dask cubes stay lazy; zeit.landtrendr("big.tif", chunks="auto") works block by block.
 
-# Trigger Dask computation (runs the C++ core in parallel)
-# Output shape is (2 * max_vertices, Y, X).
-lt_array = lt_results.compute()
-
-# 3. Analyze disturbances (e.g., finding the biggest drop in NBR)
-events = extract_events(
-    vertices_stack=lt_array, 
-    event_type="loss",      # Look for drops in the index (e.g., vegetation loss)
+# 3. Analyze disturbances (e.g., finding the biggest drop in NDVI)
+loss = zeit.extract_events(
+    lt,
     sort_by="greatest",     # Get the segment with the largest magnitude
-    min_magnitude=0.1       # Optional noise filter
+    min_magnitude=1500      # Optional noise filter (NDVI x 10000)
 )
 
-# You now have 2D maps ready to be exported to GeoTIFF!
-yod_map = events["yod"]         # Year of Disturbance (YOD)
-mag_map = events["magnitude"]   # Magnitude of the disturbance
-dur_map = events["duration"]    # How many years the disturbance took
-pre_map = events["pre_val"]     # Value before disturbance
-post_map = events["post_val"]   # Value after disturbance
+# Georeferenced maps, ready to be exported to GeoTIFF
+yod_map = loss["yod"]         # Year of Disturbance (YOD)
+mag_map = loss["magnitude"]   # Magnitude of the disturbance
+dur_map = loss["duration"]    # How many years the disturbance took
+zeit.save_raster(loss, "lt_rondonia")   # one GeoTIFF per map: yod.tif, magnitude.tif, ...
 ```
 
 ### CCDC / COLD (Harmonic Modeling)
@@ -402,7 +393,7 @@ save_raster(events, "output/loss")             # a dict/Dataset of maps: one Geo
 Every core algorithm is also available as a `zeit` subcommand, so you can run change detection directly on GeoTIFF stacks from bash scripts, cron jobs, or HPC batch systems without writing any Python:
 
 ```bash
-zeit landtrendr input_stack.tif output_dir/ --start-year 2000 --max-segments 6 --jobs -1
+zeit landtrendr input_stack.tif output_dir/ --max-segments 6 --jobs -1   # years from the band names, or --start-year
 ```
 
 See the [CLI reference](https://sacridini.github.io/zeit-cdts/cli/) for the full list of subcommands and options.

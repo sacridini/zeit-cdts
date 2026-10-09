@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
-from zeit import desawtooth, run_landtrendr
+from zeit import desawtooth
+from zeit._landtrendr import run_landtrendr
 from zeit.raster import run_landtrendr_array
 
 def test_desawtooth_removes_spike():
@@ -55,7 +56,7 @@ def test_run_landtrendr_array():
     assert np.all(output[:, 1, 1] == 0)
 
 def test_run_landtrendr_batch():
-    from zeit.landtrendr import run_landtrendr_batch
+    from zeit._landtrendr import run_landtrendr_batch
 
     # Same V as test_run_landtrendr_array, see its comment for why 15
     # observations, an explicit best_model_proportion, and a middle vertex at
@@ -190,7 +191,7 @@ def test_run_landtrendr_batch_partial_no_data_is_skipped_not_fitted():
     # `goods`), so a pixel with a few no-data years gets exactly the same
     # result as the single-pixel API given NaN for those years -- the -9999
     # itself must never be fitted as if it were a real observation.
-    from zeit.landtrendr import run_landtrendr_batch
+    from zeit._landtrendr import run_landtrendr_batch
 
     years = np.arange(1990, 2020)
     rng = np.random.default_rng(0)

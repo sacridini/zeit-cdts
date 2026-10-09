@@ -144,15 +144,11 @@ download_gee_timeseries(
 
 This is the complete path from "I have a WRS-2 path/row" to LandTrendr disturbance maps, all through `zeit`. It uses no Earth Engine objects in your code and needs no local satellite data.
 
-LandTrendr works on **one spectral index per year**. NBR is the standard choice for forest loss. The pipeline has three steps: download the annual composites as NBR, stack the years into one multi-band GeoTIFF, then run LandTrendr out-of-core.
+LandTrendr works on **one spectral index per year**. NBR is the standard choice for forest loss. The pipeline has three steps: download the annual composites as NBR, read the yearly files as one cube, then run LandTrendr out-of-core and write the event maps.
 
 ```python
-import numpy as np
-import rasterio
+import zeit
 from zeit.gee import download_gee_timeseries
-from zeit.raster import run_landtrendr_image
-
-years = range(1985, 2026)
 
 # 1. Annual harmonized Landsat 5/7/8/9 medoid composites -> NBR, one file per year
 download_gee_timeseries(
@@ -166,34 +162,19 @@ download_gee_timeseries(
 )
 # -> ./lt_rj/annual/landsat_medoid_1985.tif ... landsat_medoid_2025.tif
 
-# 2. Stack the years into one GeoTIFF (band 1 = 1985, ..., band 41 = 2025)
-files = [f"./lt_rj/annual/landsat_medoid_{y}.tif" for y in years]
-with rasterio.open(files[0]) as src:
-    profile = src.profile
-profile.update(count=len(files), dtype="float32", nodata=np.nan, BIGTIFF="IF_SAFER")
+# 2. The yearly files as one (time, y, x) cube: the years come from the file names,
+#    masked pixels (-inf) become NaN, and chunks= keeps it lazy (the tile is ~10 GB)
+nbr = zeit.load_raster("./lt_rj/annual", chunks="auto")
 
-with rasterio.open("./lt_rj/nbr_1985_2025.tif", "w", **profile) as dst:
-    for band, f in enumerate(files, start=1):
-        with rasterio.open(f) as src:
-            a = src.read(1)
-            a[~np.isfinite(a)] = np.nan    # masked in Earth Engine (-inf) -> NaN = no observation that year
-            dst.write(a, band)
-
-# 3. LandTrendr, chunked out-of-core and parallelized with OpenMP
-run_landtrendr_image(
-    input_path="./lt_rj/nbr_1985_2025.tif",
-    output_dir="./lt_rj/results",
-    start_year=1985,
-    event_type="loss",        # an NBR drop is a disturbance
-    max_segments=6,
-    no_data_value=-9999.0,    # don't keep the 0.0 default: NBR = 0 is a valid value
-    n_jobs=-1,
-)
+# 3. LandTrendr and the event maps, computed block by block while they are written
+lt = zeit.landtrendr(nbr, direction="loss", max_segments=6)   # an NBR drop is a disturbance
+loss = zeit.extract_events(lt)
+zeit.save_raster(loss, "./lt_rj/results")                     # yod.tif, magnitude.tif, ...
 ```
 
 !!! warning "Three details that matter for LandTrendr"
-    1. **`-inf` → `NaN`.** Downloaded GeoTIFFs mark masked pixels (clouds, no scene that year) with the nodata value `-inf`. The LandTrendr core treats `NaN` as a missing year but not `-inf`, so convert while stacking, as above.
-    2. **`no_data_value`.** `run_landtrendr_image` defaults to `0.0`, which would discard pixels whose NBR is exactly 0. Pass a value that can't occur, such as `-9999.0`.
+    1. **`-inf` → `NaN`.** Downloaded GeoTIFFs mark masked pixels (clouds, no scene that year) with the nodata value `-inf`. `load_raster` reads them as `NaN`, which LandTrendr treats as a missing year. If you read the files another way, convert them yourself.
+    2. **`nodata`.** For float data like this NBR, `zeit.landtrendr`'s default (`nodata="auto"`) treats only NaN and the raster's NoData as missing, so pixels whose NBR is exactly 0 are kept. For integer stacks without a NoData value, `0` is treated as missing; pass `nodata=None` if 0 is a valid value there.
     3. **2012 has gaps.** Landsat 5 stopped in November 2011 and Landsat 8 started in April 2013, so 2012 relies on Landsat 7 SLC-off alone and has striping gaps. LandTrendr tolerates missing years (`min_observations_needed=6` by default), so this is expected, not an error.
 
 **Resuming.** A download never leaves a partial file at its final path, so re-running the same call is safe. For fine-grained control, loop over the years yourself with `download_gee_image` and skip years whose file already exists. The composites come from `zeit.gee.composites.create_annual_medoid` on the collection from `zeit.gee.harmonization.get_harmonized_collection`.

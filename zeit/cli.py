@@ -3,36 +3,47 @@ import sys
 from typing import Optional, List
 
 from .raster import (
-    run_landtrendr_image, run_ccdc_image,
+    run_ccdc_image,
     run_bfast_monitor_image, run_bfast_lite_image, run_bfast_image, run_mann_kendall_image,
 )
 from .spatial import apply_mmu_filter
 
 def run_landtrendr(args: argparse.Namespace) -> None:
+    import xarray as xr
+    from ._load import load_raster
+    from ._lt import landtrendr
+    from ._save import save_raster
+    from .metrics import extract_events
+
     try:
-        run_landtrendr_image(
-            input_path=args.input,
-            output_dir=args.output_dir,
-            start_year=args.start_year,
+        # Lazy, block by block: the outputs are computed while they are written.
+        cube = load_raster(args.input, start_year=args.start_year,
+                           chunks={"time": -1, "y": args.chunk_size, "x": args.chunk_size})
+        lt = landtrendr(
+            cube,
+            direction=args.event_type,
             max_segments=args.max_segments,
-            chunk_size=args.chunk_size,
-            n_jobs=args.jobs,
-            save_vertices=args.save_vertices,
-            event_type=args.event_type,
-            sort_by=args.sort_by,
-            min_mag=args.min_mag,
-            min_dur=args.min_dur,
-            pre_val_thresh=args.pre_val_thresh,
-            prefix=args.prefix,
-            output_scale_factor=args.output_scale,
             recovery_threshold=args.recovery_threshold,
             prevent_fast_recovery=not args.allow_fast_recovery,
             spike_threshold=args.spike_threshold,
             best_model_proportion=args.best_model_proportion,
             vertex_count_overshoot=args.vertex_count_overshoot,
             min_observations_needed=args.min_observations_needed,
-            no_data_value=args.no_data_value,
+            nodata=args.no_data_value if args.no_data_value is not None else "auto",
+            n_jobs=args.jobs,
         )
+        events = extract_events(lt, event_type=args.event_type, sort_by=args.sort_by, min_magnitude=args.min_mag,
+                                min_duration=args.min_dur, pre_val_threshold=args.pre_val_thresh)
+        if args.output_scale != 1.0:
+            for name in ("magnitude", "pre_val", "post_val", "rate"):
+                events[name] = events[name] * args.output_scale
+        layers = {f"{args.prefix}_{name}": events[name] for name in events.data_vars}
+        if args.save_vertices:
+            values = lt.vertex_value * args.output_scale if args.output_scale != 1.0 else lt.vertex_value
+            layers["lt_vertices"] = xr.concat([lt.vertex_year.astype("float32"), values.fillna(0)], dim="vertex")
+        # One call: every output is computed in the same pass over the image.
+        save_raster(layers, args.output_dir, nodata=0)
+        print(f"Successfully processed and saved layers to {args.output_dir}")
     except Exception as e:
         print(f"Error running LandTrendr: {e}")
         sys.exit(1)
@@ -169,14 +180,14 @@ def main() -> None:
     lt_parser = subparsers.add_parser("landtrendr", help="Run LandTrendr algorithm")
     lt_parser.add_argument("input", help="Path to input multi-band GeoTIFF")
     lt_parser.add_argument("output_dir", help="Directory to save the outputs")
-    lt_parser.add_argument("--start-year", type=int, default=2000, help="Year of the first band (default: 2000)")
+    lt_parser.add_argument("--start-year", type=int, default=None, help="Year of the first band (default: read from the band descriptions, e.g. yr1985)")
     lt_parser.add_argument("--max-segments", type=int, default=6, help="Maximum number of segments (default: 6)")
     lt_parser.add_argument("--jobs", type=int, default=-1, help="Number of CPU cores to use (-1 for all, default: -1)")
     lt_parser.add_argument("--save-vertices", action="store_true", help="Save the raw vertices stack")
     lt_parser.add_argument("--chunk-size", type=int, default=512, help="Size of the image chunks to process at once (default: 512)")
     
     # Event Extraction options
-    lt_parser.add_argument("--event-type", choices=["loss", "gain"], default="loss", help="Event type to map (default: loss)")
+    lt_parser.add_argument("--event-type", choices=["loss", "gain"], default="loss", help="Event type to segment for and map (default: loss)")
     lt_parser.add_argument("--sort-by", choices=["greatest", "newest", "fastest", "longest", "dsnr"], default="greatest", help="How to select the event: dsnr is magnitude standardized by the fit's RMSE, LT-GEE's disturbance signal-to-noise ratio (default: greatest)")
     lt_parser.add_argument("--min-mag", type=float, default=0.0, help="Minimum magnitude filter")
     lt_parser.add_argument("--min-dur", type=int, default=1, help="Minimum duration filter")
@@ -189,7 +200,7 @@ def main() -> None:
     lt_parser.add_argument("--best-model-proportion", type=float, default=0.75, help="Prefer the most-vertex candidate model whose p-value is at most (2 - this) times the lowest p-value found, as in the original LandTrendr (default: 0.75, i.e. within 1.25x of the best)")
     lt_parser.add_argument("--vertex-count-overshoot", type=int, default=3, help="LT-GEE's vertexCountOvershoot: extra vertices allowed in the initial candidate pool beyond max_segments + 1, pruned back down before model selection (default: 3)")
     lt_parser.add_argument("--min-observations-needed", type=int, default=6, help="LT-GEE's minObservationsNeeded: below this many observations, skip fitting entirely and pass the raw trajectory through unsegmented (default: 6)")
-    lt_parser.add_argument("--no-data-value", type=float, default=0.0, help="Sentinel value marking a missing observation in the input stack (default: 0.0)")
+    lt_parser.add_argument("--no-data-value", type=float, default=None, help="Value marking a missing observation (default: the raster's NoData, or 0 for integer stacks without one)")
     
     # CCDC Subparser
     ccdc_parser = subparsers.add_parser("ccdc", help="Run CCDC algorithm")

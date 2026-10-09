@@ -54,32 +54,35 @@ print(stack.shape)   # (35, 120, 120) -> (time, rows, cols)
 [LandTrendr](../tutorials/landtrendr.md) simplifies each pixel's history into a few straight segments. The breakpoints between segments, called *vertices*, mark the moments when something changed.
 
 ```python
-vertices = zeit.run_landtrendr_array(years, stack, modifier=-1.0)
+lt = zeit.landtrendr(stack, years=years)
 ```
 
-That one call fits all 14,400 pixels in parallel, in C++. `modifier=-1.0` tells LandTrendr that the change we care about is a **drop** in the index (vegetation loss). Use the default `+1.0` for indices where disturbance makes the value go up.
+That one call fits all 14,400 pixels in parallel, in C++. A numpy array has no dates, so `years` gives the year of each layer. By default (`direction="loss"`) LandTrendr looks for **drops** in the index, i.e. vegetation loss on NDVI. Use `direction="gain"` for indices where disturbance makes the value go up.
+
+`lt` is an `xarray.Dataset`: the year and fitted value of each vertex (`vertex_year`, `vertex_value`), their number (`n_vertices`) and how well each fit follows its data (`rmse`).
 
 ## 4. Turn the fit into a map of events
 
 The vertices are compact but not yet a map. `extract_events` scans each pixel's segments and keeps the largest loss:
 
 ```python
-loss = zeit.extract_events(vertices, event_type="loss", min_magnitude=1500)
+loss = zeit.extract_events(lt, min_magnitude=1500)
 
 years_found, n_pixels = np.unique(loss["yod"], return_counts=True)
 print({int(y): int(n) for y, n in zip(years_found, n_pixels)})
 # {0: 10095, 1990: 2, 1997: 1, 1998: 1, 2001: 1, 2002: 2199, 2015: 2100, 2022: 1}
 ```
 
-`loss` is a dictionary of 2-D maps, all shaped `(rows, cols)`:
+`loss` is an `xarray.Dataset` of 2-D maps, all shaped `(rows, cols)`:
 
-| Key | Meaning |
+| Variable | Meaning |
 | :--- | :--- |
 | `yod` | Year of the vertex where the loss begins, i.e. the **last year before the drop**. `0` means no event. |
 | `magnitude` | How much the index fell (here in NDVI × 10,000). |
 | `duration` | How many years the fall took. `1` means abrupt. |
 | `pre_val`, `post_val` | Index value before and after the event. |
 | `rate` | `magnitude / duration`. |
+| `dsnr` | `magnitude` divided by the fit's RMSE: a signal-to-noise ratio. |
 
 So the output reads: about 2,200 pixels lost vegetation right after 2002, and about 2,100 right after 2015. Those are the two clearings (2003 and 2016). Only six pixels out of 14,400 were flagged by noise.
 
@@ -98,7 +101,7 @@ To plot it yourself:
 ```python
 import matplotlib.pyplot as plt
 
-yod = np.where(loss["yod"] > 0, loss["yod"] + 1, np.nan)   # first year of loss
+yod = (loss["yod"] + 1).where(loss["yod"] > 0)   # first year of loss
 plt.imshow(yod, cmap="plasma")
 plt.colorbar(label="First year of loss")
 plt.show()
@@ -109,16 +112,15 @@ plt.show()
 Swap the synthetic stack for a real one. Any GeoTIFF with one band per year works:
 
 ```python
-stack = zeit.load_raster("my_ndvi_1990_2024.tif", start_year=1990)   # (time, y, x)
-years = stack.time.dt.year.values
+ndvi = zeit.load_raster("my_ndvi_1990_2024.tif", start_year=1990)   # (time, y, x)
 
-vertices = zeit.run_landtrendr_array(years, stack.values.astype(np.float32), modifier=-1.0)
-loss = zeit.extract_events(vertices, event_type="loss", min_magnitude=1500)
+lt = zeit.landtrendr(ndvi)                       # years from the time coordinate
+loss = zeit.extract_events(lt, min_magnitude=1500)
 
-zeit.save_raster(loss["yod"], "year_of_loss.tif", like=stack, nodata=0)
+zeit.save_raster(loss, "lt_results")             # one GeoTIFF per map: yod.tif, magnitude.tif, ...
 ```
 
-`save_raster` writes a georeferenced, compressed GeoTIFF that opens directly in QGIS or ArcGIS.
+`start_year` is only needed when the file does not name its bands by year: a stack whose bands are described as `yr1990`, `yr1991`, … (like the LT-GEE export in the [LandTrendr tutorial](../tutorials/landtrendr.md)) is read without it. The cube carries its georeferencing, so the results do too: `save_raster` writes georeferenced, compressed GeoTIFFs that open directly in QGIS or ArcGIS.
 
 Don't have a stack yet? Build one from a cloud catalog with [`build_time_series`](../tutorials/stac-downloads.md), or from Google Earth Engine with [`download_gee_timeseries`](../tutorials/gee-downloads.md).
 

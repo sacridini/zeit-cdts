@@ -6,46 +6,83 @@
 
 Tutorial: [LandTrendr](../tutorials/landtrendr.md).
 
-### `run_landtrendr_array` { .api }
+### `landtrendr` { .api #landtrendr }
 
-<!-- sig: zeit.raster.run_landtrendr_array -->
+<!-- sig: zeit.landtrendr -->
 ```python
-zeit.raster.run_landtrendr_array(
-    years, raster_stack, max_segments=6, pval_threshold=0.05,
-    n_jobs=-1, recovery_threshold=0.25, prevent_fast_recovery=True,
-    spike_threshold=0.9, best_model_proportion=0.75,
-    vertex_count_overshoot=3, min_observations_needed=6,
-    no_data_value=0.0, return_rmse=False, modifier=1.0,
+zeit.landtrendr(
+    data, years=None, direction="loss", band=None, max_segments=6,
+    pval_threshold=0.05, recovery_threshold=0.25,
+    prevent_fast_recovery=True, spike_threshold=0.9,
+    best_model_proportion=0.75, vertex_count_overshoot=3,
+    min_observations_needed=6, nodata="auto", fitted=False,
+    chunks=None, n_jobs=-1,
 )
 ```
 
-Segments every pixel of an in-memory stack in parallel (C++ / OpenMP). Also exported as `zeit.run_landtrendr_array`.
+Segments annual time series with LandTrendr (Kennedy et al. 2010), every pixel in parallel in C++ / OpenMP. One function for every input: it reads what `data` is and returns the same `xarray.Dataset` of vertices, georeferenced when the input is. All parameters but `data` are keyword-only. It replaces `run_landtrendr`, `run_landtrendr_array`, `run_landtrendr_image` and `DataArray.zeit.run_landtrendr`; the accessor form is now [`DataArray.zeit.landtrendr`](xarray.md#landtrendr).
+
+`data` can be:
+
+| Input | Example | Where the years come from |
+| :--- | :--- | :--- |
+| A raster file, folder, glob or Zarr/NetCDF store: anything [`load_raster`](data.md#load_raster) reads | `"LT_Stack_NDVI_Rondonia.tif"` | The dates `load_raster` finds (band descriptions such as `yr1985`, file names, a `time` coordinate) |
+| A `(time, y, x)` cube, numpy- or dask-backed | the output of `load_raster` | Its `time` coordinate. A dask cube stays lazy. |
+| A `(time, band, y, x)` cube or a `Dataset` | `cube` with `band="NBR"` | Its `time` coordinate; `band` names the index |
+| A numpy array `(time, y, x)` | `stack` | `years=` |
+| One pixel's series: a list, 1-D array or `pandas.Series` | `[5200, 5100, 2100, ...]` | `years=`, or the Series' index of dates or years |
+
+LandTrendr needs one value per year: a series whose years repeat raises an error asking for annual composites first ([`build_annual_composites`](data.md#build_annual_composites), or `regularize_time_series(cube, freq="1YS")`).
 
 <div class="params" markdown>
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `years` | 1-D array | required | Year of each layer. |
-| `raster_stack` | `np.ndarray` | required | `(time, rows, cols)` index values. |
+| `data` | path, `DataArray`, `Dataset`, `ndarray`, list or `pd.Series` | required | What to segment (see the table above). |
+| `years` | 1-D array | `None` | Year of each time step. Only for numpy input and cubes without dates; otherwise taken from the `time` coordinate. |
+| `direction` | `str` | `"loss"` | The change to look for. `"loss"`: drops of the index, such as vegetation loss on NDVI, NBR, EVI or wetness. `"gain"`: rises, for indices that rise with disturbance (SWIR, brightness) or to map regrowth. Output values are always in the original scale. |
+| `band` | `str` or `int` | `None` | The index to segment in a `(time, band, y, x)` cube or a `Dataset` (band or variable name). |
 | `max_segments` | `int` | `6` | Maximum segments per pixel. |
 | `pval_threshold` | `float` | `0.05` | Maximum p-value of an accepted model. |
-| `n_jobs` | `int` | `-1` | Threads. `-1` uses all cores but one. |
 | `recovery_threshold` | `float` | `0.25` | Rejects recoveries faster than `1 / recovery_threshold` years. |
 | `prevent_fast_recovery` | `bool` | `True` | Kept for compatibility; has no effect (the recovery check always applies, as in the original). |
-| `spike_threshold` | `float` | `0.9` | Spike dampening (`desawtooth`). `1.0` disables it. |
+| `spike_threshold` | `float` | `0.9` | Spike dampening ([`desawtooth`](preprocessing.md#desawtooth)). `1.0` disables it. |
 | `best_model_proportion` | `float` | `0.75` | Prefer the model with more vertices whose p-value is at most `(2 - best_model_proportion)` times the best, as in the original. `0.75` accepts models within 1.25× of the best p-value. Values above `1` make the rule stricter than the best model itself, so most pixels end up as a flat line. |
 | `vertex_count_overshoot` | `int` | `3` | Extra candidate vertices before pruning. |
 | `min_observations_needed` | `int` | `6` | Pixels with fewer valid years are not segmented. |
-| `no_data_value` | `float` | `0.0` | Value treated as missing (NaN always is). |
-| `return_rmse` | `bool` | `False` | Also return each pixel's fit RMSE (for `dsnr` in `extract_events`). |
-| `modifier` | `float` | `1.0` | `-1.0` when disturbance makes the index **fall** (NDVI, NBR); `1.0` when it makes it rise. |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | Value marking a missing year, which is left out of the fit (NaN always is). `"auto"`: the raster's NoData value; for integer data without one, `0` (how Earth Engine exports masked pixels). A number: that value. `None`: only NaN. |
+| `fitted` | `bool` | `False` | Also return the fitted trajectory, `fitted (time, y, x)`: the series rebuilt from the vertices (LT-GEE's fitted values). |
+| `chunks` | `"auto"`, `dict` | `None` | Inputs read from disk: `None` reads the raster into memory; `"auto"` or a dict of chunk sizes keeps it lazy, so the result is computed block by block, for rasters larger than memory. |
+| `n_jobs` | `int` | `-1` | Threads. `-1` uses all cores but one. |
 
 </div>
 
-**Returns** `vertices`, a `(2 × (max_segments + 1), rows, cols)` float32 array: vertex years in the first half, fitted values in the second (`0` for unused slots). With `return_rmse=True`, returns `(vertices, rmse)`.
+**Returns** an `xarray.Dataset`:
+
+| Variable | Dims | Type | Meaning |
+| :--- | :--- | :--- | :--- |
+| `vertex_year` | `(vertex, y, x)` | int16 | Year of each vertex; `0` past the last one. |
+| `vertex_value` | `(vertex, y, x)` | float32 | Fitted value at each vertex; NaN past the last one. |
+| `n_vertices` | `(y, x)` | uint8 | Number of vertices (`0`: not segmented). |
+| `rmse` | `(y, x)` | float32 | RMSE of the fit: the noise estimate behind `dsnr` in `extract_events`. |
+| `fitted` | `(time, y, x)` | float32 | Only with `fitted=True`: the fitted trajectory. |
+
+The `x`/`y` coordinates and CRS of the input are kept, so the result goes straight to [`save_raster`](data.md#save_raster). `attrs` records the parameters, `direction` among them (the default `event_type` of `extract_events`). A single pixel's result has no `y`/`x` dims. With a dask cube or `chunks=`, the result is lazy.
 
 ```python
-vertices, rmse = zeit.run_landtrendr_array(years, stack, modifier=-1.0, return_rmse=True)
+ndvi = zeit.load_raster("LT_Stack_NDVI_Rondonia.tif")    # (time, y, x), bands yr1985 ... yr2024
+lt = zeit.landtrendr(ndvi)                                # looks for NDVI drops (direction="loss")
+loss = zeit.extract_events(lt, min_magnitude=1500)        # greatest loss per pixel
+zeit.save_raster(loss, "lt_rondonia")                     # one GeoTIFF per metric
+
+# A raster larger than memory: lazy, computed block by block while it is written
+lt = zeit.landtrendr("nbr_1985_2024.tif", chunks="auto")
+zeit.save_raster(zeit.extract_events(lt, min_magnitude=2000), "lt_nbr")
+
+# One pixel's series
+px = zeit.landtrendr([8100, 8000, 8200, 8050, 3100, 4200, 5300, 6100, 6800, 7300, 7500, 7600],
+                     years=range(2010, 2022))
+px.vertex_year.values      # array([2010, 2013, 2014, 2018, 2021, 0, 0], dtype=int16)
 ```
 
 ### `extract_events` { .api }
@@ -53,120 +90,55 @@ vertices, rmse = zeit.run_landtrendr_array(years, stack, modifier=-1.0, return_r
 <!-- sig: zeit.metrics.extract_events -->
 ```python
 zeit.metrics.extract_events(
-    vertices_stack, event_type="loss", sort_by="greatest",
-    min_magnitude=0.0, min_duration=1, pre_val_threshold=0.0,
-    rmse_map=None,
+    lt, event_type=None, sort_by="greatest", min_magnitude=0.0,
+    min_duration=1, pre_val_threshold=0.0, rmse_map=None,
 )
 ```
 
-Turns LandTrendr vertices into maps of one event per pixel. Also exported as `zeit.extract_events`.
+Turns LandTrendr's segments into maps of one event per pixel, such as the greatest loss. Also exported as `zeit.extract_events`.
 
 <div class="params" markdown>
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `vertices_stack` | `np.ndarray` | required | Output of `run_landtrendr_array` (or the computed accessor output). |
-| `event_type` | `str` | `"loss"` | `"loss"` (index fell) or `"gain"` (index rose). |
-| `sort_by` | `str` | `"greatest"` | Which event to keep: `"greatest"`, `"newest"`, `"fastest"`, `"longest"` or `"dsnr"` (needs `rmse_map`). |
-| `min_magnitude` | `float` | `0.0` | Ignore events smaller than this, in data units. |
+| `lt` | `xr.Dataset` | required | The result of [`landtrendr`](#landtrendr), in memory or dask. A numpy vertex stack `(2 × vertices, rows, cols)`, years in the first half and values in the second, is also accepted. |
+| `event_type` | `str` | `None` | `"loss"` (index fell) or `"gain"` (index rose). Default: the `direction` LandTrendr ran with (`"loss"` for a numpy stack). |
+| `sort_by` | `str` | `"greatest"` | Which event to keep: `"greatest"` (magnitude), `"newest"`, `"fastest"`, `"longest"` or `"dsnr"`. |
+| `min_magnitude` | `float` | `0.0` | Ignore events smaller than this, in data units. A flat segment (magnitude `0`) is never an event. |
 | `min_duration` | `int` | `1` | Ignore events shorter than this many years. |
 | `pre_val_threshold` | `float` | `0.0` | For losses, ignore events starting below this value (for gains, above). `0` disables. |
-| `rmse_map` | `np.ndarray` | `None` | `(rows, cols)` RMSE from `run_landtrendr_array(..., return_rmse=True)`. Adds the `dsnr` output. |
+| `rmse_map` | `np.ndarray` | `None` | Numpy stacks only: `(rows, cols)` RMSE of each pixel's fit, which adds the `dsnr` output. A LandTrendr Dataset brings its own (`rmse`). |
 
 </div>
 
-**Returns** a dict of `(rows, cols)` arrays: `yod` (year of the vertex where the event starts, i.e. the last year before it; `0` = none), `magnitude`, `duration`, `pre_val`, `post_val`, `rate`, and `dsnr` when `rmse_map` is given.
+**Returns** an `xarray.Dataset` on the same grid and CRS as `lt` (lazy if `lt` is), ready for `save_raster`:
+
+| Variable | Meaning |
+| :--- | :--- |
+| `yod` | Year of the vertex where the event starts, i.e. the last year before it (`0` = no event). The first year in which the change is visible is `yod + 1`. |
+| `magnitude` | Size of the change, in data units. |
+| `duration` | Years the change took. `1` is abrupt. |
+| `pre_val`, `post_val` | Fitted value before and after. |
+| `rate` | `magnitude / duration`. |
+| `dsnr` | Magnitude divided by the fit's RMSE (LT-GEE's disturbance signal-to-noise ratio). Values above 2–3 are rarely noise. |
+
+For a numpy vertex stack, a dict of `(rows, cols)` arrays with the same keys (`dsnr` only with `rmse_map`).
 
 ```python
-loss = zeit.extract_events(vertices, event_type="loss", min_magnitude=2000, rmse_map=rmse)
-first_year_of_loss = np.where(loss["yod"] > 0, loss["yod"] + 1, 0)
-```
-
-### `run_landtrendr_image` { .api }
-
-<!-- sig: zeit.raster.run_landtrendr_image -->
-```python
-zeit.raster.run_landtrendr_image(
-    input_path, output_dir, start_year=2000, max_segments=6,
-    chunk_size=512, n_jobs=-1, save_vertices=False, event_type="loss",
-    sort_by="greatest", min_mag=0.0, min_dur=1, pre_val_thresh=0.0,
-    prefix="lt_event", pval_threshold=0.05, output_scale_factor=1.0,
-    recovery_threshold=0.25, prevent_fast_recovery=True,
-    spike_threshold=0.9, best_model_proportion=0.75,
-    vertex_count_overshoot=3, min_observations_needed=6,
-    no_data_value=0.0, modifier=None,
-)
-```
-
-Runs LandTrendr and `extract_events` on a GeoTIFF (one band per year) block by block, so the file can be larger than memory. Writes `<prefix>_yod.tif`, `_magnitude`, `_duration`, `_pre_val`, `_post_val`, `_rate`, `_dsnr` and, optionally, `lt_vertices.tif`. Also exported as `zeit.run_landtrendr_image`; CLI: `zeit landtrendr`.
-
-<div class="params" markdown>
-
-| Parameter | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `input_path` | `str` | required | Input GeoTIFF, one band per year. |
-| `output_dir` | `str` | required | Output folder. |
-| `start_year` | `int` | `2000` | Year of the first band. |
-| `max_segments` | `int` | `6` | As in `run_landtrendr_array`. |
-| `chunk_size` | `int` | `512` | Block size in pixels. |
-| `n_jobs` | `int` | `-1` | Threads. |
-| `save_vertices` | `bool` | `False` | Also write the vertex stack. |
-| `event_type`, `sort_by` | `str` | `"loss"`, `"greatest"` | As in `extract_events`. |
-| `min_mag`, `min_dur`, `pre_val_thresh` | | `0.0`, `1`, `0.0` | `extract_events`' `min_magnitude`, `min_duration`, `pre_val_threshold`. |
-| `prefix` | `str` | `"lt_event"` | Output file prefix. |
-| `pval_threshold` | `float` | `0.05` | As in `run_landtrendr_array`. |
-| `output_scale_factor` | `float` | `1.0` | Multiplies value outputs, e.g. `0.0001` to write NDVI instead of NDVI × 10000. |
-| `recovery_threshold`, `prevent_fast_recovery`, `spike_threshold`, `best_model_proportion`, `vertex_count_overshoot`, `min_observations_needed`, `no_data_value` | | `0.25`, `True`, `0.9`, `0.75`, `3`, `6`, `0.0` | As in `run_landtrendr_array`. |
-| `modifier` | `float` | `None` | Defaults to `-1.0` for `event_type="loss"` and `1.0` for `"gain"`. |
-
-</div>
-
-```python
-zeit.run_landtrendr_image("ndvi_1985_2024.tif", "results/", start_year=1985, min_mag=2000)
-```
-
-### `run_landtrendr` { .api }
-
-<!-- sig: zeit.landtrendr.run_landtrendr -->
-```python
-zeit.landtrendr.run_landtrendr(
-    years, values, max_segments=6, pval_threshold=0.05,
-    recovery_threshold=0.25, prevent_fast_recovery=True,
-    spike_threshold=0.9, best_model_proportion=0.75,
-    vertex_count_overshoot=3, min_observations_needed=6, modifier=1.0,
-)
-```
-
-LandTrendr for a single series. Useful for exploring parameters and plotting. Also exported as `zeit.run_landtrendr`.
-
-<div class="params" markdown>
-
-| Parameter | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `years` | 1-D array | required | Years. |
-| `values` | 1-D array | required | Index values. `NaN` marks a missing year. |
-| `max_segments`, `pval_threshold`, `recovery_threshold`, `prevent_fast_recovery`, `spike_threshold`, `best_model_proportion`, `vertex_count_overshoot`, `min_observations_needed`, `modifier` | | `6`, `0.05`, `0.25`, `True`, `0.9`, `0.75`, `3`, `6`, `1.0` | As in `run_landtrendr_array`. |
-
-</div>
-
-**Returns** a list of vertices, `[{"year": 1985, "value": 7972.0}, ...]`.
-
-```python
-from zeit.landtrendr import run_landtrendr
-
-run_landtrendr(years, values, modifier=-1.0)
+lt = zeit.landtrendr(ndvi)
+loss = zeit.extract_events(lt, min_magnitude=2000)
+first_year_of_loss = (loss.yod + 1).where(loss.yod > 0)
+regrowth = zeit.extract_events(lt, event_type="gain", sort_by="newest")   # same fit, rises
 ```
 
 ### `apply_vertices` { .api }
 
-<!-- sig: zeit.landtrendr.apply_vertices -->
+<!-- sig: zeit.apply_vertices -->
 ```python
-zeit.landtrendr.apply_vertices(
-    vertex_years, other_band_years, other_band_values,
-)
+zeit.apply_vertices(vertex_years, other_band_years, other_band_values)
 ```
 
-"Fit to vertices": describes another band with the vertex years found on the primary index, by interpolating that band at those years. Also exported as `zeit.apply_vertices`.
+"Fit to vertices": describes another band with the vertex years found on the primary index, by interpolating that band at those years.
 
 <div class="params" markdown>
 
@@ -178,9 +150,12 @@ zeit.landtrendr.apply_vertices(
 
 </div>
 
+**Returns** a list of vertices, `[{"year": 1985, "value": ...}, ...]`.
+
 ```python
-vertices = run_landtrendr(years, nbr, modifier=-1.0)
-ftv = zeit.apply_vertices([v["year"] for v in vertices], years, swir1)
+px = zeit.landtrendr(nbr, years=years)                     # one pixel's NBR series
+vertex_years = px.vertex_year.values[: int(px.n_vertices)]
+ftv = zeit.apply_vertices(vertex_years, years, swir1)      # the same pixel's SWIR1
 ```
 
 ## CCDC

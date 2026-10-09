@@ -3,7 +3,7 @@
 <p class="lead">Every public function and class, with its signature, parameters and an example. Signatures on these pages are generated from the code, so they always match the installed version.</p>
 
 !!! tip "How to import"
-    `import zeit` gives you the most used functions at the top level (`zeit.run_landtrendr_array`, `zeit.save_raster`, …) and registers the `.zeit` xarray accessor. Everything else lives in submodules (`zeit.bfast`, `zeit.trend`, `zeit.ai`, …), shown in each signature.
+    `import zeit` gives you the most used functions at the top level (`zeit.landtrendr`, `zeit.save_raster`, …) and registers the `.zeit` xarray accessor. Everything else lives in submodules (`zeit.bfast`, `zeit.trend`, `zeit.ai`, …), shown in each signature.
 
 <div class="grid cards" markdown>
 
@@ -79,7 +79,7 @@
 | [`apply_savgol_filter`](preprocessing.md#apply_savgol_filter) | Savitzky-Golay smoothing |
 | [`desawtooth`](preprocessing.md#desawtooth) | LandTrendr spike removal |
 | **Change detection** | |
-| [`run_landtrendr_array`](change-detection.md#run_landtrendr_array) / [`run_landtrendr_image`](change-detection.md#run_landtrendr_image) / [`run_landtrendr`](change-detection.md#run_landtrendr) | LandTrendr: array, file, pixel |
+| [`landtrendr`](change-detection.md#landtrendr) | LandTrendr on a file, cube, array or single pixel |
 | [`extract_events`](change-detection.md#extract_events) | LandTrendr vertices to event maps |
 | [`apply_vertices`](change-detection.md#apply_vertices) | Fit another band to the same vertices |
 | [`run_ccdc_array`](change-detection.md#run_ccdc_array) / [`run_ccdc_image`](change-detection.md#run_ccdc_image) / [`run_ccdc`](change-detection.md#run_ccdc) | CCDC: array, file, pixel |

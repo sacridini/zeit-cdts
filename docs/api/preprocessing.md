@@ -131,12 +131,12 @@ smooth = zeit.apply_savgol_filter(ndvi, window_length=7, polyorder=2)
 
 ### `desawtooth` { .api }
 
-<!-- sig: zeit.landtrendr.desawtooth -->
+<!-- sig: zeit.desawtooth -->
 ```python
-zeit.landtrendr.desawtooth(values, stopat=0.9)
+zeit.desawtooth(values, stopat=0.9)
 ```
 
-LandTrendr's spike removal for a single series: one-year spikes (up or down) are dampened toward their neighbours. `run_landtrendr` and `run_landtrendr_array` already apply it internally through their `spike_threshold` parameter, so call this only to inspect or pre-process series yourself. Also exported as `zeit.desawtooth`.
+LandTrendr's spike removal for a single series: one-year spikes (up or down) are dampened toward their neighbours. [`landtrendr`](change-detection.md#landtrendr) already applies it internally through its `spike_threshold` parameter, so call this only to inspect or pre-process series yourself.
 
 <div class="params" markdown>
 
@@ -148,8 +148,6 @@ LandTrendr's spike removal for a single series: one-year spikes (up or down) are
 </div>
 
 ```python
-from zeit.landtrendr import desawtooth
-
-desawtooth(np.array([8000, 8100, 3000, 8050, 7900, 8000.0]))
+zeit.desawtooth(np.array([8000, 8100, 3000, 8050, 7900, 8000.0]))
 # array([8000., 8034.7, 8025.2, 8050., 7900., 8000.])
 ```

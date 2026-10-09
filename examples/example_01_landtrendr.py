@@ -2,30 +2,24 @@
 Example 01: LandTrendr End-to-End
 """
 import os
-import numpy as np
-from zeit import build_time_series, run_landtrendr_array, extract_events, save_raster
-from zeit.smooth import apply_savgol_filter
+from zeit import build_annual_composites, landtrendr, extract_events, save_raster
 
 if __name__ == '__main__':
     # Very small bounding box (0.01 degree) for ultra-fast execution
     bbox = [-55.01, -11.01, -55.00, -11.00]
-    print("Fetching STAC data...")
-    cube = build_time_series(bbox=bbox, start_date="2020-01-01", end_date="2022-12-31", source="earth_search", bands=['blue', 'green', 'red', 'nir', 'swir16', 'swir22'], resolution=30, epsg=3857, cloud_cover_max=15)
-
-    swir1 = cube.isel(band=4).compute().values
-    swir1 = np.nan_to_num(swir1)
-
-    print("Smoothing time series...")
-    swir1_smooth = apply_savgol_filter(swir1, window_length=5, polyorder=2, axis=0)
+    print("Building annual Landsat composites (one per year, as LandTrendr expects)...")
+    comp = build_annual_composites(source="planetary_computer", collection="landsat-c2-l2", bbox=bbox,
+                                   start_year=2000, end_year=2024, bands=["swir16"], resolution=30, epsg=3857)
+    swir1 = comp.sel(band="swir16")   # (time, y, x), dates on January 1st of each year
 
     print("Running LandTrendr...")
-    years = cube.time.dt.year.values
-    lt_vertices = run_landtrendr_array(years, swir1_smooth, max_segments=4, pval_threshold=0.05)
+    # SWIR1 rises when vegetation is cleared, so look for rises of the index.
+    lt = landtrendr(swir1, direction="gain", max_segments=4, pval_threshold=0.05)
 
     print("Extracting greatest disturbance...")
-    events = extract_events(lt_vertices, event_type="gain", sort_by="greatest")
+    events = extract_events(lt, sort_by="greatest")   # event_type follows direction ("gain")
 
-    out_tif = os.path.join("data", "lt_disturbance_year.tif")
-    save_raster(events['yod'], out_tif, like=cube, nodata=0)
+    out_dir = os.path.join("data", "lt_disturbance")
+    save_raster(events, out_dir)   # one GeoTIFF per metric: yod.tif, magnitude.tif, ...
 
-    print(f"Done! Output saved to {out_tif}")
+    print(f"Done! Outputs saved to {out_dir}")

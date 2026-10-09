@@ -114,8 +114,9 @@ def save_raster(
             stacked, names = _stack_layers(layers)
             return _write(stacked, path, band_names=band_names or names, **options)
         path.mkdir(parents=True, exist_ok=True)
-        for name, layer in layers.items():
-            _write(layer, path / f"{name}.tif", band_names=None, **options)
+        # Prepared first and written together, strip by strip: lazy maps that share a
+        # computation (e.g. every metric of extract_events) are computed once.
+        _run([_prepare(layer, path / f"{name}.tif", band_names=None, **options) for name, layer in layers.items()])
         return path
 
     if not path.suffix:
@@ -196,8 +197,21 @@ def _write_xarray(obj: Union[xr.DataArray, xr.Dataset], path: Path) -> Path:
 # One raster
 # ---------------------------------------------------------------------------
 
-def _write(data: Any, path: Path, *, like: Any, crs: Any, transform: Optional[Affine], nodata: Optional[float],
-           dtype: Any, band_names: Optional[Sequence[str]], compress: Optional[str], driver: Optional[str]) -> Path:
+class _Job:
+    """One raster to write: its (band, y, x) array and everything about the file."""
+
+    def __init__(self, array, path, target, profile, names, times, final_driver, compress):
+        self.array, self.path, self.target, self.profile = array, path, target, profile
+        self.names, self.times, self.final_driver, self.compress = names, times, final_driver, compress
+
+
+def _write(data: Any, path: Path, **options) -> Path:
+    _run([_prepare(data, path, **options)])
+    return path
+
+
+def _prepare(data: Any, path: Path, *, like: Any, crs: Any, transform: Optional[Affine], nodata: Optional[float],
+             dtype: Any, band_names: Optional[Sequence[str]], compress: Optional[str], driver: Optional[str]) -> _Job:
     da = data if isinstance(data, xr.DataArray) else None
     if da is not None:
         da = _spatial_last(da)
@@ -217,13 +231,15 @@ def _write(data: Any, path: Path, *, like: Any, crs: Any, transform: Optional[Af
     count, height, width = array.shape
     if names is not None and len(names) != count:
         raise ValueError(f"{len(names)} band names for {count} bands")
+    if times is not None and ndim != 3:
+        times = None
 
     crs_, transform_ = _georef(da, like, (height, width))
     crs_ = crs if crs is not None else crs_
     transform_ = transform if transform is not None else transform_
     if transform_ is None:
         warnings.warn(f"{path.name}: no georeferencing (pass like=, or crs= and transform=); "
-                      "the raster is written in pixel coordinates.", UserWarning, stacklevel=3)
+                      "the raster is written in pixel coordinates.", UserWarning, stacklevel=4)
 
     if nodata is None and da is not None:
         nodata = da.rio.encoded_nodata if da.rio.encoded_nodata is not None else da.rio.nodata
@@ -245,21 +261,54 @@ def _write(data: Any, path: Path, *, like: Any, crs: Any, transform: Optional[Af
         profile["nodata"] = nodata
     if drv == "GTiff":
         profile.update(_gtiff_options(out_dtype, compress, height, width))
+    return _Job(array, path, target, profile, names, times, final_driver, compress)
 
+
+def _run(jobs: List[_Job]) -> None:
+    """Write the rasters strip by strip; the lazy strips of every raster are computed
+    together, so the work they share is done once."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", rasterio.errors.NotGeoreferencedWarning)
-        with rasterio.open(target, "w", **profile) as dst:
-            for window, block in _blocks(array, height):
-                dst.write(_cast(block, out_dtype, nodata), window=window)
-            if names is not None:
-                for i, name in enumerate(names, start=1):
-                    dst.set_band_description(i, str(name))
-            if times is not None and ndim == 3:
-                dst.update_tags(**{TIME_TAG: json.dumps([t.isoformat() for t in times])})
-    if final_driver.upper() == "COG":
-        rasterio.shutil.copy(target, path, driver="COG", compress=compress or "NONE")
-        rasterio.shutil.delete(target)
-    return path
+        files = [rasterio.open(job.target, "w", **job.profile) for job in jobs]
+        try:
+            for window, blocks in _strips([job.array for job in jobs]):
+                for job, dst, block in zip(jobs, files, blocks):
+                    dst.write(_cast(block, job.profile["dtype"], job.profile.get("nodata")), window=window)
+            for job, dst in zip(jobs, files):
+                if job.names is not None:
+                    for i, name in enumerate(job.names, start=1):
+                        dst.set_band_description(i, str(name))
+                if job.times is not None:
+                    dst.update_tags(**{TIME_TAG: json.dumps([t.isoformat() for t in job.times])})
+        finally:
+            for dst in files:
+                dst.close()
+    for job in jobs:
+        if job.final_driver.upper() == "COG":
+            rasterio.shutil.copy(job.target, job.path, driver="COG", compress=job.compress or "NONE")
+            rasterio.shutil.delete(job.target)
+
+
+def _is_lazy(array: Any) -> bool:
+    return hasattr(array, "chunks") and hasattr(array, "compute") and array.chunks is not None
+
+
+def _strips(arrays: List[Any]):
+    """(window, blocks) pairs: whole arrays, or row strips of the lazy ones (computed in one go)."""
+    lazy = [a for a in arrays if _is_lazy(a)]
+    if not lazy:
+        yield None, [np.asarray(a) for a in arrays]
+        return
+    import dask
+
+    height, width = lazy[0].shape[-2:]
+    row = 0
+    for size in lazy[0].chunks[-2]:
+        parts = [a[..., row:row + size, :] for a in arrays]
+        computed = iter(dask.compute(*[p for p in parts if _is_lazy(p)]))
+        blocks = [next(computed) if _is_lazy(p) else np.asarray(p) for p in parts]
+        yield Window(0, row, width, size), blocks
+        row += size
 
 
 def _spatial_last(da: xr.DataArray) -> xr.DataArray:
@@ -395,8 +444,9 @@ def _out_dtype(array: Any, dtype: Any, nodata: Optional[float]) -> Tuple[str, Op
 def _has_nan(array: Any) -> bool:
     if np.dtype(array.dtype).kind != "f":
         return False
-    found = np.isnan(array).any()
-    return bool(found.compute() if hasattr(found, "compute") else found)
+    if _is_lazy(array):
+        return True  # not computed just to look: NaN as NoData is harmless when there is none
+    return bool(np.isnan(array).any())
 
 
 def _cast(block: np.ndarray, dtype: str, nodata: Optional[float]) -> np.ndarray:
@@ -404,15 +454,3 @@ def _cast(block: np.ndarray, dtype: str, nodata: Optional[float]) -> np.ndarray:
     if block.dtype.kind == "f" and nodata is not None and not np.isnan(nodata):
         block = np.where(np.isnan(block), nodata, block)
     return block.astype(dtype, copy=False)
-
-
-def _blocks(array: Any, height: int):
-    """(window, block) pairs: the whole array, or row strips of a dask array."""
-    if not hasattr(array, "chunks") or not hasattr(array, "compute") or array.chunks is None:
-        yield None, np.asarray(array)
-        return
-    row = 0
-    for size in array.chunks[-2]:
-        strip = array[..., row:row + size, :].compute()
-        yield Window(0, row, array.shape[-1], size), strip
-        row += size

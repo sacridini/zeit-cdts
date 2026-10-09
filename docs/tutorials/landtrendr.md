@@ -46,35 +46,35 @@ Store it as a GeoTIFF with one band per year. [Google Earth Engine](gee-download
 import numpy as np
 import zeit
 
-stack, profile = zeit.io.load_raster("ndvi_1985_2024.tif", raster_check="landtrendr")
-years = np.arange(1985, 1985 + stack.shape[0])
+ndvi = zeit.load_raster("LT_Stack_NDVI_Rondonia.tif", validate="landtrendr")
+years = ndvi.time.dt.year.values      # 1985 ... 2024, from the band names yr1985 ... yr2024
 
-print(stack.shape)   # (40, 1671, 1686) -> (years, rows, cols)
+print(ndvi.dims, ndvi.shape)          # ('time', 'y', 'x') (40, 1671, 1686)
 ```
 
-`raster_check="landtrendr"` warns you if the stack looks wrong, for example too few years.
+`load_raster` returns a georeferenced cube with the year of each band in its `time` coordinate, so the steps below need neither the years nor the CRS again. `validate="landtrendr"` warns you if the stack looks wrong, for example too few years. A stack whose bands are not named by year is read with `start_year=1985`.
 
 ### 2. Segment every pixel
 
 ```python
-vertices, rmse = zeit.run_landtrendr_array(
-    years,
-    stack.astype(np.float32),
+lt = zeit.landtrendr(
+    ndvi,
+    direction="loss",    # we are looking for DROPS in NDVI (the default)
     max_segments=6,      # at most 6 segments, 7 vertices
-    modifier=-1.0,       # we are looking for DROPS in NDVI
-    return_rmse=True,    # also return each pixel's fit error
 )
 ```
 
-!!! warning "Set `modifier` to match your index"
-    LandTrendr's rules are asymmetric: it treats sudden changes in one direction as disturbance and in the other as recovery. Use **`modifier=-1.0`** when disturbance makes your index **fall** (NDVI, NBR, EVI, wetness) and the default **`+1.0`** when it makes the index **rise** (SWIR bands, brightness). With the wrong orientation, about three quarters of the pixels in this tutorial's Rondônia data get different vertex years.
+!!! warning "Set `direction` to match your index"
+    LandTrendr's rules are asymmetric: it treats sudden changes in one direction as disturbance and in the other as recovery. Use **`direction="loss"`** (the default) when disturbance makes your index **fall** (NDVI, NBR, EVI, wetness) and **`direction="gain"`** when it makes the index **rise** (SWIR bands, brightness). With the wrong orientation, about three quarters of the pixels in this tutorial's Rondônia data get different vertex years. Either way, the results stay in the original scale of your data: there is no need to flip the index, as LT-GEE does.
 
-The result is a `(14, rows, cols)` array. With `max_segments=6` there are up to 7 vertices:
+Years without an observation are left out of each pixel's fit: NaN, the raster's NoData value and, for integer stacks without one such as this Int16 NDVI, `0`, which is how Earth Engine exports masked pixels (see `nodata` below).
 
-- bands `0–6` hold the vertex **years** (`0` for unused slots);
-- bands `7–13` hold the fitted **values** at those years.
+The result `lt` is an `xarray.Dataset` on the same grid and CRS as `ndvi`. With `max_segments=6` each pixel has up to 7 vertices:
 
-`rmse` is a `(rows, cols)` map of how well each fit follows its data. It is used below to separate real events from noise.
+- `vertex_year (vertex, y, x)`: the vertex **years** (`0` past the pixel's last vertex);
+- `vertex_value (vertex, y, x)`: the fitted **values** at those years (NaN past the last vertex);
+- `n_vertices (y, x)`: the number of vertices;
+- `rmse (y, x)`: how well each fit follows its data. It is used below to separate real events from noise.
 
 ### 3. Extract disturbance maps
 
@@ -82,17 +82,17 @@ The result is a `(14, rows, cols)` array. With `max_segments=6` there are up to 
 
 ```python
 loss = zeit.extract_events(
-    vertices,
-    event_type="loss",      # "loss" (index fell) or "gain" (index rose)
+    lt,                     # event_type defaults to the direction LandTrendr ran with: "loss"
     sort_by="greatest",     # which event to keep if there are several
     min_magnitude=2000,     # ignore drops smaller than 0.2 NDVI (data is x10000)
     min_duration=1,
-    rmse_map=rmse,          # enables the "dsnr" output below
 )
 
-loss.keys()
-# dict_keys(['yod', 'magnitude', 'duration', 'pre_val', 'post_val', 'rate', 'dsnr'])
+list(loss.data_vars)
+# ['yod', 'magnitude', 'duration', 'pre_val', 'post_val', 'rate', 'dsnr']
 ```
+
+`loss` is an `xarray.Dataset` of `(y, x)` maps, georeferenced like `ndvi`:
 
 | Map | Meaning |
 | :--- | :--- |
@@ -103,24 +103,23 @@ loss.keys()
 | `rate` | `magnitude / duration`. |
 | `dsnr` | Magnitude divided by the fit's RMSE: a signal-to-noise ratio. Values above 2–3 are rarely noise. |
 
-`sort_by` chooses among several losses in the same pixel: `"greatest"` (largest magnitude), `"newest"`, `"fastest"`, `"longest"`, or `"dsnr"`.
+`sort_by` chooses among several losses in the same pixel: `"greatest"` (largest magnitude), `"newest"`, `"fastest"`, `"longest"`, or `"dsnr"`. Regrowth comes from the same fit with `event_type="gain"`.
 
 ### 4. Clean up and save
 
-Keep confident events, then write GeoTIFFs:
+Keep confident events, then write GeoTIFFs. The maps carry their georeferencing, so `save_raster` needs nothing else:
 
 ```python
 # yod == years[0] means the loss segment starts at the first year. On noisy
 # NDVI that is usually a slow decline over the whole record, not a dated event.
-confident = (loss["yod"] > years[0]) & (loss["dsnr"] >= 3)
-first_year = np.where(confident, loss["yod"] + 1, 0).astype("uint16")
+confident = (loss.yod > years[0]) & (loss.dsnr >= 3)
+first_year = (loss.yod + 1).where(confident, 0).astype("uint16")
 
-zeit.save_raster(first_year, "results/loss_year.tif",
-                 crs=profile["crs"], transform=profile["transform"], nodata=0)
-zeit.save_raster(np.where(confident, loss["magnitude"], 0).astype("float32"),
-                 "results/loss_magnitude.tif",
-                 crs=profile["crs"], transform=profile["transform"], nodata=0)
+zeit.save_raster(first_year, "results/loss_year.tif", nodata=0)
+zeit.save_raster(loss.magnitude.where(confident, 0), "results/loss_magnitude.tif", nodata=0)
 ```
+
+To write every map as it is, one GeoTIFF each (`yod.tif`, `magnitude.tif`, …), pass the whole Dataset: `zeit.save_raster(loss, "results/loss")`.
 
 Isolated single pixels are usually noise. A **minimum mapping unit** filter removes patches smaller than a given size:
 
@@ -132,46 +131,44 @@ The map at the top of this page uses exactly these steps: no event starting in t
 
 ### 5. Inspect individual pixels
 
-Plotting a few pixels is the best way to check your parameters:
+Plotting a few pixels is the best way to check your parameters. `zeit.landtrendr` also takes a single pixel's series, and `fitted=True` adds the fitted trajectory (the series rebuilt from the vertices):
 
 ```python
 import matplotlib.pyplot as plt
 
 row, col = 1471, 819   # the "clear-cut, then pasture" pixel shown above
-n_v = vertices.shape[0] // 2
-v_years, v_values = vertices[:n_v, row, col], vertices[n_v:, row, col]
-used = v_years > 0
+pixel = ndvi[:, row, col]                      # one series, with its dates
+fit = zeit.landtrendr(pixel, fitted=True)
+n = int(fit.n_vertices)
 
-plt.scatter(years, stack[:, row, col], color="grey", label="Observed")
-plt.plot(v_years[used], v_values[used], "o-", label="LandTrendr fit")
+plt.scatter(years, pixel, color="grey", label="Observed")
+plt.plot(years, fit.fitted, label="LandTrendr fit")
+plt.plot(fit.vertex_year[:n], fit.vertex_value[:n], "o", label="Vertices")
 plt.legend()
 plt.show()
 ```
 
-For a single series you can also call the pixel-level function directly. It returns the vertices as a list of dicts:
+A single pixel's result has the same variables, without the `y`/`x` dims:
 
 ```python
-from zeit.landtrendr import run_landtrendr
-
-run_landtrendr(years, stack[:, row, col], modifier=-1.0)
-# values rounded for display:
-# [{'year': 1985, 'value': 7972}, {'year': 2002, 'value': 8018}, {'year': 2003, 'value': 3333},
-#  {'year': 2007, 'value': 3734}, {'year': 2008, 'value': 4670}, {'year': 2019, 'value': 2903},
-#  {'year': 2024, 'value': 4230}]
+fit.vertex_year.values
+# array([1985, 2002, 2003, 2007, 2008, 2019, 2024], dtype=int16)
+fit.vertex_value.values.round()
+# array([7972., 8018., 3333., 3734., 4670., 2903., 4230.], dtype=float32)
 ```
+
+Any series works the same way: a list or 1-D array with `years=` (`zeit.landtrendr(values, years=years)`), or a `pandas.Series` indexed by dates or years. The same vertices are also in the full result, `lt.isel(y=row, x=col)`, and `zeit.landtrendr(ndvi, fitted=True)` adds the fitted trajectory of every pixel as `fitted (time, y, x)`.
 
 ### 6. Fit other bands to the same vertices
 
 A classic LandTrendr trick is to segment on one index (say NBR) and then describe the same periods with other bands. This is known as *fitting to vertices* (FTV). `apply_vertices` does this per pixel:
 
 ```python
-from zeit.landtrendr import apply_vertices
-
 # Vertex years found on the primary index for this pixel (step 5)...
-vertex_years = v_years[used]
+vertex_years = fit.vertex_year.values[:n]
 
 # ...applied to another band of the same pixel, e.g. SWIR1 from a second stack
-ftv_swir = apply_vertices(vertex_years, years, swir_stack[:, row, col])
+ftv_swir = zeit.apply_vertices(vertex_years, years, swir1[:, row, col].values)
 # [{'year': 1985, 'value': ...}, {'year': 2002, 'value': ...}, ...]
 ```
 
@@ -187,40 +184,32 @@ The defaults follow the original LandTrendr and work well for 25–40 years of L
 | `pval_threshold` | `0.05` | A model must be at least this significant. Lower values give simpler fits. |
 | `best_model_proportion` | `0.75` | Prefers models with more vertices whose p-value is at most `(2 - best_model_proportion)` times the best one, so `0.75` means within 1.25×. |
 | `min_observations_needed` | `6` | Pixels with fewer valid years are left unsegmented. |
-| `no_data_value` | `0.0` | Values treated as missing (NaN is always missing). |
+| `nodata` | `"auto"` | Value marking a missing year. `"auto"`: the raster's NoData, or `0` for integer data without one. `None`: only NaN, which is always missing. |
 
 ## Processing large areas
 
-**GeoTIFFs larger than memory.** `run_landtrendr_image` reads the file in blocks, runs the steps above on each block, and writes one GeoTIFF per output map. The orientation (`modifier`) is chosen automatically from `event_type`:
+**Rasters larger than memory.** Pass the file with `chunks="auto"`: nothing is read until the results are written, and then the raster is read, segmented and written block by block:
 
 ```python
-zeit.run_landtrendr_image(
-    "ndvi_1985_2024.tif", "results/",
-    start_year=1985,
-    event_type="loss",
-    min_mag=2000,
-    chunk_size=512,
-)
-# results/lt_event_yod.tif, lt_event_magnitude.tif, lt_event_duration.tif, ...
+lt = zeit.landtrendr("LT_Stack_NDVI_Rondonia.tif", chunks="auto")   # lazy
+loss = zeit.extract_events(lt, min_magnitude=2000)                    # still lazy
+zeit.save_raster(loss, "results/")
+# results/yod.tif, magnitude.tif, duration.tif, ...
 ```
 
 The same is available from the shell as [`zeit landtrendr`](../cli.md#1-landtrendr-landtrendr).
 
-**Dask cubes and clusters.** For lazy xarray cubes (for example from STAC or Zarr) use the `.zeit` accessor. Keep the time axis in one chunk:
+**Dask cubes and clusters.** Lazy xarray cubes (for example from STAC or Zarr) go straight in, and stay lazy. Keep the time axis in one chunk:
 
 ```python
-import zeit
+annual = annual_ndvi.chunk({"time": -1, "y": 512, "x": 512})   # (time, y, x), one date per year
 
-annual = annual_ndvi.chunk({"time": -1, "y": 512, "x": 512})   # (time, y, x)
-
-# The accessor runs with the default modifier (+1), so flip the index
-# to make a vegetation loss look like a rise, then ask for "gain" events.
-vertices = (-annual).zeit.run_landtrendr(years=years, max_segments=6).compute()
-loss = zeit.extract_events(vertices.values, event_type="gain", min_magnitude=0.2)
-# loss["pre_val"] and loss["post_val"] are negated NDVI here; flip them back if needed.
+lt = zeit.landtrendr(annual, max_segments=6)     # or annual.zeit.landtrendr(max_segments=6)
+loss = zeit.extract_events(lt, min_magnitude=0.2)
+zeit.save_raster(loss, "results/")               # computed chunk by chunk while written
 ```
 
-Negating the index is the traditional LandTrendr convention and gives exactly the same vertices as `modifier=-1.0`. See [Parallel & Cloud Processing](parallel-cloud-processing.md) to run this on a cluster.
+See [Parallel & Cloud Processing](parallel-cloud-processing.md) to run this on a cluster.
 
 ## Good practice
 
