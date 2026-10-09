@@ -55,6 +55,8 @@ def load_raster(
     date_format: Optional[str] = None,
     recursive: bool = False,
     like: Any = None,
+    crs: Any = None,
+    res: Any = None,
     resampling: str = "auto",
     validate: Optional[str] = None,
 ) -> xr.DataArray:
@@ -111,8 +113,17 @@ def load_raster(
         only in the window the grid sees, and a lazy cube stays lazy. Folders of
         rasters on different grids are put on it file by file. With a numpy array:
         a raster on the same grid, whose coordinates and CRS georeference the array.
+    crs
+        Without a reference raster: the CRS to reproject to (``"EPSG:4326"``, ``32722``,
+        WKT or a ``pyproj``/rasterio CRS), as ``gdalwarp -t_srs`` does. The extent is the
+        one that covers the data in that CRS (all the files of a folder), and the
+        resolution GDAL's suggestion for it unless ``res`` is given.
+    res
+        Without a reference raster: the cell size, a number or ``(x, y)``, in the units of
+        ``crs`` (or of the data's CRS), as ``gdalwarp -tr``: cells laid from the top-left
+        corner of the extent. Use ``like`` to line up with an existing grid.
     resampling
-        With ``like``: ``"auto"`` (default) takes the nearest cell for integer rasters
+        With ``like``, ``crs`` or ``res``: ``"auto"`` (default) takes the nearest cell for integer rasters
         (classes, QA flags, indices scaled to integers keep values that were observed)
         and interpolates floats bilinearly; QA bands (``qa``, ``fmask``, ``scl``...)
         always take the nearest cell. Or a GDAL method: ``"nearest"``, ``"bilinear"``,
@@ -150,6 +161,11 @@ def load_raster(
     >>> landsat = zeit.load_raster("landsat_ndvi.tif", like=s2)
     >>> bool((landsat.x == s2.x).all())
     True
+
+    In another CRS or at another resolution, without a reference raster:
+
+    >>> albers = zeit.load_raster("ndvi_stack.tif", crs="EPSG:5880", res=30)
+    >>> coarse = zeit.load_raster("ndvi_stack.tif", res=250, resampling="average")
     """
     if masked not in ("auto", True, False):
         raise ValueError(f"masked must be 'auto', True or False, got {masked!r}")
@@ -162,6 +178,12 @@ def load_raster(
         raise ValueError(f"unknown resampling {resampling!r}; use 'auto' or one of {', '.join(RESAMPLING_NAMES)}")
     is_array = isinstance(source, np.ndarray) or (hasattr(source, "dask")
                                                   and not isinstance(source, (xr.DataArray, xr.Dataset)))
+    target = crs is not None or res is not None
+    if target and like is not None:
+        raise ValueError("give like= or crs=/res=, not both: like= already sets the CRS and the cells")
+    if target and is_array:
+        raise ValueError("crs=/res= need a georeferenced source; a numpy array has no grid "
+                         "(georeference it with like= first)")
     grid = grid_of(like) if like is not None and not is_array else None
 
     if is_array:
@@ -175,12 +197,16 @@ def load_raster(
             da = _open_one(files[0], band=band, chunks=chunks, date_format=date_format)
         else:
             da = _open_many(files, band=band, chunks=chunks, pattern=pattern, date_format=date_format,
-                            dates=dates, start_year=start_year, grid=grid, resampling=resampling)
+                            dates=dates, start_year=start_year, grid=grid, resampling=resampling,
+                            target=(crs, res) if target else None)
+            target = False  # already on the grid: the folder's extent is that of all its files
         band = None
 
     if band is not None and "band" in da.dims:
         da = da.sel(band=band)
     da = _normalize(da, dates=dates, start_year=start_year)
+    if target:
+        grid = _target_grid(da, crs, res)
     if grid is not None:
         from ._warp import to_grid
         da = to_grid(da, grid, resampling)
@@ -318,7 +344,7 @@ def _sidecar_dates(path: str, count: int) -> Optional[pd.DatetimeIndex]:
 
 def _open_many(files: List[str], *, band: Any, chunks: Any, pattern: Optional[str],
                date_format: Optional[str], dates: Any, start_year: Optional[int], grid: Any = None,
-               resampling: str = "auto") -> xr.DataArray:
+               resampling: str = "auto", target: Optional[Tuple[Any, Any]] = None) -> xr.DataArray:
     import re
 
     regex = re.compile(pattern) if pattern else None
@@ -350,6 +376,13 @@ def _open_many(files: List[str], *, band: Any, chunks: Any, pattern: Optional[st
                          + "; pass pattern= with a (?P<date>...) group, or dates=/start_year=")
     if explicit:
         records = [(p, None, s) for p, _, s in records]  # dates come from the arguments, in file order
+    if target is not None:  # crs=/res=: a grid that covers every file
+        from ._warp import suggested_grid
+        headers = []
+        for path, _, _ in records:
+            with rasterio.open(path) as src:
+                headers.append((src.transform, (src.height, src.width), src.crs))
+        grid = suggested_grid(headers, *target)
 
     layers = []
     reference = None
@@ -432,6 +465,15 @@ def grid_of(like: Any):
         raise ValueError("like=: rotated grids are not supported")
     return Grid(t, (ref.sizes["y"], ref.sizes["x"]), CRS.from_user_input(ref.rio.crs), ref["x"].values,
                 ref["y"].values)
+
+
+def _target_grid(da: xr.DataArray, crs: Any, res: Any):
+    """The grid of ``load_raster(..., crs=, res=)`` for a cube (``_warp.suggested_grid``)."""
+    from ._warp import suggested_grid, transform_of
+
+    if "y" not in da.dims or "x" not in da.dims:
+        raise ValueError("crs=/res=: the data needs y and x dimensions")
+    return suggested_grid([(transform_of(da), (da.sizes["y"], da.sizes["x"]), da.rio.crs)], crs, res)
 
 
 def _from_xarray(obj: Union[xr.DataArray, xr.Dataset], band: Any) -> xr.DataArray:

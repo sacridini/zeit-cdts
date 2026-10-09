@@ -702,6 +702,59 @@ def _task_size(data) -> int:
     return _BLOCK * min(4, max(1, round(side / _BLOCK)))
 
 
+# --- a grid for a CRS and a resolution ------------------------------------------------
+
+
+def suggested_grid(sources, crs: Any = None, res: Any = None) -> Grid:
+    """The grid gdalwarp makes for ``sources`` (``(transform, (height, width), crs)`` each)
+    with ``-t_srs crs -tr res``: the extent that covers all of them in ``crs`` (GDAL's
+    suggested output of each), cells of ``res`` (a number or ``(x, y)``) from its top-left
+    corner, or GDAL's suggested resolution, the finest of the sources'. Without ``crs`` the
+    sources' own; one source in its own CRS and resolution keeps its grid as it is."""
+    from rasterio.transform import Affine, array_bounds
+    from rasterio.warp import calculate_default_transform
+
+    if not sources:
+        raise ValueError("crs=/res=: no raster to take the extent from")
+    if crs is None and any(s[2] is None for s in sources):
+        raise ValueError("res=: the data has no CRS; pass crs= as well")
+    if any(s[2] is None for s in sources):
+        raise ValueError("crs=: the data has no CRS, so it cannot be reprojected")
+    dst = CRS.from_user_input(crs if crs is not None else sources[0][2])
+    if res is not None:
+        rx, ry = (res, res) if np.isscalar(res) else tuple(res)
+        if not (float(rx) > 0 and float(ry) > 0):
+            raise ValueError(f"res must be positive, got {res!r}")
+        rx, ry = float(rx), float(ry)
+
+    boxes = []
+    for t, (h, w), src_crs in sources:
+        if t.b or t.d:
+            raise ValueError("crs=/res=: rotated grids are not supported")
+        src_crs = CRS.from_user_input(src_crs)
+        if src_crs == dst:
+            left, bottom, right, top = array_bounds(h, w, t)
+            boxes.append((left, bottom, right, top, abs(t.a), abs(t.e)))
+            if len(sources) == 1 and res is None:
+                return _grid(t, (h, w), dst)
+        else:
+            st, sw, sh = calculate_default_transform(src_crs, dst, w, h, *array_bounds(h, w, t))
+            boxes.append((st.c, st.f + st.e * sh, st.c + st.a * sw, st.f, st.a, -st.e))
+    left, bottom = min(b[0] for b in boxes), min(b[1] for b in boxes)
+    right, top = max(b[2] for b in boxes), max(b[3] for b in boxes)
+    if res is None:
+        rx, ry = min(b[4] for b in boxes), min(b[5] for b in boxes)
+    # gdalwarp's count of cells (the extent rounded to whole cells from the top-left corner)
+    nx = max(1, int((right - left + rx / 2) / rx))
+    ny = max(1, int((top - bottom + ry / 2) / ry))
+    return _grid(Affine(rx, 0.0, left, 0.0, -ry, top), (ny, nx), dst)
+
+
+def _grid(t, shape, crs: CRS) -> Grid:
+    h, w = shape
+    return Grid(t, (int(h), int(w)), crs, t.c + t.a * (np.arange(w) + 0.5), t.f + t.e * (np.arange(h) + 0.5))
+
+
 # --- onto a grid ----------------------------------------------------------------------
 
 

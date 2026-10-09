@@ -294,8 +294,75 @@ def test_numpy_with_like_is_georeferenced_as_before():
     assert (out.x.values == da.x.values).all() and out.rio.crs == da.rio.crs
 
 
+# --- load_raster(..., crs=, res=) --------------------------------------------------
+
+# The grids gdalwarp 3.12 makes for the test cube (EPSG:32633, 160 x 120 cells of 30 m).
+GDALWARP_GRIDS = [
+    ({"crs": "EPSG:3035"}, (29.972668434973983, 0.0, 4745530.23880969, 0.0, -29.972668434973983, 1964700.0095445109),
+     (130, 168)),                                                                    # -t_srs EPSG:3035
+    ({"crs": 3035, "res": 25}, (25.0, 0.0, 4745530.23880969, 0.0, -25.0, 1964700.0095445109), (156, 201)),
+    ({"res": 45}, (45.0, 0.0, 500000.0, 0.0, -45.0, 4500000.0), (80, 107)),         # -tr 45 45
+    ({"res": (100, 70)}, (100.0, 0.0, 500000.0, 0.0, -70.0, 4500000.0), (51, 48)),  # -tr 100 70
+]
+
+
+@pytest.mark.parametrize("kwargs,transform,shape", GDALWARP_GRIDS)
+def test_crs_and_res_make_gdalwarps_grid(tmp_path, kwargs, transform, shape):
+    da = cube(cloudy())
+    path = tmp_path / "ndvi.tif"
+    zeit.save_raster(da, path)
+    for source in (da, path):
+        out = zeit.load_raster(source, **kwargs)
+        assert out.dims == ("time", "y", "x") and (out.sizes["y"], out.sizes["x"]) == shape
+        assert out.rio.transform().almost_equals(rasterio.Affine(*transform))
+        assert out.rio.crs == CRS.from_user_input(kwargs.get("crs", SRC_CRS))
+        assert (out.time.values == da.time.values).all()
+
+
+def test_crs_and_res_warp_like_the_grid_they_make():
+    da = cube(cloudy())
+    out = zeit.load_raster(da, crs="EPSG:3035", res=25, resampling="average")
+    on_grid = zeit.load_raster(da, like=out.isel(time=0), resampling="average")
+    assert same(out.values, on_grid.values).all()
+    coarse = zeit.load_raster(da, res=60, resampling="average")  # 2 x 2 cells: their mean
+    clear = da.values.reshape(T, H // 2, 2, W // 2, 2)
+    n = np.isfinite(clear).sum(axis=(2, 4))
+    expected = np.where(n > 0, np.nansum(clear, axis=(2, 4)) / np.maximum(n, 1), np.nan)
+    assert np.allclose(coarse.values, expected, rtol=1e-6, equal_nan=True)
+
+
+def test_its_own_crs_keeps_the_grid():
+    da = cube(cloudy())
+    out = zeit.load_raster(da, crs=SRC_CRS)
+    assert same(out.values, da.values).all() and (out.x.values == da.x.values).all()
+
+
+def test_crs_puts_a_folder_on_a_grid_that_covers_every_file(tmp_path):
+    folder = tmp_path / "scenes"
+    folder.mkdir()
+    v = cloudy()
+    zeit.save_raster(cube(v[:1]).isel(time=0), folder / "S_20200105_ndvi.tif")
+    other = cube(v[1:2], transform=from_origin(500900.0, 4499100.0, 20.0, 20.0)).isel(time=0)
+    zeit.save_raster(other.rio.reproject("EPSG:4326"), folder / "S_20200121_ndvi.tif")
+    out = zeit.load_raster(folder, crs=SRC_CRS)
+    assert out.rio.crs == CRS.from_user_input(SRC_CRS) and out.sizes["time"] == 2
+    x0, y0, x1, y1 = out.rio.bounds()
+    assert x0 <= 500000.0 and y1 >= 4500000.0 and x1 >= 500900.0 + 20 * W and y0 <= 4499100.0 - 20 * H
+    assert abs(out.rio.resolution()[0]) < 30.0  # the finest of the files', as gdalwarp
+    for t in range(2):
+        assert np.isfinite(out.values[t]).any()
+    fixed = zeit.load_raster(folder, crs=SRC_CRS, res=30, chunks="auto")
+    assert fixed.chunks is not None and fixed.rio.resolution() == (30.0, -30.0)
+
+
 def test_errors():
     da = cube(cloudy())
+    with pytest.raises(ValueError, match="not both"):
+        zeit.load_raster(da, like=da, crs="EPSG:3035")
+    with pytest.raises(ValueError, match="numpy"):
+        zeit.load_raster(np.asarray(da.values), dates=da.time.values, res=60)
+    with pytest.raises(ValueError, match="positive"):
+        zeit.load_raster(da, res=0)
     ref = _grid_raster(target())
     with pytest.raises(ValueError, match="resampling"):
         zeit.load_raster(da, like=ref, resampling="sum")
@@ -306,3 +373,7 @@ def test_errors():
                         coords={"time": pd.date_range("2020", periods=2), "y": [2.5, 1.5, 0.5], "x": [0.5, 1.5, 2.5]})
     with pytest.raises(ValueError, match="no CRS"):
         zeit.load_raster(bare, like=ref)
+    with pytest.raises(ValueError, match="no CRS"):
+        zeit.load_raster(bare, crs="EPSG:3035")
+    with pytest.raises(ValueError, match="no CRS"):
+        zeit.load_raster(bare, res=2)

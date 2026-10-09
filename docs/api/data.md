@@ -399,7 +399,8 @@ cube_16d = zeit.regularize_time_series(cube, freq="16D", method="medoid")
 zeit.io.load_raster(
     source, dates=None, start_year=None, band=None, chunks=None,
     clip=None, masked="auto", pattern=None, date_format=None,
-    recursive=False, like=None, resampling="auto", validate=None,
+    recursive=False, like=None, crs=None, res=None, resampling="auto",
+    validate=None,
 )
 ```
 
@@ -432,7 +433,9 @@ Without dates, the band axis keeps the name `band` and the algorithms ask for `y
 | `date_format` | `str` | `None` | `strptime` format of the dates in file names or band descriptions (e.g. `"%Y%m%d"`). |
 | `recursive` | `bool` | `False` | Folders: also search sub-folders. |
 | `like` | path, `DataArray` or `Dataset` | `None` | A reference raster whose grid the result takes (CRS, cells, extent and `x`/`y` coordinates), so that the two line up cell by cell; see [On the grid of another raster](#on-the-grid-of-another-raster). numpy input: a raster on the same grid whose coordinates and CRS georeference the array. |
-| `resampling` | `str` | `"auto"` | With `like`: `"auto"` takes the nearest cell for integer rasters and interpolates floats bilinearly (QA bands always take the nearest cell); or a GDAL method: `"nearest"`, `"bilinear"`, `"cubic"`, `"cubic_spline"`, `"lanczos"`, `"average"`, `"mode"`, `"min"`, `"max"`, `"med"`, `"q1"`, `"q3"`, `"rms"`. |
+| `crs` | `str`, `int`, `CRS` | `None` | Without a reference raster: the CRS to reproject to, as `gdalwarp -t_srs`; see [In another CRS or at another resolution](#in-another-crs-or-at-another-resolution). |
+| `res` | number or `(x, y)` | `None` | Without a reference raster: the cell size, in the units of `crs` (or of the data's CRS), as `gdalwarp -tr`. |
+| `resampling` | `str` | `"auto"` | With `like`, `crs` or `res`: `"auto"` takes the nearest cell for integer rasters and interpolates floats bilinearly (QA bands always take the nearest cell); or a GDAL method: `"nearest"`, `"bilinear"`, `"cubic"`, `"cubic_spline"`, `"lanczos"`, `"average"`, `"mode"`, `"min"`, `"max"`, `"med"`, `"q1"`, `"q3"`, `"rms"`. |
 | `validate` | `str` | `None` | `"landtrendr"`, `"ccdc"` or `"cold"`: warn when the series looks unfit for that algorithm (too few dates, values that do not look scaled). |
 
 </div>
@@ -465,6 +468,18 @@ bool((landsat.x == s2.x).all())                                     # True: they
 - **The same values however it runs**: in memory, lazily (`chunks=`) or from a file, with any number of threads. A file is read only in the window the grid sees, and a lazy cube stays lazy.
 - **No warp when it is not needed**: a grid with the same CRS and cells, a whole number of cells apart, is only a crop (and padding with NoData) of the data.
 - Cells outside the data are NoData (NaN for floats; integer rasters keep their NoData value, or get the largest value of unsigned types and the smallest of signed ones).
+
+#### In another CRS or at another resolution
+
+Without a reference raster, `crs=` and `res=` make the grid `gdalwarp -t_srs crs -tr res` would: the extent that covers the data in that CRS, and either cells of `res` laid from its top-left corner or GDAL's suggested resolution. A folder's grid covers all of its files, at the finest of their resolutions, as gdalwarp does with several inputs. The warp is the same as with `like=`, so everything above applies.
+
+```python
+albers = zeit.load_raster("ndvi_stack.tif", crs="EPSG:5880", res=30)    # reprojected, 30 m cells
+coarse = zeit.load_raster("ndvi_stack.tif", res=250, resampling="average")   # same CRS, 250 m
+scenes = zeit.load_raster("scenes/", crs=32722, chunks="auto")          # two UTM zones onto one
+```
+
+The cells start at the corner of the data's extent, so two rasters loaded this way do not necessarily line up: to combine sources, load the first with `crs=`/`res=` and the others with `like=` it.
 
 ### `save_raster` { .api }
 
