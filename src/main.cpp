@@ -15,6 +15,8 @@
 #include "warp_python.hpp"
 #include "whittaker.h"
 #include "tmask.h"
+#include "sma.h"
+#include "coded.h"
 
 namespace py = pybind11;
 
@@ -319,6 +321,35 @@ PYBIND11_MODULE(_core, m) {
            "Run SNIC on a planar [features, rows, cols] image from [n, 2] (row, col) seeds, tiles in parallel with OpenMP",
            py::arg("data"), py::arg("seeds"), py::arg("compactness") = 10.0,
            py::arg("tile_height") = 0, py::arg("tile_width") = 0, py::arg("n_jobs") = -1);
+
+    // Spectral mixture analysis (zeit.unmix)
+    py::module_ smam = m.def_submodule("sma", "Linear spectral mixture analysis");
+    smam.def("unmix_pixel", &zeit::sma::unmix_pixel, "Fractions of one spectrum, then the RMSE",
+             py::arg("y"), py::arg("endmembers"), py::arg("k"), py::arg("sum_to_one") = true,
+             py::arg("nonneg") = true, py::arg("delta") = 1000.0);
+    smam.def("unmix_batch", &zeit::sma::unmix_batch, "Fractions of (pixels, bands) spectra, then the RMSE",
+             py::arg("values"), py::arg("endmembers"), py::arg("sum_to_one") = true, py::arg("nonneg") = true,
+             py::arg("delta") = 1000.0, py::arg("n_jobs") = -1);
+    smam.def("nnls", &zeit::sma::nnls, "Lawson-Hanson non-negative least squares (A row-major, m x n)",
+             py::arg("A"), py::arg("b"), py::arg("m"), py::arg("n"), py::arg("max_iter") = -1);
+
+    // CODED sub-module (zeit.coded)
+    py::module_ cd = m.def_submodule("coded", "Continuous Degradation Detection (CODED) monitoring");
+    py::class_<zeit::coded::Params>(cd, "Params")
+        .def(py::init<>())
+        .def_readwrite("train_start", &zeit::coded::Params::train_start)
+        .def_readwrite("train_years", &zeit::coded::Params::train_years)
+        .def_readwrite("consec", &zeit::coded::Params::consec)
+        .def_readwrite("thresh", &zeit::coded::Params::thresh)
+        .def_readwrite("min_years", &zeit::coded::Params::min_years)
+        .def_readwrite("min_obs", &zeit::coded::Params::min_obs)
+        .def_readwrite("loss_only", &zeit::coded::Params::loss_only)
+        .def_readwrite("max_events", &zeit::coded::Params::max_events);
+    cd.def("coded_pixel", &zeit::coded::coded_pixel, "CODED monitoring of one pixel",
+           py::arg("t"), py::arg("ndfi"), py::arg("features"), py::arg("n_features"), py::arg("params"));
+    cd.def("coded_batch", &zeit::coded::coded_batch, "CODED monitoring of (pixels, time) series",
+           py::arg("t"), py::arg("ndfi"), py::arg("features"), py::arg("params"), py::arg("n_jobs") = -1);
+    cd.def("coded_size", &zeit::coded::coded_size, py::arg("n_features"), py::arg("max_events"));
 
     // Tmask sub-module (zeit.tmask)
     py::module_ tm = m.def_submodule("tmask", "Tmask cloud and shadow screening of time series");

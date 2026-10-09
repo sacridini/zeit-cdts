@@ -84,7 +84,7 @@ Masked pixels are written with the GeoTIFF nodata value Earth Engine uses for th
 
 Earth Engine computes whatever you ask on its own servers, so you can download indices instead of bands, and per-year statistics instead of every observation.
 
-**Indices instead of bands.** Pass index names in `indices`: `NDVI`, `EVI`, `SAVI`, `kNDVI`, `NBR`, `NDMI`, `NDWI` and `MNDWI`, alone or mixed with SR bands. They are computed on surface reflectance (the Collection 2 digital numbers scaled by 2.75e-05 and offset by −0.2), on the medoid for `'annual'` and on every observation for `'dense'`. One index is one sixth of the six-band download.
+**Indices instead of bands.** Pass index names in `indices`: `NDVI`, `EVI`, `SAVI`, `kNDVI`, `NBR`, `NDMI`, `NDWI`, `MNDWI` and `NDFI` (from Earth Engine's `unmix`), alone or mixed with SR bands. They are computed on surface reflectance (the Collection 2 digital numbers scaled by 2.75e-05 and offset by −0.2), on the medoid for `'annual'` and on every observation for `'dense'`. One index is one sixth of the six-band download.
 
 **Spectral temporal metrics** (`composite_type='stm'`) summarize a whole year in a few bands per index: each index is computed on every clear observation, then reduced over the year on Earth Engine with one combined reducer. Choose the statistics with `metrics`: `median`, `mean`, `std`, `min`, `max`, `iqr` (p75 − p25), `count` (clear observations) or any percentile such as `p10`.
 

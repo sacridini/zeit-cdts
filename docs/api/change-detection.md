@@ -356,6 +356,66 @@ nir = [float(zeit.predict_synthetic_image(px, d).sel(band="nir")) for d in days]
 
 The numpy layout of older versions, `(max_segments, 3 + 9 × bands, rows, cols)` (per segment `t_start`, `t_end` and `t_break` in ordinal days, then each band's RMSE and 8 coefficients), is still accepted: `predict_synthetic_image(stack, target_julian_day=day, num_bands=6)` returns a `(num_bands, rows, cols)` float32 array.
 
+## CODED (forest degradation)
+
+### `coded` { .api }
+
+<!-- sig: zeit.coded -->
+```python
+zeit.coded(
+    data, start=None, train_years=3.0, consec=3, thresh=3.0,
+    min_years=3.0, min_obs=6, direction="loss", max_events=3,
+    training=None, label="label", forest_label=None, forest_ndfi=0.5,
+    endmembers="souza2005", bands=None, scale="auto",
+    cloud_threshold=0.05, seed=42, nodata="auto", chunks=None,
+    n_jobs=-1,
+)
+```
+
+Continuous Degradation Detection (CODED; Bullock, Woodcock & Olofsson 2020): forest degradation (a disturbance after which the land is still forest: selective logging, understory fire) and deforestation (after which it is not) from the NDFI of every Landsat observation. Per pixel, in C++: the fractions and NDFI of every observation (`unmix`, clouds masked by their fraction); a model of the NDFI (a constant and an annual harmonic) over a training period, with its RMSE; monitoring after it, where `consec` observations in a row more than `thresh` RMSEs below the model are a change; after each change, a new model of the next `min_years`, which is the land cover after it. Forest or not comes from the models: a random forest on their coefficients trained on land cover points, as in CODED, or else the model's mean NDFI against `forest_ndfi`. Also exported as `zeit.coded`; CLI: `zeit coded`. Tutorial: [Forest Degradation (CODED)](../tutorials/coded.md).
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `data` | `DataArray`, `Dataset` or path | required | Landsat-like reflectance `(time, band, y, x)` with blue, green, red, NIR, SWIR1 and SWIR2 (every observation, not composites), or the result of `unmix`. |
+| `start` | year or date | `None` | Start of the monitoring; the training period is the `train_years` before it. Default: the training period starts with the series. |
+| `train_years` | `float` | `3.0` | Years of the training period. |
+| `consec` | `int` | `3` | Consecutive observations beyond the threshold that make a change. |
+| `thresh` | `float` | `3.0` | The threshold, in RMSEs of the model. |
+| `min_years` | `float` | `3.0` | Years after a change modelled as its new land cover; the least time between changes. |
+| `min_obs` | `int` | `6` | Least observations to fit a model. |
+| `direction` | `str` | `"loss"` | `"loss"` (drops of the NDFI, CODED's disturbances) or `"both"`. |
+| `max_events` | `int` | `3` | Changes kept per pixel. |
+| `training` | `GeoDataFrame` or path | `None` | Land cover points of the training period, for the random forest. |
+| `label`, `forest_label` | | `"label"`, `None` | Column with the class, and the class that is forest (default: `"forest"` or `1`). |
+| `forest_ndfi` | `float` | `0.5` | Without `training`: forest where the model's mean NDFI is at least this. |
+| `endmembers`, `bands`, `scale`, `cloud_threshold` | | | The unmixing, as in `unmix`. |
+| `seed`, `nodata`, `chunks`, `n_jobs` | | `42`, `"auto"`, `None`, `-1` | Random forest seed; as elsewhere. |
+
+</div>
+
+**Returns** an `xarray.Dataset`:
+
+| Variable | Meaning |
+| :--- | :--- |
+| `t_change` | `(event, y, x)`: date of each change, its first observation beyond the threshold. |
+| `t_before` | The observation before it. |
+| `ndfi_change` | Mean NDFI residual of the change's observations (negative: the NDFI fell). |
+| `type` | 1 degradation (forest after the change), 2 deforestation, 3 disturbance (too few observations after it to tell), 0 none. |
+| `post_ndfi` | Mean NDFI of the model after each change. |
+| `n_events`, `forest` | Changes per pixel; forest in the training period. |
+| `ndfi_mean`, `rmse`, `n_train` | The training model: mean NDFI, RMSE, observations. |
+| `strata` | 1 forest, 2 non-forest (no change), 3 degradation, 4 deforestation, 5 disturbance, by the first change, with `flag_meanings`. |
+
+The `strata` map is what CODED's authors recommend using the result for: the strata of a sample from which the area of degradation is estimated ([Validation](validation.md)). [`extract_events`](#extract_events) turns the changes into the same event maps as the other algorithms.
+
+```python
+result = zeit.coded(landsat, start=2000, training="land_cover_1997_1999.gpkg")
+design = zeit.sampling_design(result.strata, expected_ua={"degradation": 0.6, "deforestation": 0.8})
+points = zeit.stratified_sample(result.strata, design=design)
+```
+
 ## BFAST family
 
 Ports of R's `bfast` package: [`bfast_monitor`](#bfast_monitor) (near-real-time monitoring), [`bfast_lite`](#bfast_lite) (multiple breakpoints in one pass) and [`bfast`](#bfast) (classic iterative trend and season breaks). Tutorials: [BFAST Monitor](../tutorials/bfast_monitor.md), [BFAST Lite](../tutorials/bfast_lite.md), [BFAST](../tutorials/bfast.md).

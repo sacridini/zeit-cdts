@@ -232,3 +232,14 @@ def test_the_viewer_draws_a_break_event_on_its_date(ndvi):
     s = pixel_series(Frames(ndvi), 0, 0)
     marks = [o for o in overlays(ev, s, shape=(3, 4)) if o["kind"] == "vline"]
     assert len(marks) == 1 and marks[0]["x"] == s["x"][BREAK]
+
+
+def test_events_with_dates_save_to_one_raster(ndvi, tmp_path):
+    import rasterio
+
+    ev = zeit.extract_events(zeit.bfast_lite(ndvi), event_type="loss")
+    path = zeit.save_raster(ev, tmp_path / "events.tif")
+    with rasterio.open(path) as src:
+        names = list(src.descriptions)
+        date = src.read(names.index("date") + 1, masked=True)
+    assert date[0, 0] == pytest.approx(2015.04, abs=0.01) and date.mask[1, 0]   # decimal year; no event: NoData

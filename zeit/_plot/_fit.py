@@ -102,6 +102,14 @@ def overlays(result: Any, series: Dict[str, Any], *, shape: Sequence[int], band:
                         "color": FIT_COLOR, "markers": True})
     if "t_start" in at and "coefs" in at:                                  # CCDC
         out.extend(_ccdc(at, series, band))
+    if "t_change" in at and "type" in at:                                 # CODED
+        names = {1: "degradation", 2: "deforestation", 3: "disturbance"}
+        for k in range(at.sizes.get("event", 0)):
+            when = at.t_change.values[k]
+            if not np.isnat(when) and is_time:
+                kind = names.get(int(at.type.values[k]), "change")
+                out.append({"kind": "vline", "x": _ms([when])[0], "label": f"CODED {kind}",
+                            "color": FIT_COLOR})
     if "yod" in at and "date" in at and result.attrs.get("algorithm", "LandTrendr") != "LandTrendr":
         when = at.date.values                                              # extract_events of a break
         if not np.isnat(when) and is_time:

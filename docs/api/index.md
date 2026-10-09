@@ -23,7 +23,7 @@
 
     ---
 
-    LandTrendr, CCDC, BFAST, BFAST Monitor, BFAST Lite and event extraction.
+    LandTrendr, CCDC, BFAST, BFAST Monitor, BFAST Lite, CODED, event extraction and agreement.
 
 -   :material-chart-bell-curve-cumulative:{ .lg .middle } **[Time-Series Analysis](time-series.md)**
 
@@ -87,6 +87,7 @@
 | **Pre-processing** | |
 | [`tmask`](preprocessing.md#tmask) | Time-series cloud and shadow detection of a cube |
 | [`smooth`](preprocessing.md#smooth) | Whittaker (uneven dates, gaps, weights) or Savitzky-Golay smoothing of a cube or series |
+| [`unmix`](preprocessing.md#unmix) | Fractions of green vegetation, NPV, soil, shade, cloud; the NDFI |
 | [`desawtooth`](preprocessing.md#desawtooth) | LandTrendr spike removal |
 | **Change detection** | |
 | [`landtrendr`](change-detection.md#landtrendr) | LandTrendr on a file, cube, array or single pixel |
@@ -98,6 +99,7 @@
 | [`bfast_monitor`](change-detection.md#bfast_monitor) | Near-real-time monitoring, on a file, cube, array or single pixel |
 | [`bfast_lite`](change-detection.md#bfast_lite) | Optimal multiple breakpoints |
 | [`bfast`](change-detection.md#bfast) | Trend and seasonal breaks |
+| [`coded`](change-detection.md#coded) | Forest degradation and deforestation from the NDFI (CODED) |
 | **Time-series analysis** | |
 | [`mann_kendall`](time-series.md#mann_kendall) | Trend test and Theil-Sen slope |
 | [`phenology`](time-series.md#phenology) | 19 phenology metrics per year or season |

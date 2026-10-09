@@ -142,6 +142,7 @@ nav:
           - BFAST: tutorials/bfast.md
           - BFAST Monitor: tutorials/bfast_monitor.md
           - BFAST Lite: tutorials/bfast_lite.md
+          - Forest Degradation (CODED): tutorials/coded.md
       - Time-Series Analysis:
           - Trend Analysis (Mann-Kendall): tutorials/mann_kendall.md
           - Phenology: tutorials/phenology.md

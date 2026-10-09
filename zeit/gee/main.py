@@ -39,6 +39,13 @@ def _compute_indices(img: "ee.Image", indices: list) -> "ee.Image":
             index = refl.normalizedDifference([_GEE_BANDS[r] for r in INDICES[name]])
         elif name == "kNDVI":
             index = refl.normalizedDifference([_GEE_BANDS["nir"], _GEE_BANDS["red"]]).pow(2).tanh()
+        elif name == "NDFI":
+            from .._sma import SOUZA_2005
+            fr = refl.select([_GEE_BANDS[r] for r in INDICES["NDFI"]]).unmix(
+                [[v / 10000 for v in SOUZA_2005[k]] for k in ("gv", "shade", "npv", "soil", "cloud")], True, True)
+            index = fr.expression("((GV / (1 - SHADE)) - (NPV + SOIL)) / ((GV / (1 - SHADE)) + NPV + SOIL)",
+                                  {"GV": fr.select(0), "SHADE": fr.select(1), "NPV": fr.select(2),
+                                   "SOIL": fr.select(3)})
         elif name == "EVI":
             index = refl.expression(
                 "2.5 * (NIR - RED) / (NIR + 6 * RED - 7.5 * BLUE + 1)",

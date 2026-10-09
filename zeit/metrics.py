@@ -97,7 +97,8 @@ def extract_events(result: Any, event_type: Optional[str] = None, sort_by: str =
         result: What a change detection algorithm of zeit returned (an `xarray.Dataset`,
             georeferenced, in memory or dask): `zeit.landtrendr` (one event per segment),
             `zeit.ccdc` (one per break between two segments), `zeit.bfast_monitor` (the
-            break), `zeit.bfast_lite` (one per break) or `zeit.bfast` (one per trend break).
+            break), `zeit.bfast_lite` (one per break), `zeit.bfast` (one per trend break) or
+            `zeit.coded` (one per change of the NDFI).
             A numpy LandTrendr vertex stack (max_vertices * 2, rows, cols), years in the
             first half and values in the second, is also accepted.
         event_type (str): "loss" (value decreases), "gain" (value increases) or "any"
@@ -145,7 +146,7 @@ def extract_events(result: Any, event_type: Optional[str] = None, sort_by: str =
         candidates = _break_candidates(result, band)
         if candidates is None:
             raise ValueError("extract_events takes the Dataset returned by zeit.landtrendr, zeit.ccdc, "
-                             "zeit.bfast_monitor, zeit.bfast_lite or zeit.bfast")
+                             "zeit.bfast_monitor, zeit.bfast_lite, zeit.bfast or zeit.coded")
         return _select_event(result, candidates, event_type, sort_by.lower(), float(min_magnitude),
                              float(min_duration), float(pre_val_threshold))
     if band is not None:
@@ -320,6 +321,10 @@ def _events(change, pre, post, noise, last_days, first_days) -> Dict[str, xr.Dat
 
 
 def _break_candidates(result: xr.Dataset, band: Any) -> Optional[Dict[str, Any]]:
+    if "t_change" in result and "ndfi_change" in result:
+        if band is not None:
+            raise ValueError("band= is for CCDC results; CODED's changes are on the NDFI")
+        return _coded_candidates(result)
     if "t_break" in result and "coefs" in result:
         return _ccdc_candidates(result, band)
     if band is not None:
@@ -386,6 +391,16 @@ def _ccdc_candidates(result: xr.Dataset, band: Any) -> Dict[str, Any]:
                      last.where(exists), first.where(exists))
     return dict(events={k: v.rename(segment="event").drop_vars("event", errors="ignore") for k, v in events.items()},
                 algorithm="CCDC", any_only=any_only, band=None if band is None else str(band))
+
+
+def _coded_candidates(result: xr.Dataset) -> Dict[str, Any]:
+    first = _dates_to_days(result.t_change)
+    exists = np.isfinite(first) & result.ndfi_change.notnull()
+    nan = xr.full_like(first, np.nan)
+    noise = result.rmse.astype(np.float64).broadcast_like(first)
+    events = _events(result.ndfi_change.astype(np.float64).where(exists), nan, nan, noise.where(exists),
+                     _dates_to_days(result.t_before).where(exists), first.where(exists))
+    return dict(events=events, algorithm="CODED", any_only=False, band=None)
 
 
 def _step_before(result: xr.Dataset, first):

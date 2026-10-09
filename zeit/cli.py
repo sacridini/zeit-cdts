@@ -291,6 +291,24 @@ def run_som_cli(args: argparse.Namespace) -> None:
         extras=prototypes)
 
 
+def run_coded_cli(args: argparse.Namespace) -> None:
+    from ._coded import coded
+
+    start = args.start
+    if start is not None:
+        try:
+            start = float(start)
+        except ValueError:
+            pass   # a date
+    forest_label = args.forest_label
+    if forest_label is not None and forest_label.lstrip("-").isdigit():
+        forest_label = int(forest_label)
+    _run_cube_cli(args, "coded", lambda cube: coded(
+        cube, start=start, train_years=args.train_years, consec=args.consec, thresh=args.thresh,
+        min_years=args.min_years, max_events=args.max_events, training=args.training, label=args.label,
+        forest_label=forest_label, forest_ndfi=args.forest_ndfi, n_jobs=args.jobs))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="zeit: Change Detection Python Library")
     subparsers = parser.add_subparsers(dest="command", help="Available algorithms")
@@ -462,6 +480,22 @@ def main() -> None:
     som_parser.add_argument("--learning-rate", type=float, default=0.5, help="Initial learning rate (default: 0.5)")
     som_parser.add_argument("--seed", type=int, default=42, help="Random seed (default: 42)")
 
+    cd_parser = subparsers.add_parser("coded", help="Forest degradation and deforestation from the NDFI (CODED)")
+    _add_cube_args(cd_parser, "coded", what="Path to a Landsat reflectance series (date_band bands: blue, green, red, "
+                                            "nir, swir1, swir2), as save_raster writes it")
+    cd_parser.add_argument("--start", default=None, help="Start of the monitoring, a year or a date (default: after the "
+                                                         "first training period)")
+    cd_parser.add_argument("--train-years", type=float, default=3.0, help="Years of the training period (default: 3)")
+    cd_parser.add_argument("--consec", type=int, default=3, help="Consecutive observations that make a change (default: 3)")
+    cd_parser.add_argument("--thresh", type=float, default=3.0, help="Change threshold, in RMSEs of the model (default: 3)")
+    cd_parser.add_argument("--min-years", type=float, default=3.0, help="Years modelled after a change (default: 3)")
+    cd_parser.add_argument("--max-events", type=int, default=3, help="Changes kept per pixel (default: 3)")
+    cd_parser.add_argument("--training", default=None, help="Vector file of land cover points for the random forest")
+    cd_parser.add_argument("--label", default="label", help="Column of the training points with the class (default: label)")
+    cd_parser.add_argument("--forest-label", default=None, help="The class that is forest (default: forest or 1)")
+    cd_parser.add_argument("--forest-ndfi", type=float, default=0.5, help="Without training points: forest where the "
+                                                                          "model's mean NDFI is at least this (default: 0.5)")
+
     args = parser.parse_args()
 
     if args.command == "landtrendr":
@@ -492,6 +526,8 @@ def main() -> None:
         run_classify_cli(args)
     elif args.command == "som":
         run_som_cli(args)
+    elif args.command == "coded":
+        run_coded_cli(args)
     else:
         parser.print_help()
 

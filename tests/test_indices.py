@@ -12,6 +12,19 @@ def _bands(**values):
     return lambda role: np.asarray(values[role], dtype=np.float32)
 
 
+def _ndfi_reference(spectrum):
+    """NDFI written out: Souza et al. (2005)'s endmembers, fully constrained least squares
+    (scipy's NNLS with the sum-to-one row), then (GVs - (NPV + soil)) / (GVs + NPV + soil)."""
+    from scipy.optimize import nnls
+
+    E = np.array([[500, 900, 400, 6100, 3000, 1000], [0] * 6, [1400, 1700, 2200, 3000, 5500, 3000],
+                  [2000, 3000, 3400, 5800, 6000, 5800], [9000, 9600, 8000, 7800, 7200, 6500]]) / 10000
+    A = np.vstack([E.T, 1000 * np.ones(5)])
+    gv, shade, npv, soil, _ = nnls(A, np.append(spectrum, 1000))[0]
+    gvs = gv / (1 - shade)
+    return (gvs - (npv + soil)) / (gvs + npv + soil)
+
+
 def test_index_values():
     get = _bands(blue=0.04, green=0.08, red=0.05, nir=0.30, swir1=0.15, swir2=0.08)
     expected = {
@@ -23,6 +36,7 @@ def test_index_values():
         "NDMI": (0.30 - 0.15) / (0.30 + 0.15),
         "NDWI": (0.08 - 0.30) / (0.08 + 0.30),
         "MNDWI": (0.08 - 0.15) / (0.08 + 0.15),
+        "NDFI": _ndfi_reference([0.04, 0.08, 0.05, 0.30, 0.15, 0.08]),
     }
     assert set(expected) == set(INDICES)
     for name, value in expected.items():

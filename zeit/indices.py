@@ -22,6 +22,8 @@ INDICES: Dict[str, tuple] = {
     "NDMI": ("nir", "swir1"),
     "NDWI": ("green", "nir"),
     "MNDWI": ("green", "swir1"),
+    # Souza et al. (2005): unmixed with their endmembers (zeit._sma.SOUZA_2005)
+    "NDFI": ("blue", "green", "red", "nir", "swir1", "swir2"),
 }
 NORMALIZED_DIFFERENCES = ("NDVI", "NBR", "NDMI", "NDWI", "MNDWI")
 
@@ -65,6 +67,9 @@ def index_formula(name: str, get: Callable):
         return 1.5 * (nir - red) / (nir + red + 0.5)
     if name == "kNDVI":
         return np.tanh(((nir - red) / (nir + red)) ** 2)
+    if name == "NDFI":
+        from ._sma import ndfi_from_bands
+        return ndfi_from_bands([get(role) for role in INDICES["NDFI"]])
     raise ValueError(f"Unknown index {name!r}. Available: {', '.join(INDICES)}.")
 
 
@@ -171,6 +176,8 @@ def resolve_band(role: str, available: Sequence[str], band_map: Optional[Dict[st
     """The asset name that holds band ``role`` among ``available`` band names."""
     if band_map and role in band_map:
         return band_map[role]
+    if role in available:   # named after the role itself ("swir1")
+        return role
     for name in BAND_CANDIDATES[role]:
         if name in available:
             return name
@@ -185,7 +192,9 @@ def compute_indices(cube, indices: Sequence[str], band_map: Optional[Dict[str, s
 
     cube: ``xarray.DataArray`` with a ``band`` dimension holding reflectance (0-1), e.g.
         from `build_time_series` (float dtype) or `build_annual_composites`.
-    indices: Index names: NDVI, EVI, SAVI, kNDVI, NBR, NDMI, NDWI, MNDWI.
+    indices: Index names: NDVI, EVI, SAVI, kNDVI, NBR, NDMI, NDWI, MNDWI, NDFI (the
+        Normalized Difference Fraction Index of Souza et al. 2005, from the fractions of
+        a spectral unmixing of the six Landsat bands, see `zeit.unmix`).
     band_map: Overrides for the band each role is read from, e.g. ``{"nir": "B8A"}``.
         By default each role is found by its usual asset names (``red``, ``B04``,
         ``SR_B4``...).

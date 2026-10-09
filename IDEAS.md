@@ -983,7 +983,7 @@ Tudo em `zeit/_accuracy.py`: `sampling_design`, `stratified_sample`, `accuracy` 
 **Diferenças em relação ao plano:** `.csv` ficou de fora do `save=` (perderia o CRS); a
 confiança é `high`/`medium`/`low` em vez de um número; `band=` e `zoom=` novos.
 
-## Fase 14: degradação florestal (SMA, NDFI e CODED)
+## Fase 14: degradação florestal (SMA, NDFI e CODED) — **Feito** (0.51.0)
 
 O zeit detecta bem desmatamento (perda forte e permanente), mas degradação (corte
 seletivo, fogo de sub-bosque) é sutil e curta, e quem a mede usa frações de mistura
@@ -1008,6 +1008,51 @@ SAVI, kNDVI, NBR, NDMI, NDWI e MNDWI, e nada no zeit faz unmixing.
   a implementação de referência do GEE (fixtures exportadas de pixels de Rondônia).
 - Exemplo e tutorial em Rondônia: frações, NDFI, o CODED, e a área de degradação estimada
   com a Fase 13.
+
+### O que foi feito (0.51.0)
+
+- **`zeit.unmix`** (`zeit/_sma.py`, motor `src/sma.cpp`): mínimos quadrados totalmente
+  restritos (Heinz & Chang 2001), o NNLS de Lawson–Hanson no sistema com a linha da soma 1
+  (peso 1000), OpenMP por pixel e data, lazy. Endmembers `"souza2005"`: os que o CODED usa
+  (o `cdd_params.yaml` do repositório bullocke/coded: GV, shade, NPV, soil do Souza et al.
+  2005 e a nuvem do próprio CODED), para azul, verde, vermelho, NIR, SWIR1 e SWIR2; ou uma
+  tabela própria. Escala automática (×10000 ou 0–1), máscara pela fração de nuvem.
+- **NDFI**: variável do `unmix` e índice do `compute_indices` (que passou a achar uma banda
+  pelo próprio nome do papel, `swir1`) e dos downloads do Earth Engine (pelo `unmix` do GEE).
+- **`zeit.coded`** (`zeit/_coded.py`, motor `src/coded.cpp`): a versão do artigo (v0, o
+  `cdd_simple.py`): modelo de treino (constante + harmônico anual, RMSE), monitoramento
+  pelos resíduos normalizados (`consec` seguidos além de `thresh` RMSEs abaixo do modelo),
+  um modelo novo nos `min_years` depois de cada mudança, e floresta ou não pelos modelos:
+  Random Forest nos coeficientes (NDFI e frações) com pontos de treino, como no CODED, ou o
+  NDFI médio do modelo contra `forest_ndfi`. Saída com `t_change`, `type` (degradação,
+  desmatamento, perturbação sem classe), `ndfi_change` e o mapa `strata` (floresta, não
+  floresta, degradação, desmatamento) com `flag_meanings`, pronto para o `sampling_design`.
+  `extract_events` e `zeit.plot(..., fit=)` leem o resultado; CLI `zeit coded`.
+- Exemplo 21 e tutorial "Forest Degradation (CODED)": o mapa dá 51 ha de degradação (os
+  cortes leves escapam), a amostra estima 56 ± 6 ha, os verdadeiros são 54 ha.
+- Testes em `tests/test_coded.py` (11): o NNLS contra o `scipy.optimize.nnls` (500 sistemas,
+  1e-9), frações recuperadas de misturas conhecidas, o `unmix` (soma 1, máscara de nuvem, lazy,
+  escalas, endmembers próprios), o NDFI, o motor contra uma implementação do algoritmo em
+  Python (200 séries com quedas e lacunas, mais de 50 mudanças, 1e-9), o `coded` numa cena
+  sintética (corte seletivo → degradação, corte raso → desmatamento, com e sem pontos de
+  treino, lazy), a ligação com `extract_events`, `sampling_design`, `zeit.plot` e
+  `compute_indices`, a CLI, e o ramo do Earth Engine com uma imagem falsa.
+- Bug achado no caminho (da Fase 12): `save_raster` de um `Dataset` com datas num `.tif`
+  único falhava (o `extract_events` agora tem `date`); as datas viram ano decimal também
+  empilhadas.
+
+**Diferenças em relação ao plano:**
+
+- Sem paridade com o GEE: não há conta do Earth Engine neste ambiente, e o código das
+  versões 1 e 2 do CODED (que usam o CCDC do GEE no monitoramento) não está no repositório,
+  só no módulo do GEE. Implementei a versão do artigo, que o `cdd_simple.py` descreve por
+  inteiro, e a conferi contra uma implementação independente em Python. As versões 1/2
+  dão resultados "parecidos, mas não idênticos", segundo a própria documentação.
+- `forest_ndfi=0.5` (sem pontos de treino) é escolha do zeit, não do CODED: o modelo depois
+  de um corte seletivo cobre a queda e a recuperação, e o NDFI médio dele fica entre o de
+  floresta fechada (~0,85) e o de pasto (< 0). Com pontos de treino, a Random Forest decide.
+- Endmembers de Sentinel-2 ficaram de fora: não há um conjunto publicado que eu possa citar
+  com segurança; uma tabela própria funciona (`endmembers=DataFrame`).
 
 ## Para depois
 

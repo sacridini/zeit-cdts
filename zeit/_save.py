@@ -153,6 +153,8 @@ def _stack_layers(layers: Dict[str, Any]) -> Tuple[Any, List[str]]:
     """Maps of a result as one (band, y, x) stack named by variable."""
     arrays, names = [], []
     for name, layer in layers.items():
+        if isinstance(layer, xr.DataArray) and layer.dtype.kind == "M":   # dates: decimal years, as alone
+            layer = _decimal_years(layer)
         if np.ndim(layer) == 2:
             arrays.append(layer)
             names.append(name)

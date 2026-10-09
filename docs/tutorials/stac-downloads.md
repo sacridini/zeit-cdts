@@ -173,7 +173,7 @@ cube_ndvi = zeit.build_time_series(
 )
 ```
 
-**Compute it from reflectance.** `zeit.compute_indices` finds each band role by its usual asset names (`red` / `B04`, `nir08` / `nir` / `B08`...), so the same call works for Landsat and Sentinel-2 on every built-in catalog. Available: `NDVI`, `EVI`, `SAVI`, `kNDVI`, `NBR`, `NDMI`, `NDWI`, `MNDWI`.
+**Compute it from reflectance.** `zeit.compute_indices` finds each band role by its usual asset names (`red` / `B04`, `nir08` / `nir` / `B08`...), so the same call works for Landsat and Sentinel-2 on every built-in catalog. Available: `NDVI`, `EVI`, `SAVI`, `kNDVI`, `NBR`, `NDMI`, `NDWI`, `MNDWI`, and `NDFI` (Landsat: it unmixes the six reflective bands).
 ```python
 cube_raw = zeit.build_time_series(
     source="planetary_computer",

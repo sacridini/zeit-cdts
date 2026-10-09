@@ -21,7 +21,7 @@ ext_modules = [
          'src/phenology_curves.cpp', 'src/phenology.cpp', 'src/mann_kendall.cpp',
          'src/bfast_monitor.cpp', 'src/bfast_lite.cpp', 'src/stl_decompose.cpp',
          'src/bfast.cpp', 'src/snic.cpp', 'src/warp.cpp', 'src/warp_python.cpp',
-         'src/whittaker.cpp', 'src/tmask.cpp'],
+         'src/whittaker.cpp', 'src/tmask.cpp', 'src/sma.cpp', 'src/coded.cpp'],
         include_dirs=[
             get_pybind_include(),
             get_pybind_include(user=True),

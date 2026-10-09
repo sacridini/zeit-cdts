@@ -31,6 +31,8 @@ from .masks import extract_water_mask
 from .qc import qc_modis_summary, qc_modis_state, qc_sentinel2_scl
 
 from ._tmask_api import tmask
+from ._sma import unmix
+from ._coded import coded
 
 from .regularize import regularize_time_series
 
@@ -75,7 +77,7 @@ __all__ = [
     "landtrendr", "desawtooth", "apply_vertices",
     "ccdc",
     "bfast_monitor", "bfast_lite", "bfast", "mann_kendall", "phenology",
-    "twdtw", "smooth", "tmask", "snic", "som", "clean_samples",
+    "twdtw", "smooth", "tmask", "snic", "som", "clean_samples", "unmix", "coded",
     "extract_events", "agreement", "predict_synthetic_image",
     "sampling_design", "stratified_sample", "accuracy",
     "train_classifier", "classify",

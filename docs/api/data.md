@@ -142,7 +142,7 @@ Builds per-year spectral temporal metrics (STMs) from a STAC catalog: the median
 | `vector_path` | `str` | `None` | Vector file whose bounds define the area. |
 | `start_year`, `end_year` | `int` | `1985`, `2024` | Inclusive range of years. |
 | `season` | `tuple` | `("01-01", "12-31")` | `("MM-DD", "MM-DD")` window inside each year; wraps the new year as in `build_annual_composites`. |
-| `indices` | `list[str]` | `None` | What to summarize: indices (`NDVI`, `EVI`, `SAVI`, `kNDVI`, `NBR`, `NDMI`, `NDWI`, `MNDWI`), band roles (`blue`, `green`, `red`, `nir`, `swir1`, `swir2`) or asset names. Required. |
+| `indices` | `list[str]` | `None` | What to summarize: indices (`NDVI`, `EVI`, `SAVI`, `kNDVI`, `NBR`, `NDMI`, `NDWI`, `MNDWI`, `NDFI`), band roles (`blue`, `green`, `red`, `nir`, `swir1`, `swir2`) or asset names. Required. |
 | `metrics` | `list[str]` | `('median', 'p10', 'p25', 'p75', 'p90', 'std')` | `median`, `mean`, `std` (population), `min`, `max`, `iqr` (p75 − p25), `count` (clear observations) or any integer percentile such as `p5`. |
 | `band_map` | `dict` | `None` | Asset of each band role, e.g. `{"nir": "B8A"}`. Known for Landsat Collection 2 and Sentinel-2 L2A on Planetary Computer and Earth Search; needed for other collections. |
 | `cloud_cover_max` | `int` | `30` | Maximum scene cloud cover, in percent. |
@@ -187,7 +187,7 @@ Computes spectral indices from a reflectance cube, lazily, so a cube from `build
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `cube` | `xr.DataArray` | required | Float reflectance cube with a `band` dimension. Raw integer cubes are rejected. |
-| `indices` | `list[str]` | required | `NDVI`, `EVI`, `SAVI`, `kNDVI`, `NBR`, `NDMI`, `NDWI` or `MNDWI` (any case). |
+| `indices` | `list[str]` | required | `NDVI`, `EVI`, `SAVI`, `kNDVI`, `NBR`, `NDMI`, `NDWI`, `MNDWI` or `NDFI` (any case; the NDFI unmixes the six Landsat bands, see [`unmix`](preprocessing.md#unmix)). |
 | `band_map` | `dict` | `None` | Band to read a role from when the default doesn't fit, e.g. `{"nir": "B8A"}`. |
 
 </div>
@@ -227,7 +227,7 @@ Builds harmonised Landsat 5/7/8/9 composites on Google Earth Engine and download
 | `out_dir` | `str` | required | Output folder (for `"drive"`, used to name the exports). |
 | `method` | `str` | `"auto"` | `"auto"` (direct, Drive when needed), or force `"direct"` / `"drive"`. |
 | `composite_type` | `str` | `"annual"` | `"annual"` medoid composites (LandTrendr), `"dense"` (every observation, CCDC) or `"stm"` (spectral temporal metrics per year). |
-| `indices` | `list` | `None` | Indices (`"NDVI"`, `"EVI"`, `"SAVI"`, `"kNDVI"`, `"NBR"`, `"NDMI"`, `"NDWI"`, `"MNDWI"`) and SR bands (`"SR_B2"` … `"SR_B7"`) to export, as in `build_spectral_temporal_metrics`. Indices are computed on surface reflectance; SR bands are exported as Collection 2 digital numbers. Default: the six reflective bands. |
+| `indices` | `list` | `None` | Indices (`"NDVI"`, `"EVI"`, `"SAVI"`, `"kNDVI"`, `"NBR"`, `"NDMI"`, `"NDWI"`, `"MNDWI"`, `"NDFI"`) and SR bands (`"SR_B2"` … `"SR_B7"`) to export, as in `build_spectral_temporal_metrics`. Indices are computed on surface reflectance; SR bands are exported as Collection 2 digital numbers. Default: the six reflective bands. |
 | `project` | `str` | `None` | Google Cloud project used to initialise Earth Engine. Recommended. |
 | `metrics` | `list` | `('median', 'p10', 'p25', 'p75', 'p90', 'std')` | With `composite_type="stm"`: `median`, `mean`, `std`, `min`, `max`, `iqr`, `count` or a percentile such as `"p10"`. |
 | `bands` | `list` | `None` | Deprecated name of `indices` (warns). |

@@ -1,6 +1,6 @@
 # Pre-processing
 
-<p class="lead">Clean time series before analysing them: flag clouds and shadows that the QA band missed, smooth noise, and remove one-off spikes.</p>
+<p class="lead">Clean time series before analysing them: flag clouds and shadows that the QA band missed, smooth noise, remove one-off spikes, and unmix pixels into the fractions of their materials.</p>
 
 ## Cloud masking
 
@@ -36,6 +36,45 @@ cube = zeit.load_raster("landsat/", pattern=r"_(?P<date>\d{8})_(?P<band>\w+)\.ti
 clear = zeit.tmask(cube, green="green", swir="swir1")
 cube = cube.where(clear)                         # clouds and shadows become NaN
 qa = xr.where(clear, 0, 4)                       # or as CCDC's Fmask codes (0 clear, 4 cloud)
+```
+
+## Spectral mixture analysis
+
+### `unmix` { .api }
+
+<!-- sig: zeit.unmix -->
+```python
+zeit.unmix(
+    data, endmembers="souza2005", bands=None, sum_to_one=True,
+    nonneg=True, scale="auto", ndfi=True, cloud_threshold=None,
+    nodata="auto", chunks=None, n_jobs=-1,
+)
+```
+
+The fraction of each endmember (pure material) in every pixel and date: a 30 m Landsat pixel of forest after selective logging is part canopy (green vegetation), part dead wood and litter (non-photosynthetic vegetation), part soil and part shade, and the fractions show the damage that the reflectance hides. The unmixing is fully constrained least squares (non-negative fractions that add up to one; Heinz & Chang 2001), in C++, every pixel and date in parallel. Also exported as `zeit.unmix`.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `data` | `DataArray` or path | required | Reflectance `(time, band, y, x)` or `(band, y, x)`, in memory or dask. |
+| `endmembers` | `str`, `DataFrame` or `dict` | `"souza2005"` | `"souza2005"`: green vegetation (`gv`), `shade`, non-photosynthetic vegetation (`npv`), `soil` and `cloud` for Landsat's blue, green, red, NIR, SWIR1 and SWIR2 (Souza et al. 2005, with the cloud endmember of CODED, as CODED uses them). Or a table: rows endmembers, columns bands of the cube, reflectance 0–1 (or × 10000). |
+| `bands` | list of `str` | `None` | The cube's band for each column of the endmembers, when the names differ (by default found by name: `nir`, `B08`, `SR_B5`...). |
+| `sum_to_one`, `nonneg` | `bool` | `True`, `True` | Fractions adding up to one; fractions non-negative. |
+| `scale` | `"auto"` or `float` | `"auto"` | What the reflectance is multiplied by: 10000 for integers or values above 2, else 1. |
+| `ndfi` | `bool` | `True` | Also the NDFI (below), when the endmembers include `gv`, `npv`, `soil` and `shade`. |
+| `cloud_threshold` | `float` | `None` | Mask observations whose `cloud` fraction is above this (CODED: 0.05). |
+| `nodata`, `chunks`, `n_jobs` | | `"auto"`, `None`, `-1` | As elsewhere. |
+
+</div>
+
+**Returns** an `xarray.Dataset` with one variable per endmember (its fraction), `rmse` (of the rebuilt spectrum, in reflectance) and `ndfi`, on the cube's dimensions but `band`, lazy if the cube is.
+
+The **NDFI** (Normalized Difference Fraction Index; Souza et al. 2005) is `(GVs − (NPV + soil)) / (GVs + NPV + soil)`, with `GVs = GV / (1 − shade)`: near 1 in closed forest, lower where the canopy was damaged, below 0 on bare soil and pasture. It is also an index of [`compute_indices`](data.md) (`compute_indices(cube, ["NDFI"])`) and of the Earth Engine downloads.
+
+```python
+fractions = zeit.unmix(landsat, cloud_threshold=0.05)
+fractions.ndfi.zeit.plot()                       # page through the years
 ```
 
 ## Smoothing
