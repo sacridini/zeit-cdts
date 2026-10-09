@@ -24,27 +24,87 @@
 - Have exactly two dates and want a change map between them? Use the [Siamese Change Detector](siamese.md).
 - Have very little labeled data for your task? Consider [GeoFoundationViT](geo_foundation_vit.md) to transfer-learn from a large pretrained backbone.
 
-## Loading patches from a cube
+## From a cube to a map
 
-`STACCubeDataset` cuts a lazy xarray cube into spatial patches for PyTorch. Only the patch requested is computed, so you can iterate over cubes far larger than memory:
+The models take tensors; `zeit.ai` takes them from a cube and labelled samples to a georeferenced map in three calls, as [`train_classifier`](../api/post-processing.md#train_classifier) and [`classify`](../api/post-processing.md#classify) do for a random forest.
+
+### 1. Samples
+
+```python
+import zeit
+from zeit import ai
+
+cube = zeit.load_raster("s2_2022.tif")          # (time, band, y, x), dates in the band names
+samples = ai.samples(cube, "samples.gpkg", label="class")
+samples                                          # SampleSet(2140 pixels: 1712 train, 428 val; 23 dates x 4 bands; ...)
+```
+
+The samples are points or polygons with a class column, in any CRS. For the pixel models (`TempCNN`, `LightTAE`) each sample is one pixel's series, `(time, band)`, and a polygon gives every pixel it covers. For the patch models (`UTAE`, `SiameseChangeDetector`, `GeoFoundationViT`) pass `patch=` a size in pixels: each sample is the window around a point or a polygon (large polygons are tiled by windows), with every labelled pixel in it. Patch models learn best from polygons: a window around a point has a single labelled pixel.
+
+Two things happen here that are easy to get wrong by hand:
+
+- **Validation in spatial blocks.** A fifth of the samples is kept for validation (`split=0.2`), but by whole blocks of 64 × 64 pixels (`split_by="block"`, `block_size=64`). Neighbouring pixels are nearly the same, so a validation set of pixels drawn at random next to the training ones measures how well the model remembers, not how well it generalizes.
+- **Normalization.** Each band is scaled by its 2% and 98% quantiles in the training samples, as `sits` does, and the same scaling is applied when predicting. Missing values become 0 after it; fill gaps first (e.g. with [`zeit.smooth`](../api/preprocessing.md#smooth)) if clouds are frequent.
+
+### 2. Train
+
+```python
+model = ai.train(ai.TempCNN, samples, epochs=50)
+model.zeit_history_[-1]                          # {'epoch': 31, 'train_loss': ..., 'val_loss': ..., 'val_accuracy': 0.94}
+```
+
+`train` builds the model from its class with the samples' numbers of bands, dates and classes (other arguments of the model pass through, e.g. `dropout_rate=0.3`), trains it with Adam, stops when the validation loss has not improved for 10 epochs and keeps the best epoch. It runs on the GPU when there is one (`device="auto"`). `loss="focal"` helps with imbalanced classes.
+
+### 3. Predict
+
+```python
+classes = ai.predict(model, cube, probability=True)
+classes.label.zeit.plot()                         # the class map, with its legend
+classes.zeit.save("results/classes")              # label.tif, probability.tif
+ai.save(model, "tempcnn_2022.pt")                 # with what predict checks
+```
+
+`predict` checks the bands (by name) and the dates against the training samples, normalizes the cube as they were and classifies every pixel. `zeit.classify(cube, model)` does the same. A lazy cube stays lazy and is classified block by block. Patch models slide windows of the training size over the image, overlapping by a quarter (`overlap=`), and average each pixel's probabilities over the windows, weighted down towards their edges, so the map has no seams.
+
+`TempCNN`, `LightTAE` and the Siamese and ViT models are built for the number of dates they were trained on, so the cube to classify needs as many (the same composites of another year, for instance). `UTAE` takes the positions of the dates at each call and classifies any series.
+
+| Model | `samples(..., patch=)` | Dates when predicting |
+| :--- | :--- | :--- |
+| `TempCNN`, `LightTAE` | `None` (pixels) | as many as in training |
+| `UTAE` | a multiple of 8 (default U-Net) | any |
+| `SiameseChangeDetector` | even; the data is a pair `(before, after)` | a pair |
+| `GeoFoundationViT` | 224 for Prithvi (6 bands) | as in training |
+
+For change detection with the Siamese model, the data is a pair of images and the classes are e.g. `change` and `same`:
+
+```python
+pair = (zeit.load_raster("s2_2021.tif"), zeit.load_raster("s2_2023.tif", like="s2_2021.tif"))
+samples = ai.samples(pair, "change_polygons.gpkg", label="class", patch=64)
+model = ai.train(ai.SiameseChangeDetector, samples)
+change = ai.predict(model, pair)
+```
+
+## A loop of your own
+
+The models are ordinary `nn.Module`s. For a training loop of your own, the `SampleSet` is a PyTorch `Dataset`: each item is a dict with `x` (normalized), `y` and `positions` (days since the first date, for the positional encodings):
 
 ```python
 from torch.utils.data import DataLoader
-from zeit.ai import STACCubeDataset
 
-# cube: (time, band, y, x) DataArray, e.g. from zeit.build_time_series
-dataset = STACCubeDataset(cube, patch_size=64, stride=64)
-
-patch, dates = dataset[0]
-print(patch.shape)   # torch.Size([time, band, 64, 64]); NaN replaced by 0
-print(dates.shape)   # torch.Size([time]): day of year of each observation
-
-loader = DataLoader(dataset, batch_size=8, num_workers=2)
+loader = DataLoader(samples.train, batch_size=64, shuffle=True)
+for batch in loader:
+    logits = model(batch["x"].permute(0, 2, 1))   # TempCNN takes (batch, band, time)
+    ...
 ```
 
-The dataset yields images only. For supervised training, pair each patch with its label mask (for example by indexing a label raster with the same window), or extract labelled pixel samples into NumPy arrays as the per-model tutorials do.
+To run a model over a whole cube in windows, `STACCubeDataset` cuts a (lazy) cube into windows that cover it, with the missing values left as NaN and each window's position:
 
-`STACCubeDataset` also exposes `.dates` — a tensor of day-of-year values derived from the cube's `time` coordinate — which several models (`UTAE` via `batch_positions`, `LightTAE`/`LTAE` via the fixed `day_offsets` passed at construction) need for their positional encodings. See each model's own tutorial for exactly how it expects dates to be shaped and passed in.
+```python
+from zeit.ai import STACCubeDataset
+
+dataset = STACCubeDataset(cube, patch_size=64, stride=48)
+item = dataset[0]          # {"x": (time, band, 64, 64), "valid", "positions", "row", "col"}
+```
 
 ## Loss functions for imbalanced classes
 
@@ -64,20 +124,17 @@ criterion = TverskyLoss(alpha=0.3, beta=0.7)
 criterion = ContrastiveSiameseLoss(margin=2.0)
 ```
 
-`FocalLoss` and `TverskyLoss` apply to any model's classifier logits (`(B, C, H, W)` or `(B, C)` vs. integer labels). `ContrastiveSiameseLoss` is specific to twin-encoder architectures — see the [Siamese Change Detector tutorial](siamese.md).
+With `zeit.ai.train`, `loss="focal"` is the focal loss, ignoring unlabelled pixels; any of these can be passed as `loss=` too. `FocalLoss` and `TverskyLoss` apply to any model's classifier logits (`(B, C, H, W)` or `(B, C)` vs. integer labels). `ContrastiveSiameseLoss` is specific to twin-encoder architectures — see the [Siamese Change Detector tutorial](siamese.md).
 
 ## Next steps
 
-Each architecture has its own complete, standalone tutorial — covering how it works internally, when to use it, how to shape your data for it, model instantiation, a full training loop, inference, and validation methodology:
+Each architecture has its own tutorial, on how it works, when to use it, its arguments and how it was validated against its reference implementation:
 
 - [LTAE & LightTAE](ltae.md)
 - [UTAE](utae.md)
 - [TempCNN](tempcnn.md)
 - [Siamese Change Detector](siamese.md)
 - [GeoFoundationViT](geo_foundation_vit.md)
-
-!!! tip "Inference over large areas"
-    When running inference over massive geographical areas with any of these models, use `xarray` or `rasterio` windows to chunk the data into manageable sizes (e.g., `256x256`), run them through the model, and mosaic the results back together.
 
 ---
 

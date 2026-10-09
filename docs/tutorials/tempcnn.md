@@ -36,23 +36,25 @@ TempCNN treats the time axis of a pixel's spectral history like the spatial axis
 
 See the [LTAE & LightTAE tutorial](ltae.md) for the attention-based alternative, and the [UTAE tutorial](utae.md) if you need whole-patch spatial segmentation rather than per-pixel classification.
 
-## Preparing Your Data
+## From a cube to a map
 
-`TempCNN` expects a tensor of shape `(Batch, Channels, Time)` — spectral bands as channels, observations along the time axis (this is `sits`'s own internal convention; if your data is naturally `(Batch, Time, Bands)`, transpose the last two axes with `.permute(0, 2, 1)` before feeding it in).
+`TempCNN` classifies each pixel from its series of bands, `(time, band)`. From a cube and labelled points or polygons:
 
 ```python
-import numpy as np
-import torch
+import zeit
+from zeit import ai
 
-# X: (n_samples, n_bands, n_times)
-X_train = torch.tensor(np.load("pixel_time_series.npy"), dtype=torch.float32)
-y_train = torch.tensor(np.load("pixel_labels.npy"), dtype=torch.long)
-
-n_bands = X_train.shape[1]
-n_times = X_train.shape[2]
+cube = zeit.load_raster("s2_ndvi_evi_2022.tif")            # (time, band, y, x)
+samples = ai.samples(cube, "samples.gpkg", label="class")   # one sample per pixel
+model = ai.train(ai.TempCNN, samples, epochs=50)
+classes = ai.predict(model, cube)                           # label (y, x), georeferenced
 ```
 
+The flatten before the dense layer ties a model to the number of dates it was built for (as in `sits`): the cube to classify needs as many, e.g. the same composites of another year. See [Deep Learning](ai.md#from-a-cube-to-a-map) for the samples, the validation blocks and the normalization.
+
 ## Instantiating the Model
+
+`zeit.ai.train` builds the model for you from the samples (bands, dates, classes); the arguments below pass through it, e.g. `ai.train(ai.TempCNN, samples, dropout_rates=(0.3, 0.3, 0.3))`. To build it yourself:
 
 ```python
 from zeit.ai import TempCNN
@@ -72,48 +74,9 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = model.to(device)
 ```
 
-## Training Loop
+## A loop of your own
 
-```python
-import torch.optim as optim
-from torch.utils.data import DataLoader, TensorDataset
-
-train_loader = DataLoader(TensorDataset(X_train, y_train), batch_size=64, shuffle=True)
-
-optimizer = optim.Adam(model.parameters(), lr=1e-3)
-criterion = torch.nn.CrossEntropyLoss()  # or zeit.ai.losses.FocalLoss for imbalanced classes
-
-num_epochs = 30
-for epoch in range(num_epochs):
-    model.train()
-    epoch_loss = 0.0
-    for values, labels in train_loader:
-        values, labels = values.to(device), labels.to(device)
-
-        optimizer.zero_grad()
-        logits = model(values)          # (batch, num_classes)
-        loss = criterion(logits, labels)
-        loss.backward()
-        optimizer.step()
-
-        epoch_loss += loss.item()
-
-    print(f"Epoch [{epoch + 1}/{num_epochs}], Loss: {epoch_loss / len(train_loader):.4f}")
-```
-
-## Inference
-
-```python
-model.eval()
-
-with torch.no_grad():
-    new_series = torch.rand(1, n_bands, n_times).to(device)  # (1, n_bands, n_times)
-    logits = model(new_series)
-    predicted_class = torch.argmax(logits, dim=1)
-    print(f"Predicted class: {predicted_class.item()}")
-```
-
-For inference over a whole raster, extract every pixel's time series into a `(N_pixels, n_bands, n_times)` tensor, run it through the model in batches, and reshape the resulting predictions back to `(H, W)`.
+`zeit.ai.train` covers the usual case. For anything else (another optimizer, a scheduler, augmentation), the `SampleSet` is a PyTorch `Dataset` whose items hold the normalized `x`, the label `y` and the date `positions`; see [A loop of your own](ai.md#a-loop-of-your-own). A model trained this way can still be classified with `zeit.ai.predict` after `zeit.ai.train(model, samples, epochs=0)` records the samples' metadata in it.
 
 ## Validation Against `sits`
 

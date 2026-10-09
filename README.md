@@ -32,7 +32,7 @@ Built with highly optimized C++ extensions (OpenMP and Eigen SIMD) bound to Pyth
   - **Phenology Extraction**: 19 simultaneous phenological metrics from optimized curve-fitting models (Beck, Elmore, Gu, Zhang, Asymmetric Gaussian, Double Logistic), with QA-based per-observation weighting.
   - **Mann-Kendall / Theil-Sen**: Pixel-wise non-parametric trend test and slope estimation for detecting statistically significant greening/browning trends.
   - **SNIC Segmentation**: Superpixel segmentation of images and whole time series cubes (one segment = similar trajectories), matching the original SNIC's labels pixel for pixel, with tile-parallel processing for large scenes.
-- **Deep Learning (`zeit.ai`):** Pre-built PyTorch architectures tailored for spatio-temporal Earth Observation (U-TAE, TempCNN, Siamese Networks), plus wrappers for Geospatial Foundation Models (ViT).
+- **Deep Learning (`zeit.ai`):** PyTorch architectures for spatio-temporal Earth Observation (U-TAE, LightTAE, TempCNN, Siamese Networks) and a wrapper for Geospatial Foundation Models (ViT), with `samples`, `train` and `predict` to go from a cube and labelled samples to a georeferenced map.
 - **Visualisation (`zeit.plot`):** One function to look at any cube, map or result: an interactive viewer in Jupyter (or its own window from a script) that pages through dense time series at the display's frame rate, with a click-a-pixel inspector showing each algorithm's fit, satellite basemaps and vector outlines; or a matplotlib figure for reports.
 - **Command-Line Interface:** Every core algorithm is also available as a `zeit` subcommand, for running change detection on GeoTIFF stacks from bash scripts, cron jobs, or HPC environments without writing Python.
 
@@ -310,6 +310,19 @@ zeit.plot(ndvi, fit=clusters)                         # click a pixel: its serie
 
 # Before training a classifier: flag samples whose class is not their neuron's
 checked = zeit.clean_samples(cube, "samples.gpkg", label="class")
+```
+
+## Deep Learning (`zeit.ai`)
+
+PyTorch models for satellite image time series (TempCNN, LightTAE, U-TAE, a Siamese change detector and a foundation-model wrapper), with the path from a cube to a map: samples from labelled points or polygons (validated in spatial blocks), a ready-made training loop, and prediction over the whole cube, lazily and without seams between windows.
+
+```python
+from zeit import ai
+
+samples = ai.samples(cube, "samples.gpkg", label="class")   # pixels; patch=64 for U-TAE
+model = ai.train(ai.TempCNN, samples, epochs=50)
+classes = ai.predict(model, cube)                          # label (y, x), georeferenced
+ai.save(model, "tempcnn.pt")
 ```
 
 ## Pre and Post-Processing

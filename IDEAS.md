@@ -656,7 +656,7 @@ em `zeit/_som_api.py`:
 
 ra tudo o que saiu.
 
-## Fase 11: `zeit.ai` de cubo a mapa
+## Fase 11: `zeit.ai` de cubo a mapa — **Feito** (0.46.0)
 
 Hoje o `zeit.ai` tem os modelos (U-TAE, L-TAE, TempCNN, Siamese, ViT) como `nn.Module`
 soltos, mais o `STACCubeDataset` e três perdas. O caminho entre um cubo e um mapa fica com o
@@ -675,64 +675,61 @@ mapa = zeit.ai.predict(model, cubo)                                     # Datase
 mapa.zeit.save("classes")
 ```
 
-### 11a: amostras
+### O que foi feito
 
-`zeit.ai.samples(data, amostras, *, label, patch=None, split=0.2, split_by="block",
-seed=42)` devolve um `SampleSet` (um `torch.utils.data.Dataset`):
+Tudo em `zeit/ai/pipeline.py`, exportado por `zeit.ai`: `samples`, `SampleSet`, `train`,
+`predict`, `save` e `load`. Um adaptador por modelo diz como construí-lo a partir das
+amostras e como chamá-lo; outros modelos continuam com o `SampleSet` e um laço próprio.
 
-- `patch=None`: um pixel por ponto, `(time, band)` (TempCNN, L-TAE). `patch=64`: o recorte
-  `(time, band, 64, 64)` em volta de cada ponto ou polígono, com a máscara do rótulo
-  rasterizada (U-TAE, Siamese, ViT); pixels sem rótulo com `ignore_index`.
-- Pontos lidos e reprojetados como no `train_classifier` (mesma função interna). Polígonos
-  viram pixels (modo pixel) ou máscaras (modo patch).
-- `split_by="block"`: validação em blocos espaciais, não pixels sorteados (com pixels
-  vizinhos dos dois lados a validação mede autocorrelação, não generalização).
-- Guarda o que a predição precisa conferir: nomes das bandas, as datas (posições em dias
-  desde a primeira data, não dia do ano), as classes e a normalização por banda (quantis
-  2–98, como o `sits`), calculada só no treino.
-- NaN fica NaN no tensor, com uma máscara: o modelo decide (o `pad_mask` do U-TAE), em vez
-  do 0 silencioso do `STACCubeDataset`, que é corrigido junto (bordas, posições, `dict`).
+- **`samples(data, amostras, *, label, patch=None, split=0.2, split_by="block",
+  block_size=64, seed, nodata)`**: pontos e polígonos rasterizados na grade do cubo (pontos
+  no mesmo pixel contam uma vez). Modo pixel: `(time, band)` por pixel rotulado. Modo patch:
+  uma janela por ponto ou polígono pequeno e janelas que cobrem os polígonos maiores, com
+  todos os pixels rotulados dentro e `-1` no resto. Validação por blocos espaciais inteiros.
+  Normalização por banda pelos quantis 2–98 do treino; o dado bruto fica no `SampleSet`
+  (NaN) e cada item sai normalizado, com ausentes como 0. Par de imagens `(antes, depois)`
+  para o Siamese (posições 0 e 1).
+- **`train(modelo, amostras, *, epochs=50, batch_size=None, lr, weight_decay, loss="ce"|
+  "focal"|função, patience=10, device="auto", seed, verbose, **model_kwargs)`**: a classe é
+  construída com bandas, datas e classes das amostras; Adam; melhor época restaurada;
+  `zeit_meta_` e `zeit_history_` no modelo. `epochs=0` só registra os metadados, para um
+  modelo treinado num laço próprio.
+- **`predict(modelo, data, *, batch_size=256, overlap=0.25, probability, device, nodata,
+  chunks)`**: bandas pelo nome, normalização do treino. Modo patch: grade global de janelas
+  (a última encostada na borda), probabilidades médias ponderadas por uma pirâmide que cai
+  para as bordas da janela; lazy, cada bloco lê o próprio núcleo mais uma janela em volta e
+  usa as janelas da grade global, então o mapa lazy é o mapa em memória (testado). Saída como
+  a do `zeit.classify`, que agora delega para o `predict` quando recebe um modelo do
+  `zeit.ai`.
+- **`save`/`load`**: pesos, meta, histórico e a classe com os argumentos; `torch.load` com
+  `weights_only=True`. Um modelo treinado como instância pede `model=` no `load`.
+- **`STACCubeDataset`** corrigido: as janelas cobrem as bordas (a última encostada), cubos
+  menores que uma janela dão uma janela com NaN, posições em dias desde a primeira data,
+  NaN mantido com uma máscara `valid`, itens como `dict` (com `row`/`col`).
+- Testes em `tests/test_ai_pipeline.py` (11, ~20 s na CPU). Tutoriais (o geral e um por
+  modelo), referência, README e os exemplos 03–06 (agora sintéticos, offline e de ponta a
+  ponta) usam o caminho novo.
 
-### 11b: treino
+**Diferenças em relação ao plano, por medição ou por ler o código:**
 
-`zeit.ai.train(model, samples, *, epochs=50, batch_size=64, lr=1e-3, loss="ce"|"focal"|
-"tversky", device="auto", patience=10, **model_kwargs)`:
-
-- `model` é a classe (o zeit instancia com `input_dim`, número de datas e de classes tirados
-  das amostras) ou uma instância já criada.
-- Laço mínimo: Adam, early stopping pela validação, melhor época restaurada, histórico no
-  `model.zeit_history_`. Não substitui um laço próprio: quem já tem o seu continua usando
-  o `SampleSet` com um `DataLoader`.
-- O modelo sai com `zeit_meta_` (bandas, datas, classes, normalização, tamanho do patch),
-  e `zeit.ai.save(model, caminho)`/`zeit.ai.load(caminho)` guardam pesos + meta + a classe
-  e os argumentos do modelo.
-
-### 11c: predição
-
-`zeit.ai.predict(model, data, *, patch=None, overlap=0.25, batch_size=..., device="auto",
-probability=False, chunks=None)`:
-
-- Entrada qualquer do `load_raster`; bandas reordenadas pelo nome e normalizadas com o
-  `zeit_meta_`. Datas diferentes das do treino: erro claro nos modelos de posição fixa
-  (TempCNN); nos de atenção (L-TAE, U-TAE) as posições saem do `time` do cubo.
-- Modo pixel em lotes; modo patch em janelas deslizantes com sobreposição e pesos que caem
-  para as bordas da janela (sem costura entre patches), lazy por blocos dask com
-  `map_overlap` na margem da janela.
-- Saída como a do `zeit.classify`: `label (y, x)` com `flag_meanings`, `probability (class,
-  y, x)` opcional, georreferenciado; pixels sem dado em toda a série saem 0.
-- Siamese: `predict(model, (cubo_t0, cubo_t1))` dá o mapa de mudança.
-- `zeit.classify(cubo, model)` com um modelo do `zeit.ai` delega para o `predict`, para
-  que haja uma função de classificação só.
-
-### Testes, docs e ordem
-
-- Cubo sintético com duas classes separáveis pela fenologia: TempCNN e L-TAE passam de 95%
-  em poucas épocas na CPU; o U-TAE prevê o mesmo mapa com um patch e com janelas
-  sobrepostas; o resultado tem a grade do cubo; `import zeit` continua sem torch.
-- Tutoriais do TempCNN, L-TAE e U-TAE reescritos a partir do cubo (sem `X` montado à mão),
-  com um tutorial "de ponta a ponta" no lugar do `ai.md`.
-- Dividida em 11a/11b (amostras e treino, com TempCNN e L-TAE) e 11c (predição, depois
-  U-TAE, Siamese e ViT).
+- O `LightTAE` (porte do `sits_lighttae`) também fixa a linha do tempo na construção
+  (`day_offsets` e um `LayerNorm((d_model, seq_len))`): como o TempCNN, pede o mesmo número
+  de datas na predição. Só o U-TAE recebe as posições a cada chamada e classifica outras
+  datas.
+- `batch_size` padrão de 64 pixels, mas 8 patches: com poucos patches, lotes de 64 davam um
+  passo por época. No cubo sintético com rótulos densos, o U-TAE pequeno passou de 33–64%
+  para 90–95% em seis sementes só com isso.
+- A parada antecipada só pode disparar depois de 50 passos do otimizador. A validação roda
+  com as médias acumuladas do BatchNorm (momento 0,1), e até elas se acomodarem a perda de
+  validação do U-TAE sobe enquanto o modelo aprende: com `patience=10` o treino parava na
+  época 11 e restaurava a época 1 (37% no exemplo 04; 99,8% depois da correção). Junto, o
+  último lote só é descartado quando tem uma amostra só (antes, `drop_last` jogava fora 4 de
+  12 patches por época). Com as duas correções, o U-TAE com rótulos de ponto, que colapsava
+  numa classe com a semente 2, ficou entre 98% e 100% nas quatro sementes testadas.
+- Modelos de patch aprendem melhor com rótulos densos (polígonos): uma janela em volta de um
+  ponto tem um único pixel rotulado. Está na documentação.
+- `"tversky"` ficou de fora do `loss=` (o `TverskyLoss` é binário); `"focal"` é uma focal
+  que ignora os pixels sem rótulo, e qualquer função `(logits, alvo)` serve.
 
 ## Para depois
 

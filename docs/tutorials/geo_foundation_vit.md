@@ -32,21 +32,25 @@ input (B, Bands, Time, H, W) -> ViT backbone -> classifier (1x1 Conv2d) -> per-p
 
 Use `GeoFoundationViT` when you have **limited labeled data** for your specific task but want to benefit from representations learned on a much larger, general-purpose satellite imagery corpus — a classic transfer-learning scenario. If you have ample labeled training data and want an architecture purpose-built and validated for time-series classification/segmentation, prefer [LightTAE](ltae.md), [TempCNN](tempcnn.md), or [UTAE](utae.md) instead.
 
-## Preparing Your Data
+## From a cube to a map
 
-The exact expected input shape depends on the specific backbone you load (check that model's HuggingFace card for its required resolution, band count/ordering, and normalization statistics — Prithvi-100M, for instance, expects specific band selections and a fixed patch size). As a general pattern:
+`GeoFoundationViT` segments windows of the cube; with Prithvi-100M they are 224 × 224 pixels of 6 bands (blue, green, red, narrow NIR, SWIR 1 and 2) over 3 dates:
 
 ```python
-import torch
+import zeit
+from zeit import ai
 
-# Example shape convention (verify against your chosen model_id's documentation):
-# (Batch, Bands, Time, Height, Width)
-x = torch.rand(2, 6, 1, 224, 224)
+cube = zeit.load_raster("hls_3dates.tif")                               # (3, 6, y, x)
+samples = ai.samples(cube, "fields.gpkg", label="class", patch=224)
+model = ai.train(ai.GeoFoundationViT, samples, epochs=20, lr=1e-4)
+classes = ai.predict(model, cube)
 ```
 
-Always check the backbone's model card for required preprocessing (band order, normalization/statistics, expected patch size) before training — mismatched preprocessing is the most common cause of poor fine-tuning results with foundation models.
+For the two-stage fine-tuning below, build the model yourself, freeze the backbone and pass the instance: `ai.train(model, samples, ...)`. See [Deep Learning](ai.md#from-a-cube-to-a-map).
 
 ## Instantiating the Model
+
+`zeit.ai.train` builds the model for you from the samples (bands, dates, classes); the arguments below pass through it, e.g. `ai.train(ai.GeoFoundationViT, samples, model_id="ibm-nasa-geospatial/Prithvi-100M")`. To build it yourself:
 
 ```python
 from zeit.ai import GeoFoundationViT
@@ -117,17 +121,9 @@ for epoch in range(5):
     print(f"[Full fine-tune] Epoch [{epoch + 1}/5], Loss: {epoch_loss / len(train_loader):.4f}")
 ```
 
-## Inference
+## A loop of your own
 
-```python
-model.eval()
-
-with torch.no_grad():
-    new_data = torch.rand(1, 6, 1, 224, 224).to(device)
-    logits = model(new_data)
-    predicted_classes = torch.argmax(logits, dim=1)
-    print(f"Prediction shape: {predicted_classes.shape}")
-```
+`zeit.ai.train` covers the usual case. For anything else (another optimizer, a scheduler, augmentation), the `SampleSet` is a PyTorch `Dataset` whose items hold the normalized `x`, the label `y` and the date `positions`; see [A loop of your own](ai.md#a-loop-of-your-own). A model trained this way can still be classified with `zeit.ai.predict` after `zeit.ai.train(model, samples, epochs=0)` records the samples' metadata in it.
 
 ## Caveats
 

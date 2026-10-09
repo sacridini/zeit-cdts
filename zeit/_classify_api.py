@@ -161,7 +161,8 @@ def classify(data: Any, model: Any, *, date: Any = None, probability: bool = Fal
     model
         A fitted classifier, e.g. from ``zeit.train_classifier``; trained elsewhere, its
         inputs must be the features in their order (``zeit.classify`` reorders them by name
-        when the model has ``zeit_features_``).
+        when the model has ``zeit_features_``). A deep learning model trained by
+        ``zeit.ai.train`` goes to ``zeit.ai.predict``.
     date
         CCDC segments: the date whose models are the features.
     probability
@@ -176,6 +177,12 @@ def classify(data: Any, model: Any, *, date: Any = None, probability: bool = Fal
 
         Georeferenced as the input; the ``class`` coordinate holds the classes.
     """
+    if hasattr(model, "zeit_meta_") and hasattr(model, "state_dict"):   # a zeit.ai model
+        if date is not None:
+            raise ValueError("date= is for CCDC segments; a zeit.ai model classifies the cube")
+        from .ai.pipeline import predict
+
+        return predict(model, data, probability=probability)
     feats = features(data, date=date)
     names = [str(f) for f in feats.feature.values]
     expected = getattr(model, "zeit_features_", None)

@@ -440,4 +440,4 @@ Currently, the AI tools (`zeit.ai`) are **not** exposed via the CLI.
 **Why?** 
 Deep learning architectures (like UTAE, TempCNN, or Siamese Networks) require highly specific initializations based on your dataset (e.g., number of input bands, number of target classes, path to pre-trained `.pth` weights, and GPU allocation strategies). These configurations are too complex and dynamic to be safely passed as simple terminal arguments.
 
-To use the AI tools, please utilize the [Python API](tutorials/ai.md) which allows full flexibility in defining PyTorch DataLoaders, Loss Functions, and Training Loops.
+To use the AI tools, use the [Python API](tutorials/ai.md): `zeit.ai.samples`, `train` and `predict` go from a cube and labelled samples to a map in three calls, and the models can be trained with a loop of your own.

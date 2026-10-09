@@ -28,25 +28,25 @@ UTAE supports **irregular temporal sampling**: pass a `pad_value` (default `0`) 
 
 Use UTAE when you need a **class map over a spatial patch** informed by its full time series — e.g. crop-type mapping, burned-area segmentation, or any task where spatial context (not just a single pixel's own spectral history) matters. If you only need a classification of individual pixels' own time series (no spatial context needed), [LightTAE](ltae.md) or [TempCNN](tempcnn.md) are lighter-weight and faster to train.
 
-## Preparing Your Data
+## From a cube to a map
 
-UTAE expects a **5D tensor** of shape `(Batch, Time, Bands, Height, Width)`, plus a `(Batch, Time)` tensor of acquisition dates (used for the positional encoding — raw day-of-year or day-offset values, not calendar dates).
+`UTAE` segments windows of the cube, `(time, band, patch, patch)`, so it trains on patches; polygons give it dense labels:
 
 ```python
-import numpy as np
-import torch
+import zeit
+from zeit import ai
 
-# X: (n_samples, n_times, n_bands, patch_h, patch_w)
-X_train = torch.tensor(np.load("image_patches.npy"), dtype=torch.float32)
-# y: (n_samples, patch_h, patch_w) - one class label per pixel
-y_train = torch.tensor(np.load("segmentation_masks.npy"), dtype=torch.long)
-# dates: (n_samples, n_times) - day offsets/day-of-year per acquisition, per sample
-dates_train = torch.tensor(np.load("acquisition_dates.npy"), dtype=torch.float32)
+cube = zeit.load_raster("s2_2022.tif")                                   # (time, band, y, x)
+samples = ai.samples(cube, "fields.gpkg", label="crop", patch=32)        # windows of 32 x 32
+model = ai.train(ai.UTAE, samples, epochs=100)
+crops = ai.predict(model, cube, overlap=0.5)
 ```
 
-For irregular sequence lengths within a batch, pad the shorter sequences (along the `Time` axis) with the same `pad_value` you'll pass to `UTAE` (default `0`) — the model detects fully-padded frames automatically via `(input == pad_value).all(...)`.
+The default U-Net halves the window three times, so `patch` is a multiple of 8. `predict` slides windows of the same size over the cube, overlapping by `overlap`, and averages each pixel's probabilities over them, weighted down towards the windows' edges, so the map has no seams; a lazy cube gives the same map, block by block. The dates' positions (days since the first date) are passed at every call, so a model classifies cubes with other dates too. See [Deep Learning](ai.md#from-a-cube-to-a-map).
 
 ## Instantiating the Model
+
+`zeit.ai.train` builds the model for you from the samples (bands, dates, classes); the arguments below pass through it, e.g. `ai.train(ai.UTAE, samples, encoder_widths=[32, 32, 64, 64], decoder_widths=[16, 16, 32, 64])`. To build it yourself:
 
 ```python
 from zeit.ai import UTAE
@@ -71,63 +71,9 @@ model = model.to(device)
 
 `out_conv`'s last entry sets the number of output classes; `encoder_widths`/`decoder_widths` must have matching lengths and equal final entries (assertions enforce this at construction time).
 
-## Training Loop
+## A loop of your own
 
-Segmentation targets are dense per-pixel class maps, so `FocalLoss` or `TverskyLoss` (both operating on `(B, C, H, W)` logits vs. `(B, H, W)` labels) are natural fits for imbalanced classes such as rare disturbance/change events.
-
-```python
-import torch.optim as optim
-from torch.utils.data import DataLoader, TensorDataset
-from zeit.ai.losses import FocalLoss
-
-train_loader = DataLoader(TensorDataset(X_train, dates_train, y_train), batch_size=8, shuffle=True)
-
-optimizer = optim.Adam(model.parameters(), lr=1e-3)
-criterion = FocalLoss(alpha=0.25, gamma=2.0)
-
-num_epochs = 20
-for epoch in range(num_epochs):
-    model.train()
-    epoch_loss = 0.0
-    for images, dates, labels in train_loader:
-        images, dates, labels = images.to(device), dates.to(device), labels.to(device)
-
-        optimizer.zero_grad()
-        logits = model(images, batch_positions=dates)  # (batch, n_classes, H, W)
-        loss = criterion(logits, labels)
-        loss.backward()
-        optimizer.step()
-
-        epoch_loss += loss.item()
-
-    print(f"Epoch [{epoch + 1}/{num_epochs}], Loss: {epoch_loss / len(train_loader):.4f}")
-```
-
-## Inference
-
-```python
-model.eval()
-
-with torch.no_grad():
-    # 1 batch, 12 time steps, 6 bands, 256x256 patch
-    new_data = torch.rand(1, 12, 6, 256, 256).to(device)
-    new_dates = torch.arange(12, dtype=torch.float32).unsqueeze(0).to(device)  # (1, 12)
-
-    logits = model(new_data, batch_positions=new_dates)
-    predicted_classes = torch.argmax(logits, dim=1)
-
-    print(f"Prediction shape: {predicted_classes.shape}")
-    # Output: Prediction shape: torch.Size([1, 256, 256])
-```
-
-You can also request the raw attention maps (`return_att=True`) for interpretability, e.g. to visualize which timesteps the model relied on most for a given pixel:
-
-```python
-logits, attn = model(new_data, batch_positions=new_dates, return_att=True)
-# attn: (n_head, batch, n_times, H, W)
-```
-
-> **Pro Tip:** for inference over massive geographical areas, use `xarray`/`rasterio` windows to chunk the data into `256x256` (or similar) patches, run them through the model, and mosaic the results back together.
+`zeit.ai.train` covers the usual case. For anything else (another optimizer, a scheduler, augmentation), the `SampleSet` is a PyTorch `Dataset` whose items hold the normalized `x`, the label `y` and the date `positions`; see [A loop of your own](ai.md#a-loop-of-your-own). A model trained this way can still be classified with `zeit.ai.predict` after `zeit.ai.train(model, samples, epochs=0)` records the samples' metadata in it.
 
 ## Validation Against the Official Reference
 

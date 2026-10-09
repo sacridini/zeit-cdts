@@ -40,32 +40,25 @@ Because the flatten/positional-encoding buffers are sized at construction time f
 
 See the [TempCNN tutorial](tempcnn.md) for the simpler 1D-CNN alternative, and the [UTAE tutorial](utae.md) if you need spatially-aware *segmentation* (a class per pixel over a whole image patch, not just a single pixel's own time series).
 
-## Preparing Your Data
+## From a cube to a map
 
-`LightTAE` expects a 3D tensor of shape `(Batch, Time, Bands)` — one time series of spectral bands per pixel — plus a fixed `day_offsets` timeline (a Python list of day counts from the first observation) passed at construction time.
-
-```python
-import numpy as np
-import torch
-
-# Example: 36 time steps, 16-day composites, starting at day 0
-day_offsets = list(range(0, 36 * 16, 16))
-
-# Your training tensor: (n_samples, n_times, n_bands)
-X_train = torch.tensor(np.load("pixel_time_series.npy"), dtype=torch.float32)
-y_train = torch.tensor(np.load("pixel_labels.npy"), dtype=torch.long)
-```
-
-If you're pulling data from a `zeit` STAC cube rather than pre-extracted `.npy` arrays, reduce the cube to a table of per-pixel time series (e.g. via `.stack(pixel=("y", "x"))` on an `xarray.DataArray`) and compute `day_offsets` from `cube.time`:
+`LightTAE` classifies each pixel from its series of bands, `(time, band)`. Its positional encoding takes the days since the first date, which `zeit.ai.samples` computes from the cube's dates (`samples.meta["positions"]`):
 
 ```python
-import xarray as xr
+import zeit
+from zeit import ai
 
-cube = xr.open_zarr("s3://my-bucket/sentinel2_cube.zarr")["reflectance"]
-day_offsets = ((cube.time - cube.time[0]) / np.timedelta64(1, "D")).values.tolist()
+cube = zeit.load_raster("s2_16day_2022.tif")                # (time, band, y, x)
+samples = ai.samples(cube, "samples.gpkg", label="class")
+model = ai.train(ai.LightTAE, samples, epochs=50, loss="focal")
+classes = ai.predict(model, cube)
 ```
+
+Like `sits_lighttae()`, a model is built for one timeline (its layer norm and positional encoding are sized by it): the cube to classify needs as many dates. See [Deep Learning](ai.md#from-a-cube-to-a-map) for the samples, the validation blocks and the normalization.
 
 ## Instantiating the Model
+
+`zeit.ai.train` builds the model for you from the samples (bands, dates, classes); the arguments below pass through it, e.g. `ai.train(ai.LightTAE, samples, n_heads=8)`. To build it yourself:
 
 ```python
 from zeit.ai import LightTAE
@@ -105,49 +98,9 @@ temporal_fusion = LTAE(
 fused = temporal_fusion(x)
 ```
 
-## Training Loop
+## A loop of your own
 
-```python
-import torch.optim as optim
-from torch.utils.data import DataLoader, TensorDataset
-from zeit.ai.losses import FocalLoss
-
-train_loader = DataLoader(TensorDataset(X_train, y_train), batch_size=64, shuffle=True)
-
-optimizer = optim.Adam(model.parameters(), lr=1e-3)
-criterion = FocalLoss(alpha=0.25, gamma=2.0)  # or torch.nn.CrossEntropyLoss() for balanced classes
-
-num_epochs = 30
-for epoch in range(num_epochs):
-    model.train()
-    epoch_loss = 0.0
-    for values, labels in train_loader:
-        values, labels = values.to(device), labels.to(device)
-
-        optimizer.zero_grad()
-        logits = model(values)          # (batch, n_labels)
-        loss = criterion(logits, labels)
-        loss.backward()
-        optimizer.step()
-
-        epoch_loss += loss.item()
-
-    print(f"Epoch [{epoch + 1}/{num_epochs}], Loss: {epoch_loss / len(train_loader):.4f}")
-```
-
-## Inference
-
-```python
-model.eval()
-
-with torch.no_grad():
-    new_series = torch.rand(1, len(day_offsets), 6).to(device)  # (1, n_times, n_bands)
-    logits = model(new_series)
-    predicted_class = torch.argmax(logits, dim=1)
-    print(f"Predicted class: {predicted_class.item()}")
-```
-
-For inference over an entire spatial extent, extract each pixel's time series (reshaped to `(N_pixels, n_times, n_bands)`), run them through the model in batches, then reshape the predictions back to `(H, W)`.
+`zeit.ai.train` covers the usual case. For anything else (another optimizer, a scheduler, augmentation), the `SampleSet` is a PyTorch `Dataset` whose items hold the normalized `x`, the label `y` and the date `positions`; see [A loop of your own](ai.md#a-loop-of-your-own). A model trained this way can still be classified with `zeit.ai.predict` after `zeit.ai.train(model, samples, epochs=0)` records the samples' metadata in it.
 
 ## Validation Against `sits`
 

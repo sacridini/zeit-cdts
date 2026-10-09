@@ -25,24 +25,26 @@ The core idea of a Siamese network is **weight sharing**: the same encoder is ap
 
 Use the Siamese Change Detector for classic **bi-temporal change detection**: you have exactly two dates (before/after an event — a wildfire, deforestation, a flood, construction) and want a change map between them. If you have a **longer time series** and want to classify or segment based on the whole trajectory rather than just two snapshots, use [LightTAE](ltae.md) (per-pixel) or [UTAE](utae.md) (whole-patch segmentation) instead.
 
-## Preparing Your Data
+## From a cube to a map
 
-The model expects two separate image tensors of identical shape, `(Batch, Channels, Height, Width)` — one per acquisition date — plus a binary (or multi-class) change label map of shape `(Batch, Height, Width)`.
+The data is a pair of images, `(before, after)`, each a map or a stack of bands on the same grid, and the classes say what changed (e.g. `change` and `same`; any number of classes):
 
 ```python
-import numpy as np
-import torch
+import zeit
+from zeit import ai
 
-# x_t0, x_t1: (n_samples, n_bands, patch_h, patch_w) - "before" and "after" patches
-x_t0_train = torch.tensor(np.load("images_before.npy"), dtype=torch.float32)
-x_t1_train = torch.tensor(np.load("images_after.npy"), dtype=torch.float32)
-# y: (n_samples, patch_h, patch_w) - 0 = no change, 1 = change
-y_train = torch.tensor(np.load("change_masks.npy"), dtype=torch.long)
+before = zeit.load_raster("s2_2021_08.tif")                           # (band, y, x)
+after = zeit.load_raster("s2_2023_08.tif", like="s2_2021_08.tif")    # on the same grid
+samples = ai.samples((before, after), "change.gpkg", label="class", patch=64)
+model = ai.train(ai.SiameseChangeDetector, samples, epochs=100)
+change = ai.predict(model, (before, after), probability=True)
 ```
 
-`x_t0` and `x_t1` must have the same spatial dimensions and be co-registered — the model assumes pixel `(i, j)` in both images corresponds to the same location on the ground.
+The encoder halves the window once, so `patch` is even. Label both what changed and what did not around it: polygons covering the unchanged land teach the model as much as the changed ones. See [Deep Learning](ai.md#from-a-cube-to-a-map).
 
 ## Instantiating the Model
+
+`zeit.ai.train` builds the model for you from the samples (bands, dates, classes); the arguments below pass through it, e.g. `ai.train(ai.SiameseChangeDetector, samples, num_classes=2)`. To build it yourself:
 
 ```python
 from zeit.ai import SiameseChangeDetector
@@ -71,55 +73,9 @@ criterion = FocalLoss(alpha=0.25, gamma=2.0)
 contrastive_criterion = ContrastiveSiameseLoss(margin=2.0)
 ```
 
-## Training Loop
+## A loop of your own
 
-```python
-import torch.optim as optim
-from torch.utils.data import DataLoader, TensorDataset
-
-train_loader = DataLoader(
-    TensorDataset(x_t0_train, x_t1_train, y_train), batch_size=16, shuffle=True
-)
-
-optimizer = optim.Adam(model.parameters(), lr=1e-3)
-criterion = FocalLoss(alpha=0.25, gamma=2.0)
-
-num_epochs = 20
-for epoch in range(num_epochs):
-    model.train()
-    epoch_loss = 0.0
-    for x_t0, x_t1, labels in train_loader:
-        x_t0, x_t1, labels = x_t0.to(device), x_t1.to(device), labels.to(device)
-
-        optimizer.zero_grad()
-        logits = model(x_t0, x_t1)      # (batch, num_classes, H, W)
-        loss = criterion(logits, labels)
-        loss.backward()
-        optimizer.step()
-
-        epoch_loss += loss.item()
-
-    print(f"Epoch [{epoch + 1}/{num_epochs}], Loss: {epoch_loss / len(train_loader):.4f}")
-```
-
-## Inference
-
-```python
-model.eval()
-
-with torch.no_grad():
-    new_t0 = torch.rand(1, 6, 256, 256).to(device)
-    new_t1 = torch.rand(1, 6, 256, 256).to(device)
-
-    logits = model(new_t0, new_t1)
-    change_map = torch.argmax(logits, dim=1)   # (1, H, W), 0 = no change, 1 = change
-
-    print(f"Change map shape: {change_map.shape}")
-```
-
-> **Pro Tip:** because the decoder only upsamples once (matching the single `MaxPool2d(2)` in the encoder), the output resolution matches the input resolution exactly — no separate resizing step is needed before comparing the predicted change map to your reference mask.
-
----
+`zeit.ai.train` covers the usual case. For anything else (another optimizer, a scheduler, augmentation), the `SampleSet` is a PyTorch `Dataset` whose items hold the normalized `x`, the label `y` and the date `positions`; see [A loop of your own](ai.md#a-loop-of-your-own). A model trained this way can still be classified with `zeit.ai.predict` after `zeit.ai.train(model, samples, epochs=0)` records the samples' metadata in it.
 
 ## References
 

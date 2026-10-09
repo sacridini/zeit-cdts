@@ -108,11 +108,13 @@
 | **Visualisation** | |
 | [`plot`](plot.md#plot) | Any cube, map, result or pixel: interactive viewer in a notebook or window, or a matplotlib figure |
 | **Deep learning** (`zeit.ai`) | |
+| [`ai.samples`](ai.md#samples), [`ai.train`](ai.md#train), [`ai.predict`](ai.md#predict) | From a cube and labelled samples to a map with a deep learning model |
+| [`ai.save`](ai.md#save), [`ai.load`](ai.md#load) | Keep a trained model with what prediction checks |
 | [`TempCNN`](ai.md#tempcnn), [`LightTAE`](ai.md#lighttae), [`LTAE`](ai.md#ltae) | Pixel time-series classifiers |
 | [`UTAE`](ai.md#utae) | Spatio-temporal patch segmentation |
 | [`SiameseChangeDetector`](ai.md#siamesechangedetector) | Two-date change detection |
 | [`GeoFoundationViT`](ai.md#geofoundationvit) | Foundation-model fine-tuning |
-| [`STACCubeDataset`](ai.md#staccubedataset) | Patches from a lazy cube |
+| [`STACCubeDataset`](ai.md#staccubedataset) | Windows that cover a lazy cube, for a loop of your own |
 | [`FocalLoss`](ai.md#focalloss), [`TverskyLoss`](ai.md#tverskyloss), [`ContrastiveSiameseLoss`](ai.md#contrastivesiameseloss) | Losses for imbalanced data |
 
 </div>
