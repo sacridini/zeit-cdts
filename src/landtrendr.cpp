@@ -958,6 +958,153 @@ std::vector<Vertex> fit_trajectory(const std::vector<int>& years,
     return fit_trajectory_impl(years, values, params).vertices;
 }
 
+// ftv_v1.pro's flat vertex at the start (or end) of the year range when the
+// band has no observation there; past max_count vertices, the interior vertex
+// with the least bend (angle_diff over all-year indices and vertex values,
+// distweightfactor 2) is dropped again. Unlike tbcd_v2.pro's extend_to_edge
+// the vertex values are floats here (ftv_v1 builds them with fltarr).
+void extend_ftv_to_edge(std::vector<int>& idx, std::vector<double>& vals, bool front, int n_all, int max_count) {
+    if (front) {
+        idx.insert(idx.begin(), 0);
+        vals.insert(vals.begin(), vals.front());
+    } else {
+        idx.push_back(n_all - 1);
+        vals.push_back(vals.back());
+    }
+    int nv = static_cast<int>(idx.size());
+    if (nv - 1 <= max_count - 1) return;
+    double sc_yr = value_range(vals);
+    if (sc_yr == 0.0) sc_yr = 1.0;
+    int minv = -1;
+    double min_ratio = std::numeric_limits<double>::max();
+    for (int i = 1; i < nv - 1; ++i) {
+        double r = angle_diff(idx[i - 1], idx[i], idx[i + 1], vals[i - 1], vals[i], vals[i + 1], sc_yr, 2.0);
+        if (r < min_ratio) { min_ratio = r; minv = i; }
+    }
+    if (minv < 0) return;
+    idx.erase(idx.begin() + minv);
+    vals.erase(vals.begin() + minv);
+}
+
+// Fitted-to-vertices (LT-GEE's ftv bands): apply_fitted_trajectory_v1.pro +
+// ftv_v1.pro. The series of another band is desawtoothed (not flipped by the
+// modifier, which the original leaves commented out) and fitted with
+// find_best_trace on the vertex years found by the segmentation band. A
+// vertex year the band has no observation for moves to the band's last
+// observation before it (or the first after, when that one is taken already
+// or there is none before). Missing first/last years get flat vertices, as in
+// the segmentation. Returns the fitted value of every year; all NaN without
+// observations or vertices.
+std::vector<double> fit_to_vertices(const std::vector<int>& years, const std::vector<double>& values,
+                                    const std::vector<int>& vertex_years, double spike_threshold) {
+    const int n_all = static_cast<int>(years.size());
+    std::vector<double> yfit(n_all, std::numeric_limits<double>::quiet_NaN());
+    std::vector<int> goods;
+    for (int i = 0; i < n_all; ++i) {
+        if (!std::isnan(values[i])) goods.push_back(i);
+    }
+    const int n = static_cast<int>(goods.size());
+    const int k = static_cast<int>(vertex_years.size());
+    if (n == 0 || k == 0) return yfit;
+
+    std::vector<int> x(n);
+    std::vector<double> raw(n);
+    for (int i = 0; i < n; ++i) { x[i] = years[goods[i]]; raw[i] = values[goods[i]]; }
+    std::vector<double> y = (spike_threshold < 1.0) ? desawtooth(raw, spike_threshold) : raw;
+
+    // The vertices on the band's own observations (indices into x).
+    std::vector<int> v;
+    for (int i = 0; i < k; ++i) {
+        const int vy = vertex_years[i];
+        int at = -1, before = -1, after = -1;
+        for (int j = 0; j < n; ++j) {
+            if (x[j] == vy) at = j;
+            if (x[j] < vy) before = j;
+            if (x[j] > vy && after == -1) after = j;
+        }
+        if (at == -1) {
+            at = before;
+            if (before == -1) at = after;
+            else if (!v.empty() && at == v.back() && at != n - 1) at = after;
+        }
+        if (at != -1) v.push_back(at);  // (the original stops on a vertex it cannot place)
+    }
+    std::sort(v.begin(), v.end());
+    v.erase(std::unique(v.begin(), v.end()), v.end());
+
+    std::vector<int> out_idx;
+    std::vector<double> out_vals;
+    if (v.size() < 2) {  // no segment: the mean, flat over every year
+        double mean_y = 0.0;
+        for (double val : y) mean_y += val;
+        mean_y /= n;
+        out_idx = {0, n_all - 1};
+        out_vals = {mean_y, mean_y};
+    } else {
+        out_vals = fit_piecewise_sequential(x, y, v);
+        for (int vi : v) out_idx.push_back(goods[vi]);
+        if (goods.front() != 0) extend_ftv_to_edge(out_idx, out_vals, true, n_all, k);
+        if (goods.back() != n_all - 1) extend_ftv_to_edge(out_idx, out_vals, false, n_all, k);
+    }
+    if (out_idx.front() == out_idx.back()) {  // a single year
+        std::fill(yfit.begin(), yfit.end(), out_vals.front());
+        return yfit;
+    }
+    std::vector<double> fit = interpolate_fit(years, out_idx, out_vals);
+    for (int i = 0; i < n_all; ++i) {
+        if (i < out_idx.front() || i > out_idx.back()) fit[i] = std::numeric_limits<double>::quiet_NaN();
+    }
+    return fit;
+}
+
+pybind11::array_t<double> fit_to_vertices_batch(pybind11::array_t<double, pybind11::array::c_style | pybind11::array::forcecast> values_array,
+                                                pybind11::array_t<int, pybind11::array::c_style | pybind11::array::forcecast> years_array,
+                                                pybind11::array_t<int, pybind11::array::c_style | pybind11::array::forcecast> vertex_years,
+                                                pybind11::array_t<int, pybind11::array::c_style | pybind11::array::forcecast> counts,
+                                                double spike_threshold, int n_jobs) {
+    if (values_array.ndim() != 2 || vertex_years.ndim() != 2 || years_array.ndim() != 1 || counts.ndim() != 1) {
+        throw std::invalid_argument("values (pixels, time), years (time,), vertex_years (pixels, vertices), counts (pixels,)");
+    }
+    const auto num_pixels = static_cast<int>(values_array.shape(0));
+    const auto times = static_cast<int>(values_array.shape(1));
+    const auto max_vertices = static_cast<int>(vertex_years.shape(1));
+    if (years_array.shape(0) != times || vertex_years.shape(0) != num_pixels || counts.shape(0) != num_pixels) {
+        throw std::invalid_argument("values, years, vertex_years and counts do not match");
+    }
+    const double* val_ptr = values_array.data();
+    const int* vy_ptr = vertex_years.data();
+    const int* count_ptr = counts.data();
+    std::vector<int> years(years_array.data(), years_array.data() + times);
+    pybind11::array_t<double> out({num_pixels, times});
+    double* out_ptr = out.mutable_data();
+    std::fill(out_ptr, out_ptr + static_cast<std::size_t>(num_pixels) * times, std::numeric_limits<double>::quiet_NaN());
+    {
+        pybind11::gil_scoped_release release;
+        #ifdef _OPENMP
+        int num_threads = n_jobs > 0 ? n_jobs : std::max(1, omp_get_num_procs() - 1);
+        #pragma omp parallel num_threads(num_threads)
+        #endif
+        {
+            std::vector<double> pixel(times);
+            std::vector<int> verts;
+            #ifdef _OPENMP
+            #pragma omp for schedule(dynamic, 64)
+            #endif
+            for (int p = 0; p < num_pixels; ++p) {
+                const int nv = std::min(count_ptr[p], max_vertices);
+                if (nv <= 0) continue;
+                verts.assign(vy_ptr + static_cast<std::size_t>(p) * max_vertices,
+                             vy_ptr + static_cast<std::size_t>(p) * max_vertices + nv);
+                std::copy(val_ptr + static_cast<std::size_t>(p) * times, val_ptr + static_cast<std::size_t>(p + 1) * times,
+                          pixel.begin());
+                std::vector<double> fit = fit_to_vertices(years, pixel, verts, spike_threshold);
+                std::copy(fit.begin(), fit.end(), out_ptr + static_cast<std::size_t>(p) * times);
+            }
+        }
+    }
+    return out;
+}
+
 pybind11::tuple fit_trajectory_batch(
     pybind11::array_t<double> values_array, // Shape: [Y, X, Time]
     pybind11::array_t<int> years_array,     // Shape: [Time]

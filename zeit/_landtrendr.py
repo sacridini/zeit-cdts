@@ -131,8 +131,11 @@ def run_landtrendr_batch(years: np.ndarray, values: np.ndarray, max_segments: in
 
 def apply_vertices(vertex_years: Union[np.ndarray, List[int]], other_band_years: Union[np.ndarray, List[int]], other_band_values: Union[np.ndarray, List[float]]) -> List[Dict[str, Union[int, float]]]:
     """
-    Applies LandTrendr structural vertices (FTV - Fitted to Vertices) to another spectral band.
-    This effectively uses the segmentation derived from the primary index to smooth and fit the secondary index.
+    Describes another spectral band with the vertex years of the primary index, by
+    interpolating that band's raw values at those years.
+
+    For LT-GEE's fitted-to-vertex bands (the band fitted through the vertices, as the
+    original LandTrendr's ftv_v1 does), use ``zeit.landtrendr(cube, band=..., ftv=[...])``.
     """
     import numpy as np
     

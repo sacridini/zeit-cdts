@@ -406,16 +406,33 @@ i5-13600K, 19 threads), contra o `rioxarray.reproject_match`: nearest 0,46 s con
 bilinear 0,70 s contra 22,6 s, average 0,90 s contra 6,4 s. O rioxarray deixa NaN a mais
 em 0,13% das células no bilinear (as bordas das nuvens, pela máscara unificada).
 
-### 8b: `zeit.landtrendr(..., ftv=[...])`
+### 8b: `zeit.landtrendr(..., ftv=[...])` — **Feito** (0.39.0)
 
 Fitted-to-vertices como no LT-GEE: segmenta uma banda (`band=`) e ajusta as outras com os
 mesmos anos de vértice. `ftv=["nbr", "tcw"]` (nomes de banda do cubo `(time, band, y, x)`
-ou do `Dataset`) acrescenta ao resultado `ftv_<banda>` `(time, y, x)` com a série ajustada
-e `vertex_value_<banda>` `(vertex, y, x)`. O ajuste é linear por partes e contínuo, com os
-anos dos vértices fixos (como o `ftv_` do LT-GEE); o `apply_vertices` atual só interpola os
-valores brutos nos anos dos vértices, o que não é a mesma coisa: conferir contra uma
-exportação do LT-GEE antes de decidir se ele sai ou passa a chamar o novo. Em C++, junto
-do motor do LandTrendr (um pixel, todas as bandas).
+ou variáveis do `Dataset`) acrescenta ao resultado `ftv_<banda>` `(time, y, x)` com a série
+ajustada e `vertex_value_<banda>` `(vertex, y, x)` com o valor ajustado em cada ano de
+vértice.
+
+- Porte do `apply_fitted_trajectory_v1.pro` + `ftv_v1.pro` (LLR-LandTrendr) em
+  `src/landtrendr.cpp` (`fit_to_vertices`, `fit_to_vertices_batch`), reaproveitando o
+  `desawtooth`, o `find_best_trace` (`fit_piecewise_sequential`) e o `fill_from_vertices`
+  (`interpolate_fit`) do motor. A banda é desawtoothed com `spike_threshold` e não é
+  invertida pelo `direction` (o original deixa o `modifier` comentado).
+- Um ano de vértice sem observação na banda (nuvem só nela) vai para a última observação
+  antes dele, ou para a primeira depois quando aquela já é vértice; primeiro/último anos
+  ausentes ganham vértices planos, e o de menor ângulo sai se passar da contagem, como no
+  `ftv_v1`.
+- As bandas entram empilhadas com a segmentada no mesmo bloco: lazy, o LandTrendr e os
+  FTV rodam juntos, uma vez por bloco.
+- Paridade (`tests/test_landtrendr_ftv.py`): 10 casos rodados no IDL original sob o GDL
+  (com o `regress.pro` sobre `LINFIT` do harness da paridade do LandTrendr): vértices
+  observados, desawtooth, vértice nublado para trás e para frente, pontas ausentes, dois
+  vértices, duas perturbações. Valores dos vértices iguais na precisão do float32 do
+  original e a série truncada (o original guarda o `yfit` num array inteiro) igual em
+  todos os anos.
+- O `apply_vertices` (que só interpola os valores brutos) ficou, com a documentação
+  apontando para o `ftv=`.
 
 ### 8c: resultados com `.save()` e `.plot()`
 

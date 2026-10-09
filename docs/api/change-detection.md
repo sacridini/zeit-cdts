@@ -15,7 +15,7 @@ zeit.landtrendr(
     pval_threshold=0.05, recovery_threshold=0.25,
     prevent_fast_recovery=True, spike_threshold=0.9,
     best_model_proportion=0.75, vertex_count_overshoot=3,
-    min_observations_needed=6, nodata="auto", fitted=False,
+    min_observations_needed=6, nodata="auto", fitted=False, ftv=None,
     chunks=None, n_jobs=-1,
 )
 ```
@@ -52,6 +52,7 @@ LandTrendr needs one value per year: a series whose years repeat raises an error
 | `min_observations_needed` | `int` | `6` | Pixels with fewer valid years are not segmented. |
 | `nodata` | `"auto"`, `float` or `None` | `"auto"` | Value marking a missing year, which is left out of the fit (NaN always is). `"auto"`: the raster's NoData value; for integer data without one, `0` (how Earth Engine exports masked pixels). A number: that value. `None`: only NaN. |
 | `fitted` | `bool` | `False` | Also return the fitted trajectory, `fitted (time, y, x)`: the series rebuilt from the vertices (LT-GEE's fitted values). |
+| `ftv` | list of `str` | `None` | Other bands to fit to the vertices of `band` (LT-GEE's fitted-to-vertex bands), by name: bands of the `(time, band, y, x)` cube or variables of the `Dataset`. Each is desawtoothed and fitted segment by segment through the vertex years found, in its own scale (not flipped by `direction`), as the original's `ftv_v1`. |
 | `chunks` | `"auto"`, `dict` | `None` | Inputs read from disk: `None` reads the raster into memory; `"auto"` or a dict of chunk sizes keeps it lazy, so the result is computed block by block, for rasters larger than memory. |
 | `n_jobs` | `int` | `-1` | Threads. `-1` uses all cores but one. |
 
@@ -66,6 +67,8 @@ LandTrendr needs one value per year: a series whose years repeat raises an error
 | `n_vertices` | `(y, x)` | uint8 | Number of vertices (`0`: not segmented). |
 | `rmse` | `(y, x)` | float32 | RMSE of the fit: the noise estimate behind `dsnr` in `extract_events`. |
 | `fitted` | `(time, y, x)` | float32 | Only with `fitted=True`: the fitted trajectory. |
+| `ftv_<band>` | `(time, y, x)` | float32 | For each band in `ftv`: its series fitted to the vertices. |
+| `vertex_value_<band>` | `(vertex, y, x)` | float32 | For each band in `ftv`: its fitted value at each vertex year; NaN past the last vertex. |
 
 The `x`/`y` coordinates and CRS of the input are kept, so the result goes straight to [`save_raster`](data.md#save_raster). `attrs` records the parameters, `direction` among them (the default `event_type` of `extract_events`). A single pixel's result has no `y`/`x` dims. With a dask cube or `chunks=`, the result is lazy.
 
@@ -84,6 +87,19 @@ px = zeit.landtrendr([8100, 8000, 8200, 8050, 3100, 4200, 5300, 6100, 6800, 7300
                      years=range(2010, 2022))
 px.vertex_year.values      # array([2010, 2013, 2014, 2018, 2021, 0, 0], dtype=int16)
 ```
+
+#### Fitted to vertices (FTV)
+
+`ftv=` describes the periods found on one index with other bands, as LT-GEE's `ftv` bands: segment on NBR, then fit NDVI, TCW or SWIR1 through the same vertex years.
+
+```python
+stack = zeit.load_raster("landsat_indices.tif")       # (time, band, y, x): nbr, ndvi, tcw, ...
+lt = zeit.landtrendr(stack, band="nbr", ftv=["ndvi", "tcw"])
+lt.ftv_ndvi                                           # (time, y, x): NDVI fitted to the NBR vertices
+lt.vertex_value_tcw                                   # (vertex, y, x): TCW at each vertex year
+```
+
+It is a port of the original's `ftv_v1.pro` (with `apply_fitted_trajectory_v1.pro`), checked against it run under GDL. Each band is desawtoothed with `spike_threshold` and fitted segment by segment, early to late, by the better of a straight line between the vertices and a regression anchored at the segment's start (`find_best_trace`). A vertex year the band has no observation for (a cloud in that band only) moves to the band's nearest observation before it, or after it when that one is a vertex already. Missing first and last years get flat vertices, as in the segmentation. The bands must be on the same grid and years as the segmented one (see [`load_raster(..., like=)`](data.md#on-the-grid-of-another-raster)).
 
 ### `extract_events` { .api }
 
@@ -138,7 +154,7 @@ regrowth = zeit.extract_events(lt, event_type="gain", sort_by="newest")   # same
 zeit.apply_vertices(vertex_years, other_band_years, other_band_values)
 ```
 
-"Fit to vertices": describes another band with the vertex years found on the primary index, by interpolating that band at those years.
+Describes another band with the vertex years found on the primary index, by interpolating that band's raw values at those years. For LT-GEE's fitted-to-vertex bands (the band fitted through the vertices, as the original does), use [`landtrendr(..., ftv=[...])`](#fitted-to-vertices-ftv).
 
 <div class="params" markdown>
 

@@ -63,6 +63,20 @@ std::vector<Vertex> fit_trajectory(const std::vector<int>& years,
 // Desawtooth function
 std::vector<double> desawtooth(const std::vector<double>& vals, double stopat = 0.9);
 
+// Fitted-to-vertices of another band (ftv_v1.pro): the fitted value of every
+// year, from the vertex years the segmentation found.
+std::vector<double> fit_to_vertices(const std::vector<int>& years, const std::vector<double>& values,
+                                    const std::vector<int>& vertex_years, double spike_threshold = 0.9);
+
+// fit_to_vertices on a batch of pixels with OpenMP: values (pixels, time),
+// vertex_years (pixels, vertices) with counts (pixels) of them -> (pixels, time).
+pybind11::array_t<double> fit_to_vertices_batch(
+    pybind11::array_t<double, pybind11::array::c_style | pybind11::array::forcecast> values_array,
+    pybind11::array_t<int, pybind11::array::c_style | pybind11::array::forcecast> years_array,
+    pybind11::array_t<int, pybind11::array::c_style | pybind11::array::forcecast> vertex_years,
+    pybind11::array_t<int, pybind11::array::c_style | pybind11::array::forcecast> counts,
+    double spike_threshold = 0.9, int n_jobs = -1);
+
 // New batch fit function
 pybind11::tuple fit_trajectory_batch(
     pybind11::array_t<double> values_array, // Shape: [Y, X, Time]

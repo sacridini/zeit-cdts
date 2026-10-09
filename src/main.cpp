@@ -49,6 +49,15 @@ PYBIND11_MODULE(_core, m) {
            "Run LandTrendr on a batch of pixels (3D array: [Y, X, Time]) with OpenMP",
            py::arg("values_array"), py::arg("years_array"), py::arg("params"), py::arg("no_data_value") = -9999.0, py::arg("n_jobs") = -1);
 
+    lt.def("fit_to_vertices", &zeit::landtrendr::fit_to_vertices,
+           "Fitted-to-vertices of one pixel's series of another band (ftv_v1): the fitted value of every year",
+           py::arg("years"), py::arg("values"), py::arg("vertex_years"), py::arg("spike_threshold") = 0.9);
+
+    lt.def("fit_to_vertices_batch", &zeit::landtrendr::fit_to_vertices_batch,
+           "fit_to_vertices on (pixels, time) values with (pixels, vertices) vertex years and their counts, with OpenMP",
+           py::arg("values"), py::arg("years"), py::arg("vertex_years"), py::arg("counts"),
+           py::arg("spike_threshold") = 0.9, py::arg("n_jobs") = -1);
+
     // Expose desawtooth function for testing
     lt.def("desawtooth", &zeit::landtrendr::desawtooth,
            "Remove spikes from a time series",

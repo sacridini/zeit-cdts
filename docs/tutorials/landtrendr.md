@@ -161,16 +161,17 @@ Any series works the same way: a list or 1-D array with `years=` (`zeit.landtren
 
 ### 6. Fit other bands to the same vertices
 
-A classic LandTrendr trick is to segment on one index (say NBR) and then describe the same periods with other bands. This is known as *fitting to vertices* (FTV). `apply_vertices` does this per pixel:
+A classic LandTrendr trick is to segment on one index (say NBR) and then describe the same periods with other bands. This is known as *fitting to vertices* (FTV), LT-GEE's `ftv` bands. With every band in one `(time, band, y, x)` cube (or a `Dataset`), name the index to segment and the bands to fit:
 
 ```python
-# Vertex years found on the primary index for this pixel (step 5)...
-vertex_years = fit.vertex_year.values[:n]
+stack = zeit.load_raster("landsat_indices.tif")      # bands nbr, ndvi, tcw, swir1 per year
+lt = zeit.landtrendr(stack, band="nbr", ftv=["ndvi", "swir1"])
 
-# ...applied to another band of the same pixel, e.g. SWIR1 from a second stack
-ftv_swir = zeit.apply_vertices(vertex_years, years, swir1[:, row, col].values)
-# [{'year': 1985, 'value': ...}, {'year': 2002, 'value': ...}, ...]
+lt.ftv_swir1                 # (time, y, x): SWIR1 fitted through the NBR vertices
+lt.vertex_value_ndvi         # (vertex, y, x): NDVI at each vertex year
 ```
+
+Each band is fitted as the original LandTrendr does (`ftv_v1`): desawtoothed, then segment by segment through the vertex years, in its own scale. If the bands come from different sources, put them on one grid first with [`load_raster(..., like=)`](../api/data.md#on-the-grid-of-another-raster).
 
 ## Tuning the parameters
 
