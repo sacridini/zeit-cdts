@@ -72,6 +72,9 @@ def smooth(
     >>> smooth = zeit.smooth(ndvi, lmbda=100)                   # gaps filled by the curve
     >>> zeit.plot(ndvi, fit=smooth)                              # click a pixel: raw and smoothed
     """
+    from ._embeddings import refuse
+
+    refuse(data, "zeit.smooth")
     if method not in _METHODS:
         raise ValueError(f"method must be one of {_METHODS}, got {method!r}")
     if method == "savgol" and (window % 2 == 0 or window <= polyorder):

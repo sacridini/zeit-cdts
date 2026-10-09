@@ -21,6 +21,8 @@ import torch.nn.functional as F
 import xarray as xr
 from torch.utils.data import DataLoader, Dataset
 
+from .._embeddings import check_same, embedding_meta
+
 IGNORE = -1  # label of an unlabelled pixel in a patch (CrossEntropyLoss's ignore_index)
 
 
@@ -286,6 +288,7 @@ def samples(
         "norm_range": [float(v) for v in rng],
         "patch": None if patch is None else int(patch),
         "label": label,
+        "embedding": embedding_meta(data),
     }
     return SampleSet(X, y, is_val, meta)
 
@@ -687,6 +690,7 @@ def predict(
     if meta is None:
         raise ValueError("this model has no zeit_meta_: train it with zeit.ai.train (or load it with zeit.ai.load)")
     name, spec = _spec_of(model)
+    check_same(meta.get("embedding"), data, name)
     cube, times = _cube(data, nodata, chunks)
     cube = _bands(cube, meta["bands"])
     n_times = cube.sizes["time"]

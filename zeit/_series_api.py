@@ -239,6 +239,9 @@ def bfast_monitor(data: Any, monitor_start: Any, *, dates: Optional[Sequence[Any
         none), ``breakpoint_idx``, ``magnitude``, ``sigma``, ``n_history``, ``has_break``,
         ``valid``, and ``break_date``: the date of the first observation flagged as a break.
     """
+    from ._embeddings import refuse
+
+    refuse(data, "zeit.bfast_monitor")
     from ._bfast import BFM_METRIC_NAMES, run_bfast_monitor_dask
 
     # With start_time and frequency given, the series needs no dates.
@@ -280,6 +283,9 @@ def bfast_lite(data: Any, *, dates: Optional[Sequence[Any]] = None, start_time: 
         observation after the break).
         ``zeit.extract_events`` picks one break per pixel.
     """
+    from ._embeddings import refuse
+
+    refuse(data, "zeit.bfast_lite")
     from ._bfast import bfl_metric_names, run_bfast_lite_dask
 
     # With start_time and frequency given, the series needs no dates.
@@ -323,6 +329,9 @@ def bfast(data: Any, *, dates: Optional[Sequence[Any]] = None, start_time: Optio
         and ``trend_break_date_*`` (the date of the first observation after the break). ``zeit.extract_events`` picks one
         trend break per pixel.
     """
+    from ._embeddings import refuse
+
+    refuse(data, "zeit.bfast")
     from ._bfast import bf_metric_names, run_bfast_dask
 
     # With start_time and frequency given, the series needs no dates.
@@ -379,6 +388,9 @@ def mann_kendall(data: Any, *, method: str = "hamed_rao", alpha: float = 0.05, l
         ``var_s``, ``slope`` (per time step; per ``period`` cycle for ``"seasonal"``) and
         ``intercept``.
     """
+    from ._embeddings import refuse
+
+    refuse(data, "zeit.mann_kendall")
     from .trend import MK_METRIC_NAMES, run_mann_kendall_dask
 
     cube, pixel = _series_cube(data, dates=dates, band=band, chunks=chunks, need_dates=False, nodata=nodata)
@@ -451,6 +463,9 @@ def phenology(data: Any, *, curve: Union[str, int] = "beck", method: Union[str, 
         One variable per metric (``TRS2.sos`` ... ``POP``, ``R2``, ``RMSE``), with dims
         ``(year, y, x)`` (``annual``) or ``(season, y, x)``.
     """
+    from ._embeddings import refuse
+
+    refuse(data, "zeit.phenology")
     from ._core.phenology import CurveType, ExtractionMethod
     from ._phenology import run_phenology_dask
 

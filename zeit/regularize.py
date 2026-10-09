@@ -21,6 +21,9 @@ def regularize_time_series(cube: Any, freq: str = '16D', method: str = 'median')
     and pixels without one in a period, are NaN (the NoData value in an integer cube that
     has one). Georeferencing and NoData are kept.
     """
+    from ._embeddings import refuse
+
+    refuse(cube, "zeit.regularize_time_series")
     if method not in ("median", "medoid"):
         raise ValueError(f"Unknown method {method}. Use 'median' or 'medoid'.")
     if not isinstance(cube, xr.DataArray):

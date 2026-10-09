@@ -164,6 +164,9 @@ def unmix(
     >>> fractions = zeit.unmix(landsat)            # gv, shade, npv, soil, cloud, rmse, ndfi
     >>> fractions.ndfi.zeit.plot()
     """
+    from ._embeddings import refuse
+
+    refuse(data, "zeit.unmix")
     from ._core.sma import unmix_batch
 
     cube = _as_cube(data, chunks)

@@ -309,6 +309,29 @@ def run_coded_cli(args: argparse.Namespace) -> None:
         forest_label=forest_label, forest_ndfi=args.forest_ndfi, n_jobs=args.jobs))
 
 
+def run_embeddings_cli(args: argparse.Namespace) -> None:
+    import os
+
+    from ._embeddings import load_embeddings
+    from ._save import save_raster
+
+    if (args.bbox is None) == (args.region is None):
+        raise SystemExit("give the region with --bbox WEST SOUTH EAST NORTH (longitude and latitude) or --region FILE")
+    years = None
+    if args.years:
+        years = []
+        for part in args.years:
+            first, _, last = part.partition("-")
+            years.extend(range(int(first), int(last or first) + 1))
+    emb = load_embeddings(tuple(args.bbox) if args.bbox else args.region, source=args.source, years=years,
+                          crs=args.crs, res=args.res, version=args.version, variant=args.variant, depth=args.depth,
+                          backend=args.backend, store=args.store, cache_dir=args.cache_dir)
+    os.makedirs(args.output_dir, exist_ok=True)
+    path = save_raster(emb, os.path.join(args.output_dir, f"{args.prefix or args.source}.tif"))
+    print(f"Saved {emb.sizes['time']} years x {emb.sizes['band']} dimensions "
+          f"({emb.sizes['y']} x {emb.sizes['x']} cells) to {path}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="zeit: Change Detection Python Library")
     subparsers = parser.add_subparsers(dest="command", help="Available algorithms")
@@ -496,6 +519,25 @@ def main() -> None:
     cd_parser.add_argument("--forest-ndfi", type=float, default=0.5, help="Without training points: forest where the "
                                                                           "model's mean NDFI is at least this (default: 0.5)")
 
+    em_parser = subparsers.add_parser("embeddings", help="Download the yearly embeddings of a foundation model "
+                                                         "(TESSERA, AlphaEarth) over a region, as one GeoTIFF")
+    em_parser.add_argument("output_dir", help="Directory to save the GeoTIFF")
+    em_parser.add_argument("--source", choices=["tessera", "alphaearth"], required=True, help="Which embeddings")
+    em_parser.add_argument("--bbox", type=float, nargs=4, metavar=("WEST", "SOUTH", "EAST", "NORTH"), default=None,
+                           help="Region bounds in longitude and latitude")
+    em_parser.add_argument("--region", default=None, help="Vector file of the region (cells outside its polygons are NoData)")
+    em_parser.add_argument("--years", nargs="+", default=None, help="Years, e.g. 2018 2020 or 2018-2024 (default: all)")
+    em_parser.add_argument("--crs", default=None, help="CRS of the output (default: the region's UTM zone, the native grid)")
+    em_parser.add_argument("--res", type=float, default=None, help="Cell size, in units of --crs (default: 10 m)")
+    em_parser.add_argument("--version", default=None, help="TESSERA: dataset version (default: v1.1)")
+    em_parser.add_argument("--variant", default=None, help="TESSERA: dataset variant (default: the version's)")
+    em_parser.add_argument("--depth", type=int, default=None, help="TESSERA v2: the first DEPTH dimensions only")
+    em_parser.add_argument("--backend", choices=["source.coop", "gee"], default=None,
+                           help="AlphaEarth: the open COGs (default) or Earth Engine")
+    em_parser.add_argument("--store", default=None, help="A local copy of the product to read instead of the public one")
+    em_parser.add_argument("--cache-dir", default=None, help="Where downloads are kept (default: ~/.cache/zeit/embeddings)")
+    em_parser.add_argument("--prefix", default=None, help="Name of the output file (default: the source)")
+
     args = parser.parse_args()
 
     if args.command == "landtrendr":
@@ -528,6 +570,8 @@ def main() -> None:
         run_som_cli(args)
     elif args.command == "coded":
         run_coded_cli(args)
+    elif args.command == "embeddings":
+        run_embeddings_cli(args)
     else:
         parser.print_help()
 

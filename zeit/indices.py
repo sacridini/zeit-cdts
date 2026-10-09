@@ -203,6 +203,9 @@ def compute_indices(cube, indices: Sequence[str], band_map: Optional[Dict[str, s
     indices. Divisions by zero become NaN. Stays lazy on a Dask-backed cube, so only
     the indices are ever written when you save it.
     """
+    from ._embeddings import refuse
+
+    refuse(cube, "zeit.compute_indices")
     import pandas as pd
     import xarray as xr
 

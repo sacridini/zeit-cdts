@@ -88,7 +88,8 @@ def save_raster(
     Notes
     -----
     The dates of a ``time`` axis are also stored in the ``ZEIT_TIME`` metadata tag,
-    so ``load_raster`` reads the file back with its ``time`` coordinate. Large GeoTIFFs
+    so ``load_raster`` reads the file back with its ``time`` coordinate; the identity of a
+    cube of embeddings (``zeit.load_embeddings``) in ``ZEIT_EMBEDDING``. Large GeoTIFFs
     are tiled, compressed with the predictor that suits the type and become BigTIFF when
     needed; dask arrays are written block by block, never whole in memory.
 
@@ -204,9 +205,10 @@ def _write_xarray(obj: Union[xr.DataArray, xr.Dataset], path: Path) -> Path:
 class _Job:
     """One raster to write: its (band, y, x) array and everything about the file."""
 
-    def __init__(self, array, path, target, profile, names, times, final_driver, compress):
+    def __init__(self, array, path, target, profile, names, times, final_driver, compress, tags=None):
         self.array, self.path, self.target, self.profile = array, path, target, profile
         self.names, self.times, self.final_driver, self.compress = names, times, final_driver, compress
+        self.tags = tags or {}
 
 
 def _write(data: Any, path: Path, **options) -> Path:
@@ -267,7 +269,9 @@ def _prepare(data: Any, path: Path, *, like: Any, crs: Any, transform: Optional[
         profile["nodata"] = nodata
     if drv == "GTiff":
         profile.update(_gtiff_options(out_dtype, compress, height, width))
-    return _Job(array, path, target, profile, names, times, final_driver, compress)
+    from ._embeddings import tags_of
+
+    return _Job(array, path, target, profile, names, times, final_driver, compress, tags_of(da))
 
 
 def _run(jobs: List[_Job]) -> None:
@@ -286,6 +290,8 @@ def _run(jobs: List[_Job]) -> None:
                         dst.set_band_description(i, str(name))
                 if job.times is not None:
                     dst.update_tags(**{TIME_TAG: json.dumps([t.isoformat() for t in job.times])})
+                if job.tags:
+                    dst.update_tags(**job.tags)
         finally:
             for dst in files:
                 dst.close()

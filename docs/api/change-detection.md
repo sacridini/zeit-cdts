@@ -120,6 +120,7 @@ Turns the result of any change detection algorithm into maps of one event per pi
 | [`bfast_monitor`](#bfast_monitor) | The break, with its `magnitude` (the median residual of the monitoring period). |
 | [`bfast_lite`](#bfast_lite) | Each break, with `magnitude_k`. |
 | [`bfast`](#bfast) | Each trend break, with `trend_magnitude_k`. |
+| [`embedding_change`](embeddings.md#embedding_change) | Each year: the distance between its embedding and the year before's, with no direction (`event_type="any"`); `dsnr` against the pixel's median distance. |
 
 <div class="params" markdown>
 
@@ -146,7 +147,7 @@ Turns the result of any change detection algorithm into maps of one event per pi
 | `duration` | Years the change took. `1` is abrupt, and every break of CCDC and BFAST is. |
 | `pre_val`, `post_val` | Fitted value before and after (NaN for BFAST, whose results keep no model, and for CCDC without `band`). |
 | `rate` | `magnitude / duration`. |
-| `dsnr` | Magnitude divided by the noise of the fit (LT-GEE's disturbance signal-to-noise ratio): LandTrendr's RMSE, the CCDC segment's RMSE (over several bands, the change vector standardized band by band), BFAST Monitor's `sigma`, BFAST Lite's residual standard deviation. Values above 2–3 are rarely noise. |
+| `dsnr` | Magnitude divided by the noise of the fit (LT-GEE's disturbance signal-to-noise ratio): LandTrendr's RMSE, the CCDC segment's RMSE (over several bands, the change vector standardized band by band), BFAST Monitor's `sigma`, BFAST Lite's residual standard deviation, the median yearly distance of an embedding. Values above 2–3 are rarely noise. |
 
 For a numpy vertex stack, a dict of `(rows, cols)` arrays with the LandTrendr variables except `date` (`dsnr` only with `rmse_map`).
 

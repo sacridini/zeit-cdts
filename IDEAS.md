@@ -1054,6 +1054,256 @@ SAVI, kNDVI, NBR, NDMI, NDWI e MNDWI, e nada no zeit faz unmixing.
 - Endmembers de Sentinel-2 ficaram de fora: não há um conjunto publicado que eu possa citar
   com segurança; uma tabela própria funciona (`endmembers=DataFrame`).
 
+## Fase 15: embeddings de satélite (TESSERA e AlphaEarth) — **Feito** (0.52.0, 15a–15d)
+
+Modelos de fundação já resumem um ano inteiro de imagens num vetor por pixel, e dois
+desses produtos estão prontos, globais e abertos, com a mesma forma:
+
+| | [TESSERA](https://geotessera.org/) (Feng et al. 2025) | AlphaEarth Foundations (Google Satellite Embedding) |
+| :--- | :--- | :--- |
+| Granularidade | pixel, 10 m | pixel, 10 m |
+| Dimensões | 128 | 64 (vetores de comprimento 1) |
+| Tempo | anual, 2017–2025 (v1.1) | anual, 2017–2025 (o registro da AWS ainda diz 2018–2024) |
+| Sensores | Sentinel-1 e Sentinel-2 | Sentinel-1, Sentinel-2, Landsat e outros |
+| Armazenamento | Zarr v3, int8 × escala por pixel, um grupo por zona UTM | COGs int8 por ano e zona UTM; Earth Engine |
+| Acesso | biblioteca `geotessera` (MIT, Python 3.12+) | Source Cooperative/AWS sem conta (`aef-loader`); GEE |
+| Licença | CC0 (a confirmar) | CC-BY 4.0 (atribuição a Google e Google DeepMind) |
+
+Os dois já são a convenção de cubo do zeit: um cubo anual georreferenciado de 64 ou 128
+bandas. Com ele carregado, quase tudo o que existe roda sem código novo: classificação
+few-shot (o uso principal dos dois artigos) pelo `train_classifier`/`classify`, validação
+pela Fase 13, agrupamento e limpeza de amostras pelo `som`/`clean_samples`, segmentação pelo
+`snic`, modelos neurais pelo `zeit.ai`. O que falta é a entrada, um jeito de olhar dezenas
+de bandas, a busca por similaridade e a mudança entre anos. E, com dois produtos e os
+algoritmos clássicos, comparar quem vê o quê.
+
+```python
+emb = zeit.load_embeddings("aoi.gpkg", source="tessera", years=range(2018, 2025))
+aef = zeit.load_embeddings("aoi.gpkg", source="alphaearth", years=range(2018, 2025))
+zeit.plot(emb)                                                  # PCA em RGB, igual em todos os anos
+modelo = zeit.train_classifier(emb.sel(time="2024"), pontos)    # few-shot: 128 features por pixel
+mapa = zeit.classify(emb.sel(time="2024"), modelo)
+parecido = zeit.similarity(emb, pontos_de_mineracao)            # "ache mais lugares como este"
+mud = zeit.extract_events(zeit.embedding_change(emb))           # esquema da Fase 12
+zeit.agreement(mud, zeit.extract_events(zeit.embedding_change(aef)),
+               zeit.extract_events(zeit.landtrendr(ndvi)), tolerance=1)
+```
+
+**Princípios:**
+
+- **Uma função, um adaptador por fonte.** `zeit.load_embeddings(..., source=)` devolve o
+  mesmo cubo para qualquer produto; o que muda de um para outro (desquantização, máscaras,
+  layout, autenticação) fica no adaptador. Tudo o que vem depois (15b, 15c) não sabe de
+  qual produto o cubo veio.
+- **Envolver os leitores oficiais, não reimplementar o acesso.** O layout do store do
+  TESSERA já mudou duas vezes em 2026 (tiles NPY, depois um store por ano, depois o store
+  único com `time`), e a API de tiles/NPY está marcada para sair. O `geotessera` resolve
+  store, versão, variante e zona; o zeit monta o cubo lazy no próprio padrão. Dependência
+  opcional: `pip install zeit-cdts[tessera]`, com uma mensagem clara quando falta
+  (explicando o Python 3.12+). O AlphaEarth são COGs com VRTs, que o rasterio já lê.
+- **Seguir a convenção geo-embeddings do Zarr** (os atributos `geoemb:`, que o TESSERA já
+  adota): um store que a siga entra sem adaptador próprio (15e).
+
+### 15a: `zeit.load_embeddings` e o adaptador do TESSERA
+
+`zeit.load_embeddings(region=None, *, source, years, like=None, crs=None,
+resolution=None, resampling="nearest", version=None, variant=None, depth=None,
+dequantize=True, water=False, chunks="auto", cache_dir=None)` devolve um `DataArray`
+`(time, band, y, x)` georreferenciado, `band` = `"A00"`..`"A127"` (os nomes que o Earth
+Engine usa para o AlphaEarth, `"A00"`..`"A63"`), `time` = 1º de janeiro de cada ano (como
+os compostos anuais).
+
+Comum a todas as fontes:
+
+- **Região** como no resto do zeit: bounds, geometrias, arquivo vetorial (`clip=` do
+  `load_raster`), ou `like=` um cubo/raster, cuja grade é usada.
+- **Lazy sempre.** Um tile MGRS (110×110 km) do TESSERA dá ~62 GB por ano em float32 (~15 GB
+  em int8). A desquantização fica dentro do grafo dask, chunk a chunk, alinhada aos chunks
+  do armazenamento. `dequantize=False` devolve o int8 (e as escalas, quando houver), para
+  guardar barato; o `load_raster` desquantiza quando o lê de volta.
+- **Várias zonas UTM:** uma região dentro de uma zona sai no CRS dela. Uma região que cruza
+  zonas pede `crs=` (ou `like=`), e cada zona é reprojetada e o mosaico montado; senão, erro
+  apontando as zonas. `resampling="nearest"` por padrão: interpolar embeddings cria
+  vetores que o modelo nunca produziu. `like=cubo_landsat` (30 m) usa `"average"`, porque a
+  média dos embeddings de 3×3 pixels é uma agregação razoável, a mesma que os trabalhos
+  com embeddings fazem para mudar de escala.
+- **A fonte viaja com o dado.** Os dois artigos avisam que embeddings de produtos ou
+  versões diferentes não se misturam (treinar num e prever noutro). Isso vira regra do
+  zeit: `attrs` `embedding_source`, `embedding_version`, `embedding_variant` (e a licença,
+  para a atribuição do CC-BY); o `save_raster` grava nos metadados (`ZEIT_EMBEDDING`) e o
+  `load_raster` lê de volta; o `train_classifier` e o `zeit.ai.train` guardam no modelo; o
+  `classify`/`predict` recusam outra fonte ou versão com uma mensagem dizendo qual era qual.
+- **Algoritmos que não fazem sentido recusam.** Embeddings já são resumos anuais, sem sinal
+  intra-anual nem unidade física: `ccdc`, `bfast*`, `phenology`, `landtrendr`, `twdtw`,
+  `regularize_time_series`, `compute_indices` e `unmix` dão erro claro quando o cubo tem
+  `embedding_source` (em vez de rodar e devolver lixo).
+- **Pontos de treino:** medir se o `train_classifier` num cubo lazy lê só os chunks dos
+  pontos. Se não ler, um caminho por pontos no adaptador (no TESSERA, o `sample_points` do
+  `geotessera`, uma leitura em bloco por zona), sem montar a região.
+
+Do TESSERA (`source="tessera"`):
+
+- Store, versão e variante pelo `geotessera` (`version="v1.1"` por padrão, como ele
+  recomenda); int8 × escala por pixel; escala `NaN` (água) ou `+inf` (terra ainda sem dado)
+  viram NaN.
+- **`water=True`** acrescenta a máscara de água (escala `NaN`) como coordenada `(y, x)`;
+  vem de graça e serve de máscara para o resto do zeit.
+- **Matryoshka (v2):** `depth=k` pega só as primeiras k dimensões (os stores v2 são
+  treinados para isso). Na v1.1, `depth=` dá erro.
+
+Testes: sem rede, contra um store Zarr falso com o mesmo layout (int8, escalas com `NaN` e
+`+inf`, duas zonas UTM, anos com zeros), criado numa fixture: desquantização, máscaras,
+mosaico entre zonas, `like=` com média, `depth=`, lazy igual a em memória, ida e volta pelo
+`save_raster`/`load_raster`, a recusa de fonte ou versão trocada no `classify` e a recusa
+dos algoritmos. Um teste com rede, opcional (marcado), lendo uma região pequena de verdade.
+
+### 15b: olhar e buscar: PCA no `zeit.plot` e `zeit.similarity`
+
+- **`zeit.plot(emb)`** mostra por padrão os três primeiros componentes de uma PCA em RGB
+  (como o `visualize` do `geotessera`). A PCA é ajustada **uma vez**, numa amostra de pixels
+  de todos os anos, e aplicada a todos: assim a mesma cor quer dizer o mesmo embedding em
+  2018 e em 2024, e o slider no tempo mostra mudança de verdade. Estiramento por percentis
+  fixos pelo mesmo motivo. O clique num pixel mostra, em vez de dezenas de séries, a
+  distância (cosseno) de cada ano ao anterior, a mesma série da 15c. `rgb=["A00", "A05",
+  "A10"]` continua mostrando bandas escolhidas.
+- **`zeit.similarity(emb, ref, *, by=None, metric="cosine")`**: `ref` são pontos ou
+  polígonos (ou um vetor); a referência é a média dos embeddings deles, e o resultado é a
+  similaridade de cada pixel a ela, `(time, y, x)` ou `(y, x)`. Com `by=` uma coluna, um mapa
+  por valor dela (`(class, y, x)`). Com uma referência de um ano e o cubo de vários, mostra
+  onde aquilo aparece em cada ano (mineração, pivôs, desmatamento novo). Lazy, numba por
+  bloco. No AlphaEarth os vetores já têm comprimento 1, e o cosseno é o produto escalar.
+- Testes: a PCA igual em todos os anos (mesmo vetor, mesma cor), o widget com 128 bandas, a
+  similaridade contra uma conta em numpy, `by=`, lazy.
+
+### 15c: mudança pelos embeddings, no esquema da Fase 12
+
+- **`zeit.embedding_change(emb, *, metric="cosine", baseline="previous")`**: `Dataset` com a
+  distância de cada ano ao anterior (`baseline="previous"`), ao primeiro (`"first"`) ou a um
+  ano dado, `(time, y, x)`, mais o ruído de cada pixel (a mediana das distâncias entre anos,
+  robusta a uma mudança só).
+- **`extract_events`** lê esse resultado: um candidato por par de anos, `magnitude` = a
+  distância, `dsnr` = distância / ruído, `event_type="any"`, `pre_val`/`post_val` vazios (não
+  há um valor físico). Convenção de tempo da Fase 12: o embedding do ano Y é o primeiro que
+  mostra a mudança, então `yod` = Y − 1 e `date` = Y-01-01. Uma mudança no meio do ano
+  aparece em parte em Y e em parte em Y + 1, então a comparação com outros algoritmos pede
+  `tolerance=1` (documentar).
+- Com isso, `agreement` compara o TESSERA, o AlphaEarth, o LandTrendr, o CCDC, o BFAST e o
+  CODED, e a Fase 13 valida sem código novo.
+- Testes: mudanças sintéticas conhecidas (um pixel que troca de vetor num ano dá aquele
+  `yod`, os estáveis não), o `dsnr`, o esquema igual ao dos outros algoritmos, o `agreement`
+  com o LandTrendr e o `sampling_design` sobre o resultado.
+
+### 15d: o adaptador do AlphaEarth (Google Satellite Embedding)
+
+- **`source="alphaearth"`** lê os COGs abertos do Source Cooperative/AWS (`tge-labs/aef`,
+  sem conta nem custo), por ano e zona UTM. Os COGs estão gravados de baixo para cima: a
+  leitura passa pelos VRTs que eles publicam, como a própria documentação pede. O
+  `aef-loader` é a referência do layout; como são só COGs e VRTs, o rasterio que o zeit já
+  usa dá conta, sem dependência nova.
+- **`backend="gee"`**: o mesmo produto pela coleção do Earth Engine
+  (`GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL`), pelo `zeit.gee`, para quem já usa o GEE ou
+  precisa do ano mais recente antes de ele chegar ao espelho aberto.
+- int8 com uma desquantização fixa (sem escala por pixel) e um valor de NoData; vetores de
+  comprimento 1. `depth=` e `water=` dão erro (não existem nesse produto).
+- `attrs` com a licença e a atribuição pedida pelo CC-BY ("Google e Google DeepMind"), que o
+  `save_raster` grava.
+- Exemplo e tutorial em Rondônia, no período em que os dados se sobrepõem (2017 em diante):
+  os dois produtos lado a lado na PCA; classificação few-shot com os mesmos pontos em cada
+  um, e as acurácias comparadas pela Fase 13; a mudança pelo TESSERA, pelo AlphaEarth, pelo
+  LandTrendr e pelo CODED no `agreement`, e a área de mudança estimada.
+- Testes: COGs falsos de baixo para cima com um VRT na fixture (a orientação certa no
+  cubo), a desquantização contra a fórmula, NoData, duas zonas, o ramo do GEE com uma
+  imagem falsa (como no CODED), e um teste com rede opcional.
+
+### 15e: qualquer store na convenção geo-embeddings (fica para depois)
+
+- `source=` um caminho ou URL `.zarr`: o adaptador lê os atributos `geoemb:` (dimensões,
+  quantização, `scale_array`, `nodata`, `spatial_layout`, fontes, versão) e monta o cubo sem
+  código próprio do produto. O adaptador do TESSERA passa a ser um caso disso mais o
+  `geotessera` para achar o store.
+- Só quando a convenção estiver ratificada e houver um segundo produto que a siga; até lá,
+  fica o desenho.
+
+### A verificar antes de começar: o que se achou
+
+- TESSERA: o `open_zone` do `geotessera` (0.11) devolve um `Dataset` lazy, mas com chunks do
+  dask do tamanho de um shard inteiro (`(1, 128, 4096, 4096)`, 2 GB em int8) e baixando a
+  coordenada `y` da zona inteira (1,8 milhão de valores, 15 MB): 12 s para abrir. O zeit usa o
+  `geotessera` só para achar o store (`zarr_store_url`, `dataset_for_location`) e abri-lo
+  (`zarr_store`, com as novas tentativas e a leitura direta do bucket), e lê os arrays com o
+  `zarr`, em blocos de 512 × 512 alinhados aos shards, com as coordenadas pelo
+  `spatial:transform`: 5 s para abrir.
+- TESSERA: o padrão é a v1.1 `dclimate`, um store Zarr no Source Cooperative
+  (`tessera/tessera/zarr/v1.1-dclimate`, 2017–2025, com o `geoemb:`); as escalas são
+  `(time, y, x)`. Na v1.1, `NaN` na escala é "sem dado na origem"
+  (`geotessera:mask_source: source_nodata`, `geoemb:landmask: false`), não água: água e
+  lacuna não se distinguem. Os grupos `utmNN` guardam o hemisfério sul no CRS norte, com
+  northings negativos. Há também `s1_*`/`s2_*` com as contagens de observações por pixel e
+  ano (não lidas por enquanto).
+- TESSERA: licença CC0 para embeddings e pesos (README do projeto, que pede a citação); o
+  CC-BY-SA do registro da AWS é do espelho de lá.
+- AlphaEarth: 2017–2025 no índice do espelho aberto (302.466 arquivos); a desquantização
+  `sign(v) · (v / 127,5)²` e o NoData −128 estão no README do espelho e conferem (vetores de
+  comprimento 1,000 ± 0,01); os VRTs cobrem cada arquivo (um `VRTWarpedDataset` que só inverte
+  as linhas); a coleção no GEE é `GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL`; os arquivos de uma
+  zona estão numa grade comum de 10 m.
+
+### O que foi feito (0.52.0)
+
+- **`zeit.load_embeddings`** (`zeit/_embeddings.py`): região, anos, grade (`like=`,
+  `crs=`/`res=`), reamostragem `"auto"` (vizinho mais próximo; média a partir de células 1,5×
+  maiores), corte pelos polígonos, identidade nos `attrs`. Um adaptador por produto devolve
+  um cubo lazy por zona UTM; uma zona só fica como está, várias vão para uma grade pelo
+  `to_grid` (`load_raster(like=)`) e se juntam.
+- **TESSERA** (`zeit/_tessera.py`): o store pelo `geotessera` (extra `[tessera]`) ou um
+  `store=` local sem ele; blocos lidos pelo `zarr` e desquantizados na leitura; `depth=` pelos
+  arrays Matryoshka do `geoemb:depths`; região toda ao sul do equador sai no CRS UTM sul
+  (as mesmas células), como Landsat e AlphaEarth; versão e variante do `geotessera` (ou do
+  próprio store, para um espelho).
+- **AlphaEarth** (`zeit/_alphaearth.py`): o índice (78 MB) baixado uma vez para
+  `~/.cache/zeit/embeddings` e renovado a cada 30 dias; os COGs lidos pelo endpoint do bucket
+  (não pelo gateway, que derruba pedidos sob carga), cada bloco lido e invertido (as mesmas
+  células do VRT, conferido numa janela real); blocos de 1024 × 1024 alinhados aos dos
+  arquivos e de 16 dimensões, que rodam em paralelo (cada banda é um pedido). `backend="gee"`
+  baixa cada ano da coleção uma vez pelo `download_gee_image`.
+- **Identidade:** `save_raster` grava `ZEIT_EMBEDDING`, `load_raster` lê de volta;
+  `train_classifier` guarda em `zeit_embedding_`, `zeit.ai.samples` em `meta["embedding"]`;
+  `classify` e `zeit.ai.predict` recusam outra fonte, versão ou variante. LandTrendr, CCDC,
+  BFAST (os três), Mann-Kendall, fenologia, TWDTW, `smooth`, `tmask`, `unmix`, `coded`,
+  `compute_indices` e `regularize_time_series` recusam um cubo de embeddings.
+- **`zeit.similarity`** e **`zeit.embedding_change`** (`zeit/_embedding_tools.py`);
+  `extract_events` lê o `embedding_change` (com `baseline="previous"`); a PCA do `zeit.plot`
+  (`pca_rgb`) é ajustada uma vez em amostras de até 6 anos.
+- **CLI** `zeit embeddings` (não estava no plano): baixa uma região para um GeoTIFF.
+- Em Rondônia (5 × 5 km, 2017–2025, de um notebook na Europa): os dois produtos na mesma
+  grade de 554 × 549 células em EPSG:32720; nove anos em 43 s (TESSERA) e 70 s (AlphaEarth).
+  A distância mediana de um ano ao outro é 0,05–0,1 no TESSERA e 0,02 no AlphaEarth (cada
+  produto tem sua escala). Com limiares de 0,3 e 0,2, os dois veem mudança em 6.459 dos
+  mesmos pixels e concordam no ano (±1) em 6.326. Os dois mostram mais mudança de 2017 para
+  2018 que nos outros anos.
+- Docs: referência "Embeddings", tutorial "Embeddings (TESSERA, AlphaEarth)", CLI, README,
+  instalação; exemplo 22 com os dados reais.
+- Testes em `tests/test_embeddings.py` (18), sem rede: um store Zarr com o layout publicado
+  (esparso, duas zonas, hemisfério sul no CRS norte, escalas `NaN` e `+inf`, um store v2 com
+  `geoemb:depths`), uma cópia dos COGs de baixo para cima com o índice, o Earth Engine e o
+  `geotessera` substituídos; a desquantização, as máscaras, lazy igual a em memória, o mosaico
+  entre zonas, a média sobre células de 30 m, `depth=`, o índice baixado uma vez, a ida e volta
+  pelo `save_raster`, as recusas, a similaridade, a mudança e seus eventos, a PCA e a CLI.
+
+**Diferenças em relação ao plano:**
+
+- `water=` saiu: na v1.1 a escala `NaN` não separa água de lacuna.
+- `dequantize=False` saiu: guardar em int8 economiza disco, mas pede um formato próprio de
+  ida e volta; o float32 comprimido do `save_raster` basta por enquanto.
+- `resolution=` virou `res=`, como no `load_raster`; `store=` (cópias locais, e os testes)
+  e `backend=` são novos.
+- O clique num pixel do `zeit.plot` mostra a série dos três componentes, não a distância de
+  ano a ano (seria um `fit=` novo).
+- Pontos de treino: um cubo lazy lê os blocos inteiros sob os pontos (uma leitura de pontos
+  pelo `sample_points` precisaria de outro caminho no `train_classifier`). Documentado: o
+  mesmo cubo é classificado em seguida, então `.persist()` (ou `chunks=None`) lê uma vez.
+- A recusa vale também para Mann-Kendall, `smooth`, `tmask` e `coded`.
+
 ## Para depois
 
 - `zeit.plot`: medir de verdade o caso de notebook remoto (JupyterHub, Colab), que ficou

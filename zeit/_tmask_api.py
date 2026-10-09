@@ -59,6 +59,9 @@ def tmask(
     >>> clear = zeit.tmask(cube, green="green", swir="swir1")
     >>> cube = cube.where(clear)                  # clouds and shadows become NaN
     """
+    from ._embeddings import refuse
+
+    refuse(data, "zeit.tmask")
     from ._load import load_raster
     from ._lt import _missing_values, _with_nan
 

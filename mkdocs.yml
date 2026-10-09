@@ -134,6 +134,7 @@ nav:
           - STAC Data Cubes: tutorials/stac-downloads.md
           - Google Earth Engine: tutorials/gee-downloads.md
           - Cloud Masking (Tmask): tutorials/tmask.md
+          - Embeddings (TESSERA, AlphaEarth): tutorials/embeddings.md
       - Visualisation:
           - Plotting & Exploring Results: tutorials/plotting.md
       - Change Detection:
@@ -163,6 +164,7 @@ nav:
   - API Reference:
       - api/index.md
       - Data & I/O: api/data.md
+      - Embeddings: api/embeddings.md
       - Pre-processing: api/preprocessing.md
       - Change Detection: api/change-detection.md
       - Time-Series Analysis: api/time-series.md

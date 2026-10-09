@@ -111,4 +111,5 @@ PyTorch models for classification and change detection, weight-compatible with t
 
 - **[Plotting & Exploring Results](plotting.md)**: `zeit.plot` for maps, dense time series and pixel fits, in a notebook or a window.
 - **[Google Earth Engine](gee-downloads.md)**: harmonised Landsat composites prepared on Google's servers.
+- **[Embeddings (TESSERA, AlphaEarth)](embeddings.md)**: the yearly embeddings of foundation models as a cube: classify from few samples, find similar places, follow change year to year.
 - **[Parallel & Cloud Processing](parallel-cloud-processing.md)**: from one core to a cluster, with Dask and Zarr.

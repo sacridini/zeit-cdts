@@ -13,6 +13,12 @@
 
     STAC and Earth Engine cubes, local files, compositing, GeoTIFF I/O, QA weights.
 
+-   :material-vector-combine:{ .lg .middle } **[Embeddings](embeddings.md)**
+
+    ---
+
+    TESSERA and AlphaEarth yearly embeddings as cubes; similarity search; change from year to year.
+
 -   :material-auto-fix:{ .lg .middle } **[Pre-processing](preprocessing.md)**
 
     ---
@@ -84,6 +90,10 @@
 | [`load_raster`](data.md#load_raster) / [`save_raster`](data.md#save_raster) | Read any time series as a georeferenced cube / write GeoTIFFs |
 | [`get_georef`](data.md#get_georef) | CRS and transform of a raster or cube |
 | [`qc_sentinel2_scl`](data.md#qc_sentinel2_scl), [`qc_modis_summary`](data.md#qc_modis_summary), [`qc_modis_state`](data.md#qc_modis_state) | QA bands to observation weights |
+| **Embeddings** | |
+| [`load_embeddings`](embeddings.md#load_embeddings) | TESSERA or AlphaEarth embeddings of a region as a `(time, band, y, x)` cube |
+| [`similarity`](embeddings.md#similarity) | Where (and when) pixels look like reference samples |
+| [`embedding_change`](embeddings.md#embedding_change) | How far each pixel's embedding moved from year to year (events with `extract_events`) |
 | **Pre-processing** | |
 | [`tmask`](preprocessing.md#tmask) | Time-series cloud and shadow detection of a cube |
 | [`smooth`](preprocessing.md#smooth) | Whittaker (uneven dates, gaps, weights) or Savitzky-Golay smoothing of a cube or series |
@@ -91,7 +101,7 @@
 | [`desawtooth`](preprocessing.md#desawtooth) | LandTrendr spike removal |
 | **Change detection** | |
 | [`landtrendr`](change-detection.md#landtrendr) | LandTrendr on a file, cube, array or single pixel |
-| [`extract_events`](change-detection.md#extract_events) | One event per pixel, the same maps for every change algorithm |
+| [`extract_events`](change-detection.md#extract_events) | One event per pixel, the same maps for every change algorithm (and for embedding change) |
 | [`agreement`](change-detection.md#agreement) | Where and when several change maps agree |
 | [`apply_vertices`](change-detection.md#apply_vertices) | Fit another band to the same vertices |
 | [`ccdc`](change-detection.md#ccdc) | CCDC on a file, cube, array or single pixel |

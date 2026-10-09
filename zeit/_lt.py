@@ -125,6 +125,9 @@ def landtrendr(
     >>> lt = zeit.landtrendr(stack, band="nbr", ftv=["ndvi", "tcw"])
     >>> lt.ftv_ndvi                                             # NDVI fitted to the NBR vertices
     """
+    from ._embeddings import refuse
+
+    refuse(data, "zeit.landtrendr")
     if direction not in _DIRECTIONS:
         raise ValueError(f"direction must be 'loss' or 'gain', got {direction!r}")
     params = dict(max_segments=int(max_segments), pval_threshold=float(pval_threshold),

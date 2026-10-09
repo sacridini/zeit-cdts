@@ -129,6 +129,9 @@ def coded(
     >>> result.strata.zeit.plot()
     >>> design = zeit.sampling_design(result.strata, expected_ua={"degradation": 0.6})
     """
+    from ._embeddings import refuse
+
+    refuse(data, "zeit.coded")
     from ._core.coded import Params, coded_batch, coded_size
     from ._sma import unmix
 

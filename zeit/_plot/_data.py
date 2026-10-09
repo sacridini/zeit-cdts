@@ -171,6 +171,11 @@ def prepare(data: Any, *, var: Optional[str] = None, band: Any = None, rgb: Opti
         da = da.rename(rename)
     if band is not None and "band" in da.dims:
         da = da.sel(band=band)
+    if band is None and rgb is not False and da.attrs.get("embedding_source") and da.sizes.get("band", 0) > 3 \
+            and {"y", "x"} <= set(da.dims):
+        from .._embedding_tools import pca_rgb
+
+        da = pca_rgb(da)   # dozens of dimensions: their first three principal components, as one colour
     if da.ndim == 1 or not {"y", "x"} <= set(da.dims):
         return da, dataset
     use_rgb = rgb if rgb is not None else rgb_bands(da) is not None

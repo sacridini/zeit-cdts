@@ -63,7 +63,10 @@ def plot(
         segments...
     band
         Band to show from a ``(time, band, y, x)`` cube; a cube with red, green and blue bands
-        is shown in colour unless ``rgb=False``.
+        is shown in colour unless ``rgb=False``. A cube of embeddings
+        (``zeit.load_embeddings``) is shown through its first three principal components as
+        red, green and blue, fitted once on every year so that a colour means the same
+        embedding in all of them (``band=`` shows one dimension instead).
     kind
         How to colour: ``"continuous"``, ``"diverging"``, ``"categorical"``, ``"years"``,
         ``"rgb"``. By default chosen from the data: integers with a few values (or ``bool``)

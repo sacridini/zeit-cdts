@@ -35,6 +35,7 @@ Built with highly optimized C++ extensions (OpenMP and Eigen SIMD) bound to Pyth
   - **Mann-Kendall / Theil-Sen**: Pixel-wise non-parametric trend test and slope estimation for detecting statistically significant greening/browning trends.
   - **SNIC Segmentation**: Superpixel segmentation of images and whole time series cubes (one segment = similar trajectories), matching the original SNIC's labels pixel for pixel, with tile-parallel processing for large scenes.
 - **Validation:** `sampling_design`, `stratified_sample` and `accuracy` follow the good practices of Olofsson et al. (2014): a stratified random sample of any map, then its accuracies and error-adjusted areas with confidence intervals (checked against the paper's example and R's `sits`). `interpret` labels the sample by eye, point after point, with yearly image chips, the pixel's series, the keyboard, and a review of the error matrix.
+- **Foundation-model embeddings:** `load_embeddings` reads the yearly embeddings of TESSERA (128 dimensions) and Google's AlphaEarth Foundations (64) at 10 m as a `(time, band, y, x)` cube, on the products' own grids, lazily. Classify them from few samples, cluster or segment them as any cube; `similarity` finds places like a sample, and `embedding_change` follows each pixel from year to year into the same events as LandTrendr or CCDC. The cube remembers which embeddings it holds, and a model refuses another product's.
 - **Deep Learning (`zeit.ai`):** PyTorch architectures for spatio-temporal Earth Observation (U-TAE, LightTAE, TempCNN, Siamese Networks) and a wrapper for Geospatial Foundation Models (ViT), with `samples`, `train` and `predict` to go from a cube and labelled samples to a georeferenced map.
 - **Visualisation (`zeit.plot`):** One function to look at any cube, map or result: an interactive viewer in Jupyter (or its own window from a script) that pages through dense time series at the display's frame rate, with a click-a-pixel inspector showing each algorithm's fit, satellite basemaps and vector outlines; or a matplotlib figure for reports.
 - **Command-Line Interface:** Every core algorithm is also available as a `zeit` subcommand, for running change detection on GeoTIFF stacks from bash scripts, cron jobs, or HPC environments without writing Python.
@@ -48,7 +49,7 @@ pip install zeit-cdts
 ```
 *(Note: Wheels are provided for Windows, Linux, and macOS. macOS runs in single-threaded mode by default due to Apple Clang lacking OpenMP).*
 
-For `zeit.plot` (matplotlib and anywidget), install the `plot` extra: `pip install zeit-cdts[plot]`.
+For `zeit.plot` (matplotlib and anywidget), install the `plot` extra: `pip install zeit-cdts[plot]`. For the TESSERA embeddings, the `tessera` extra (Python 3.12+): `pip install zeit-cdts[tessera]`.
 
 **For macOS users who want C++ OpenMP multi-threading:**
 Apple's default Clang compiler disables OpenMP. To achieve maximum performance and enable multi-threading, you must install the `libomp` library and manually export the compilation flags *before* forcing a local compilation:
@@ -313,6 +314,19 @@ zeit.plot(ndvi, fit=clusters)                         # click a pixel: its serie
 
 # Before training a classifier: flag samples whose class is not their neuron's
 checked = zeit.clean_samples(cube, "samples.gpkg", label="class")
+```
+
+## Foundation-Model Embeddings (TESSERA, AlphaEarth)
+
+TESSERA and Google's AlphaEarth Foundations turn a year of Sentinel-1/2 (and, for AlphaEarth, Landsat and more) into one vector per 10 m pixel, every year since 2017. `zeit.load_embeddings` reads them as a cube on their own UTM grids (the two products line up cell by cell), and the rest of zeit takes it as it is:
+
+```python
+emb = zeit.load_embeddings("aoi.gpkg", source="tessera", years=range(2017, 2026))     # or source="alphaearth"
+zeit.plot(emb)                                                 # the first 3 principal components, the same colours every year
+rf = zeit.train_classifier(emb.sel(time="2024"), "samples.gpkg")
+classes = zeit.classify(emb.sel(time="2024"), rf)              # refuses another product's embeddings
+like_these = zeit.similarity(emb, "known_mines.gpkg", year=2024)
+events = zeit.extract_events(zeit.embedding_change(emb), min_magnitude=0.3)   # yod, date, magnitude, dsnr
 ```
 
 ## Deep Learning (`zeit.ai`)

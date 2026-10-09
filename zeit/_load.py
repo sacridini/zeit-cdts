@@ -270,7 +270,8 @@ def _open_one(path: str, *, band: Any, chunks: Any, date_format: Optional[str]) 
 
     with rasterio.open(path) as src:
         descriptions = list(src.descriptions)
-        tag = src.tags().get(TIME_TAG)
+        tags = src.tags()
+    tag = tags.get(TIME_TAG)
     da = rioxarray.open_rasterio(path, masked=False, chunks=_file_chunks(chunks))
     da.attrs.pop("long_name", None)
     times: Optional[pd.DatetimeIndex] = None
@@ -303,6 +304,9 @@ def _open_one(path: str, *, band: Any, chunks: Any, date_format: Optional[str]) 
         if np.isscalar(band):
             da = da.squeeze("band", drop=False)
     da.attrs["source"] = path
+    from ._embeddings import TAG, attrs_from_tag
+
+    da.attrs.update(attrs_from_tag(tags.get(TAG)))
     if da.name is None:
         da.name = os.path.splitext(os.path.basename(path.rstrip("/\\")))[0]
     return da

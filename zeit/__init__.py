@@ -54,6 +54,9 @@ _LAZY = {
     "classify": "._classify_api",
     "plot": "._plot",
     "interpret": "._plot._interpret",
+    "load_embeddings": "._embeddings",
+    "similarity": "._embedding_tools",
+    "embedding_change": "._embedding_tools",
 }
 _LAZY_MODULES = {"ai", "cube"}
 
@@ -91,5 +94,6 @@ __all__ = [
     "compute_indices",
     "regularize_time_series",
     "load_raster", "save_raster", "plot", "interpret",
+    "load_embeddings", "similarity", "embedding_change",
     "ai"
 ]

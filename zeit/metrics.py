@@ -2,6 +2,7 @@ import threading
 from typing import Any, Dict, Optional, Union
 
 import numpy as np
+import pandas as pd
 import xarray as xr
 
 _SORT_IDS = {"greatest": 1, "newest": 2, "fastest": 3, "longest": 4, "dsnr": 5}
@@ -97,8 +98,9 @@ def extract_events(result: Any, event_type: Optional[str] = None, sort_by: str =
         result: What a change detection algorithm of zeit returned (an `xarray.Dataset`,
             georeferenced, in memory or dask): `zeit.landtrendr` (one event per segment),
             `zeit.ccdc` (one per break between two segments), `zeit.bfast_monitor` (the
-            break), `zeit.bfast_lite` (one per break), `zeit.bfast` (one per trend break) or
-            `zeit.coded` (one per change of the NDFI).
+            break), `zeit.bfast_lite` (one per break), `zeit.bfast` (one per trend break),
+            `zeit.coded` (one per change of the NDFI) or `zeit.embedding_change` (one per year:
+            the distance between the embeddings of a year and the year before).
             A numpy LandTrendr vertex stack (max_vertices * 2, rows, cols), years in the
             first half and values in the second, is also accepted.
         event_type (str): "loss" (value decreases), "gain" (value increases) or "any"
@@ -146,7 +148,8 @@ def extract_events(result: Any, event_type: Optional[str] = None, sort_by: str =
         candidates = _break_candidates(result, band)
         if candidates is None:
             raise ValueError("extract_events takes the Dataset returned by zeit.landtrendr, zeit.ccdc, "
-                             "zeit.bfast_monitor, zeit.bfast_lite, zeit.bfast or zeit.coded")
+                             "zeit.bfast_monitor, zeit.bfast_lite, zeit.bfast, zeit.coded or "
+                             "zeit.embedding_change")
         return _select_event(result, candidates, event_type, sort_by.lower(), float(min_magnitude),
                              float(min_duration), float(pre_val_threshold))
     if band is not None:
@@ -321,6 +324,10 @@ def _events(change, pre, post, noise, last_days, first_days) -> Dict[str, xr.Dat
 
 
 def _break_candidates(result: xr.Dataset, band: Any) -> Optional[Dict[str, Any]]:
+    if result.attrs.get("algorithm") == "embedding_change" and "distance" in result:
+        if band is not None:
+            raise ValueError("band= is for CCDC results; an embedding change is of the whole embedding")
+        return _embedding_candidates(result)
     if "t_change" in result and "ndfi_change" in result:
         if band is not None:
             raise ValueError("band= is for CCDC results; CODED's changes are on the NDFI")
@@ -403,6 +410,26 @@ def _coded_candidates(result: xr.Dataset) -> Dict[str, Any]:
     return dict(events=events, algorithm="CODED", any_only=False, band=None)
 
 
+def _embedding_candidates(result: xr.Dataset) -> Dict[str, Any]:
+    """One candidate per year of ``zeit.embedding_change``: the embedding of that year is the
+    first that shows the change, so it happened after January 1 of the year before."""
+    if result.attrs.get("baseline", "previous") != "previous":
+        raise ValueError("extract_events takes an embedding_change with baseline='previous' (the change from "
+                         "each year to the next); a fixed baseline measures how far, not when")
+    distance = result.distance.astype(np.float64)
+    years = xr.DataArray(pd.DatetimeIndex(result.time.values).year.to_numpy().astype(np.float64), dims="time",
+                         coords={"time": result.time.values})
+    first = _year_start_days(years).broadcast_like(distance)
+    last = _year_start_days(years - 1).broadcast_like(distance)
+    exists = np.isfinite(distance)
+    nan = xr.full_like(distance, np.nan)
+    noise = result.noise.astype(np.float64).broadcast_like(distance)
+    events = _events(distance.where(exists), nan, nan, noise.where(exists), last.where(exists), first.where(exists))
+    return dict(events={k: v.rename(time="event").drop_vars("event", errors="ignore") for k, v in events.items()},
+                algorithm="embedding_change", any_only=True, band=None,
+                any_only_reason="an embedding change has no direction: use event_type='any'")
+
+
 def _step_before(result: xr.Dataset, first):
     """Days since 1970 of the time step before ``first`` on a regular series (1 / frequency)."""
     return first - np.round(365.25 / float(result.attrs.get("frequency", 1)))
@@ -450,8 +477,9 @@ def _select_event(result: xr.Dataset, candidates: Dict[str, Any], event_type: Op
     _check_event_type(event_type, ("loss", "gain", "any"))
     event_type = event_type.lower()
     if candidates["any_only"] and event_type != "any":
-        raise ValueError("without band=, a CCDC event is the change of several bands together and has no "
-                         "direction: use event_type='any', or choose the band with band=")
+        raise ValueError(candidates.get("any_only_reason",
+                                        "without band=, a CCDC event is the change of several bands together and "
+                                        "has no direction: use event_type='any', or choose the band with band="))
     if sort_by == "dsnr" and candidates.get("no_dsnr"):
         raise ValueError(f"{algorithm} results keep no fit noise: sort_by='dsnr' is not available")
 

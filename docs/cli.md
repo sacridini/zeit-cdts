@@ -431,6 +431,28 @@ zeit classify ./data/s2_2023.tif ./results_2023 --model ./results/rf.joblib     
 zeit som ./data/LT_Stack_NDVI_Rondonia.tif ./results --x 2 --y 2 --sample 30000
 ```
 
+### 15. Embeddings (`embeddings`)
+
+[`zeit.load_embeddings`](api/embeddings.md#load_embeddings): download the yearly embeddings of a foundation model over a region into one GeoTIFF, `<output_dir>/<prefix>.tif`, one band per year and dimension (`2024_A00`, `2024_A01`...), which `zeit.load_raster` reads back as a `(time, band, y, x)` cube that remembers which embeddings it holds. Unlike the other commands it takes no input raster: the region is given by `--bbox` or `--region`.
+
+| Option | Type | Default | Description |
+| :--- | :---: | :---: | :--- |
+| `--source` | `str` | *required* | `tessera` or `alphaearth`. |
+| `--bbox` | 4 `float` | *None* | West, south, east, north in longitude and latitude. |
+| `--region` | `filepath` | *None* | Vector file of the region; cells outside its polygons are NoData. |
+| `--years` | `str` | all | Years, e.g. `2018 2020` or `2018-2024`. |
+| `--crs`, `--res` | `str`, `float` | the region's UTM zone, 10 | Output CRS and cell size. |
+| `--version`, `--variant`, `--depth` | | `v1.1` | TESSERA: dataset version and variant; the first `DEPTH` dimensions of a v2 store. |
+| `--backend` | `str` | `source.coop` | AlphaEarth: the open COGs or `gee` (Earth Engine). |
+| `--store` | `filepath` | *None* | A local copy of the product to read instead of the public one. |
+| `--cache-dir` | `filepath` | `~/.cache/zeit/embeddings` | Where downloads are kept. |
+| `--prefix` | `str` | the source | Name of the output file. |
+
+```bash
+zeit embeddings ./results --source tessera --bbox -63.0 -10.0 -62.9 -9.9 --years 2018-2024
+zeit classify ./results/tessera.tif ./results --samples ./data/samples.gpkg   # every year and dimension a feature
+```
+
 ---
 
 ## Note on AI Tools (Deep Learning)

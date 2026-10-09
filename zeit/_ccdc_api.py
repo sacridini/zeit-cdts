@@ -109,6 +109,9 @@ def ccdc(
     >>> first_break = segments.t_break.isel(segment=0).dt.year
     >>> july = zeit.predict_synthetic_image(segments, "2020-07-01")
     """
+    from ._embeddings import refuse
+
+    refuse(data, "zeit.ccdc")
     from ._ccdc import run_ccdc_batch
 
     cube, qa_cube, pixel = _as_ccdc_cube(data, qa=qa, dates=dates, bands=bands, chunks=chunks)

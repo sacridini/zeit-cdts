@@ -96,6 +96,9 @@ def twdtw(
     >>> classes = zeit.twdtw(ndvi, patterns)
     >>> classes.label.zeit.plot()                                     # legend: soy, pasture
     """
+    from ._embeddings import refuse
+
+    refuse(data, "zeit.twdtw")
     if cycle not in _CYCLES:
         raise ValueError(f"cycle must be 'year' or None, got {cycle!r}")
     if not patterns:
