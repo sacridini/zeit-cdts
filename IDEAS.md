@@ -293,7 +293,13 @@ kernel por quadro, com no máximo 2 quadros em trânsito (fps ≤ 2/latência: 1
    deflate), busca o recorte em resolução maior ao dar zoom com o viewer parado, e mostra
    colorbar ou legenda, valor e coordenadas sob o mouse, play com fps ajustável e teclado
    (espaço, setas). `zeit.plot` abre o viewer no notebook e a figura fora dele.
-3. 7d: clicar num pixel e ver a série com o ajuste do algoritmo.
+3. 7d: clicar num pixel e ver a série com o ajuste do algoritmo. **Feito** (0.35.0):
+   `zeit.plot(cube, fit=resultado)`; `_fit.overlays` traduz cada resultado em linhas,
+   marcas e faixas (vértices do LandTrendr, modelos harmônicos e quebras do CCDC, evento do
+   `extract_events`, quebras do BFAST, reta de Theil-Sen do Mann-Kendall), casando o
+   resultado com o dado pelas coordenadas. No viewer, o clique marca o pixel e desenha o
+   gráfico SVG com a data atual e clique no gráfico para pular de data; em estático,
+   `zeit.plot(cube, fit=lt, pixel=(x, y), static=True)`.
 4. 7e: basemap e vetores; avaliar MapLibre GL (camada WebGL própria sobre o mapa) contra
    pan/zoom e tiles feitos à mão.
 5. 7f: janela fora do notebook (pywebview ou navegador), testes (Playwright com Edge/Chromium

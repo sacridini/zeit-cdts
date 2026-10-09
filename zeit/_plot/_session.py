@@ -30,15 +30,17 @@ Reply = Tuple[Dict[str, Any], List[bytes]]
 class Session:
     def __init__(self, data: Any, *, var: Optional[str] = None, band: Any = None, rgb: Optional[bool] = None,
                  style_options: Optional[Dict[str, Any]] = None, max_size: int = 800, compress: bool = True,
-                 title: Optional[str] = None):
+                 title: Optional[str] = None, fit: Any = None):
         self.source = data
         self.band, self.rgb_option = band, rgb
         self.style_options = dict(style_options or {})
         self.max_size = max_size
         self.compress = compress
         self.title = title
+        self.fit = fit
         self.handlers: Dict[str, Callable[[Dict[str, Any]], Reply]] = {
             "meta": self._meta, "frames": self._frames, "detail": self._detail, "select": self._select,
+            "pixel": self._pixel,
         }
         self._load(var)
 
@@ -88,7 +90,7 @@ class Session:
             "step": self.step, "rgb": f.rgb, "extent": [left, right, bottom, top], "crs": crs,
             "style": self.style.to_json(), "title": self.title if self.title is not None else f.name,
             "variables": self.variables(), "var": self.var, "compressed": self.compress,
-            "dims": f.lead, "frame_bytes": w * h * (3 if f.rgb else 1),
+            "dims": f.lead, "frame_bytes": w * h * (3 if f.rgb else 1), "has_fit": self.fit is not None,
         }
         return meta, [self.style.lut().tobytes()]
 
@@ -139,3 +141,16 @@ class Session:
     def _select(self, request: Dict[str, Any]) -> Reply:
         self._load(request["var"])
         return self._meta(request)
+
+    def _pixel(self, request: Dict[str, Any]) -> Reply:
+        """One cell's full series (top-first cell coordinates) and the fit's overlays there."""
+        from ._fit import overlays, pixel_series
+
+        f = self.frames
+        col = min(max(int(request["x"]), 0), f.width - 1)
+        top = min(max(int(request["y"]), 0), f.height - 1)
+        row = f.height - 1 - top if self.flip else top
+        series = pixel_series(f, col, row)
+        series["overlays"] = overlays(self.fit, series, shape=(f.height, f.width), band=self.band)
+        series["cell_top"] = [col, top]
+        return series, []

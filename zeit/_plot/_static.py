@@ -123,3 +123,36 @@ def plot_series(da: Any, *, ax: Any = None, figsize: Any = None, title: Optional
     if title:
         ax.set_title(title)
     return fig
+
+
+def plot_pixel(series: dict, *, ax: Any = None, figsize: Any = None, title: Optional[str] = None):
+    """One pixel's series (from ``_fit.pixel_series``) with its overlays."""
+    import matplotlib.pyplot as plt
+    import pandas as pd
+
+    if ax is None:
+        fig, ax = plt.subplots(figsize=figsize or (9, 3.6), constrained_layout=True)
+    else:
+        fig = ax.figure
+    to_x = (lambda v: pd.to_datetime(np.asarray(v, dtype=float), unit="ms")) if series["is_time"] else np.asarray
+    x = to_x(series["x"])
+    for s in series["series"]:
+        y = np.array([np.nan if v is None else v for v in s["y"]], dtype=float)
+        ax.plot(x, y, "o-", ms=3, lw=1, alpha=0.85, label=s["name"])
+    for o in series.get("overlays", []):
+        style = dict(color=o.get("color", "#d62728"), label=o.get("label"))
+        if o["kind"] == "line":
+            y = np.array([np.nan if v is None else v for v in o["y"]], dtype=float)
+            ax.plot(to_x(o["x"]), y, "--" if o.get("dashed") else "-", lw=2, marker="o" if o.get("markers") else None,
+                    ms=4, **style)
+        elif o["kind"] == "vline":
+            ax.axvline(to_x([o["x"]])[0], ls="--" if o.get("dashed") else "-", lw=1.5, **style)
+        elif o["kind"] == "span":
+            x0, x1 = to_x([o["x0"], o["x1"]])
+            ax.axvspan(x0, x1, alpha=0.15, **style)
+    wx, wy = series["world"]
+    ax.set_title(title if title is not None else f"pixel x={wx:.5g}, y={wy:.5g}", fontsize=10)
+    ax.grid(alpha=0.3)
+    if any(o.get("label") for o in series.get("overlays", [])) or len(series["series"]) > 1:
+        ax.legend(fontsize=8, frameon=False)
+    return fig

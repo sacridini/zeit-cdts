@@ -1,0 +1,157 @@
+"""One pixel's series and what an algorithm made of it, ready to draw.
+
+``pixel_series`` reads the full series of one cell; ``overlays`` turns a result of zeit at
+that cell into things to draw over it: lines (LandTrendr's segments, CCDC's harmonic models,
+the Mann-Kendall trend), vertical marks (breaks) and spans (an event's duration). The
+viewer and the static plots draw the same overlays.
+
+x values are milliseconds since 1970 when the series has dates (what JavaScript's Date and
+matplotlib's date axis both take after conversion), else frame indices.
+"""
+
+from typing import Any, Dict, List, Optional, Sequence
+
+import numpy as np
+import pandas as pd
+import xarray as xr
+
+from ._data import Frames
+
+FIT_COLOR = "#d62728"
+
+
+def _ms(dates: Any) -> List[float]:
+    idx = pd.DatetimeIndex(np.atleast_1d(np.asarray(dates)))
+    return [float(v) / 1e6 for v in idx.asi8]
+
+
+def _year_ms(years: Sequence[float]) -> List[float]:
+    out = []
+    for y in years:
+        y = float(y)
+        year = int(y // 1)
+        start = pd.Timestamp(year, 1, 1)
+        days = (pd.Timestamp(year + 1, 1, 1) - start).days
+        seconds = int(round((y - year) * days * 86400))
+        out.append(float(start.value + seconds * 10**9) / 1e6)
+    return out
+
+
+def clean(values: Any) -> List[Optional[float]]:
+    """JSON-safe floats: NaN and inf become None."""
+    return [None if v is None or not np.isfinite(v) else float(v) for v in np.asarray(values, dtype=float).ravel()]
+
+
+def pixel_series(frames: Frames, col: int, row: int) -> Dict[str, Any]:
+    """The series of cell (row, col) of the frames' grid (``row`` counted as stored)."""
+    point = frames.da.isel(y=int(row), x=int(col))
+    values = np.asarray(point.values, dtype=float)
+    if frames.rgb:   # (frames..., band) -> one series per band
+        values = values.reshape(-1, values.shape[-1])
+        names = [str(b) for b in frames.da.band.values]
+        series = [{"name": names[k], "y": clean(values[:, k])} for k in range(values.shape[1])]
+    else:
+        series = [{"name": frames.name or "value", "y": clean(values.reshape(-1))}]
+    da = frames.da
+    world = [float(da.x.values[col]) if "x" in da.coords else float(col),
+             float(da.y.values[row]) if "y" in da.coords else float(row)]
+    if frames.times is not None:
+        x, is_time = _ms(frames.times), True
+    else:
+        x, is_time = list(range(frames.n)), False
+    return {"x": x, "series": series, "labels": frames.labels, "is_time": is_time, "world": world,
+            "cell": [int(col), int(row)]}
+
+
+def _at(result: xr.Dataset, world: Sequence[float], cell: Sequence[int], shape: Sequence[int]) -> Optional[xr.Dataset]:
+    """The result at a map location: by coordinates when it has them, else by cell."""
+    if "y" not in result.dims or "x" not in result.dims:
+        return result   # one pixel's result
+    if "x" in result.coords and "y" in result.coords and result.sizes["x"] > 1 and result.sizes["y"] > 1:
+        x, y = result.x.values, result.y.values
+        dx, dy = abs(float(x[1] - x[0])), abs(float(y[1] - y[0]))
+        if not (min(x) - dx / 2 <= world[0] <= max(x) + dx / 2 and min(y) - dy / 2 <= world[1] <= max(y) + dy / 2):
+            return None
+        return result.sel(x=world[0], y=world[1], method="nearest")
+    if (result.sizes["y"], result.sizes["x"]) == tuple(shape):
+        return result.isel(y=int(cell[1]), x=int(cell[0]))
+    return None
+
+
+def overlays(result: Any, series: Dict[str, Any], *, shape: Sequence[int], band: Any = None) -> List[Dict[str, Any]]:
+    """What ``result`` (a zeit result Dataset) says about the pixel of ``series``."""
+    if result is None or not isinstance(result, xr.Dataset):
+        return []
+    at = _at(result, series["world"], series["cell"], shape)
+    if at is None:
+        return []
+    at = at.compute()
+    is_time = series["is_time"]
+    out: List[Dict[str, Any]] = []
+    if "vertex_year" in at and "vertex_value" in at:                       # LandTrendr
+        n = int(at.n_vertices) if "n_vertices" in at else int((at.vertex_year > 0).sum())
+        years = at.vertex_year.values[:n].astype(float)
+        values = at.vertex_value.values[:n].astype(float)
+        if n and is_time:
+            out.append({"kind": "line", "x": _year_ms(years), "y": clean(values), "label": "LandTrendr fit",
+                        "color": FIT_COLOR, "markers": True})
+    if "t_start" in at and "coefs" in at:                                  # CCDC
+        out.extend(_ccdc(at, series, band))
+    if "yod" in at and "duration" in at:                                   # extract_events
+        yod, dur = float(at.yod), float(at.duration)
+        if yod > 0 and is_time:
+            x0, x1 = _year_ms([yod, yod + dur])
+            out.append({"kind": "span", "x0": x0, "x1": x1, "label": f"event {int(yod)} ({int(dur)} y)",
+                        "color": FIT_COLOR})
+    if "breakpoint" in at and "has_break" in at:                           # bfast_monitor
+        if float(at.has_break) == 1 and np.isfinite(float(at.breakpoint)) and is_time:
+            out.append({"kind": "vline", "x": _year_ms([float(at.breakpoint)])[0], "label": "bfastmonitor break",
+                        "color": FIT_COLOR})
+        if "monitor_start" in result.attrs and is_time:
+            out.append({"kind": "vline", "x": _year_ms([float(result.attrs["monitor_start"])])[0],
+                        "label": "monitoring starts", "color": "#888888", "dashed": True})
+    for prefix, label in (("breakpoint_idx_", "break"), ("trend_breakpoint_idx_", "trend break"),
+                          ("season_breakpoint_idx_", "season break")):
+        names = [v for v in at.data_vars if str(v).startswith(prefix)]
+        if prefix == "breakpoint_idx_" and "n_breaks" not in at:
+            continue
+        valid = [i for i, v in enumerate(series["series"][0]["y"]) if v is not None]
+        for name in names:
+            idx = float(at[name])
+            if np.isfinite(idx) and 0 <= int(idx) < len(valid):
+                out.append({"kind": "vline", "x": series["x"][valid[int(idx)]], "label": label, "color": FIT_COLOR})
+    if "slope" in at and "intercept" in at and "tau" in at:                # Mann-Kendall
+        slope, intercept = float(at.slope), float(at.intercept)
+        if np.isfinite(slope) and np.isfinite(intercept):
+            steps = np.arange(len(series["x"]))
+            trend = {1: "increasing", -1: "decreasing"}.get(int(at.trend), "no trend") if "trend" in at else ""
+            out.append({"kind": "line", "x": series["x"], "y": clean(intercept + slope * steps),
+                        "label": f"Theil-Sen ({trend})", "color": FIT_COLOR, "dashed": True})
+    return out
+
+
+def _ccdc(at: xr.Dataset, series: Dict[str, Any], band: Any) -> List[Dict[str, Any]]:
+    from .._ccdc_api import _DATENUM_OFFSET
+
+    if not series["is_time"]:
+        return []
+    bands = [str(b) for b in at.band.values]
+    name = str(band) if band is not None and str(band) in bands else series["series"][0]["name"]
+    b = bands.index(name) if name in bands else 0
+    out = []
+    w = 2.0 * np.pi / 365.25
+    for k in range(at.sizes["segment"]):
+        start, end, brk = at.t_start.values[k], at.t_end.values[k], at.t_break.values[k]
+        if np.isnat(start):
+            continue
+        days = pd.date_range(pd.Timestamp(start), pd.Timestamp(end), periods=120)
+        t = np.array([d.toordinal() for d in days], dtype=float) + _DATENUM_OFFSET
+        c = at.coefs.values[k, b]
+        terms = np.stack([np.ones_like(t), t, np.cos(w * t), np.sin(w * t), np.cos(2 * w * t), np.sin(2 * w * t),
+                          np.cos(3 * w * t), np.sin(3 * w * t)])
+        out.append({"kind": "line", "x": _ms(days.values), "y": clean(np.nan_to_num(c) @ terms),
+                    "label": f"CCDC model ({bands[b]})" if k == 0 else None, "color": FIT_COLOR})
+        if not np.isnat(brk):
+            out.append({"kind": "vline", "x": _ms([brk])[0], "label": "CCDC break" if k == 0 else None,
+                        "color": FIT_COLOR, "dashed": True})
+    return out

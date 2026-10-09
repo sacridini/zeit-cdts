@@ -46,3 +46,11 @@
 .zv-chip { display: inline-flex; align-items: center; gap: 5px; }
 .zv-chip i { width: 12px; height: 12px; border-radius: 2px; display: inline-block; border: 1px solid rgba(0, 0, 0, 0.2); }
 .zv-readout { margin-top: 4px; color: var(--zv-muted); font-variant-numeric: tabular-nums; min-height: 17px; }
+.zv-chart { margin-top: 6px; }
+.zv-chart.zv-busy { opacity: 0.5; }
+.zv-svg { display: block; max-width: 100%; cursor: crosshair; font: 11px var(--jp-ui-font-family, system-ui, sans-serif); }
+.zv-svg .zv-grid { stroke: var(--zv-line); stroke-opacity: 0.6; }
+.zv-svg .zv-axis { stroke: var(--zv-muted); }
+.zv-svg .zv-tick { fill: var(--zv-muted); }
+.zv-svg .zv-ctitle { fill: var(--zv-fg); font-weight: 600; }
+.zv-svg .zv-now { stroke: var(--zv-accent); stroke-width: 1.5; stroke-dasharray: 2 3; }

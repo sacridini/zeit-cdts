@@ -38,6 +38,8 @@ def plot(
     height: int = 480,
     fps: int = 8,
     compress: bool = True,
+    fit: Any = None,
+    pixel: Any = None,
 ):
     """Plot a map, a time series cube, a result of zeit or one pixel's series.
 
@@ -84,6 +86,14 @@ def plot(
     height, fps, compress
         Viewer: map height in pixels, playback speed, and whether frames travel compressed
         (smaller, for remote notebooks; slightly more work on each side).
+    fit
+        A result of zeit on the same grid (``landtrendr``, ``ccdc``, ``extract_events``,
+        ``bfast_monitor``/``bfast_lite``/``bfast``, ``mann_kendall``): clicking a pixel in the
+        viewer shows its series with what the algorithm made of it (segments, harmonic
+        models, breaks, events, trend). It is matched to the data by coordinates.
+    pixel
+        ``(x, y)`` in the data's coordinates: a static plot of that pixel's series (with
+        ``fit``), instead of maps.
 
     Returns
     -------
@@ -103,6 +113,12 @@ def plot(
     from . import _static
 
     prepared, dataset = prepare(data, var=var, band=band, rgb=rgb)
+    if pixel is not None and isinstance(prepared, Frames):
+        from ._fit import overlays, pixel_series
+        col, row = _cell_of(prepared, pixel)
+        series = pixel_series(prepared, col, row)
+        series["overlays"] = overlays(fit, series, shape=(prepared.height, prepared.width), band=band)
+        return _finish(_static.plot_pixel(series, ax=ax, figsize=figsize, title=title), save)
     if not isinstance(prepared, Frames):
         fig = _static.plot_series(prepared, ax=ax, figsize=figsize, title=title)
         return _finish(fig, save)
@@ -115,7 +131,7 @@ def plot(
         from ._widget import make_widget
         options = dict(kind=kind, cmap=cmap, vmin=vmin, vmax=vmax, classes=classes, nodata=nodata)
         session = Session(data, var=var, band=band, rgb=rgb, style_options=options, max_size=max_size or 800,
-                          compress=compress, title=title)
+                          compress=compress, title=title, fit=fit)
         return make_widget(session, height=height, fps=fps)
 
     frames = prepared
@@ -152,6 +168,17 @@ def style_for(frames: Frames, *, kind=None, cmap=None, vmin=None, vmax=None, cla
         value = 0
         style = infer_style(sample, nodata=0, **options)
     return style, value
+
+
+def _cell_of(frames: Frames, pixel: Any):
+    """(col, row) of the cell nearest to map coordinates (x, y)."""
+    x, y = (float(v) for v in pixel)
+    da = frames.da
+    if "x" not in da.coords or "y" not in da.coords:
+        return int(round(x)), int(round(y))
+    col = int(np.abs(da.x.values - x).argmin())
+    row = int(np.abs(da.y.values - y).argmin())
+    return col, row
 
 
 def _finish(fig, save: Optional[str]):

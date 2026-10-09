@@ -75,6 +75,38 @@ function formatValue(style, value) {
   return "≈ " + value.toFixed(digits);
 }
 
+function niceTicks(lo, hi, n) {
+  const span = hi - lo || 1, raw = span / n, mag = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 2.5, 5, 10].map((k) => k * mag).find((st) => span / st <= n) || 10 * mag;
+  const out = [];
+  for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9 * span; v += step) out.push(+v.toPrecision(12));
+  return out;
+}
+
+function fmtTick(v, span) {
+  const digits = Math.max(0, Math.min(6, 1 - Math.floor(Math.log10(Math.abs(span) || 1))));
+  return Math.abs(v) >= 1e5 ? v.toExponential(1) : v.toFixed(digits);
+}
+
+function yearTicks(t0, t1, max) {
+  const y0 = new Date(t0).getUTCFullYear(), y1 = new Date(t1).getUTCFullYear() + 1;
+  const step = [1, 2, 5, 10, 20, 50].find((st) => (y1 - y0) / st <= Math.max(2, max)) || 100;
+  const out = [];
+  for (let y = Math.ceil(y0 / step) * step; y <= y1; y += step) {
+    const t = Date.UTC(y, 0, 1);
+    if (t >= t0 && t <= t1) out.push([t, String(y)]);
+  }
+  if (out.length < 2) {   // short series: every third month
+    const d = new Date(t0);
+    for (let k = 0; k < 36; k++) {
+      const t = Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + k, 1);
+      if (t > t1) break;
+      if (t >= t0 && k % 3 === 0) out.push([t, new Date(t).toISOString().slice(0, 7)]);
+    }
+  }
+  return out;
+}
+
 export class Viewer {
   constructor(el, transport, options = {}) {
     this.el = el;
@@ -119,11 +151,115 @@ export class Viewer {
     this.root = h("div", { class: "zv-root", tabindex: 0 },
       h("div", { class: "zv-head" }, this.titleEl, this.varSelect),
       h("div", { class: "zv-body" }, h("div", { class: "zv-main" }, this.stage, this.progress, this.controls,
-        this.legend, this.readout), this.side));
+        this.legend, this.readout, this.chart = h("div", { class: "zv-chart" })), this.side));
     this.el.append(this.root);
     this.root.addEventListener("keydown", (e) => this.key(e));
     this.bindPointer();
     new ResizeObserver(() => this.resize()).observe(this.stage);
+    this.on("click", (cell) => this.inspect(cell));
+    this.on("frame", () => this.drawChart());
+    this.layers.push({ draw2d: (ctx, v) => v.drawPin(ctx) });
+  }
+
+  // ------------------------------------------------------------------ pixel inspector
+  async inspect([cx, cy]) {
+    const m = this.meta;
+    if (!m || cx < 0 || cy < 0 || cx >= m.full_width || cy >= m.full_height) return;
+    this.pin = [Math.floor(cx) + 0.5, Math.floor(cy) + 0.5];
+    this.render();
+    this.chart.classList.add("zv-busy");
+    try {
+      const { content } = await this.transport.request({ type: "pixel", x: Math.floor(cx), y: Math.floor(cy) });
+      this.pixel = content;
+      this.drawChart();
+    } catch (err) {
+      this.chart.textContent = String(err.message || err);
+    } finally { this.chart.classList.remove("zv-busy"); }
+  }
+
+  drawPin(ctx) {
+    if (!this.pin) return;
+    const x = (this.pin[0] - this.view.ox) * this.view.s, y = (this.pin[1] - this.view.oy) * this.view.s;
+    ctx.save();
+    ctx.lineWidth = 3; ctx.strokeStyle = "rgba(0,0,0,0.6)";
+    ctx.beginPath(); ctx.arc(x, y, 7, 0, 2 * Math.PI); ctx.stroke();
+    ctx.lineWidth = 1.5; ctx.strokeStyle = "#fff";
+    ctx.beginPath(); ctx.arc(x, y, 7, 0, 2 * Math.PI); ctx.stroke();
+    ctx.restore();
+  }
+
+  drawChart() {
+    const data = this.pixel;
+    if (!data) return;
+    const W = Math.max(240, this.chart.clientWidth || 600), H = 200, M = { l: 56, r: 12, t: 24, b: 26 };
+    const NS = "http://www.w3.org/2000/svg";
+    const el = (tag, attrs = {}, text) => { const n = document.createElementNS(NS, tag);
+      for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); if (text !== undefined) n.textContent = text; return n; };
+    const xs = [...data.x], ys = [];
+    for (const s of data.series) for (const v of s.y) if (v !== null) ys.push(v);
+    for (const o of data.overlays) {
+      if (o.kind === "line") { xs.push(...o.x); for (const v of o.y) if (v !== null) ys.push(v); }
+      else if (o.kind === "vline") xs.push(o.x); else if (o.kind === "span") xs.push(o.x0, o.x1);
+    }
+    if (!ys.length) { this.chart.textContent = "no data at this pixel"; return; }
+    let x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+    if (x0 === x1) { x0 -= 1; x1 += 1; }
+    const pad = (y1 - y0) * 0.08 || 1; y0 -= pad; y1 += pad;
+    const sx = (x) => M.l + ((x - x0) / (x1 - x0)) * (W - M.l - M.r);
+    const sy = (y) => H - M.b - ((y - y0) / (y1 - y0)) * (H - M.t - M.b);
+    const svg = el("svg", { width: W, height: H, viewBox: `0 0 ${W} ${H}`, class: "zv-svg" });
+    for (const v of niceTicks(y0, y1, 5)) {
+      svg.append(el("line", { x1: M.l, x2: W - M.r, y1: sy(v), y2: sy(v), class: "zv-grid" }));
+      svg.append(el("text", { x: M.l - 6, y: sy(v) + 4, "text-anchor": "end", class: "zv-tick" }, fmtTick(v, y1 - y0)));
+    }
+    const xt = data.is_time ? yearTicks(x0, x1, Math.floor((W - M.l) / 60))
+      : niceTicks(x0, x1, 8).map((v) => [v, data.labels[Math.round(v)] || ""]);
+    for (const [v, t] of xt) svg.append(el("text", { x: sx(v), y: H - 8, "text-anchor": "middle", class: "zv-tick" }, t));
+    svg.append(el("line", { x1: M.l, x2: W - M.r, y1: H - M.b, y2: H - M.b, class: "zv-axis" }));
+    const legend = [];
+    for (const o of data.overlays) if (o.kind === "span") {
+      svg.append(el("rect", { x: sx(o.x0), y: M.t, width: Math.max(2, sx(o.x1) - sx(o.x0)), height: H - M.t - M.b,
+        fill: o.color, "fill-opacity": 0.15 }));
+      if (o.label) legend.push([o.label, o.color]);
+    }
+    const colors = ["#1f77b4", "#2ca02c", "#9467bd"];
+    const path = (xsArr, ysArr) => { let d = "", pen = false;
+      xsArr.forEach((x, i) => { const v = ysArr[i]; if (v === null) { pen = false; return; }
+        d += `${pen ? "L" : "M"}${sx(x).toFixed(1)},${sy(v).toFixed(1)}`; pen = true; }); return d; };
+    data.series.forEach((s, k) => {
+      const c = colors[k % colors.length];
+      svg.append(el("path", { d: path(data.x, s.y), fill: "none", stroke: c, "stroke-width": 1.2, "stroke-opacity": 0.85 }));
+      s.y.forEach((v, i) => { if (v !== null) svg.append(el("circle", { cx: sx(data.x[i]), cy: sy(v), r: 2.2, fill: c })); });
+      legend.push([s.name, c]);
+    });
+    for (const o of data.overlays) {
+      if (o.kind === "line") {
+        svg.append(el("path", { d: path(o.x, o.y), fill: "none", stroke: o.color, "stroke-width": 2,
+          "stroke-dasharray": o.dashed ? "5 4" : "none" }));
+        if (o.markers) o.x.forEach((x, i) => { if (o.y[i] !== null) svg.append(el("circle", { cx: sx(x), cy: sy(o.y[i]), r: 3.5, fill: o.color })); });
+      } else if (o.kind === "vline") {
+        svg.append(el("line", { x1: sx(o.x), x2: sx(o.x), y1: M.t, y2: H - M.b, stroke: o.color, "stroke-width": 1.5,
+          "stroke-dasharray": o.dashed ? "4 3" : "none" }));
+      }
+      if (o.label && o.kind !== "span") legend.push([o.label, o.color]);
+    }
+    const cur = data.x[this.index];
+    if (cur !== undefined) svg.append(el("line", { x1: sx(cur), x2: sx(cur), y1: M.t, y2: H - M.b, class: "zv-now" }));
+    const [wx, wy] = data.world;
+    svg.append(el("text", { x: M.l, y: 14, class: "zv-ctitle" }, `pixel  x ${wx.toFixed(5)}  y ${wy.toFixed(5)}`));
+    let lx = W - M.r;
+    for (const [text, color] of legend.slice().reverse()) {
+      lx -= 24 + text.length * 6.2;
+      svg.append(el("rect", { x: lx, y: 5, width: 10, height: 10, fill: color, "fill-opacity": 0.85 }));
+      svg.append(el("text", { x: lx + 14, y: 14, class: "zv-tick" }, text));
+    }
+    svg.addEventListener("click", (e) => {   // go to the frame nearest to the click
+      const r = svg.getBoundingClientRect(), x = x0 + ((e.clientX - r.left - M.l) / (W - M.l - M.r)) * (x1 - x0);
+      let best = 0;
+      data.x.forEach((v, i) => { if (Math.abs(v - x) < Math.abs(data.x[best] - x)) best = i; });
+      this.show(best);
+    });
+    this.chart.replaceChildren(svg);
   }
 
   // ------------------------------------------------------------------ data
@@ -156,6 +292,7 @@ export class Viewer {
     this.setupGL(new Uint8Array(buffers[0].buffer || buffers[0], buffers[0].byteOffset || 0, 1024));
     this.drawLegend();
     this.view = null;
+    this.pin = null; this.pixel = null; this.chart.replaceChildren();
     this.resize();          // the first ResizeObserver call may have come before the metadata
     this.label.textContent = meta.labels[this.index] || "";
     this.emit("meta", meta);
