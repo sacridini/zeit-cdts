@@ -39,7 +39,8 @@ def regularize_time_series(cube: Any, freq: str = '16D', method: str = 'median')
 
             # distance to median: dims (time, y, x)
             diff = (group - median_val) ** 2
-            dist = np.sqrt(diff.sum(dim='band')) if 'band' in group.dims else np.sqrt(diff)
+            # skipna=False: a missing observation is NaN away, not 0 (it would be the medoid)
+            dist = np.sqrt(diff.sum(dim='band', skipna=False)) if 'band' in group.dims else np.sqrt(diff)
 
             # find index of min distance along time
             idx = dist.fillna(np.inf).argmin(dim='time')
