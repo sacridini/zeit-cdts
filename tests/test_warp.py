@@ -23,6 +23,11 @@ SRC_CRS = "EPSG:32633"
 TRANSFORM = from_origin(500000.0, 4500000.0, 30.0, 30.0)
 T, H, W = 4, 120, 160
 needs_gdal = pytest.mark.skipif(_gdaltransform.open_library() is None, reason="rasterio's GDAL library not found")
+# The kernel is GDAL 3.12's: bit for bit against GDAL 3.12 and later (rasterio 1.4, the last
+# for Python 3.10 and 3.11, brings an older GDAL, whose warp differs in a few cells).
+GDAL_312 = tuple(int(p) for p in rasterio.__gdal_version__.split(".")[:2]) >= (3, 12)
+needs_gdal_312 = pytest.mark.skipif(not GDAL_312, reason=f"compares with GDAL 3.12; rasterio brings "
+                                                        f"GDAL {rasterio.__gdal_version__}")
 
 
 def cube(values, transform=TRANSFORM, crs=SRC_CRS, nodata=None, bands=None) -> xr.DataArray:
@@ -89,6 +94,7 @@ def small_blocks(monkeypatch):
 
 
 @needs_gdal
+@needs_gdal_312
 @pytest.mark.parametrize("method", ["nearest", "bilinear", "cubic", "cubic_spline", "lanczos", "average", "mode",
                                     "min", "max", "med", "q1", "q3", "rms"])
 def test_every_date_is_gdals_warp_of_it_alone(method):
@@ -102,6 +108,7 @@ def test_every_date_is_gdals_warp_of_it_alone(method):
 
 
 @needs_gdal
+@needs_gdal_312
 @pytest.mark.parametrize("dtype,nodata", [(np.uint8, 0), (np.uint8, None), (np.int16, -9999), (np.uint16, 0),
                                           (np.int32, -1), (np.float64, -9999.0)])
 @pytest.mark.parametrize("method", ["nearest", "bilinear", "cubic", "average", "mode"])
@@ -209,6 +216,8 @@ def test_a_whole_number_of_cells_apart_is_a_crop(dtype, nodata, offset):
     lazy = _warp.to_grid(da.chunk({"time": 1}), grid, "bilinear")
     assert out.dtype == dtype and same(lazy.values, out.values).all()
     # GDAL takes the nearest cell for a translation of whole cells, whatever the method
+    if not GDAL_312:
+        return
     src_nodata, dst_nodata, work = _warp._nodata(da)
     for k in range(T):
         ref = gdal_date(da.values[k], TRANSFORM, grid, "nearest", src_nodata, dst_nodata, work)

@@ -6,11 +6,13 @@ from zeit._smooth import apply_whittaker_filter
 from zeit.spatial import apply_bayesian_filter
 
 def test_som_filter():
-    # Create simple 1D dataset (3 classes)
+    # Create simple 1D dataset (3 classes). Seeded: in about 1% of draws a mislabelled
+    # sample ends up alone in a neuron of the 5x5 grid and is its own majority.
+    rng = np.random.default_rng(0)
     data = np.vstack([
-        np.random.normal(0, 0.1, (50, 1)), # Class 0
-        np.random.normal(5, 0.1, (50, 1)), # Class 1
-        np.random.normal(10, 0.1, (50, 1)) # Class 2
+        rng.normal(0, 0.1, (50, 1)), # Class 0
+        rng.normal(5, 0.1, (50, 1)), # Class 1
+        rng.normal(10, 0.1, (50, 1)) # Class 2
     ])
     labels = np.array([0]*50 + [1]*50 + [2]*50)
     
