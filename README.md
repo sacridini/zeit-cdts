@@ -74,8 +74,6 @@ zeit.save_raster(loss, "lt_rondonia")                    # one georeferenced Geo
 zeit.plot(ndvi, fit=lt)                                  # look: page through the years, click a pixel to see its fit
 ```
 
-Coming from 0.26 or earlier? See [Upgrading to the one-function API](https://sacridini.github.io/zeit-cdts/getting-started/migrating/).
-
 ## Visualisation
 
 `zeit.plot` shows any cube, map, result `Dataset` or pixel's series. In a notebook (JupyterLab, VS Code, Colab) it returns an interactive viewer; in a script it opens the same viewer in its own window; with `static=True` or `save=` it draws a matplotlib figure.

@@ -126,7 +126,6 @@ nav:
       - Quickstart: getting-started/quickstart.md
       - Core Concepts: getting-started/concepts.md
       - Choosing an Algorithm: getting-started/choosing-an-algorithm.md
-      - Upgrading to the One-Function API: getting-started/migrating.md
       - Docker: getting-started/docker.md
       - Contributing: getting-started/contributing.md
   - User Guide:

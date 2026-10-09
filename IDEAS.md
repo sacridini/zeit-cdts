@@ -651,7 +651,8 @@ em `zeit/_som_api.py`:
   method="medoid")` contra o `cbers_to_landtrendr`, apareceu um bug no medoide: uma data
   sem valor tinha distância 0 (o `sum` do xarray pula NaN) e virava o medoide do pixel.
   Corrigido (`skipna=False`); fora os empates, o composto é o do `cbers_to_landtrendr`.
-- Sem página de migração: a documentação atual foi atualizada no lugar.
+- Sem página de migração: a documentação atual foi atualizada no lugar, e a página
+  "Upgrading to the one-function API" (das Fases 1–9) saiu do site e do README.
 
 ra tudo o que saiu.
 
