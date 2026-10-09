@@ -93,6 +93,21 @@ class Frames:
             values = decimal_years(values)
         return np.moveaxis(values, 0, -1) if self.rgb else values
 
+    def block(self, start: int, count: int, step: int = 1) -> List[np.ndarray]:
+        """Frames ``start .. start + count - 1``, read together when they are contiguous on one
+        frame axis (one read for a lazy cube instead of one per frame)."""
+        if len(self.lead) == 1 and count > 1:
+            sel = self.da.isel({self.lead[0]: slice(start, start + count)})
+            if step > 1:
+                sel = sel.isel(y=slice(None, None, step), x=slice(None, None, step))
+            values = np.asarray(sel.values)
+            if values.dtype.kind == "M":
+                values = decimal_years(values)
+            if self.rgb:
+                values = np.moveaxis(values, 1, -1)
+            return list(values)
+        return [self.frame(i, step) for i in range(start, start + count)]
+
     def sample(self, max_frames: int = 8, max_cells: int = 250_000) -> np.ndarray:
         """Values from a few frames, decimated: enough to choose colours, never the whole cube."""
         picks = np.unique(np.linspace(0, self.n - 1, min(self.n, max_frames)).astype(int))

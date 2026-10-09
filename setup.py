@@ -93,6 +93,7 @@ setup(
     name='zeit-cdts',
     version='0.33.0',
     packages=find_packages(include=['zeit', 'zeit.*']),
+    package_data={'zeit._plot': ['*.js', '*.css']},
     ext_modules=ext_modules,
     setup_requires=['pybind11>=2.10.0'],
     cmdclass={'build_ext': BuildExt},

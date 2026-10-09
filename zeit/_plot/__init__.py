@@ -33,8 +33,11 @@ def plot(
     figsize: Any = None,
     colorbar: bool = True,
     ncols: int = 4,
-    max_size: Optional[int] = 1024,
+    max_size: Optional[int] = None,
     save: Optional[str] = None,
+    height: int = 480,
+    fps: int = 8,
+    compress: bool = True,
 ):
     """Plot a map, a time series cube, a result of zeit or one pixel's series.
 
@@ -70,17 +73,26 @@ def plot(
     title, ax, figsize, colorbar, ncols
         Matplotlib layout of a static plot.
     static
-        ``True`` for a matplotlib figure.
+        ``True`` for a matplotlib figure; ``False`` for the interactive viewer. By default:
+        the viewer in a notebook (JupyterLab, Notebook, VS Code, Colab), a figure elsewhere.
     max_size
-        Longest side, in cells, the maps are read at (default 1024): enough for a screen,
-        and the cube is never read at full resolution.
+        Longest side, in cells, the maps are read at: 1024 for a static plot, 800 for the
+        viewer's preview (which fetches finer cells when you zoom in). The cube is never read
+        at full resolution as a whole.
     save
         Static plots: also write the figure to this file (PNG, PDF, SVG...).
+    height, fps, compress
+        Viewer: map height in pixels, playback speed, and whether frames travel compressed
+        (smaller, for remote notebooks; slightly more work on each side).
 
     Returns
     -------
-    matplotlib.figure.Figure
-        For a static plot.
+    matplotlib.figure.Figure or Viewer
+        A figure for a static plot; the viewer widget otherwise. In the viewer: drag to pan,
+        wheel to zoom (finer cells are fetched when needed), double-click to reset, space to
+        play, arrow keys to step; the value under the cursor is shown below the map. Frames
+        are preloaded from the current one outwards and, once in the browser, paging through
+        time does not involve the kernel.
 
     Examples
     --------
@@ -95,7 +107,19 @@ def plot(
         fig = _static.plot_series(prepared, ax=ax, figsize=figsize, title=title)
         return _finish(fig, save)
 
+    if static is None:
+        from ._widget import in_notebook
+        static = not in_notebook()
+    if not static:
+        from ._session import Session
+        from ._widget import make_widget
+        options = dict(kind=kind, cmap=cmap, vmin=vmin, vmax=vmax, classes=classes, nodata=nodata)
+        session = Session(data, var=var, band=band, rgb=rgb, style_options=options, max_size=max_size or 800,
+                          compress=compress, title=title)
+        return make_widget(session, height=height, fps=fps)
+
     frames = prepared
+    max_size = max_size or 1024
     style, nodata_value = style_for(frames, kind=kind, cmap=cmap, vmin=vmin, vmax=vmax, classes=classes,
                                     nodata=nodata)
     indices = _static.resolve_frames(frames, time, default_all=True)

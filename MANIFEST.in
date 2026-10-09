@@ -3,3 +3,4 @@ include THIRD_PARTY_NOTICES.md
 include src/*.h
 include third_party/eigen/Eigen/*
 recursive-include third_party/eigen *
+include zeit/_plot/*.js zeit/_plot/*.css

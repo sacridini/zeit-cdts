@@ -285,7 +285,14 @@ kernel por quadro, com no máximo 2 quadros em trânsito (fps ≤ 2/latência: 1
    ou série). `load_raster` passou a nomear o cubo pelo arquivo (a paleta de vegetação vem
    do NDVI/NBR no nome) e fecha os arquivos lazy na saída do Python.
 2. 7c: viewer interativo (o protótipo B evoluído): pan/zoom, colorbar, valor sob o mouse,
-   play/pause, pré-carga progressiva, seletor de variável para Datasets, RGB.
+   play/pause, pré-carga progressiva, seletor de variável para Datasets, RGB. **Feito**
+   (0.34.0): `_session.Session` responde aos pedidos do navegador (`meta`, `frames`,
+   `detail`, `select`) sem saber o transporte; `_widget` leva os pedidos pelas mensagens do
+   anywidget; `viewer.js` (WebGL2, texturas inteiras + LUT) pré-carrega a partir do quadro
+   atual para os dois lados (2 pedidos em voo, LRU de 400 MB, quadros comprimidos com
+   deflate), busca o recorte em resolução maior ao dar zoom com o viewer parado, e mostra
+   colorbar ou legenda, valor e coordenadas sob o mouse, play com fps ajustável e teclado
+   (espaço, setas). `zeit.plot` abre o viewer no notebook e a figura fora dele.
 3. 7d: clicar num pixel e ver a série com o ajuste do algoritmo.
 4. 7e: basemap e vetores; avaliar MapLibre GL (camada WebGL própria sobre o mapa) contra
    pan/zoom e tiles feitos à mão.
