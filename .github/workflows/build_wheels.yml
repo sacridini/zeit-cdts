@@ -24,11 +24,20 @@ jobs:
           submodules: true # Importante caso a pasta third_party/eigen seja um submódulo do git
 
       - name: Build wheels
-        uses: pypa/cibuildwheel@v2.17.0
+        uses: pypa/cibuildwheel@v4.2.1
         env:
-          # Opcional: Aqui você pode pular algumas versões específicas do Python se não suportar
-          # Ex: pular Python 3.6, 3.7, 3.8 e arquiteturas 32-bits (i686/win32) e PyPy (pp)
-          CIBW_SKIP: "cp36-* cp37-* cp38-* pp* *i686 *win32" 
+          # Sem 32 bits (i686/win32), PyPy, os builds free-threaded (cp314t), que o módulo
+          # C++ não declara suportar, e o Python 3.15 até o numba e o torch terem wheels
+          # para ele; o cibuildwheel 4 já não constrói o Python 3.8.
+          CIBW_SKIP: "pp* *i686 *win32 cp3??t-* cp315-*"
+          # Cada wheel construído é instalado num ambiente limpo e testado com a suíte
+          # inteira, num Python por sistema (os outros são testados a partir do código
+          # no workflow Tests). O musllinux fica de fora: o torch não tem wheels para ele.
+          CIBW_TEST_EXTRAS: "dev"
+          CIBW_TEST_COMMAND: "pytest {project}/tests -q -p no:cacheprovider"
+          CIBW_TEST_SKIP: "cp39-* cp310-* cp311-* cp313-* cp314-* *musllinux*"
+          # No contêiner manylinux, o torch só de CPU (o do PyPI traz gigabytes de CUDA).
+          CIBW_BEFORE_TEST_LINUX: "pip install torch --index-url https://download.pytorch.org/whl/cpu"
 
       - name: Upload wheels
         uses: actions/upload-artifact@v4

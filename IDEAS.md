@@ -545,6 +545,35 @@ entrada e saída:
   algoritmo do MATLAB (1e-8), nuvens e sombras injetadas, séries curtas e as convenções do
   `apply_tmask_stack`. O sklearn não é mais usado pelo Tmask.
 
+## Testes em todas as plataformas e `load_raster(..., crs=, res=)` — **Feito** (0.44.0)
+
+Antes da Fase 10, duas coisas pequenas: o CI só testava o código no Linux, e o "Para
+depois" tinha o `crs=`/`res=`.
+
+- **Tests** (`tests.yml`): Linux, Windows e macOS no Python 3.12, mais o 3.10 e o 3.14 no
+  Linux (antes, só Linux 3.12). No Linux o torch vem do índice de CPU do PyTorch, sem os
+  gigabytes de CUDA. Bugs como o do 0.37.1 (as DLLs do Python carregadas depois do
+  rasterio no Windows) aparecem aqui, antes do PyPI.
+- **Wheels** (`build_wheels.yml`): cibuildwheel 2.17 → 4.2.1, que passa a construir o
+  cp313 e o cp314 (o 2.17 parava no cp312; quem usava o 3.13 compilava do sdist), empacota
+  as DLLs do Windows com o delvewheel (o `vcomp140.dll` do OpenMP vai junto) e confere os
+  wheels com o abi3audit. Cada wheel cp312 (manylinux, Windows e macOS) é instalado num
+  ambiente limpo e testado com a suíte inteira: arquivos que faltem no pacote (o
+  `viewer.js`), bibliotecas não empacotadas e o import fora da árvore do código aparecem
+  aqui. Fora: free-threaded (`cp314t`), o cp315 (até o numba e o torch terem wheels) e os
+  testes do musllinux (o torch não tem wheels para ele).
+- **`load_raster(..., crs=, res=)`**: a grade que o `gdalwarp -t_srs crs -tr res` faria
+  (`_warp.suggested_grid`): a extensão que cobre o dado no CRS novo (a sugerida pelo
+  GDAL), células de `res` a partir do canto superior esquerdo ou a resolução sugerida; uma
+  pasta cobre todos os arquivos, na resolução mais fina deles, como o gdalwarp com várias
+  entradas. Depois é o mesmo warp do 8a (cada data com a própria máscara, lazy, por
+  janela). Sem `crs`, o CRS do dado; o próprio CRS sem `res` devolve a grade como está.
+  `like=` junto com `crs=`/`res=` é erro, e numpy pede `like=` antes. Conferido contra o
+  gdalwarp 3.12 (a grade em sete casos, um arquivo e pasta, e os valores do bilinear bit a
+  bit com `tolerance=0`); os testes guardam as grades do gdalwarp para o cubo de teste.
+  Sem `-tap`: para alinhar fontes diferentes, a primeira com `crs=`/`res=` e as outras
+  com `like=` ela.
+
 ## Fase 10: fechar a convenção do cubo
 
 Depois da Fase 9 ainda sobram pontas fora do padrão "uma função, qualquer entrada, saída
@@ -693,7 +722,5 @@ probability=False, chunks=None)`:
 
 ## Para depois
 
-- `load_raster(..., crs=, res=)`: reprojetar para um CRS ou resolução sem um raster de
-  referência (o mesmo warp do 8a; `like=` cobre o caso mais comum).
 - `zeit.plot`: medir de verdade o caso de notebook remoto (JupyterHub, Colab), que ficou
   como estimativa no 7a.
