@@ -37,6 +37,12 @@
 
     Spatial filters, CCDC classification, water masks, validation dashboard.
 
+-   :material-check-decagram-outline:{ .lg .middle } **[Validation](validation.md)**
+
+    ---
+
+    Stratified samples, accuracies and error-adjusted areas with confidence intervals.
+
 -   :material-map-search-outline:{ .lg .middle } **[Visualisation](plot.md)**
 
     ---
@@ -84,7 +90,8 @@
 | [`desawtooth`](preprocessing.md#desawtooth) | LandTrendr spike removal |
 | **Change detection** | |
 | [`landtrendr`](change-detection.md#landtrendr) | LandTrendr on a file, cube, array or single pixel |
-| [`extract_events`](change-detection.md#extract_events) | LandTrendr vertices to event maps |
+| [`extract_events`](change-detection.md#extract_events) | One event per pixel, the same maps for every change algorithm |
+| [`agreement`](change-detection.md#agreement) | Where and when several change maps agree |
 | [`apply_vertices`](change-detection.md#apply_vertices) | Fit another band to the same vertices |
 | [`ccdc`](change-detection.md#ccdc) | CCDC on a file, cube, array or single pixel |
 | [`predict_synthetic_image`](change-detection.md#predict_synthetic_image) | Evaluate CCDC models on any date |
@@ -105,6 +112,10 @@
 | [`train_classifier`](post-processing.md#train_classifier) / [`classify`](post-processing.md#classify) | Train at sample points, classify any cube, metrics or CCDC models |
 | [`extract_water_mask`](post-processing.md#extract_water_mask) | Water mask from CCDC |
 | [`generate_landtrendr_accuracy_dashboard`](post-processing.md#generate_landtrendr_accuracy_dashboard) | Interactive validation page |
+| **Validation** | |
+| [`sampling_design`](validation.md#sampling_design) | Sample size and allocation per stratum (Olofsson et al. 2014) |
+| [`stratified_sample`](validation.md#stratified_sample) | Stratified random points of a map |
+| [`accuracy`](validation.md#accuracy) | Accuracies and error-adjusted areas with confidence intervals |
 | **Visualisation** | |
 | [`plot`](plot.md#plot) | Any cube, map, result or pixel: interactive viewer in a notebook or window, or a matplotlib figure |
 | **Deep learning** (`zeit.ai`) | |

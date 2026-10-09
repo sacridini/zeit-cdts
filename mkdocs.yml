@@ -148,6 +148,8 @@ nav:
           - Pattern Matching (TWDTW): tutorials/twdtw.md
           - Clustering (SOM): tutorials/som.md
           - Segmentation (SNIC): tutorials/snic.md
+      - Validation:
+          - Accuracy & Area: tutorials/accuracy.md
       - Deep Learning:
           - tutorials/ai.md
           - TempCNN: tutorials/tempcnn.md
@@ -164,6 +166,7 @@ nav:
       - Change Detection: api/change-detection.md
       - Time-Series Analysis: api/time-series.md
       - Post-processing: api/post-processing.md
+      - Validation: api/validation.md
       - Visualisation: api/plot.md
       - Deep Learning: api/ai.md
       - Xarray Accessor: api/xarray.md

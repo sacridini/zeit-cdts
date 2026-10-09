@@ -834,7 +834,7 @@ ponderada pela área de cada estrato, acurácias do usuário e do produtor e ár
 todas com intervalo de confiança. No R isso é o `sits_sampling_design`,
 `sits_stratified_sampling` e `sits_accuracy`; em Python não há nada no padrão do cubo.
 
-### 13a: desenho amostral
+### 13a: desenho amostral — **Feito** (0.49.0)
 
 - `zeit.sampling_design(mapa, *, expected_ua=0.75, std_error=0.01, alloc="equal"|
   "proportional"|"neyman"|dict, min_per_stratum=50)`: tamanho total da amostra
@@ -892,7 +892,7 @@ map=None, blind=True, interpreter=None, basemap=None)`:
   como os do viewer), salvar e retomar, o modo cego, e um teste de ponta a ponta no Edge
   headless rotulando três pontos pelo teclado.
 
-### 13c: `zeit.accuracy`
+### 13c: `zeit.accuracy` — **Feito** (0.49.0)
 
 - `zeit.accuracy(mapa, amostras, *, reference="ref", strata=None, date_tolerance=None)`:
   o valor do mapa em cada ponto contra o rótulo; estratos do próprio mapa ou de `strata=`
@@ -909,6 +909,46 @@ map=None, blind=True, interpreter=None, basemap=None)`:
   reproduzidos; paridade com o `sits_accuracy` em fixtures geradas no R, como as do TWDTW;
   em mapa sintético com erro conhecido, a cobertura do IC95 perto de 95% em muitas
   sementes.
+
+### 13a e 13c: o que foi feito (0.49.0)
+
+Tudo em `zeit/_accuracy.py`: `sampling_design`, `stratified_sample`, `accuracy` e o objeto
+`Accuracy`. Referência em `docs/api/validation.md` e tutorial "Accuracy & Area".
+
+- **Estratos do mapa:** as classes (nomes do `flag_meanings`), intervalos (`bins=`) ou, num
+  mapa de eventos (`extract_events`, `agreement`), "no change" e "change" (com `bins=`, um
+  estrato por período do `yod`). Num mapa de eventos o 0 é o estrato "no change", não NoData.
+- **Áreas pelo tamanho de cada pixel**, em hectares; num CRS geográfico, a área de cada
+  linha na esfera autálica (a de um pixel de 30 m no Equador e a 30° S não é a mesma). As
+  contagens por estrato e linha são uma passada lazy pelo mapa.
+- **Sorteio independente dos chunks:** por estrato, `rng.choice` dos postos globais
+  (linha a linha) e só as linhas sorteadas são lidas; mesma semente, mesmos pontos em
+  memória ou lazy com qualquer chunk (testado).
+- **Estimadores de Stehman (2014)** para amostra estratificada (médias de indicadores e
+  razões, pesadas pela área de cada estrato), então os estratos não precisam ser as classes
+  do mapa avaliado: `accuracy(mapa_b, pontos, strata=mapa_a)`. Com os estratos iguais às
+  classes, são as eqs. 4–11 do Olofsson.
+- **Paridade:** o exemplo numérico do Olofsson et al. (2014) (áreas 21.158 ± 6.158,
+  11.686 ± 3.756, 285.770 ± 15.510 e 581.386 ± 16.282 ha; global 0,947 ± 0,018; usuário e
+  produtor); o `sits:::.accuracy_area_assess` do sits 1.5.4 rodado no R 4.4.2 com as áreas
+  no lugar do cubo (`tests/data/make_accuracy_sits.R`), igual a 1e-9 em dois casos; a
+  variância do produtor contra a eq. 7 escrita à parte (o sits não dá os erros padrão das
+  acurácias). Numa amostra estratificada por um mapa avaliando outro, os IC95 cobriram a
+  acurácia verdadeira em ~95% de 120 sementes.
+
+**Diferenças em relação ao plano:**
+
+- Sem correção de população finita, como o Olofsson e o sits (com ela os números não batiam
+  com os deles; num mapa de milhares de pixels ela é desprezível).
+- `date_tolerance` é uma medida à parte (`acc.date`: a fração dos pontos que o mapa e a
+  referência chamam de mudança com os anos a até N de distância, e a diferença média), e
+  não muda a matriz: misturar data e classe na mesma matriz exigiria inventar uma classe.
+- Sem `buffer=` no sorteio: rejeitar vizinhos quebraria a independência dos chunks e a
+  probabilidade de inclusão igual dentro do estrato. Fica para depois, se fizer falta.
+- `alloc` também aceita `"neyman"`; `min_per_stratum` tira os pontos dos estratos grandes
+  para manter o `n` total (a recomendação do Olofsson de 50–100 para classes raras).
+- Pontos sem `stratum` são pesados como amostra estratificada pelo mapa, com aviso (certo
+  para amostra aleatória simples ou estratificada pelo mapa, não para pontos escolhidos).
 
 ## Fase 14: degradação florestal (SMA, NDFI e CODED)
 
