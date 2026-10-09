@@ -20,7 +20,7 @@ Nearly every algorithm in Zeit works **one pixel at a time**. It reads a pixel's
 | A single pixel | `(time,)` | 1-D NumPy array or list. |
 | A single-band cube | **`(time, rows, cols)`** | The default input for almost everything. `zeit.load_raster` reads a GeoTIFF with one band per date into this shape, with the dates in a `time` coordinate and the georeferencing in `.rio`. |
 | A multi-band cube | `(time, band, rows, cols)` | What `build_time_series` returns (as an xarray `DataArray`), and what `zeit.ccdc` takes. |
-| Per-pixel results | `(metric, rows, cols)` | Several outputs stacked on a first axis. The xarray accessors label it with a `metric` coordinate, so you can write `result.sel(metric="slope")`. |
+| Per-pixel results | `xarray.Dataset` of `(rows, cols)` maps | One variable per output, with the cube's coordinates and CRS: `result.slope`, `result["TRS5.sos"]`. Outputs with several values per pixel add a leading dim, such as `(vertex, y, x)` or `(year, y, x)`. |
 
 !!! warning "Two exceptions"
     `zeit.twdtw.classify_twdtw` expects `(rows, cols, time)` with time **last**, and the deep-learning models follow PyTorch conventions (for example `(batch, channels, time)` for TempCNN). Their pages say so explicitly.
@@ -34,9 +34,9 @@ This is the single most common source of confusion, because each algorithm keeps
 | LandTrendr | Nothing for a cube with dates (read from its `time` coordinate); integer **years** for a numpy array or a single series | `years=np.arange(1985, 2025)` |
 | CCDC | Nothing for a cube with dates (read from its `time` coordinate); any **dates** for a numpy array or an unnamed stack | `dates=["2020-01-15", "2020-01-31", ...]` |
 | Tmask | **Python ordinal days** (`date.toordinal()`) | `date(2020, 7, 1).toordinal()` → `737607` |
-| BFAST, BFAST Monitor, BFAST Lite | A **regular series**: `start_time` (fractional year) and `frequency` (observations per year). No per-date array. | `start_time=2010.0, frequency=23` for 16-day composites |
+| BFAST, BFAST Monitor, BFAST Lite | Nothing for a cube with dates: the **regular series** of R's `ts`, `start_time` (fractional year) and `frequency` (observations per year), is read from them. Both for a series without dates. | `start_time=2010.0, frequency=23` for 16-day composites |
 | Mann-Kendall | Nothing. The slope is per **time step**, so use one value per year for a per-year slope (or `method="seasonal"`). | |
-| Phenology | **Days since 1 January of `base_year`** | `doy + (year - base_year) * 365` |
+| Phenology | Nothing for a cube with dates (read from its `time` coordinate); any **dates** for a numpy array or a single series | `dates=pd.date_range("2019-01-01", periods=69, freq="16D")` |
 | TWDTW | Any **consistent day count**, for example day of year | `[1, 17, 33, ...]` |
 | SNIC, SOM | Nothing. Time is just another feature. | |
 
@@ -49,8 +49,6 @@ t = pd.to_datetime(cube.time.values)
 
 years    = t.year.values                                   # LandTrendr (numpy input)
 ordinals = [d.toordinal() for d in t.date]                 # Tmask
-base     = t.year.min()
-days     = t.dayofyear.values + (t.year.values - base) * 365   # Phenology
 ```
 
 ## Values and scale factors
@@ -64,16 +62,16 @@ Most surface-reflectance and index products are stored as integers scaled by **1
 ## Missing data
 
 - Use **`NaN`** for missing observations in float arrays. Most algorithms skip NaNs per pixel.
-- `zeit.landtrendr` also leaves out the raster's **NoData** value and, for integer data without one, **`0`** (how Earth Engine exports masked pixels). Set `nodata=` to another value, or `nodata=None` to treat only NaN as missing.
+- `zeit.landtrendr`, `zeit.ccdc`, the BFAST family, `zeit.mann_kendall` and `zeit.phenology` also leave out the raster's **NoData** value and, for integer data without one, **`0`** (how Earth Engine exports masked pixels). Set `nodata=` to another value, or `nodata=None` to treat only NaN as missing.
 - CCDC uses its own **QA codes** (Fmask convention: `0` clear, `1` water, `2` shadow, `3` snow, `4` cloud, `255` fill). See [CCDC](../tutorials/ccdc.md#2-build-the-qa-codes).
 
 ## Ways to call an algorithm
 
-LandTrendr and CCDC each have a single entry point for every form of data. `zeit.landtrendr` and `zeit.ccdc` read what they are given and return the same `xarray.Dataset` (of vertices, or of segments), georeferenced when the input is:
+The change-detection, trend and phenology algorithms each have a single entry point for every form of data. `zeit.landtrendr`, `zeit.ccdc`, `zeit.bfast_monitor`, `zeit.bfast_lite`, `zeit.bfast`, `zeit.mann_kendall` and `zeit.phenology` read what they are given and return the same `xarray.Dataset` (of vertices, segments or metrics), georeferenced when the input is:
 
 ```mermaid
 flowchart LR
-    A["One pixel's series"] --> L["<code>zeit.landtrendr(data)</code><br/><code>zeit.ccdc(data)</code>"]
+    A["One pixel's series"] --> L["<code>zeit.landtrendr(data)</code><br/><code>zeit.ccdc(data)</code><br/><code>zeit.bfast_monitor(data, ...)</code><br/>…"]
     B["NumPy array or cube in memory"] --> L
     C["GeoTIFF bigger than RAM<br/>(read lazily, block by block)"] --> L
     D["Xarray / Dask cube"] --> L
@@ -82,15 +80,15 @@ flowchart LR
 
 | Data | Use it when | Example |
 | :--- | :--- | :--- |
-| **One pixel** | Exploring, plotting, testing parameters on a few series | `zeit.landtrendr(values, years=years)`, `zeit.ccdc(df)` |
-| **Array or cube** | The data fits in memory | `zeit.landtrendr(cube)`, `zeit.ccdc(cube, qa="fmask")` |
-| **Raster file** | A GeoTIFF too big for memory. It is read and computed in blocks. | `zeit.landtrendr("stack.tif", chunks="auto")` |
-| **Dask cube** | Lazy cubes (STAC, Zarr), clusters, cloud storage | `zeit.landtrendr(cube)`, `cube.zeit.ccdc()` |
-| **CLI** | Scripts, cron jobs and HPC schedulers, no Python needed | `zeit landtrendr ...`, `zeit ccdc ...` |
+| **One pixel** | Exploring, plotting, testing parameters on a few series | `zeit.landtrendr(values, years=years)`, `zeit.ccdc(df)`, `zeit.mann_kendall(values)` |
+| **Array or cube** | The data fits in memory | `zeit.landtrendr(cube)`, `zeit.ccdc(cube, qa="fmask")`, `zeit.phenology(cube)` |
+| **Raster file** | A GeoTIFF too big for memory. It is read and computed in blocks. | `zeit.landtrendr("stack.tif", chunks="auto")`, `zeit.bfast_monitor("ndvi_16d.tif", "2022-01-01", chunks="auto")` |
+| **Dask cube** | Lazy cubes (STAC, Zarr), clusters, cloud storage | `zeit.landtrendr(cube)`, `cube.zeit.ccdc()`, `cube.zeit.bfast_lite()` |
+| **CLI** | Scripts, cron jobs and HPC schedulers, no Python needed | `zeit landtrendr ...`, `zeit ccdc ...`, `zeit bfast-monitor ...`, `zeit mann-kendall ...` |
 
-The other algorithms (the BFAST family, Mann-Kendall and phenology) are exposed at several levels, which all run the same C++ code: a Dask or in-memory array (`run_bfast_monitor_dask`), a GeoTIFF on disk read and written in blocks (`zeit.run_bfast_monitor_image`), the xarray accessor for Dask cubes (`cube.zeit.run_bfast_monitor(...)`) and the CLI (`zeit bfast-monitor ...`). Pick the one that matches the size and form of your data.
+All run the same C++ code; only the way the data is read and the result is computed changes. A dask cube gives a lazy result, computed when you call `.compute()` or write it with `save_raster`; in-memory data gives an in-memory result.
 
-The accessor becomes available on every xarray object once you `import zeit`. See the [Xarray accessor reference](../api/xarray.md) for the full list of methods.
+Each function also has an accessor form, available on every xarray object once you `import zeit`: `cube.zeit.landtrendr()`, `cube.zeit.bfast_monitor("2022-01-01")`, … See the [Xarray accessor reference](../api/xarray.md) for the full list of methods.
 
 ## Parallelism
 

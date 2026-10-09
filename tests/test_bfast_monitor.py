@@ -4,7 +4,7 @@ import dask.array as da
 import pytest
 
 from zeit._core.bfastmonitor import bfast_monitor, fit_bfast_monitor_batch
-from zeit.bfast import run_bfast_monitor_dask, N_BFM_METRICS, BFM_METRIC_NAMES
+from zeit._bfast import run_bfast_monitor_dask, N_BFM_METRICS, BFM_METRIC_NAMES
 import zeit.xarray_api  # noqa: F401 - registers the .zeit accessor
 
 FREQ = 23  # 16-day composites/year, matches the MODIS-style annual cycle used elsewhere in the test suite
@@ -144,7 +144,7 @@ def test_run_bfast_monitor_dask_rejects_invalid_h():
         run_bfast_monitor_dask(data, start_time=2000.0, monitor_start_time=2000.0 + 60.0 / FREQ, frequency=FREQ, h=0.3)
 
 
-def test_xarray_accessor_run_bfast_monitor():
+def test_xarray_accessor_bfast_monitor():
     time_steps, rows, cols = 150, 3, 3
     block = np.stack([
         _make_series(time_steps, seed=50 + i, break_at=100)
@@ -153,12 +153,12 @@ def test_xarray_accessor_run_bfast_monitor():
     data = da.from_array(block, chunks=(time_steps, 3, 3))
 
     ds = xr.DataArray(data, dims=["time", "y", "x"], coords={"y": np.arange(rows), "x": np.arange(cols)})
-    res = ds.zeit.run_bfast_monitor(start_time=2000.0, monitor_start_time=2000.0 + 60.0 / FREQ, frequency=FREQ)
+    res = ds.zeit.bfast_monitor(2000.0 + 60.0 / FREQ, start_time=2000.0, frequency=FREQ)
 
-    assert isinstance(res, xr.DataArray)
-    assert res.dims == ("metric", "y", "x")
-    assert list(res.coords["metric"].values) == BFM_METRIC_NAMES
+    assert isinstance(res, xr.Dataset)
+    assert res.has_break.dims == ("y", "x")
+    assert list(res.data_vars) == BFM_METRIC_NAMES
 
     computed = res.compute()
-    assert np.all(computed.sel(metric="has_break").values == 1.0)
-    assert np.all(computed.sel(metric="breakpoint_idx").values <= 100.0)
+    assert np.all(computed.has_break.values == 1.0)
+    assert np.all(computed.breakpoint_idx.values <= 100.0)

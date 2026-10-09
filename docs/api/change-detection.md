@@ -284,103 +284,177 @@ The numpy layout of older versions, `(max_segments, 3 + 9 × bands, rows, cols)`
 
 ## BFAST family
 
-All three take a regular series: observation `i` is at `start_time + i / frequency`. Tutorials: [BFAST](../tutorials/bfast.md), [BFAST Monitor](../tutorials/bfast_monitor.md), [BFAST Lite](../tutorials/bfast_lite.md).
+Ports of R's `bfast` package: [`bfast_monitor`](#bfast_monitor) (near-real-time monitoring), [`bfast_lite`](#bfast_lite) (multiple breakpoints in one pass) and [`bfast`](#bfast) (classic iterative trend and season breaks). Tutorials: [BFAST Monitor](../tutorials/bfast_monitor.md), [BFAST Lite](../tutorials/bfast_lite.md), [BFAST](../tutorials/bfast.md).
 
-### `run_bfast_monitor_dask` { .api }
+Like `landtrendr` and `ccdc`, each is one function for every input: it reads what `data` is and returns an `xarray.Dataset` with one variable per metric, georeferenced when the input is. All parameters but `data` (and `monitor_start`) are keyword-only. They replace `run_bfast_monitor_image`, `run_bfast_lite_image`, `run_bfast_image`, `zeit.bfast.run_bfast_monitor_dask`, `run_bfast_lite_dask`, `run_bfast_dask` and the accessor methods `DataArray.zeit.run_bfast_monitor`, `run_bfast_lite` and `run_bfast`; the accessor forms are now [`DataArray.zeit.bfast_monitor`](xarray.md#bfast_monitor), [`bfast_lite`](xarray.md#bfast_lite) and [`bfast`](xarray.md#bfast). The engine module is internal (`zeit._bfast`).
 
-<!-- sig: zeit.bfast.run_bfast_monitor_dask -->
+### `bfast_monitor` { .api #bfast_monitor }
+
+<!-- sig: zeit.bfast_monitor -->
 ```python
-zeit.bfast.run_bfast_monitor_dask(
-    arr, start_time, monitor_start_time, frequency, order=3, h=0.25,
-    period=10, alpha=0.05, min_valid=10, n_jobs=-1,
+zeit.bfast_monitor(
+    data, monitor_start, dates=None, start_time=None, frequency=None,
+    order=3, h=0.25, period=10, alpha=0.05, min_valid=10, band=None,
+    nodata="auto", chunks=None, n_jobs=-1,
 )
 ```
 
-Near-real-time monitoring (`bfastmonitor`, OLS-MOSUM, `history="all"`) for each pixel of a `(time, y, x)` Dask array.
+Near-real-time disturbance monitoring (`bfastmonitor`, Verbesselt et al. 2012): fits a linear trend plus `order` harmonics on the history before `monitor_start`, then flags the first observation after it where the OLS-MOSUM process crosses its boundary (`type="OLS-MOSUM"`, `history="all"`). Every pixel runs in parallel in C++ / OpenMP.
+
+`data` can be (the same for [`bfast_lite`](#bfast_lite), [`bfast`](#bfast), [`mann_kendall`](time-series.md#mann_kendall) and [`phenology`](time-series.md#phenology)):
+
+| Input | Example | Where the dates come from |
+| :--- | :--- | :--- |
+| A raster file, folder, glob or Zarr/NetCDF store: anything [`load_raster`](data.md#load_raster) reads | `"ndvi_16d.tif"` | The dates `load_raster` finds (band descriptions such as `2020-01-15`, file names, a `time` coordinate) |
+| A `(time, y, x)` cube, numpy- or dask-backed | the output of `load_raster` or `regularize_time_series` | Its `time` coordinate. A dask cube stays lazy. |
+| A `(time, band, y, x)` cube or a `Dataset` | `cube` with `band="ndvi"` | Its `time` coordinate; `band` names the index |
+| A numpy array `(time, y, x)` | `stack` | `dates=` |
+| One pixel's series: a list, 1-D array or `pandas.Series` | `[0.71, 0.74, 0.69, ...]` | `dates=`, or the Series' index of dates |
+
+**The time axis.** The BFAST family works on a regular series, like R's `ts`: observation `i` is at `start_time + i / frequency`, in decimal years. Both are read from the dates: `frequency` from their median spacing (23 for 16-day composites, 12 for monthly, 1 for annual data) and `start_time` from the first date. Composite irregular data to a fixed step first ([`regularize_time_series`](data.md#regularize_time_series)), with NaN for the gaps. A series without dates (numpy without `dates=`, a plain list) needs both `start_time` and `frequency`.
 
 <div class="params" markdown>
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `arr` | `dask.array.Array` | required | `(time, y, x)`; NaN for gaps. |
-| `start_time` | `float` | required | Time of the first observation (a whole year, e.g. `2010.0`). |
-| `monitor_start_time` | `float` | required | Start of the monitoring period. |
-| `frequency` | `int` | required | Observations per year. |
+| `data` | path, `DataArray`, `Dataset`, `ndarray`, list or `pd.Series` | required | What to monitor (see the table above). |
+| `monitor_start` | `str`, `datetime` or `float` | required | Start of the monitoring period: a date (`"2022-01-01"`) or a decimal year (`2022.0`). Observations before it are the history. |
+| `dates` | list | `None` | Date of each time step. Only for numpy input, single series and cubes without dates; otherwise taken from the `time` coordinate. |
+| `start_time` | `float` | `None` | Decimal year of the first observation. Default: from the first date. |
+| `frequency` | `int` | `None` | Observations per year. Default: from the median spacing of the dates. |
 | `order` | `int` | `3` | Seasonal harmonics. |
-| `h` | `float` | `0.25` | MOSUM window: `0.25`, `0.5` or `1.0`. |
-| `period` | `int` | `10` | Boundary horizon: `2`, `4`, `6`, `8` or `10`. |
+| `h` | `float` | `0.25` | MOSUM window, as a fraction of the history: `0.25`, `0.5` or `1.0`. |
+| `period` | `int` | `10` | Boundary horizon, in history lengths: `2`, `4`, `6`, `8` or `10`. |
 | `alpha` | `float` | `0.05` | Significance level. |
 | `min_valid` | `int` | `10` | Minimum valid history observations. |
-| `n_jobs` | `int` | `-1` | Threads. |
+| `band` | `str` or `int` | `None` | The index to use in a `(time, band, y, x)` cube or a `Dataset` (band or variable name). |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | Value marking a missing observation besides NaN. `"auto"`: the raster's NoData value; for integer data without one, `0` (how Earth Engine exports masked pixels). A number: that value. `None`: only NaN. |
+| `chunks` | `"auto"`, `dict` | `None` | Inputs read from disk: `None` reads the raster into memory; `"auto"` or a dict of chunk sizes keeps it lazy, so the result is computed block by block, for rasters larger than memory. |
+| `n_jobs` | `int` | `-1` | Threads. `-1` uses all cores but one. |
 
 </div>
 
-**Returns** `(7, y, x)`: `breakpoint`, `breakpoint_idx`, `magnitude`, `sigma`, `n_history`, `has_break`, `valid` (`zeit.bfast.BFM_METRIC_NAMES`).
+`h` and `period` index a table of simulated critical values (from `strucchangeRcpp`), so other values raise an error.
 
-### `run_bfast_lite_dask` { .api }
+**Returns** an `xarray.Dataset` of `(y, x)` float32 maps:
 
-<!-- sig: zeit.bfast.run_bfast_lite_dask -->
+| Variable | Meaning |
+| :--- | :--- |
+| `breakpoint` | Decimal year of the first detected break; NaN if none. |
+| `breakpoint_idx` | 0-based index of that observation in the series. |
+| `magnitude` | Median residual over the monitoring period: size and direction of the shift (negative: lower than expected). |
+| `sigma` | Residual standard error of the history fit. |
+| `n_history` | Valid observations in the history. |
+| `has_break` | `1` if a break was detected, else `0`. |
+| `valid` | `0` if the history was too short to fit; the other variables are then NaN. |
+
+The `x`/`y` coordinates and CRS of the input are kept, so the result goes straight to [`save_raster`](data.md#save_raster): one GeoTIFF per variable for a folder, or one band per variable for a `.tif` path. `attrs` records the parameters, including the `start_time` and `frequency` used. A single pixel's result has no `y`/`x` dims. With a dask cube or `chunks=`, the result is lazy.
+
 ```python
-zeit.bfast.run_bfast_lite_dask(
-    arr, start_time, frequency, order=3, h=0.15, max_breaks_output=5,
-    min_valid=20, n_jobs=-1,
+ndvi = zeit.load_raster("ndvi_16d.tif")       # (time, y, x): 16-day composites from January 2010
+bfm = zeit.bfast_monitor(ndvi, "2022-01-01")  # start_time 2010.0 and frequency 23, from the dates
+alerts = (bfm.has_break == 1) & (bfm.magnitude < -0.1)
+zeit.save_raster(bfm, "bfm_out")              # breakpoint.tif, ..., valid.tif
+
+# A raster larger than memory: lazy, computed block by block while it is written
+bfm = zeit.bfast_monitor("ndvi_16d.tif", 2022.0, chunks="auto")
+zeit.save_raster(bfm, "bfm_out")
+
+# One pixel's series without dates: give the time axis
+px = zeit.bfast_monitor(values, 2022.0, start_time=2010.0, frequency=23)
+float(px.breakpoint)                          # decimal year, NaN if no break
+```
+
+### `bfast_lite` { .api #bfast_lite }
+
+<!-- sig: zeit.bfast_lite -->
+```python
+zeit.bfast_lite(
+    data, dates=None, start_time=None, frequency=None, order=3,
+    h=0.15, max_breaks=5, min_valid=20, band=None, nodata="auto",
+    chunks=None, n_jobs=-1,
 )
 ```
 
-Optimal multiple breakpoints (`bfastlite`, LWZ criterion) for each pixel.
+Multiple breakpoints in one pass (`bfastlite`, Masiliūnas et al. 2021): fits `response ~ trend + harmon` and chooses the number and position of breaks with the Bai & Perron dynamic program and the LWZ criterion. Input, time axis and output are as for [`bfast_monitor`](#bfast_monitor).
 
 <div class="params" markdown>
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `arr` | `dask.array.Array` | required | `(time, y, x)`; NaN for gaps. |
-| `start_time`, `frequency` | | required | Regular time axis. |
+| `data` | path, `DataArray`, `Dataset`, `ndarray`, list or `pd.Series` | required | What to segment (see [`bfast_monitor`](#bfast_monitor)). |
+| `dates`, `start_time`, `frequency` | | `None`, `None`, `None` | The time axis, as in `bfast_monitor`. |
 | `order` | `int` | `3` | Seasonal harmonics. |
-| `h` | `float` | `0.15` | Minimum segment size, fraction of the observations. |
-| `max_breaks_output` | `int` | `5` | Break slots in the output. |
+| `h` | `float` | `0.15` | Minimum segment size, as a fraction of the observations. |
+| `max_breaks` | `int` | `5` | Break slots in the output (formerly `max_breaks_output`). |
 | `min_valid` | `int` | `20` | Minimum valid observations. |
-| `n_jobs` | `int` | `-1` | Threads. |
+| `band`, `nodata`, `chunks`, `n_jobs` | | `None`, `"auto"`, `None`, `-1` | As in `bfast_monitor`. |
 
 </div>
 
-**Returns** `(5 + max_breaks_output, y, x)`: `n_breaks`, `rss`, `lwz`, `n_valid`, `valid`, `breakpoint_idx_1…` (`zeit.bfast.bfl_metric_names(max_breaks_output)`).
+**Returns** an `xarray.Dataset` of `(y, x)` float32 maps:
 
-### `run_bfast_dask` { .api }
+| Variable | Meaning |
+| :--- | :--- |
+| `n_breaks` | Number of breaks chosen by the criterion (`0` if none). |
+| `rss` | Residual sum of squares of the selected model. |
+| `lwz` | Value of the LWZ criterion. |
+| `n_valid` | Valid observations used. |
+| `valid` | `1` if the series had enough observations to fit. |
+| `breakpoint_idx_1` … `breakpoint_idx_{max_breaks}` | 0-based index of each break among the pixel's valid observations, in chronological order; NaN past `n_breaks`. |
 
-<!-- sig: zeit.bfast.run_bfast_dask -->
 ```python
-zeit.bfast.run_bfast_dask(
-    arr, start_time, frequency, order=3, h=0.15, max_breaks_trend=5,
-    max_breaks_season=5, max_iter=10, level=0.05, min_valid=20,
+bfl = zeit.bfast_lite(ndvi, max_breaks=3)
+first = bfl.breakpoint_idx_1                              # NaN where n_breaks == 0
+first_year = bfl.start_time + first / bfl.frequency       # decimal year, for a series without gaps
+```
+
+### `bfast` { .api #bfast }
+
+<!-- sig: zeit.bfast -->
+```python
+zeit.bfast(
+    data, dates=None, start_time=None, frequency=None, order=3,
+    h=0.15, max_breaks_trend=5, max_breaks_season=5, max_iter=10,
+    level=0.05, min_valid=20, band=None, nodata="auto", chunks=None,
     n_jobs=-1,
 )
 ```
 
-Classic iterative BFAST (trend and seasonal breaks) for each pixel.
+Classic iterative BFAST (Verbesselt et al. 2010): an STL seasonal seed, then alternating trend and season segmented regressions (breaks chosen with BIC) until neither changes, each preceded by an OLS-MOSUM stability test. Separates trend breaks from seasonal breaks. Input, time axis and output are as for [`bfast_monitor`](#bfast_monitor); the series must hold more than `2 × frequency` observations.
 
 <div class="params" markdown>
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `arr` | `dask.array.Array` | required | `(time, y, x)`; NaN for gaps. |
-| `start_time`, `frequency` | | required | Regular time axis. |
-| `order` | `int` | `3` | Seasonal harmonics. |
-| `h` | `float` | `0.15` | Minimum segment size. |
-| `max_breaks_trend`, `max_breaks_season` | `int` | `5`, `5` | Break slots in the output. |
+| `data` | path, `DataArray`, `Dataset`, `ndarray`, list or `pd.Series` | required | What to decompose (see [`bfast_monitor`](#bfast_monitor)). |
+| `dates`, `start_time`, `frequency` | | `None`, `None`, `None` | The time axis, as in `bfast_monitor`. |
+| `order` | `int` | `3` | Harmonics of the season model. |
+| `h` | `float` | `0.15` | Minimum segment size, as a fraction of the valid observations. |
+| `max_breaks_trend`, `max_breaks_season` | `int` | `5`, `5` | Trend and season break slots in the output. |
 | `max_iter` | `int` | `10` | Maximum trend/season iterations. |
-| `level` | `float` | `0.05` | Significance of the stability pre-test (`1.0` always searches). |
+| `level` | `float` | `0.05` | Significance of the stability pre-test (`1.0` always searches for breaks). |
 | `min_valid` | `int` | `20` | Minimum valid observations. |
-| `n_jobs` | `int` | `-1` | Threads. |
+| `band`, `nodata`, `chunks`, `n_jobs` | | `None`, `"auto"`, `None`, `-1` | As in `bfast_monitor`. |
 
 </div>
 
-**Returns** `n_trend_breaks`, `n_season_breaks`, `magnitude`, `time`, `n_iter`, `n_valid`, `valid`, then the trend and season break indices (`zeit.bfast.bf_metric_names(max_breaks_trend, max_breaks_season)`).
+**Returns** an `xarray.Dataset` of `(y, x)` float32 maps:
 
-### GeoTIFF versions
-
-`run_bfast_monitor_image`, `run_bfast_lite_image` and `run_bfast_image` take the same parameters as their Dask counterparts, with `input_path`, `output_dir`, `chunk_size` and `prefix` instead of `arr`. The input has one band per time step; the output is `<output_dir>/<prefix>.tif` with one band per metric (band descriptions set to the metric names). All three are exported at the top level and available in the [CLI](../cli.md).
+| Variable | Meaning |
+| :--- | :--- |
+| `n_trend_breaks`, `n_season_breaks` | Number of trend and season breaks at convergence. |
+| `magnitude` | Largest jump in the trend (R's `bf$Magnitude`); `0` without a trend break. |
+| `break_time` | Decimal year of that jump (R's `bf$jump$x`); NaN if none. Formerly the `time` metric, renamed so it does not clash with the `time` coordinate. |
+| `n_iter` | Iterations until convergence (or `max_iter`). |
+| `n_valid` | Valid observations used. |
+| `valid` | `1` if the series was long enough to fit. |
+| `trend_breakpoint_idx_1` … `_{max_breaks_trend}` | 0-based index of each trend break among the valid observations; NaN past `n_trend_breaks`. |
+| `season_breakpoint_idx_1` … `_{max_breaks_season}` | The same for season breaks. |
 
 ```python
-zeit.run_bfast_monitor_image("ndvi_16d.tif", "results/", start_time=2010.0,
-                             monitor_start_time=2022.0, frequency=23)
+bf = zeit.bfast(ndvi)
+abrupt = (bf.n_trend_breaks > 0) & (bf.magnitude < -0.1)
+when = bf.break_time.where(abrupt)
+zeit.save_raster(bf, "bfast.tif")                 # one band per variable, named
 ```

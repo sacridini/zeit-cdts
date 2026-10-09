@@ -2,9 +2,6 @@ import argparse
 import sys
 from typing import Optional, List
 
-from .raster import (
-    run_bfast_monitor_image, run_bfast_lite_image, run_bfast_image, run_mann_kendall_image,
-)
 from .spatial import apply_mmu_filter
 
 def run_landtrendr(args: argparse.Namespace) -> None:
@@ -85,85 +82,54 @@ def _timestamp(value):
     import pandas as pd
     return pd.Timestamp.fromordinal(value) if isinstance(value, int) else pd.Timestamp(value)
 
-def run_bfast_monitor_cli(args: argparse.Namespace) -> None:
+def _run_series_cli(args: argparse.Namespace, name: str, **kwargs) -> None:
+    """Shared body of the bfast-monitor, bfast-lite, bfast and mann-kendall commands: one
+    multi-band GeoTIFF, <output_dir>/<prefix>.tif, one band per metric."""
+    import os
+    from . import _series_api
+    from ._load import load_raster
+    from ._save import save_raster
+
     try:
-        run_bfast_monitor_image(
-            input_path=args.input,
-            output_dir=args.output_dir,
-            start_time=args.start_time,
-            monitor_start_time=args.monitor_start_time,
-            frequency=args.frequency,
-            order=args.order,
-            h=args.h,
-            period=args.period,
-            alpha=args.alpha,
-            min_valid=args.min_valid,
-            chunk_size=args.chunk_size,
-            n_jobs=args.jobs,
-            prefix=args.prefix,
-        )
+        cube = load_raster(args.input, chunks={"time": -1, "y": args.chunk_size, "x": args.chunk_size})
+        result = getattr(_series_api, name)(cube, min_valid=args.min_valid, n_jobs=args.jobs, **kwargs)
+        out = save_raster(result.astype("float32"), os.path.join(args.output_dir, f"{args.prefix}.tif"))
+        print(f"Successfully processed and saved to {out}")
     except Exception as e:
-        print(f"Error running bfastmonitor: {e}")
+        print(f"Error running {name}: {e}")
         sys.exit(1)
+
+
+def _time_value(text: Optional[str]):
+    """A decimal year (2019.5) or a date (2019-07-01)."""
+    if text is None:
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return text
+
+
+def run_bfast_monitor_cli(args: argparse.Namespace) -> None:
+    _run_series_cli(args, "bfast_monitor", monitor_start=_time_value(args.monitor_start_time),
+                    start_time=args.start_time, frequency=args.frequency, order=args.order, h=args.h,
+                    period=args.period, alpha=args.alpha)
+
 
 def run_bfast_lite_cli(args: argparse.Namespace) -> None:
-    try:
-        run_bfast_lite_image(
-            input_path=args.input,
-            output_dir=args.output_dir,
-            start_time=args.start_time,
-            frequency=args.frequency,
-            order=args.order,
-            h=args.h,
-            max_breaks_output=args.max_breaks_output,
-            min_valid=args.min_valid,
-            chunk_size=args.chunk_size,
-            n_jobs=args.jobs,
-            prefix=args.prefix,
-        )
-    except Exception as e:
-        print(f"Error running bfastlite: {e}")
-        sys.exit(1)
+    _run_series_cli(args, "bfast_lite", start_time=args.start_time, frequency=args.frequency, order=args.order,
+                    h=args.h, max_breaks=args.max_breaks_output)
+
 
 def run_bfast_cli(args: argparse.Namespace) -> None:
-    try:
-        run_bfast_image(
-            input_path=args.input,
-            output_dir=args.output_dir,
-            start_time=args.start_time,
-            frequency=args.frequency,
-            order=args.order,
-            h=args.h,
-            max_breaks_trend=args.max_breaks_trend,
-            max_breaks_season=args.max_breaks_season,
-            max_iter=args.max_iter,
-            level=args.level,
-            min_valid=args.min_valid,
-            chunk_size=args.chunk_size,
-            n_jobs=args.jobs,
-            prefix=args.prefix,
-        )
-    except Exception as e:
-        print(f"Error running bfast: {e}")
-        sys.exit(1)
+    _run_series_cli(args, "bfast", start_time=args.start_time, frequency=args.frequency, order=args.order,
+                    h=args.h, max_breaks_trend=args.max_breaks_trend, max_breaks_season=args.max_breaks_season,
+                    max_iter=args.max_iter, level=args.level)
+
 
 def run_mann_kendall_cli(args: argparse.Namespace) -> None:
-    try:
-        run_mann_kendall_image(
-            input_path=args.input,
-            output_dir=args.output_dir,
-            method=args.method,
-            alpha=args.alpha,
-            lag=args.lag,
-            period=args.period,
-            min_valid=args.min_valid,
-            chunk_size=args.chunk_size,
-            n_jobs=args.jobs,
-            prefix=args.prefix,
-        )
-    except Exception as e:
-        print(f"Error running Mann-Kendall: {e}")
-        sys.exit(1)
+    _run_series_cli(args, "mann_kendall", method=args.method, alpha=args.alpha, lag=args.lag, period=args.period)
+
 
 def run_mmu_filter_cli(args: argparse.Namespace) -> None:
     try:
@@ -220,7 +186,7 @@ def main() -> None:
     # Mann-Kendall: every band in the input is one equally-spaced observation
     # (`start_time + i/frequency`, matching R's `ts`/`time()` semantics), not a real per-band date.
     def _add_timeseries_args(p):
-        p.add_argument("input", help="Path to input multi-band GeoTIFF (one band per equally-spaced time step)")
+        p.add_argument("input", help="Path to input multi-band GeoTIFF (one band per equally-spaced time step; dates read from the band names)")
         p.add_argument("output_dir", help="Directory to save the output")
         p.add_argument("--chunk-size", type=int, default=512, help="Size of the image chunks to process at once (default: 512)")
         p.add_argument("--jobs", type=int, default=-1, help="Number of CPU cores to use (-1 for all, default: -1)")
@@ -228,9 +194,9 @@ def main() -> None:
     # bfastmonitor Subparser
     bfm_parser = subparsers.add_parser("bfast-monitor", help="Run bfastmonitor (near-real-time disturbance monitoring)")
     _add_timeseries_args(bfm_parser)
-    bfm_parser.add_argument("--start-time", type=float, required=True, help="Series start time (e.g. 2015.0)")
-    bfm_parser.add_argument("--monitor-start-time", type=float, required=True, help="Time monitoring begins (e.g. 2019.0)")
-    bfm_parser.add_argument("--frequency", type=int, required=True, help="Observations per year (e.g. 23 for 16-day composites)")
+    bfm_parser.add_argument("--start-time", type=float, default=None, help="Series start time (e.g. 2015.0; default: from the band dates)")
+    bfm_parser.add_argument("--monitor-start-time", required=True, help="Time monitoring begins: a decimal year (2019.0) or a date (2019-01-01)")
+    bfm_parser.add_argument("--frequency", type=int, default=None, help="Observations per year (e.g. 23 for 16-day composites; default: from the band dates)")
     bfm_parser.add_argument("--order", type=int, default=3, help="Harmonic order (default: 3)")
     bfm_parser.add_argument("--h", type=float, default=0.25, choices=[0.25, 0.5, 1.0], help="MOSUM window size, as a fraction of history length (default: 0.25)")
     bfm_parser.add_argument("--period", type=int, default=10, choices=[2, 4, 6, 8, 10], help="Monitoring period parameter (default: 10)")
@@ -241,8 +207,8 @@ def main() -> None:
     # bfastlite Subparser
     bfl_parser = subparsers.add_parser("bfast-lite", help="Run bfastlite (single-pass multiple-breakpoint detection)")
     _add_timeseries_args(bfl_parser)
-    bfl_parser.add_argument("--start-time", type=float, required=True, help="Series start time (e.g. 2010.0)")
-    bfl_parser.add_argument("--frequency", type=int, required=True, help="Observations per year (e.g. 23 for 16-day composites)")
+    bfl_parser.add_argument("--start-time", type=float, default=None, help="Series start time (e.g. 2010.0; default: from the band dates)")
+    bfl_parser.add_argument("--frequency", type=int, default=None, help="Observations per year (e.g. 23 for 16-day composites; default: from the band dates)")
     bfl_parser.add_argument("--order", type=int, default=3, help="Harmonic order (default: 3)")
     bfl_parser.add_argument("--h", type=float, default=0.15, help="Minimum segment size, as a fraction of the series length (default: 0.15)")
     bfl_parser.add_argument("--max-breaks-output", type=int, default=5, help="Maximum number of breakpoints to report per pixel (default: 5)")
@@ -252,8 +218,8 @@ def main() -> None:
     # bfast (classic) Subparser
     bf_parser = subparsers.add_parser("bfast", help="Run the classic iterative bfast() (trend + season break detection)")
     _add_timeseries_args(bf_parser)
-    bf_parser.add_argument("--start-time", type=float, required=True, help="Series start time (e.g. 2000.0)")
-    bf_parser.add_argument("--frequency", type=int, required=True, help="Observations per year (e.g. 23 for 16-day composites)")
+    bf_parser.add_argument("--start-time", type=float, default=None, help="Series start time (e.g. 2000.0; default: from the band dates)")
+    bf_parser.add_argument("--frequency", type=int, default=None, help="Observations per year (e.g. 23 for 16-day composites; default: from the band dates)")
     bf_parser.add_argument("--order", type=int, default=3, help="Harmonic order (default: 3)")
     bf_parser.add_argument("--h", type=float, default=0.15, help="Minimum segment size, as a fraction of valid observations (default: 0.15)")
     bf_parser.add_argument("--max-breaks-trend", type=int, default=5, help="Maximum number of trend breakpoints to report per pixel (default: 5)")

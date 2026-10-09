@@ -2,16 +2,14 @@
 Example 08: Mann-Kendall / Theil-Sen Trend Detection End-to-End
 
 Loads a synthetic annual NDVI datacube (no network needed), runs the
-pixel-wise Mann-Kendall trend test + Theil-Sen slope estimator via the
-`.zeit` xarray accessor, and saves the resulting trend/slope/p-value maps
+pixel-wise Mann-Kendall trend test + Theil-Sen slope estimator with
+`zeit.mann_kendall`, and saves the resulting trend/slope/p-value maps
 as a multi-band GeoTIFF with `zeit.save_raster`.
 """
 import os
 import numpy as np
 import xarray as xr
-from rasterio.transform import from_origin
 import zeit
-from zeit.trend import MK_METRIC_NAMES
 
 
 def build_synthetic_ndvi_cube(n_years=20, rows=40, cols=40, seed=0):
@@ -51,17 +49,18 @@ def main():
         dims=["time", "y", "x"],
         coords={
             "time": np.arange(start_year, start_year + n_years),
-            "y": np.arange(rows),
-            "x": np.arange(cols),
+            # A fake 30 m UTM grid, since this data has no real-world footprint
+            "y": 8800000.0 - 15.0 - 30.0 * np.arange(rows),
+            "x": 500000.0 + 15.0 + 30.0 * np.arange(cols),
         },
-    )
+    ).rio.write_crs("EPSG:32721")
 
-    print("\n[2/3] Running Mann-Kendall (hamed_rao, autocorrelation-corrected) via .zeit accessor...")
+    print("\n[2/3] Running Mann-Kendall (hamed_rao, autocorrelation-corrected) with zeit.mann_kendall...")
     # One NDVI composite per year, so slope comes out directly in NDVI/year.
-    result = cube.zeit.run_mann_kendall(method="hamed_rao", alpha=0.05, n_jobs=-1).compute()
+    result = zeit.mann_kendall(cube, method="hamed_rao", alpha=0.05, n_jobs=-1)
 
-    trend = result.sel(metric="trend").values
-    slope = result.sel(metric="slope").values
+    trend = result.trend.values
+    slope = result.slope.values
     n_greening = int(np.sum(trend == 1))
     n_no_trend = int(np.sum(trend == 0))
     print(f"    Detected 'increasing' trend in {n_greening} pixels (expected ~{rows * cols // 2}).")
@@ -71,12 +70,10 @@ def main():
 
     print("\n[3/3] Saving results with zeit.save_raster()...")
     out_tif = os.path.join("data", "mann_kendall_trend.tif")
-    # Fake a 30m-resolution geotransform (e.g. UTM-like), since this data has
-    # no real-world footprint - see MK_METRIC_NAMES for the band order.
-    transform = from_origin(500000.0, 8800000.0, 30.0, 30.0)
-    zeit.save_raster(result.values.astype("float32"), out_tif, crs="EPSG:32721", transform=transform, nodata=np.nan)
+    zeit.save_raster(result, out_tif)  # one band per metric, named, georeferenced from the cube
 
-    print(f"\nDone! {len(MK_METRIC_NAMES)}-band raster ({', '.join(MK_METRIC_NAMES)}) saved to {out_tif}")
+    names = list(result.data_vars)
+    print(f"\nDone! {len(names)}-band raster ({', '.join(names)}) saved to {out_tif}")
 
 
 if __name__ == "__main__":

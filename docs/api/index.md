@@ -3,7 +3,7 @@
 <p class="lead">Every public function and class, with its signature, parameters and an example. Signatures on these pages are generated from the code, so they always match the installed version.</p>
 
 !!! tip "How to import"
-    `import zeit` gives you the most used functions at the top level (`zeit.landtrendr`, `zeit.save_raster`, …) and registers the `.zeit` xarray accessor. Everything else lives in submodules (`zeit.bfast`, `zeit.trend`, `zeit.ai`, …), shown in each signature.
+    `import zeit` gives you the most used functions at the top level (`zeit.landtrendr`, `zeit.save_raster`, …) and registers the `.zeit` xarray accessor. Everything else lives in submodules (`zeit.twdtw`, `zeit.segmentation`, `zeit.ai`, …), shown in each signature.
 
 <div class="grid cards" markdown>
 
@@ -84,13 +84,12 @@
 | [`apply_vertices`](change-detection.md#apply_vertices) | Fit another band to the same vertices |
 | [`ccdc`](change-detection.md#ccdc) | CCDC on a file, cube, array or single pixel |
 | [`predict_synthetic_image`](change-detection.md#predict_synthetic_image) | Evaluate CCDC models on any date |
-| [`run_bfast_monitor_dask`](change-detection.md#run_bfast_monitor_dask) | Near-real-time monitoring |
-| [`run_bfast_lite_dask`](change-detection.md#run_bfast_lite_dask) | Optimal multiple breakpoints |
-| [`run_bfast_dask`](change-detection.md#run_bfast_dask) | Trend and seasonal breaks |
-| [`run_bfast_*_image`](change-detection.md#geotiff-versions) | BFAST family on GeoTIFFs |
+| [`bfast_monitor`](change-detection.md#bfast_monitor) | Near-real-time monitoring, on a file, cube, array or single pixel |
+| [`bfast_lite`](change-detection.md#bfast_lite) | Optimal multiple breakpoints |
+| [`bfast`](change-detection.md#bfast) | Trend and seasonal breaks |
 | **Time-series analysis** | |
-| [`run_mann_kendall_dask`](time-series.md#run_mann_kendall_dask) / [`run_mann_kendall_image`](time-series.md#run_mann_kendall_image) | Trend test and Theil-Sen slope |
-| [`run_phenology_dask`](time-series.md#run_phenology_dask) | 19 phenology metrics per season |
+| [`mann_kendall`](time-series.md#mann_kendall) | Trend test and Theil-Sen slope |
+| [`phenology`](time-series.md#phenology) | 19 phenology metrics per year or season |
 | [`classify_twdtw`](time-series.md#classify_twdtw) / [`run_twdtw`](time-series.md#run_twdtw) / [`run_twdtw_batch`](time-series.md#run_twdtw_batch) | Time-weighted DTW |
 | [`run_snic`](time-series.md#run_snic) / [`snic_to_polygons`](time-series.md#snic_to_polygons) / [`snic_grid`](time-series.md#snic_grid) | Superpixel segmentation |
 | [`SOM`](time-series.md#som) | Self-organizing maps, online and batch (bit-exact `minisom` port) |

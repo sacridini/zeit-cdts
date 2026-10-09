@@ -146,7 +146,7 @@ def test_run_mann_kendall_dask_shape_and_trend():
     assert np.all(computed[0] == 1.0)  # trend row: all increasing
 
 
-def test_xarray_accessor_run_mann_kendall():
+def test_xarray_accessor_mann_kendall():
     time_steps, rows, cols = 25, 5, 5
     rng = np.random.RandomState(7)
 
@@ -155,12 +155,12 @@ def test_xarray_accessor_run_mann_kendall():
     data = da.from_array(block, chunks=(time_steps, 5, 5))
 
     ds = xr.DataArray(data, dims=["time", "y", "x"], coords={"y": np.arange(rows), "x": np.arange(cols)})
-    res = ds.zeit.run_mann_kendall(method="hamed_rao")
+    res = ds.zeit.mann_kendall(method="hamed_rao")
 
-    assert isinstance(res, xr.DataArray)
-    assert res.dims == ("metric", "y", "x")
-    assert list(res.coords["metric"].values) == MK_METRIC_NAMES
+    assert isinstance(res, xr.Dataset)
+    assert res.trend.dims == ("y", "x")
+    assert list(res.data_vars) == MK_METRIC_NAMES
 
     computed = res.compute()
-    trend_mean = computed.sel(metric="trend").values.mean()
+    trend_mean = computed.trend.values.mean()
     assert trend_mean == 1.0

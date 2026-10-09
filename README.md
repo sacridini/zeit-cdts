@@ -175,37 +175,32 @@ Extract 19 simultaneous phenological metrics (Gu, Zhang, Thresholds, Derivatives
 > The smoothing, curve-fitting, and metric-extraction methodology is based on the R package [`phenofit`](https://github.com/eco-hydro/phenofit) (Kong *et al.*, 2022, *Methods in Ecology and Evolution*, [doi:10.1111/2041-210X.13870](https://doi.org/10.1111/2041-210X.13870)), reimplemented in C++/Eigen/OpenMP. See the [Phenology tutorial](https://sacridini.github.io/zeit-cdts/tutorials/phenology/#7-references) for the full reference list and a real-world walkthrough.
 
 ```python
-import numpy as np
-from zeit._core.phenology import CurveType
+import zeit
 
-# 1. Provide dates corresponding to the time steps
-dates_julian = np.arange(1, 366, 16) # Day of year
+# cube_16d: (time, y, x) DataArray of 16-day NDVI composites; the day numbering
+# and the years are read from its dates
+pheno = zeit.phenology(
+    cube_16d,
+    curve="beck",                   # Beck's double logistic
+    annual=False,                   # one value per detected season, not per calendar year
+    max_seasons=2,                  # up to 2 growing seasons per pixel
 
-# 2. Run phenology curve fitting natively via the zeit accessor
-pheno_results = cube_16d.zeit.run_phenology(
-    dates=dates_julian,
-    curve_type=int(CurveType.BECK), # Enum mapping to CurveType::BECK
-    max_seasons=2,                  # Extract up to 2 growing seasons per year
-    
     # Smoothing Configuration
     apply_whittaker=False,          # Turn off Whittaker
     apply_hants=True,               # Use HANTS (Fourier-based) instead
     hants_frequencies=3,
-    
+
     # Fine-Grained Season Control
     min_season_length=90,           # Ignore noisy peaks shorter than 90 days
     min_amplitude=0.2,              # Ignore seasons with less than 0.2 NDVI growth
-    return_annual=False,            # Return as purely sequential seasons
-    
+
     n_jobs=-1                       # C++ multithreading (leave cores for OS)
 )
 
-# Trigger computation (runs C++ optimizer across Dask blocks)
-# Output shape: (metric=19, season=2, Y, X)
-pheno_array = pheno_results.compute()
-
-# Extract Zhang's Greenup transition date for the first season
-greenup_map = pheno_array.sel(metric="Greenup", season=0)
+# An xarray.Dataset: 19 metrics + R2 + RMSE, each (season, y, x).
+# Lazy for a Dask cube: computed by .compute() or while save_raster writes it.
+greenup_map = pheno["Greenup"].sel(season=1)    # Zhang's Greenup, first season
+zeit.save_raster(pheno, "output/phenology")      # one GeoTIFF per metric
 ```
 
 **Down-weighting cloud/snow-contaminated observations:** `zeit.qc` decodes a sensor's QA/QC band into per-observation reliability weights in `[0, 1]` (ported from phenofit's `qcFUN.R`), which feed the Whittaker/HANTS smoothing and the iterative curve fit instead of trusting every observation equally:
@@ -216,9 +211,8 @@ from zeit.qc import qc_modis_summary
 # qa_cube: (time, y, x) MOD13 SummaryQA band, aligned with cube_16d
 weights = qc_modis_summary(qa_cube)  # 0=good, 1=marginal, 2=snow/ice, 3=cloudy -> [1.0, 0.5, 0.2, 0.2]
 
-pheno_results = cube_16d.zeit.run_phenology(
-    dates=dates_julian,
-    curve_type=int(CurveType.BECK),
+pheno = zeit.phenology(
+    cube_16d,
     weights=weights,       # down-weights unreliable observations during smoothing/fitting
     season_retry=True,     # relax the trough threshold once if a pixel finds no season at all
 )
@@ -229,18 +223,17 @@ pheno_results = cube_16d.zeit.run_phenology(
 Pixel-wise Mann-Kendall trend test + Theil-Sen slope, ported from [`pymannkendall`](https://github.com/mmhs013/pymannkendall) (Hussain & Mahmud, 2019) to a C++/OpenMP backend, with the same Dask distribution strategy as Phenology Extraction. Useful for "is there a statistically significant greening/browning trend at this pixel?" questions on multi-year composite stacks. See the [Mann-Kendall tutorial](https://sacridini.github.io/zeit-cdts/tutorials/mann_kendall/) for the full method comparison (autocorrelation-corrected variants, seasonal test) and a real-world walkthrough.
 
 ```python
-import numpy as np
-
-# annual_ndvi: (year, y, x) DataArray, one max-NDVI composite per year
-trend = annual_ndvi.zeit.run_mann_kendall(
+# annual_ndvi: (time, y, x) DataArray, one max-NDVI composite per year (or a GeoTIFF path)
+result = zeit.mann_kendall(
+    annual_ndvi,
     method="hamed_rao",  # autocorrelation-corrected (recommended for annual composites)
     alpha=0.05,
 )
 
-result = trend.compute()
-slope_map = result.sel(metric="slope")        # NDVI change per year
-significant = result.sel(metric="h") == 1.0   # statistically significant at alpha=0.05
-declining = (result.sel(metric="trend") == -1) & significant
+slope_map = result.slope                      # NDVI change per year
+significant = result.h == 1.0                 # statistically significant at alpha=0.05
+declining = (result.trend == -1) & significant
+zeit.save_raster(result, "output/mann_kendall")   # one GeoTIFF per metric
 ```
 
 ## Change Monitoring (BFAST Monitor)
@@ -248,16 +241,12 @@ declining = (result.sel(metric="trend") == -1) & significant
 Pixel-wise near-real-time structural change monitoring, ported from the R package [`bfast`](https://github.com/bfast2/bfast) (Verbesselt *et al.*) to a C++/OpenMP backend, with the same Dask distribution strategy as Mann-Kendall. Unlike LandTrendr/CCDC (retrospective, whole-series segmentation), `bfastmonitor` fits a trend+harmonic model on a stable history period and asks "is a disturbance happening *right now*, in the most recent observations?" — verified bit-for-bit-scale accurate against R's `bfastmonitor()`. See the [BFAST Monitor tutorial](https://sacridini.github.io/zeit-cdts/tutorials/bfast_monitor/) for the full method background and scope (only `type="OLS-MOSUM"` + `history="all"` are ported so far).
 
 ```python
-# annual_ndvi: (time, y, x) DataArray, 16-day composites (frequency=23/year) from 2010
-result = annual_ndvi.zeit.run_bfast_monitor(
-    start_time=2010.0,
-    monitor_start_time=2022.0,  # monitor everything from 2022 onward
-    frequency=23,
-)
+# ndvi_16d: (time, y, x) DataArray of 16-day composites from 2010 (or a GeoTIFF path);
+# start_time=2010.0 and frequency=23 are read from its dates
+result = zeit.bfast_monitor(ndvi_16d, "2022-01-01")   # monitor everything from 2022 onward
 
-result = result.compute()
-disturbed = result.sel(metric="has_break") == 1.0
-break_time = result.sel(metric="breakpoint")  # fractional-year time of the first detected break
+disturbed = result.has_break == 1.0
+break_time = result.breakpoint  # fractional-year time of the first detected break
 ```
 
 ## Change Detection (BFAST Lite)
@@ -265,16 +254,11 @@ break_time = result.sel(metric="breakpoint")  # fractional-year time of the firs
 Pixel-wise, single-pass multiple-breakpoint detection, ported from the R package `bfast`'s `bfastlite()` and its `strucchangeRcpp` dependency's `breakpoints()` (the Bai & Perron optimal multiple-breakpoint dynamic program) to a C++/OpenMP backend. Unlike `bfastmonitor` above (single break, near-real-time), this retrospectively segments the *whole* series into the optimal number of pieces (via the LWZ model-selection criterion) — no STL decomposition needed. Verified exactly against R's `bfastlite()` across 6 scenarios (~3.1x faster single-threaded than R; `n_jobs=-1` adds a further ~5.5x on top of that by reserving one CPU core and parallelizing across the rest — a smaller gap than `bfastmonitor`'s, since this workload is genuinely CPU-bound dynamic programming on both sides, not dominated by R's per-call overhead). See the [BFAST Lite tutorial](https://sacridini.github.io/zeit-cdts/tutorials/bfast_lite/) for the full method background, scope, and validation details (including two real numerical bugs caught and fixed along the way).
 
 ```python
-# annual_ndvi: (time, y, x) DataArray, 16-day composites (frequency=23/year) from 2010
-result = annual_ndvi.zeit.run_bfast_lite(
-    start_time=2010.0,
-    frequency=23,
-    max_breaks_output=5,
-)
+# ndvi_16d: (time, y, x) DataArray of 16-day composites
+result = zeit.bfast_lite(ndvi_16d, max_breaks=5)
 
-result = result.compute()
-n_breaks = result.sel(metric="n_breaks")
-first_break_idx = result.sel(metric="breakpoint_idx_1")  # NaN where n_breaks == 0
+n_breaks = result.n_breaks
+first_break_idx = result.breakpoint_idx_1  # NaN where n_breaks == 0
 ```
 
 ## Time-Series Classification (TWDTW)

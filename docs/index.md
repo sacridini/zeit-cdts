@@ -172,8 +172,8 @@ The same analysis in three styles. Pick the one that fits your data:
     ndvi = (cube.sel(band="nir") - cube.sel(band="red")) / (cube.sel(band="nir") + cube.sel(band="red"))
     ndvi_16d = zeit.regularize_time_series(ndvi, freq="16D", method="median")
 
-    trend = ndvi_16d.zeit.run_mann_kendall(method="seasonal", period=23)
-    trend.zeit.to_zarr_optimized("ndvi_trend.zarr")   # computed chunk by chunk, in parallel
+    trend = ndvi_16d.zeit.mann_kendall(method="seasonal", period=23)
+    trend.to_zarr("ndvi_trend.zarr", consolidated=True)   # computed chunk by chunk, in parallel
     ```
 
 === "Command line"

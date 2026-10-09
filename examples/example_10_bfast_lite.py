@@ -4,17 +4,17 @@ Example 10: BFAST Lite End-to-End (Single-Pass Multiple-Breakpoint Detection)
 Loads a synthetic 16-day composite datacube (no network needed) where every
 pixel has two injected structural breaks (e.g. a disturbance followed by
 recovery/regrowth), runs the single-pass `bfastlite` segmentation via the
-`.zeit` accessor, and saves the breakpoint maps with `zeit.save_raster`.
+`.zeit` accessor (the same as `zeit.bfast_lite(cube)`; start_time and
+frequency are read from the cube's dates), and saves the breakpoint maps
+with `zeit.save_raster`.
 """
 import os
 import numpy as np
+import pandas as pd
 import xarray as xr
-from rasterio.transform import from_origin
 import zeit
-from zeit.bfast import bfl_metric_names
 
-FREQUENCY = 23
-START_TIME = 2010.0
+FREQUENCY = 23  # 16-day composites/year, from January 2010
 MAX_BREAKS = 5
 
 
@@ -43,6 +43,21 @@ def build_synthetic_cube(n_years=8, rows=15, cols=15, seed=2):
     return data, break1, break2
 
 
+def georeferenced_cube(data, dates):
+    """A (time, y, x) cube on a fake 30 m UTM grid, as zeit.load_raster would return it."""
+    _, rows, cols = data.shape
+    cube = xr.DataArray(
+        data,
+        dims=["time", "y", "x"],
+        coords={
+            "time": dates,
+            "y": 8800000.0 - 15.0 - 30.0 * np.arange(rows),
+            "x": 500000.0 + 15.0 + 30.0 * np.arange(cols),
+        },
+    )
+    return cube.rio.write_crs("EPSG:32721")
+
+
 def main():
     print("Zeit Example 10: BFAST Lite (Single-Pass Multiple-Breakpoint Detection)")
 
@@ -51,30 +66,24 @@ def main():
     data, break1, break2 = build_synthetic_cube(rows=rows, cols=cols)
     print(f"    Injected breaks at observation indices {break1} (disturbance) and {break2} (recovery).")
 
-    cube = xr.DataArray(
-        data,
-        dims=["time", "y", "x"],
-        coords={"y": np.arange(rows), "x": np.arange(cols)},
-    )
+    dates = pd.date_range("2010-01-01", periods=data.shape[0], freq="16D")
+    cube = georeferenced_cube(data, dates)
 
-    print("\n[2/3] Running bfastlite via .zeit accessor...")
-    result = cube.zeit.run_bfast_lite(
-        start_time=START_TIME, frequency=FREQUENCY, h=0.15, max_breaks_output=MAX_BREAKS, n_jobs=-1,
-    ).compute()
+    print("\n[2/3] Running bfastlite via the .zeit accessor...")
+    result = cube.zeit.bfast_lite(h=0.15, max_breaks=MAX_BREAKS, n_jobs=-1)
 
-    n_breaks = result.sel(metric="n_breaks").values
+    n_breaks = result.n_breaks.values
     print(f"    Mean number of breaks detected per pixel: {np.nanmean(n_breaks):.2f} (injected: 2).")
-    bp1 = result.sel(metric="breakpoint_idx_1").values
-    bp2 = result.sel(metric="breakpoint_idx_2").values
+    bp1 = result.breakpoint_idx_1.values
+    bp2 = result.breakpoint_idx_2.values
     print(f"    Median 1st breakpoint: {np.nanmedian(bp1):.1f} (injected {break1}); "
           f"median 2nd breakpoint: {np.nanmedian(bp2):.1f} (injected {break2}).")
 
     print("\n[3/3] Saving results with zeit.save_raster()...")
     out_tif = os.path.join("data", "bfast_lite_breaks.tif")
-    transform = from_origin(500000.0, 8800000.0, 30.0, 30.0)
-    zeit.save_raster(result.values.astype("float32"), out_tif, crs="EPSG:32721", transform=transform, nodata=np.nan)
+    zeit.save_raster(result, out_tif)  # one band per metric, named, georeferenced from the cube
 
-    names = bfl_metric_names(MAX_BREAKS)
+    names = list(result.data_vars)
     print(f"\nDone! {len(names)}-band raster ({', '.join(names)}) saved to {out_tif}")
 
 

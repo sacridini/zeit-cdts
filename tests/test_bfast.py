@@ -3,7 +3,7 @@ import xarray as xr
 import dask.array as da
 
 from zeit._core.bfast import bfast, fit_bfast_batch
-from zeit.bfast import run_bfast_dask, bf_metric_names
+from zeit._bfast import run_bfast_dask, bf_metric_names
 import zeit.xarray_api  # noqa: F401 - registers the .zeit accessor
 
 FREQ = 23
@@ -150,7 +150,7 @@ def test_run_bfast_dask_shape_and_break():
     assert np.all(computed[0] == 1)  # n_trend_breaks row
 
 
-def test_xarray_accessor_run_bfast():
+def test_xarray_accessor_bfast():
     rows, cols, max_bt, max_bs = 2, 2, 5, 5
     block = np.stack([
         _make_series(N, seed=50 + i, trend_break_at=100)
@@ -159,12 +159,13 @@ def test_xarray_accessor_run_bfast():
     data = da.from_array(block, chunks=(N, 2, 2))
 
     ds = xr.DataArray(data, dims=["time", "y", "x"], coords={"y": np.arange(rows), "x": np.arange(cols)})
-    res = ds.zeit.run_bfast(start_time=2000.0, frequency=FREQ,
-                             max_breaks_trend=max_bt, max_breaks_season=max_bs)
+    res = ds.zeit.bfast(start_time=2000.0, frequency=FREQ,
+                        max_breaks_trend=max_bt, max_breaks_season=max_bs)
 
-    assert isinstance(res, xr.DataArray)
-    assert res.dims == ("metric", "y", "x")
-    assert list(res.coords["metric"].values) == bf_metric_names(max_bt, max_bs)
+    assert isinstance(res, xr.Dataset)
+    assert res.n_trend_breaks.dims == ("y", "x")
+    names = ["break_time" if n == "time" else n for n in bf_metric_names(max_bt, max_bs)]
+    assert list(res.data_vars) == names
 
     computed = res.compute()
-    assert np.all(computed.sel(metric="n_trend_breaks").values == 1)
+    assert np.all(computed.n_trend_breaks.values == 1)

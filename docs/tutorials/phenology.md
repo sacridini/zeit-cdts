@@ -27,21 +27,21 @@ Raw index series are noisy and gappy, so metrics are not read from the raw point
 3. **Fit** a smooth parametric curve to each season with Levenberg-Marquardt least squares. The curve is re-weighted iteratively so that low outliers (clouds) pull it less.
 4. **Extract** the transition dates from the fitted curve with several methods at once.
 
-Available curves (`curve_type`, from `zeit._core.phenology.CurveType`):
+Available curves (`curve=`):
 
 | Curve | Notes |
 | :--- | :--- |
-| `BECK` | Double logistic of Beck et al. (2006). A good general default. |
-| `ELMORE` | Double logistic with a summer green-down term (Elmore et al., 2012). |
-| `GU` | Gu et al. (2009), flexible asymmetric shape. |
-| `KLOS` | Klosterman et al. (2014). |
-| `ZHANG` | Piecewise logistic (Zhang et al., 2003). |
-| `AG` | Asymmetric Gaussian. |
-| `DL` | Plain double logistic. |
+| `"beck"` | Double logistic of Beck et al. (2006). The default, and a good general choice. |
+| `"elmore"` | Double logistic with a summer green-down term (Elmore et al., 2012). |
+| `"gu"` | Gu et al. (2009), flexible asymmetric shape. |
+| `"klos"` | Klosterman et al. (2014). |
+| `"zhang"` | Piecewise logistic (Zhang et al., 2003). |
+| `"ag"` | Asymmetric Gaussian. |
+| `"dl"` | Plain double logistic. |
 
 ## The 19 metrics
 
-Every method below is computed from the same fitted curve, at no extra cost. All dates are days of the year.
+Every method below is computed from the same fitted curve, at no extra cost, whatever `method=` says. All dates are days of the year (with `annual=False`, days counted from January 1st of the first year).
 
 | Family | Metrics | Definition |
 | :--- | :--- | :--- |
@@ -55,75 +55,51 @@ Every method below is computed from the same fitted curve, at no extra cost. All
 | General | `LOS` | Length of season in days. |
 | | `POP` | Position of the peak. |
 
-Two quality metrics, `R2` and `RMSE` of the fitted curve, follow the 19 phenology metrics, so the output has 21 entries along the `metric` axis.
+Two quality metrics, `R2` and `RMSE` of the fitted curve, follow the 19 phenology metrics, so the output `xarray.Dataset` has 21 variables.
 
 ## Processing a raster
 
-The `zeit` package natively integrates with `xarray` through a custom accessor (`.zeit.run_phenology`). This abstracts away all the complex array reshaping and memory management, allowing you to process large MODIS/Landsat time series elegantly.
-
-By default, the pipeline automatically maps the continuous days back into calendar DOYs if you pass `return_annual=True`.
+[`zeit.phenology`](../api/time-series.md#phenology) takes the cube as it is: a raster on disk, a `(time, y, x)` cube in memory or on Dask, a numpy array with `dates=`, or a single pixel's series. It computes the day numbering and the years from the dates, and by default (`annual=True`) maps each season to its calendar year, with dates as days of the year.
 
 ```python
-import rioxarray
-import numpy as np
-import pandas as pd
-import zeit # Automatically registers the .zeit accessor in xarray
-from zeit._core.phenology import CurveType
+import zeit
 
-# 1. Load the dense time series raster (Shape: Time, Y, X)
-ds = rioxarray.open_rasterio('MODIS_EVI_Series.tif')
+# 1. The dense time series as a (time, y, x) cube; the dates come from the band
+#    descriptions (pass dates= for a stack without them)
+evi = zeit.load_raster("MODIS_EVI_Series.tif")
 
-# 2. Prepare the Time Array (Continuous Day of Year)
-dates = pd.date_range(start='2001-01-01', periods=ds.shape[0], freq='16D')
-dates_doy = np.array([d.timetuple().tm_yday + (d.year - 2001) * 365 for d in dates], dtype=np.float64)
+# 2. Smooth, fit and extract the metrics, every pixel in parallel (C++ / OpenMP)
+pheno = zeit.phenology(
+    evi,
+    curve="beck",               # Beck's double logistic
+    whittaker_lambda=10.0,      # Whittaker smoothness parameter
+    apply_whittaker=True,       # apply Whittaker before fitting
+    min_season_length=7,        # a season must last at least 7 days
+    min_amplitude=0.0,
+    min_pixel_amplitude=0.1,    # skip dead/water pixels entirely
+    n_jobs=14,                  # 14 CPU threads
+)
+# An xarray.Dataset of 21 variables (19 metrics + R2 + RMSE), each (year, y, x)
+sos = pheno["TRS5.sos"].sel(year=2010)   # day of year; names with dots need brackets
 
-# 3. Run the Phenology Engine directly on the xarray DataArray
-# This leverages Dask internally for parallel out-of-core execution
-print("Extracting 19 phenology metrics...")
-metrics_da = ds.zeit.run_phenology(
-    dates=dates_doy,
-    curve_type=int(CurveType.BECK), # Use Beck's double logistic
-    max_seasons=25,                 # Process 25 years of data
-    whittaker_lambda=10.0,          # Whittaker smoothness parameter
-    apply_whittaker=True,           # Apply Whittaker before fitting
-    min_season_length=7,            # A season must last at least 7 days
-    min_amplitude=0.0,              
-    min_pixel_amplitude=0.1,        # Skip dead/water pixels entirely
-    return_annual=True,             # Return variables aligned to calendar Years
-    base_year=2001,
-    n_jobs=14                       # Use 14 CPU cores (OpenMP)
-).compute()
-
-# 4. Save to disk using rioxarray
-# metrics_da shape is (metric=21, year=25, y, x): 19 metrics + R2 + RMSE.
-# Export each metric as a 25-band GeoTIFF, one band per year
-metrics_da.rio.write_crs(ds.rio.crs, inplace=True)
-
-for metric_name in metrics_da.metric.values:
-    # Select the specific metric, resulting in a 3D array (year, y, x)
-    single_metric_da = metrics_da.sel(metric=metric_name)
-    
-    # Save a multi-band TIF where each band is a year
-    filename = f"zeit_{metric_name}.tif"
-    single_metric_da.rio.to_raster(filename)
-    print(f"Saved {filename}")
+# 3. One georeferenced GeoTIFF per metric, one band per year (2001, 2002, ...)
+zeit.save_raster(pheno, "pheno_out")
 ```
+
+For a raster larger than memory, pass `chunks="auto"`: the result is lazy and is computed block by block while `save_raster` writes it. The accessor form, `evi.zeit.phenology(curve="beck", ...)`, is the same function.
 
 ## Worked example: late planting in soybean fields
 
 This section walks through a complete, realistic problem end-to-end: **an analyst wants to know whether soybean fields in a Mato Grosso municipality (Brazil) show anomalously delayed green-up in a candidate drought year, compared to a multi-year baseline** — a common early-warning question for agricultural monitoring and drought impact assessment. Late green-up (a positive SOS anomaly, in days) is a classic remote signal of delayed planting caused by late onset of the rainy season.
 
-The workflow chains three `zeit` building blocks: `build_time_series` (STAC ingestion) → `regularize_time_series` (temporal regularization) → `.zeit.run_phenology` (metric extraction), all lazy until `.compute()` is called — so it scales from a single tile to a whole state without changing the code.
+The workflow chains three `zeit` building blocks: `build_time_series` (STAC ingestion) → `regularize_time_series` (temporal regularization) → `zeit.phenology` (metric extraction), all lazy until `.compute()` is called — so it scales from a single tile to a whole state without changing the code.
 
 ### Step 1 — Build a multi-year Sentinel-2 cube for the area of interest
 
 ```python
-import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
 import zeit
 from zeit import regularize_time_series
-from zeit._core.phenology import CurveType
 
 # Multi-year window covering the baseline + the candidate drought year (2021)
 cube_raw = zeit.build_time_series(
@@ -152,27 +128,16 @@ ndvi_16d = regularize_time_series(ndvi_raw, freq="16D", method="median")
 ### Step 3 — Run the phenology engine across all three crop years at once
 
 ```python
-# Build the continuous day-numbering the C++ core expects: days since `base_year`-01-01.
-dates_pd = pd.to_datetime(ndvi_16d.time.values)
-base_year = int(dates_pd.year.min())
-dates_doy = np.array(
-    [d.timetuple().tm_yday + (d.year - base_year) * 365 for d in dates_pd],
-    dtype=np.float64,
-)
-n_years = int(dates_pd.year.max()) - base_year + 1
-
-pheno = ndvi_16d.zeit.run_phenology(
-    dates=dates_doy,
-    curve_type=int(CurveType.BECK),
-    max_seasons=n_years,        # one slot per calendar year in the window
+# The day numbering and the years (2019 ... 2022) come from the cube's dates.
+pheno = zeit.phenology(
+    ndvi_16d,
+    curve="beck",
     apply_whittaker=True,
     whittaker_lambda=5.0,       # a bit looser than default: S2 NDVI is noisier than MODIS
     min_season_length=45,       # ignore green-ups shorter than ~45 days (noise, not a crop cycle)
     min_amplitude=0.15,
     min_pixel_amplitude=0.15,   # skip forest/water/urban pixels entirely — huge speedup at scale
-    return_annual=True,         # aligns each detected season to a calendar year
-    base_year=base_year,
-    n_jobs=-1,
+    n_jobs=-1,                  # annual=True (default): one value per calendar year
 ).compute()
 ```
 
@@ -181,7 +146,7 @@ pheno = ndvi_16d.zeit.run_phenology(
 We use `DER.sos` (derivative-based Start of Season — see [the 19 metrics](#the-19-metrics)) and compare the target year against the mean of the other years in the window:
 
 ```python
-sos = pheno.sel(metric="DER.sos")   # dims: (year, y, x), values in day-of-year
+sos = pheno["DER.sos"]   # dims: (year, y, x), values in day-of-year
 
 target_year = 2021
 baseline_years = [y for y in sos.year.values if y != target_year]
@@ -204,9 +169,8 @@ sos_anomaly_days.plot(
 ax.set_title(f"Planting Delay Anomaly — {target_year} vs. {baseline_years} baseline")
 plt.savefig("sos_anomaly_2021.png", dpi=150, bbox_inches="tight")
 
-# Export as a GeoTIFF for use in QGIS or further zonal statistics
-sos_anomaly_days.rio.write_crs(ndvi_16d.rio.crs, inplace=True)
-sos_anomaly_days.rio.to_raster(f"sos_anomaly_{target_year}.tif")
+# Export as a GeoTIFF for use in QGIS or further zonal statistics (georeferenced from the cube)
+zeit.save_raster(sos_anomaly_days, f"sos_anomaly_{target_year}.tif")
 ```
 
 ### Interpreting the result
@@ -216,27 +180,22 @@ sos_anomaly_days.rio.to_raster(f"sos_anomaly_{target_year}.tif")
 - **`NaN` pixels**: no season passed the `min_amplitude` / `min_season_length` filters in at least one of the years being compared (e.g., fallow land, pasture, or a rotation year) — `xarray`'s alignment propagates this automatically, no special handling needed.
 - This is a **remote-sensing signal, not ground truth** — always validate against field records or known planting calendars before drawing operational conclusions.
 
-Because every step here (`build_time_series`, `regularize_time_series`, `run_phenology`) is Dask-backed, the exact same code scales from one MGRS tile to an entire state or country simply by widening `bbox`/`tiles` — only the chunk count (and wall-clock time) changes.
+Because every step here (`build_time_series`, `regularize_time_series`, `phenology`) is Dask-backed, the exact same code scales from one MGRS tile to an entire state or country simply by widening `bbox`/`tiles` — only the chunk count (and wall-clock time) changes.
 
 ## Advanced configuration
 
 ### Double and triple cropping
 In regions with intense agricultural activity (like Mato Grosso, Brazil), a single pixel might feature two or even three distinct crop harvests within a single year (e.g., Soybeans followed by Corn).
 
-To capture these dynamics directly without `return_annual=True`, simply increase `max_seasons`:
+To capture these dynamics, ask for one value per detected season instead of one per calendar year, with `annual=False` and `max_seasons`:
 ```python
-metrics_tensor = ds.zeit.run_phenology(
-    # ...
-    max_seasons=3,
-    return_annual=False
-    # ...
-)
+seasons = zeit.phenology(evi, annual=False, max_seasons=3)
 ```
-This returns arrays of shape `(19_metrics, 3_seasons, Y, X)`. You can then map `season=0` as the first harvest, `season=1` as the second (safrinha), and so on.
+Each of the 21 variables is then `(season, y, x)`, with `season` = 1, 2, 3: map `season=1` as the first harvest, `season=2` as the second (safrinha), and so on. Dates are then counted in days from January 1st of the first year (`seasons.attrs["base_year"]`), since a season can cross the turn of the year.
 
 ### Quality-control parameters
 - **`whittaker_lambda`**: Higher values create stiffer, smoother curves. Lower values allow the curve to bend sharply to follow the raw data closely. For 16-day composites, values between `1.0` and `5.0` are standard.
-- **`min_season_length`**: Useful for filtering out high-frequency noise spikes that mistakenly look like a very short 2-day growing season. Measured in the same calendar-day units as `dates`, not in observation count — it is compared against the actual elapsed time between a season's start and end, so it behaves consistently regardless of the sensor's revisit cadence.
+- **`min_season_length`**: Useful for filtering out high-frequency noise spikes that mistakenly look like a very short 2-day growing season. Measured in days, not in observation count — it is compared against the actual elapsed time between a season's start and end, so it behaves consistently regardless of the sensor's revisit cadence.
 - **`min_amplitude`**: Prevents the optimizer from fitting curves on background noise (e.g., bare soil that fluctuates slightly with rain). If the peak of the smoothed curve minus the base is less than this value, the season is rejected.
 
 ### Down-weighting low-quality observations
@@ -248,12 +207,12 @@ from zeit.qc import qc_modis_summary, qc_modis_state, qc_sentinel2_scl
 # MOD13A1/A2/Q1 "SummaryQA" band (0=good, 1=marginal, 2=snow/ice, 3=cloudy)
 weights = qc_modis_summary(qa_cube)  # -> [1.0, 0.5, 0.2, 0.2], aligned with qa_cube
 
-pheno_results = ds.zeit.run_phenology(
-    dates=dates_julian,
-    curve_type=int(CurveType.BECK),
-    weights=weights,        # (time, y, x), aligned with the input DataArray
+pheno_results = zeit.phenology(
+    evi,
+    curve="beck",
+    weights=weights,        # (time, y, x), aligned with the input cube
     season_retry=True,      # default: relax the trough threshold once if a
-                             # pixel's first pass finds no season at all
+                            # pixel's first pass finds no season at all
 )
 ```
 
@@ -271,7 +230,7 @@ The methodology of this module — the smoothing methods, the iterative curve-fi
 
 - Kong, D., McVicar, T. R., Xiao, M., Zhang, Y., Peña-Arancibia, J. L., Filippa, G., Xie, Y., & Gu, X. (2022). *phenofit*: An R package for extracting vegetation phenology from time series remote sensing. **Methods in Ecology and Evolution**, 13(7), 1508–1527. [https://doi.org/10.1111/2041-210X.13870](https://doi.org/10.1111/2041-210X.13870)
 
-The individual curve-fitting models and extraction methods available via `curve_type` and `extraction_method` (Section 2) originate from:
+The individual curve-fitting models and extraction methods available via `curve` and `method` originate from:
 
 - Beck, P. S. A., Atzberger, C., Høgda, K. A., Johansen, B., & Skidmore, A. K. (2006). Improved monitoring of vegetation dynamics at very high latitudes: A new method using MODIS NDVI. **Remote Sensing of Environment**, 100(3), 321–334. [https://doi.org/10.1016/j.rse.2005.10.021](https://doi.org/10.1016/j.rse.2005.10.021)
 - Zhang, X., Friedl, M. A., Schaaf, C. B., Strahler, A. H., Hodges, J. C. F., Gao, F., Reed, B. C., & Huete, A. (2003). Monitoring vegetation phenology using MODIS. **Remote Sensing of Environment**, 84(3), 471–475. [https://doi.org/10.1016/S0034-4257(02)00135-9](https://doi.org/10.1016/S0034-4257(02)00135-9)

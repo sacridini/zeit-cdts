@@ -13,7 +13,7 @@
 
 **Threads within one machine.** Every algorithm's per-pixel loop runs in C++ with OpenMP. `n_jobs=-1` (the default) uses all cores but one, and needs nothing else: `zeit.landtrendr`, `zeit.ccdc` and friends are already parallel.
 
-**Chunks across processes or machines.** For data larger than memory, or more machines, wrap the data in a Dask-backed xarray cube and call the algorithm through the `.zeit` accessor (or `zeit.landtrendr`, which takes Dask cubes directly). Zeit maps the C++ code over spatial chunks, and Dask schedules those chunks on its workers.
+**Chunks across processes or machines.** For data larger than memory, or more machines, wrap the data in a Dask-backed xarray cube and pass it to the algorithm (`zeit.landtrendr(cube)`, `zeit.mann_kendall(cube)`, …) or to its `.zeit` accessor form. Zeit maps the C++ code over spatial chunks, and Dask schedules those chunks on its workers.
 
 ```python
 import xarray as xr
@@ -22,8 +22,8 @@ import zeit   # registers the .zeit accessor
 cube = xr.open_zarr("s3://my-bucket/annual_ndvi.zarr")["ndvi"]        # (time, y, x), lazy
 cube = cube.chunk({"time": -1, "y": 512, "x": 512})                   # whole history per chunk
 
-trend = cube.zeit.run_mann_kendall(method="hamed_rao", n_jobs=1)      # still lazy
-trend.zeit.to_zarr_optimized("s3://my-bucket/ndvi_trend.zarr")        # computes, in parallel
+trend = cube.zeit.mann_kendall(method="hamed_rao", n_jobs=1)          # still lazy: a Dataset of maps
+trend.to_zarr("s3://my-bucket/ndvi_trend.zarr", consolidated=True)    # computes, in parallel
 ```
 
 !!! warning "Chunk in space, never in time"

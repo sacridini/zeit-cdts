@@ -350,13 +350,9 @@ def fig_pixel_time_series(d):
 
 def fig_mann_kendall(d):
     s, valid = d["stack"], d["valid"]
-    import dask.array as da
-    from zeit.trend import run_mann_kendall_dask, MK_METRIC_NAMES
-    arr = da.from_array(np.where(valid, s / 10000, np.nan).astype(np.float32),
-                        chunks=(-1, 512, 512))
-    out = run_mann_kendall_dask(arr, method="hamed_rao").compute()
-    slope = out[MK_METRIC_NAMES.index("slope")] * 10  # per decade
-    h = out[MK_METRIC_NAMES.index("h")]
+    mk = zeit.mann_kendall(np.where(valid, s / 10000, np.nan).astype(np.float32), method="hamed_rao")
+    slope = mk.slope.values * 10  # per decade
+    h = mk.h.values
 
     fig, axes = plt.subplots(1, 2, figsize=(11, 5.6), gridspec_kw={"wspace": 0.04})
     im = axes[0].imshow(_masked(slope, valid), cmap=DIVERGING, vmin=-0.2, vmax=0.2,
@@ -593,16 +589,11 @@ def _ols_harmonic(t, y, order=3):
 
 
 def fig_bfast_monitor():
-    import dask.array as da
-    from zeit.bfast import run_bfast_monitor_dask, BFM_METRIC_NAMES
     t, y, rng = _ndvi_series(2010, 10, seed=RNG_SEED + 2)
     brk = 2017.4
     y[t >= brk] -= 0.25
     y[rng.random(len(t)) < 0.12] = np.nan
-    arr = da.from_array(y[:, None, None].astype(np.float64), chunks=(-1, 1, 1))
-    out = run_bfast_monitor_dask(arr, start_time=2010.0, monitor_start_time=2016.0,
-                                 frequency=23).compute()[:, 0, 0]
-    found = out[BFM_METRIC_NAMES.index("breakpoint")]
+    found = float(zeit.bfast_monitor(y, 2016.0, start_time=2010.0, frequency=23).breakpoint)
 
     hist = t < 2016.0
     fit_hist = _ols_harmonic(t[hist], y[hist])
@@ -631,15 +622,11 @@ def fig_bfast_monitor():
 
 
 def fig_bfast_lite():
-    import dask.array as da
-    from zeit.bfast import run_bfast_lite_dask, bfl_metric_names
     t, y, rng = _ndvi_series(2005, 16, seed=RNG_SEED + 3)
     y[(t >= 2010.3)] -= 0.22
     y[(t >= 2015.6)] += 0.12 + 0.03 * (t[t >= 2015.6] - 2015.6)
-    arr = da.from_array(y[:, None, None], chunks=(-1, 1, 1))
-    out = run_bfast_lite_dask(arr, start_time=2005.0, frequency=23).compute()[:, 0, 0]
-    names = bfl_metric_names(5)
-    idx = [int(out[names.index(f"breakpoint_idx_{i + 1}")]) for i in range(int(out[0]))]
+    out = zeit.bfast_lite(y, start_time=2005.0, frequency=23)
+    idx = [int(out[f"breakpoint_idx_{i + 1}"]) for i in range(int(out.n_breaks))]
 
     fig, ax = plt.subplots(figsize=(12, 3.9))
     obs_scatter(ax, t, y)
@@ -658,16 +645,12 @@ def fig_bfast_lite():
 
 
 def fig_bfast_classic():
-    import dask.array as da
-    from zeit.bfast import run_bfast_dask, bf_metric_names
     t, y, rng = _ndvi_series(2005, 13, seed=RNG_SEED + 4, noise=0.025)
     brk = 2011.5
     y[t >= brk] -= 0.18
-    arr = da.from_array(y[:, None, None], chunks=(-1, 1, 1))
-    out = run_bfast_dask(arr, start_time=2005.0, frequency=23).compute()[:, 0, 0]
-    names = bf_metric_names(5, 5)
-    ntb = int(out[names.index("n_trend_breaks")])
-    idx = [int(out[names.index(f"trend_breakpoint_idx_{i + 1}")]) for i in range(ntb)]
+    out = zeit.bfast(y, start_time=2005.0, frequency=23)
+    ntb = int(out.n_trend_breaks)
+    idx = [int(out[f"trend_breakpoint_idx_{i + 1}"]) for i in range(ntb)]
 
     # Decompose for display: season = harmonic fit on the whole series,
     # trend = piecewise linear on the deseasonalised series.
@@ -696,14 +679,13 @@ def fig_bfast_classic():
     for ax in axes[:2]:
         for i in idx:
             break_line(ax, t[i])
-    axes[1].text(t[idx[0]] + 0.1, trend.max(), f"  trend break\n  magnitude {out[names.index('magnitude')]:.2f}",
+    axes[1].text(t[idx[0]] + 0.1, trend.max(), f"  trend break\n  magnitude {float(out.magnitude):.2f}",
                  color=INK2, fontsize=9, va="top")
     save(fig, "bfast_decomposition")
 
 
 def fig_phenology():
-    import xarray as xr
-    from zeit._core.phenology import CurveType
+    import pandas as pd
     rng = np.random.default_rng(RNG_SEED + 5)
     base = 2019
     doy = np.arange(1, 3 * 365, 8)
@@ -721,10 +703,8 @@ def fig_phenology():
     cloud = rng.random(len(t)) < 0.15
     y[cloud] -= rng.uniform(0.1, 0.35, cloud.sum())
 
-    da_ = xr.DataArray(y[:, None, None], dims=["time", "y", "x"],
-                       coords={"y": [0], "x": [0]})
-    m = da_.zeit.run_phenology(dates=doy.astype(float), curve_type=int(CurveType.BECK),
-                               max_seasons=3, base_year=base).compute()
+    dates = pd.Timestamp(f"{base}-01-01") + pd.to_timedelta(doy - 1, unit="D")
+    m = zeit.phenology(pd.Series(y, index=dates), curve="beck")   # one value per year, 2019-2021
     sm = zeit.smooth.apply_whittaker_filter(y[:, None, None], lmbd=15)[:, 0, 0]
 
     fig, ax = plt.subplots(figsize=(12, 4.0))
@@ -734,7 +714,7 @@ def fig_phenology():
     labels = [("TRS5.sos", "SOS", AQUA), ("DER.pos", "Peak", VIOLET), ("TRS5.eos", "EOS", ORANGE)]
     for yi, yr in enumerate(m.year.values):
         for key, lab, col in labels:
-            v = float(m.sel(metric=key, year=yr)[0, 0])
+            v = float(m[key].sel(year=yr))
             if np.isfinite(v) and v > 0:
                 xv = yr + (v - 1) / 365.0
                 ax.axvline(xv, color=col, linewidth=1.6, linestyle=(0, (4, 3)),

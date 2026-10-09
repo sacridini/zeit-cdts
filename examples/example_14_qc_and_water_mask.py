@@ -4,7 +4,7 @@ Example 14: QA-Band Decoding and CCDC Water Mask End-to-End
 Loads synthetic MODIS "State QA" and Sentinel-2 "Scene Classification
 Layer" (SCL) bands (no network needed) and decodes them into per-observation
 reliability weights with `zeit.qc_modis_state` / `zeit.qc_sentinel2_scl`
-(the same weights `DataArray.zeit.run_phenology` accepts). Also builds a
+(the same weights `zeit.phenology(..., weights=)` accepts). Also builds a
 synthetic CCDC coefficient stack with a fake "lake" footprint and extracts a
 persistent water mask from it with `zeit.extract_water_mask`. Saves
 everything with `zeit.save_raster`.

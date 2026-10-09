@@ -39,32 +39,31 @@ import zeit
 # ndvi_16d: (time, y, x) DataArray of 16-day composites starting in January 2010
 ndvi_16d = ndvi_16d.chunk({"time": -1, "y": 256, "x": 256})
 
-result = ndvi_16d.zeit.run_bfast(
-    start_time=2010.0,
-    frequency=23,
+result = zeit.bfast(
+    ndvi_16d,               # start_time 2010.0 and frequency 23, from the dates
     h=0.15,                 # minimum segment size, fraction of the observations
     max_breaks_trend=5,     # break slots reported for the trend
     max_breaks_season=5,    # break slots reported for the season
 ).compute()
 
-n_trend = result.sel(metric="n_trend_breaks")
-n_season = result.sel(metric="n_season_breaks")
-jump = result.sel(metric="magnitude")    # largest trend jump, 0 if none
-when = result.sel(metric="time")         # fractional year of that jump
+n_trend = result.n_trend_breaks
+n_season = result.n_season_breaks
+jump = result.magnitude                  # largest trend jump, 0 if none
+when = result.break_time                 # fractional year of that jump
 ```
 
-Also available as `zeit.bfast.run_bfast_dask` (plain Dask arrays), `zeit.run_bfast_image` (large GeoTIFFs) and [`zeit bfast`](../cli.md#5-classic-bfast-bfast).
+The same function takes a GeoTIFF larger than memory (`zeit.bfast("ndvi_16d.tif", chunks="auto")`), a numpy array or a single pixel ([all inputs](../api/change-detection.md#bfast)), and runs from the shell as [`zeit bfast`](../cli.md#5-classic-bfast-bfast). `zeit.save_raster(result, "results/bfast")` writes one georeferenced GeoTIFF per metric.
 
 ## Reading the output
 
-Metric names come from `zeit.bfast.bf_metric_names(max_breaks_trend, max_breaks_season)`:
+The `xarray.Dataset` has one `(y, x)` map per metric:
 
-| Metric | Meaning |
+| Variable | Meaning |
 | :--- | :--- |
 | `n_trend_breaks` | Number of trend breaks at convergence. |
 | `n_season_breaks` | Number of seasonal breaks at convergence. |
 | `magnitude` | Size of the largest jump in the trend (difference between the fitted levels either side). `0` if there is no trend break. Matches R's `bf$Magnitude`. |
-| `time` | Fractional year of that jump, `NaN` if none. Matches R's `bf$jump$x`. |
+| `break_time` | Fractional year of that jump, `NaN` if none. Matches R's `bf$jump$x`. |
 | `n_iter` | Iterations until convergence (or `max_iter`). |
 | `n_valid` | Valid observations used. |
 | `valid` | `1.0` if the series was long enough to fit (more than `2 × frequency` observations). |
@@ -78,7 +77,7 @@ Metric names come from `zeit.bfast.bf_metric_names(max_breaks_trend, max_breaks_
 
 | Parameter | Default | Effect |
 | :--- | :---: | :--- |
-| `start_time`, `frequency` | required | Regular time axis: first observation and observations per year. |
+| `start_time`, `frequency` | from the dates | Regular time axis: first observation and observations per year. |
 | `order` | `3` | Number of harmonics in the seasonal model. |
 | `h` | `0.15` | Minimum segment size, as a fraction of the observations. |
 | `max_iter` | `10` | Maximum trend/season iterations. |

@@ -1,9 +1,7 @@
 from ._landtrendr import desawtooth, apply_vertices
 from ._lt import landtrendr
 from ._ccdc_api import ccdc
-from .raster import (
-    run_bfast_monitor_image, run_bfast_lite_image, run_bfast_image, run_mann_kendall_image,
-)
+from ._series_api import bfast_monitor, bfast_lite, bfast, mann_kendall, phenology
 from .metrics import extract_events
 from ._ccdc import predict_synthetic_image
 from .twdtw import run_twdtw, run_twdtw_batch
@@ -47,7 +45,7 @@ except ImportError:
 __all__ = [
     "landtrendr", "desawtooth", "apply_vertices",
     "ccdc",
-    "run_bfast_monitor_image", "run_bfast_lite_image", "run_bfast_image", "run_mann_kendall_image",
+    "bfast_monitor", "bfast_lite", "bfast", "mann_kendall", "phenology",
     "extract_events", "predict_synthetic_image",
     "train_ccdc_classifier", "classify_ccdc_stack",
     "apply_mmu_filter", "apply_majority_filter", "apply_savgol_filter",

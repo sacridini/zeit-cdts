@@ -1,6 +1,6 @@
 # Xarray Accessor
 
-<p class="lead"><code>import zeit</code> registers a <code>.zeit</code> accessor on every <code>xarray.DataArray</code>. Its methods run the C++ algorithms over Dask chunks, so they work on cubes larger than memory and on clusters. All of them are lazy: call <code>.compute()</code>, or write the result with <code>to_zarr_optimized</code>.</p>
+<p class="lead"><code>import zeit</code> registers a <code>.zeit</code> accessor on every <code>xarray.DataArray</code>. Its methods run the C++ algorithms over Dask chunks, so they work on cubes larger than memory and on clusters. On a dask-backed cube the algorithms are lazy: call <code>.compute()</code>, or write the result with <code>save_raster</code> or <code>to_zarr_optimized</code>. An in-memory cube gives an in-memory result.</p>
 
 !!! warning "Chunk in space, never in time"
     Each pixel needs its whole history, so keep `time` (and `band`, for CCDC) in a single chunk: `cube.chunk({"time": -1, "y": 512, "x": 512})`. See [Parallel & Cloud Processing](../tutorials/parallel-cloud-processing.md).
@@ -9,15 +9,15 @@
 | :--- | :--- | :--- | :--- |
 | `landtrendr` | `(time, y, x)` | `xr.Dataset` of vertices | [`zeit.landtrendr`](change-detection.md#landtrendr) |
 | `ccdc` | `(time, band, y, x)` | `xr.Dataset` of segments | [`zeit.ccdc`](change-detection.md#ccdc) |
-| `run_bfast_monitor` | `(time, y, x)` | `(metric, y, x)` | [`run_bfast_monitor_dask`](change-detection.md#run_bfast_monitor_dask) |
-| `run_bfast_lite` | `(time, y, x)` | `(metric, y, x)` | [`run_bfast_lite_dask`](change-detection.md#run_bfast_lite_dask) |
-| `run_bfast` | `(time, y, x)` | `(metric, y, x)` | [`run_bfast_dask`](change-detection.md#run_bfast_dask) |
-| `run_mann_kendall` | `(time, y, x)` | `(metric, y, x)` | [`run_mann_kendall_dask`](time-series.md#run_mann_kendall_dask) |
-| `run_phenology` | `(time, y, x)` | `(metric, year or season, y, x)` | [`run_phenology_dask`](time-series.md#run_phenology_dask) |
+| `bfast_monitor` | `(time, y, x)` | `xr.Dataset` of metrics | [`zeit.bfast_monitor`](change-detection.md#bfast_monitor) |
+| `bfast_lite` | `(time, y, x)` | `xr.Dataset` of metrics | [`zeit.bfast_lite`](change-detection.md#bfast_lite) |
+| `bfast` | `(time, y, x)` | `xr.Dataset` of metrics | [`zeit.bfast`](change-detection.md#bfast) |
+| `mann_kendall` | `(time, y, x)` | `xr.Dataset` of metrics | [`zeit.mann_kendall`](time-series.md#mann_kendall) |
+| `phenology` | `(time, y, x)` | `xr.Dataset` of metrics, by year or season | [`zeit.phenology`](time-series.md#phenology) |
 | `run_snic` | `(..., y, x)` | `xr.Dataset` of labels and means | [`run_snic`](time-series.md#run_snic) |
 | `to_zarr_optimized` | any with `y`, `x` | writes a Zarr store | below |
 
-Outputs with a `metric` dimension are labelled, so you can select by name: `result.sel(metric="slope")`.
+Each algorithm method returns an `xr.Dataset` with one variable per output, selected by name: `result.slope`, `result["TRS5.sos"]`.
 
 ## Change detection
 
@@ -52,68 +52,69 @@ segments = cube.zeit.ccdc(qa="fmask")       # QA band by name; still lazy
 zeit.save_raster(segments, "ccdc_out/")      # computed while written
 ```
 
-### `run_bfast_monitor` { .api .meth }
+### `bfast_monitor` { .api .meth }
 
-<!-- sig: zeit.xarray_api.ZeitAccessor.run_bfast_monitor -->
+<!-- sig: zeit.xarray_api.ZeitAccessor.bfast_monitor -->
 ```python
-DataArray.zeit.run_bfast_monitor(
-    start_time, monitor_start_time, frequency, order=3, h=0.25,
-    period=10, alpha=0.05, min_valid=10, n_jobs=-1,
-)
+DataArray.zeit.bfast_monitor(monitor_start, **kwargs)
 ```
 
-### `run_bfast_lite` { .api .meth }
+BFAST Monitor on this `(time, y, x)` cube: the same as [`zeit.bfast_monitor(cube, monitor_start, **kwargs)`](change-detection.md#bfast_monitor), with the same keyword arguments (`order`, `h`, `period`, `alpha`, `nodata`, …) and the same `xarray.Dataset` of metrics. `start_time` and `frequency` come from the `time` coordinate unless given. A dask-backed cube stays lazy.
 
-<!-- sig: zeit.xarray_api.ZeitAccessor.run_bfast_lite -->
 ```python
-DataArray.zeit.run_bfast_lite(
-    start_time, frequency, order=3, h=0.15, max_breaks_output=5,
-    min_valid=20, n_jobs=-1,
-)
+ndvi_16d = ndvi_16d.chunk({"time": -1, "y": 512, "x": 512})
+bfm = ndvi_16d.zeit.bfast_monitor("2022-01-01")    # still lazy
+zeit.save_raster(bfm, "results/bfm")               # computed while written
 ```
 
-### `run_bfast` { .api .meth }
+### `bfast_lite` { .api .meth }
 
-<!-- sig: zeit.xarray_api.ZeitAccessor.run_bfast -->
+<!-- sig: zeit.xarray_api.ZeitAccessor.bfast_lite -->
 ```python
-DataArray.zeit.run_bfast(
-    start_time, frequency, order=3, h=0.15, max_breaks_trend=5,
-    max_breaks_season=5, max_iter=10, level=0.05, min_valid=20,
-    n_jobs=-1,
-)
+DataArray.zeit.bfast_lite(**kwargs)
 ```
+
+BFAST Lite on this `(time, y, x)` cube: the same as [`zeit.bfast_lite(cube, **kwargs)`](change-detection.md#bfast_lite).
+
+### `bfast` { .api .meth }
+
+<!-- sig: zeit.xarray_api.ZeitAccessor.bfast -->
+```python
+DataArray.zeit.bfast(**kwargs)
+```
+
+Classic BFAST on this `(time, y, x)` cube: the same as [`zeit.bfast(cube, **kwargs)`](change-detection.md#bfast).
 
 ## Time-series analysis
 
-### `run_mann_kendall` { .api .meth }
+### `mann_kendall` { .api .meth }
 
-<!-- sig: zeit.xarray_api.ZeitAccessor.run_mann_kendall -->
+<!-- sig: zeit.xarray_api.ZeitAccessor.mann_kendall -->
 ```python
-DataArray.zeit.run_mann_kendall(
-    method="hamed_rao", alpha=0.05, lag=None, period=1, min_valid=4,
-    n_jobs=-1,
-)
+DataArray.zeit.mann_kendall(**kwargs)
 ```
 
+Mann-Kendall test and Theil-Sen slope on this `(time, y, x)` cube: the same as [`zeit.mann_kendall(cube, **kwargs)`](time-series.md#mann_kendall), with the same keyword arguments (`method`, `alpha`, `lag`, `period`, …) and the same `xarray.Dataset` of metrics.
+
 ```python
-trend = annual_ndvi.zeit.run_mann_kendall(method="hamed_rao").compute()
-slope = trend.sel(metric="slope")
+mk = annual_ndvi.zeit.mann_kendall(method="hamed_rao")
+slope = mk.slope.where(mk.h == 1)        # significant slopes only
 ```
 
-### `run_phenology` { .api .meth }
+### `phenology` { .api .meth }
 
-<!-- sig: zeit.xarray_api.ZeitAccessor.run_phenology -->
+<!-- sig: zeit.xarray_api.ZeitAccessor.phenology -->
 ```python
-DataArray.zeit.run_phenology(
-    dates, curve_type, extraction_method=0, max_seasons=2,
-    whittaker_lambda=10.0, apply_whittaker=True, apply_hants=False,
-    hants_frequencies=3, hants_threshold=0.1, min_season_length=0,
-    min_amplitude=0.0, min_pixel_amplitude=0.1, return_annual=True,
-    base_year=2001, n_jobs=-1, weights=None, season_retry=True,
-)
+DataArray.zeit.phenology(**kwargs)
 ```
 
-`weights` may be a DataArray or array aligned with the cube. The output is labelled with the 21 metric names and, with `return_annual=True`, a `year` coordinate starting at `base_year`.
+Phenology on this `(time, y, x)` cube: the same as [`zeit.phenology(cube, **kwargs)`](time-series.md#phenology), with the same keyword arguments (`curve`, `annual`, `max_seasons`, `weights`, …) and the same `xarray.Dataset` of 21 metrics. The day numbering and the first year come from the `time` coordinate.
+
+```python
+pheno = ndvi_16d.zeit.phenology(curve="beck", weights=weights)
+sos = pheno["TRS5.sos"]                  # (year, y, x), day of year
+```
+
 
 ### `run_snic` { .api .meth }
 
@@ -150,5 +151,5 @@ Rechunks the array spatially and writes it to a Zarr store with consolidated met
 </div>
 
 ```python
-trend.zeit.to_zarr_optimized("s3://my-bucket/ndvi_trend.zarr")
+mk.slope.zeit.to_zarr_optimized("s3://my-bucket/ndvi_slope.zarr")
 ```

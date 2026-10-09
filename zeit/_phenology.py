@@ -93,7 +93,10 @@ def run_phenology_dask(
             # scales with total pixel count across the whole (potentially global) cube.
             # Metrics 19 (R2) and 20 (RMSE) aren't dates - excluded here and
             # remapped separately below, keyed off each season's POP date.
-            is_date_metric = np.arange(N_METRICS)[:, None, None, None] < 19
+            # LOS (17) is a duration and R2/RMSE (19, 20) are fit scores: not dates, so
+            # they are placed in the year of their season's POP below instead.
+            metric_ids = np.arange(N_METRICS)[:, None, None, None]
+            is_date_metric = (metric_ids < 19) & (metric_ids != 17)
             valid = np.isfinite(out) & (out > 0) & is_date_metric
             if np.any(valid):
                 m_idx, s_idx, r_idx, c_idx = np.nonzero(valid)
@@ -117,18 +120,18 @@ def run_phenology_dask(
                 doy = doy[in_range]
                 vals = vals[in_range]
 
-                is_los = (m_idx == 17)  # LOS stores the raw duration, not a date
-                store_val = np.where(is_los, vals, doy.astype(np.float64))
+                store_val = doy.astype(np.float64)
 
                 # For a given (m, r, c), later seasons must win ties on the same
                 # calendar year — matches the original loop's `for s in range(...)` order,
                 # which `np.nonzero` preserves (C-order over (m, s, r, c)).
                 out_annual[m_idx, year_idx, r_idx, c_idx] = store_val
 
-            # R2/RMSE (19, 20): not dates themselves, so they ride along with
+            # LOS (17) and R2/RMSE (19, 20): not dates themselves, so they ride along with
             # the calendar year their season's POP (always populated for any
             # converged fit) falls into, instead of being decoded as dates.
-            valid_gof = np.isfinite(out[18]) & (out[18] > 0) & (np.isfinite(out[19]) | np.isfinite(out[20]))
+            valid_gof = np.isfinite(out[18]) & (out[18] > 0) & (
+                np.isfinite(out[17]) | np.isfinite(out[19]) | np.isfinite(out[20]))
             if np.any(valid_gof):
                 s_idx, r_idx, c_idx = np.nonzero(valid_gof)
                 epoch = np.datetime64(f"{base_year}-01-01", "D")
@@ -139,7 +142,7 @@ def run_phenology_dask(
 
                 in_range = (year_idx >= 0) & (year_idx < max_seasons)
                 year_idx, r_idx, c_idx = year_idx[in_range], r_idx[in_range], c_idx[in_range]
-                for gof_idx in (19, 20):
+                for gof_idx in (17, 19, 20):
                     out_annual[gof_idx, year_idx, r_idx, c_idx] = out[gof_idx][valid_gof][in_range]
 
             out = out_annual

@@ -1,10 +1,11 @@
 import numpy as np
+import pandas as pd
 import xarray as xr
 import dask.array as da
 import pytest
 from unittest.mock import patch
 
-from zeit.phenology import run_phenology_dask
+from zeit._phenology import run_phenology_dask
 import zeit.xarray_api # Registers the accessor
 
 def mock_fit_phenology_batch(values_array, dates_array, curve_type, extraction_method, max_seasons, whittaker_lambda, apply_whittaker, apply_hants, hants_frequencies, hants_threshold, min_season_length, min_amplitude, min_pixel_amplitude, n_jobs, **kwargs):
@@ -19,7 +20,7 @@ def mock_fit_phenology_batch(values_array, dates_array, curve_type, extraction_m
         out_arr[20, :, s] = 0.05               # RMSE is index 20
     return out_arr
 
-@patch('zeit.phenology.fit_phenology_batch', side_effect=mock_fit_phenology_batch)
+@patch('zeit._phenology.fit_phenology_batch', side_effect=mock_fit_phenology_batch)
 def test_run_phenology_dask(mock_fit):
     time_steps = 20
     rows = 10
@@ -41,34 +42,38 @@ def test_run_phenology_dask(mock_fit):
     np.testing.assert_allclose(res_computed[6, 0, 0, 0], 100.0)
     # DER.eos is at index 8
     np.testing.assert_allclose(res_computed[8, 0, 0, 0], 200.0)
-    # LOS is at index 17
+    # LOS is at index 17: a duration, placed in the year of its season's POP (every year,
+    # not only the first, which is where decoding it as a date put it)
     np.testing.assert_allclose(res_computed[17, 0, 0, 0], 100.0)
+    np.testing.assert_allclose(res_computed[17, 1, 0, 0], 100.0)
     # POP is at index 18
     np.testing.assert_allclose(res_computed[18, 0, 0, 0], 150.0)
     # R2 is at index 19, RMSE at index 20; both ride along with POP's year
     np.testing.assert_allclose(res_computed[19, 0, 0, 0], 0.9)
     np.testing.assert_allclose(res_computed[20, 0, 0, 0], 0.05)
 
-@patch('zeit.phenology.fit_phenology_batch', side_effect=mock_fit_phenology_batch)
+@patch('zeit._phenology.fit_phenology_batch', side_effect=mock_fit_phenology_batch)
 def test_xarray_accessor_phenology(mock_fit):
     time_steps = 20
     rows = 10
     cols = 10
     
     data = da.random.random((time_steps, rows, cols), chunks=(time_steps, 5, 5))
-    ds = xr.DataArray(data, dims=["time", "y", "x"], coords={"y": np.arange(rows), "x": np.arange(cols)})
-    dates = np.arange(time_steps)
-    
-    res = ds.zeit.run_phenology(dates=dates, curve_type=1, max_seasons=2)
-    
-    assert isinstance(res, xr.DataArray)
-    assert res.dims == ("metric", "year", "y", "x")
-    assert res.shape == (21, 2, rows, cols)
-    
+    dates = pd.date_range("2001-01-01", periods=time_steps, freq="16D")
+    ds = xr.DataArray(data, dims=["time", "y", "x"],
+                      coords={"time": dates, "y": np.arange(rows), "x": np.arange(cols)})
+
+    res = ds.zeit.phenology(curve="elmore", max_seasons=2)
+
+    assert isinstance(res, xr.Dataset)
+    assert res["DER.sos"].dims == ("year", "y", "x")
+    assert res["DER.sos"].shape == (2, rows, cols) and len(res.data_vars) == 21
+    assert res.year.values.tolist() == [2001, 2002]
+
     res_computed = res.compute()
-    sos_mean = res_computed.loc[{"metric": "DER.sos"}].values.mean()
+    sos_mean = res_computed["DER.sos"].values.mean()
     assert 99.0 <= sos_mean <= 101.0
-    eos_mean = res_computed.loc[{"metric": "DER.eos"}].values.mean()
+    eos_mean = res_computed["DER.eos"].values.mean()
     assert 199.0 <= eos_mean <= 201.0
 
 def test_real_phenology_extraction_advanced_params():
@@ -81,28 +86,28 @@ def test_real_phenology_extraction_advanced_params():
     cols = 2
     max_seasons = 2
     
-    # Create realistic DOY dates
-    dates = np.array([t * 16 + (t // 23) * 365 for t in range(time_steps)])
-    
+    # Two years of 16-day composites
+    dates = pd.DatetimeIndex(np.concatenate([pd.date_range(f"{2001 + k}-01-01", periods=23, freq="16D")
+                                             for k in range(2)]))
+
     # Create a clean synthetic curve
     np.random.seed(42)
     data = np.zeros((time_steps, rows, cols))
     for t in range(time_steps):
-        doy = dates[t] % 365
+        doy = dates[t].dayofyear - 1
         growth = np.sin((doy / 365.0) * np.pi - np.pi/2)
         growth = (growth + 1) / 2.0
         ndvi = 0.2 + growth * 0.6
         data[t, :, :] = ndvi + np.random.normal(0, 0.05, (rows, cols))
         
-    ds = xr.DataArray(da.from_array(data, chunks=(time_steps, 2, 2)), 
-                      dims=["time", "y", "x"], 
-                      coords={"y": np.arange(rows), "x": np.arange(cols)})
-    
+    ds = xr.DataArray(da.from_array(data, chunks=(time_steps, 2, 2)),
+                      dims=["time", "y", "x"],
+                      coords={"time": dates, "y": np.arange(rows), "x": np.arange(cols)})
+
     # Run with HANTS + Derivative Method
-    res = ds.zeit.run_phenology(
-        dates=dates, 
-        curve_type=0, # BECK
-        extraction_method=1, # DERIVATIVE
+    res = ds.zeit.phenology(
+        curve="beck",
+        method="derivative",
         max_seasons=max_seasons,
         apply_whittaker=False,
         apply_hants=True,
@@ -115,27 +120,28 @@ def test_real_phenology_extraction_advanced_params():
     res_computed = res.compute()
     
     # Ensure it didn't crash and returned valid shapes
-    assert res_computed.shape == (21, max_seasons, rows, cols)
-    
-    # Assert at least some seasons were detected
-    # Index 17 is LOS
-    assert np.nanmean(res_computed.loc[{"metric": "LOS"}].values) > 0
+    assert len(res_computed.data_vars) == 21
+    assert res_computed["LOS"].shape == (max_seasons, rows, cols)
 
-@patch('zeit.phenology.fit_phenology_batch', side_effect=mock_fit_phenology_batch)
+    # Assert at least some seasons were detected
+    assert np.nanmean(res_computed["LOS"].values) > 0
+
+@patch('zeit._phenology.fit_phenology_batch', side_effect=mock_fit_phenology_batch)
 def test_xarray_accessor_phenology_no_annual(mock_fit):
     time_steps = 20
     rows = 5
     cols = 5
 
     data = da.random.random((time_steps, rows, cols), chunks=(time_steps, 5, 5))
-    ds = xr.DataArray(data, dims=["time", "y", "x"], coords={"y": np.arange(rows), "x": np.arange(cols)})
-    dates = np.arange(time_steps)
+    dates = pd.date_range("2001-01-01", periods=time_steps, freq="16D")
+    ds = xr.DataArray(data, dims=["time", "y", "x"],
+                      coords={"time": dates, "y": np.arange(rows), "x": np.arange(cols)})
 
-    res = ds.zeit.run_phenology(dates=dates, curve_type=1, max_seasons=3, return_annual=False)
+    res = ds.zeit.phenology(curve="elmore", max_seasons=3, annual=False)
 
-    assert isinstance(res, xr.DataArray)
-    assert res.dims == ("metric", "season", "y", "x")
-    assert res.shape == (21, 3, rows, cols)
+    assert isinstance(res, xr.Dataset)
+    assert res["POP"].dims == ("season", "y", "x")
+    assert res["POP"].shape == (3, rows, cols)
 
 
 # --- New tests: gap-analysis follow-up (QC weights, season retry, GOF) -----
@@ -273,7 +279,7 @@ def test_run_phenology_dask_passes_weights_and_season_retry_through():
     weights = da.ones((time_steps, rows, cols), chunks=(time_steps, rows, cols))
     dates = np.arange(time_steps)
 
-    with patch('zeit.phenology.fit_phenology_batch', side_effect=capturing_mock):
+    with patch('zeit._phenology.fit_phenology_batch', side_effect=capturing_mock):
         result = run_phenology_dask(
             data, dates, curve_type=0, max_seasons=2,
             weights=weights, season_retry=False

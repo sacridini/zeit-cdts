@@ -40,19 +40,21 @@ A yearly maximum or growing-season median are common choices.
 ### 2. Run the test
 
 ```python
-result = annual_max.zeit.run_mann_kendall(method="hamed_rao", alpha=0.05).compute()
+result = zeit.mann_kendall(annual_max, method="hamed_rao", alpha=0.05).compute()
 
-slope = result.sel(metric="slope")               # NDVI change per year
-significant = result.sel(metric="h") == 1        # significant at alpha
-browning = significant & (result.sel(metric="trend") == -1)
-greening = significant & (result.sel(metric="trend") == 1)
+slope = result.slope                             # NDVI change per year
+significant = result.h == 1                      # significant at alpha
+browning = significant & (result.trend == -1)
+greening = significant & (result.trend == 1)
 ```
+
+The result is an `xarray.Dataset` with one `(y, x)` map per metric, on the grid and CRS of the cube. A dask cube gives a lazy result; an in-memory cube an in-memory one.
 
 ### 3. Save the maps
 
 ```python
-zeit.save_raster(slope.values.astype("float32"), "results/ndvi_slope.tif", like=annual_max)
-zeit.save_raster(browning.values.astype("uint8"), "results/browning.tif", like=annual_max)
+zeit.save_raster(result, "results/mk")                       # slope.tif, p.tif, ... one per metric
+zeit.save_raster(browning, "results/browning.tif")           # georeferenced from the cube
 ```
 
 ## Which variant should I use?
@@ -66,7 +68,7 @@ zeit.save_raster(browning.values.astype("uint8"), "results/browning.tif", like=a
 
 ```python
 # 16-day composites tested directly: 23 observations per year
-trend = ndvi_16d.zeit.run_mann_kendall(method="seasonal", period=23)
+trend = zeit.mann_kendall(ndvi_16d, method="seasonal", period=23)
 ```
 
 !!! warning "Units of the slope"
@@ -74,7 +76,7 @@ trend = ndvi_16d.zeit.run_mann_kendall(method="seasonal", period=23)
 
 ## Reading the output
 
-| Metric | Meaning |
+| Variable | Meaning |
 | :--- | :--- |
 | `trend` | `1` increasing, `-1` decreasing, `0` no significant trend. |
 | `h` | `1.0` if significant at `alpha`, else `0.0`. |
@@ -89,20 +91,22 @@ Pixels with fewer than `min_valid` (default 4) non-NaN values are all `NaN`.
 
 ## More ways to call it
 
-```python
-# Plain Dask array, shape (time, y, x) -> (9, y, x)
-from zeit.trend import run_mann_kendall_dask, MK_METRIC_NAMES
-out = run_mann_kendall_dask(dask_array, method="hamed_rao").compute()
+`zeit.mann_kendall` reads what it is given ([all inputs](../api/time-series.md#mann_kendall)):
 
-# One series, for testing
-from zeit._core.mannkendall import mk_test_single, MKMethod
-trend, h, p, z, tau, s, var_s, slope, intercept = mk_test_single(
-    [0.41, 0.44, 0.39, 0.47, 0.52, 0.49, 0.55, 0.58, 0.61, 0.60],
-    method=int(MKMethod.HAMED_RAO), alpha=0.05,
-)
+```python
+# A GeoTIFF with one band per year, larger than memory: read and computed block by block
+mk = zeit.mann_kendall("LT_Stack_NDVI_Rondonia.tif", chunks="auto")
+zeit.save_raster(mk, "results/mk")
+
+# A numpy (time, y, x) array: no dates needed
+mk = zeit.mann_kendall(stack)
+
+# One series, for testing: a Dataset of scalars
+px = zeit.mann_kendall([0.41, 0.44, 0.39, 0.47, 0.52, 0.49, 0.55, 0.58, 0.61, 0.60])
+float(px.slope), float(px.p)
 ```
 
-For GeoTIFFs larger than memory: `zeit.run_mann_kendall_image`, or [`zeit mann-kendall`](../cli.md#6-mann-kendall-trend-test-mann-kendall) from the shell.
+From the shell: [`zeit mann-kendall`](../cli.md#6-mann-kendall-trend-test-mann-kendall).
 
 ## Good practice
 

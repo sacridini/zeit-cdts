@@ -16,14 +16,14 @@
 
 ## How it works
 
-1. **Fit the history.** For each pixel, observations before `monitor_start_time` are fitted with a regression made of a linear trend plus `order` seasonal harmonics.
+1. **Fit the history.** For each pixel, observations before `monitor_start` are fitted with a regression made of a linear trend plus `order` seasonal harmonics.
 2. **Monitor.** For each later observation, the residual against that model is computed. A moving sum of residuals (the **OLS-MOSUM** process) is compared with a boundary that widens over time.
 3. **Flag.** The first time the process crosses the boundary is the detected break. If it never crosses, the pixel is stable.
 
 Because the test accumulates evidence, a single cloudy outlier does not trigger an alarm, but a persistent shift does, usually within a few observations.
 
 !!! note "Time is regular, not calendar-based"
-    Like R's `ts` objects, BFAST uses a synthetic, regular time axis: observation `i` is at `start_time + i / frequency`. Composite your data to a fixed step first (`regularize_time_series`), use `NaN` for gaps, and give `start_time` as a whole year (e.g. `2010.0`) so the harmonics align with the calendar.
+    Like R's `ts` objects, BFAST uses a synthetic, regular time axis: observation `i` is at `start_time + i / frequency`. Zeit reads both from the cube's dates (`frequency` from their median spacing, `start_time` from the first date), so composite your data to a fixed step first (`regularize_time_series`) and use `NaN` for gaps. For a series without dates, give `start_time` as a whole year (e.g. `2010.0`) so the harmonics align with the calendar.
 
 ## Step by step
 
@@ -38,30 +38,32 @@ ndvi_16d = zeit.regularize_time_series(ndvi, freq="16D", method="median")   # (t
 ndvi_16d = ndvi_16d.chunk({"time": -1, "y": 256, "x": 256})
 ```
 
-16-day composites give `frequency=23` observations per year. Monthly data would be `frequency=12`.
+16-day composites give `frequency=23` observations per year, monthly data `frequency=12`. Zeit infers it from the dates.
 
 ### 2. Monitor
 
 ```python
-result = ndvi_16d.zeit.run_bfast_monitor(
-    start_time=2010.0,          # time of the first observation
-    monitor_start_time=2022.0,  # history before, monitoring from here on
-    frequency=23,
+result = zeit.bfast_monitor(
+    ndvi_16d,
+    "2022-01-01",               # history before, monitoring from here on (or 2022.0)
     h=0.25,                     # MOSUM window, fraction of the history length
     period=10,
     alpha=0.05,
-).compute()
+).compute()                     # a dask cube gives a lazy result
+result.attrs["start_time"], result.attrs["frequency"]   # e.g. (2010.0, 23), read from the dates
 ```
 
 ### 3. Read the output
 
+The result is an `xarray.Dataset` with one `(y, x)` map per metric, on the grid and CRS of the cube:
+
 ```python
-has_break = result.sel(metric="has_break") == 1
-break_time = result.sel(metric="breakpoint")   # fractional year, NaN if none
-magnitude = result.sel(metric="magnitude")     # median residual in the monitoring period
+has_break = result.has_break == 1
+break_time = result.breakpoint      # fractional year, NaN if none
+magnitude = result.magnitude        # median residual in the monitoring period
 ```
 
-| Metric | Meaning |
+| Variable | Meaning |
 | :--- | :--- |
 | `breakpoint` | Fractional-year time of the first detected break, `NaN` if none. |
 | `breakpoint_idx` | 0-based index of that observation in the input series. |
@@ -77,29 +79,35 @@ A typical alert map keeps breaks that also go in the expected direction:
 alerts = has_break & (magnitude < -0.1)
 ```
 
-### Without xarray
-
-The same function works on a plain Dask array shaped `(time, y, x)`:
+### Save the maps
 
 ```python
-import dask.array as da
-from zeit.bfast import run_bfast_monitor_dask, BFM_METRIC_NAMES
-
-arr = da.from_array(ndvi_numpy, chunks=(-1, 256, 256))
-out = run_bfast_monitor_dask(arr, start_time=2010.0, monitor_start_time=2022.0,
-                             frequency=23).compute()       # (7, y, x)
-breaks = out[BFM_METRIC_NAMES.index("breakpoint")]
+zeit.save_raster(result, "results/bfm")        # breakpoint.tif, magnitude.tif, ... georeferenced
 ```
 
-For GeoTIFFs larger than memory, use `zeit.run_bfast_monitor_image` or the [`zeit bfast-monitor`](../cli.md#3-bfast-monitor-bfast-monitor) command.
+### Other inputs
+
+The same function takes a raster on disk, a numpy array or a single pixel ([all inputs](../api/change-detection.md#bfast_monitor)):
+
+```python
+# A GeoTIFF larger than memory, with its dates in the band names: read and computed block by block
+bfm = zeit.bfast_monitor("ndvi_16d.tif", "2022-01-01", chunks="auto")
+zeit.save_raster(bfm, "results/bfm")
+
+# A numpy (time, y, x) array or one pixel's series without dates: give the time axis
+bfm = zeit.bfast_monitor(ndvi_numpy, 2022.0, start_time=2010.0, frequency=23)
+px = zeit.bfast_monitor(values, 2022.0, start_time=2010.0, frequency=23)
+```
+
+From the shell: [`zeit bfast-monitor`](../cli.md#3-bfast-monitor-bfast-monitor).
 
 ## Parameters
 
 | Parameter | Default | Effect |
 | :--- | :---: | :--- |
-| `start_time` | required | Time of the first observation, as a fractional year. |
-| `monitor_start_time` | required | Start of the monitoring period. |
-| `frequency` | required | Observations per year. |
+| `monitor_start` | required | Start of the monitoring period: a date or a fractional year. |
+| `start_time` | from the dates | Time of the first observation, as a fractional year. |
+| `frequency` | from the dates | Observations per year. |
 | `order` | `3` | Number of seasonal harmonics. |
 | `h` | `0.25` | MOSUM window as a fraction of the history. **Must be 0.25, 0.5 or 1.0.** |
 | `period` | `10` | How far ahead, in history lengths, the boundary is valid. **Must be 2, 4, 6, 8 or 10.** |

@@ -4,93 +4,96 @@
 
 ## Trends
 
-### `run_mann_kendall_dask` { .api }
+### `mann_kendall` { .api #mann_kendall }
 
-<!-- sig: zeit.trend.run_mann_kendall_dask -->
+<!-- sig: zeit.mann_kendall -->
 ```python
-zeit.trend.run_mann_kendall_dask(
-    arr, method="hamed_rao", alpha=0.05, lag=None, period=1,
-    min_valid=4, n_jobs=-1,
+zeit.mann_kendall(
+    data, method="hamed_rao", alpha=0.05, lag=None, period=1,
+    min_valid=4, dates=None, band=None, nodata="auto", chunks=None,
+    n_jobs=-1,
 )
 ```
 
-Mann-Kendall test and Theil-Sen slope for each pixel of a `(time, y, x)` Dask array. A C++ port of `pymannkendall`. Tutorial: [Trend Analysis](../tutorials/mann_kendall.md).
+Mann-Kendall trend test and Theil-Sen slope for every pixel, a C++ port of `pymannkendall`. One function for every input, like [`bfast_monitor`](change-detection.md#bfast_monitor): it reads what `data` is and returns an `xarray.Dataset` with one variable per metric, georeferenced when the input is. All parameters but `data` are keyword-only. It replaces `zeit.trend.run_mann_kendall_dask`, `run_mann_kendall_image` and `DataArray.zeit.run_mann_kendall`; the accessor form is now [`DataArray.zeit.mann_kendall`](xarray.md#mann_kendall). Tutorial: [Trend Analysis](../tutorials/mann_kendall.md).
+
+`data` is any input of the [BFAST family](change-detection.md#bfast_monitor): a raster `load_raster` reads, a `(time, y, x)` cube (a dask cube stays lazy), a `(time, band, y, x)` cube or `Dataset` with `band=`, a numpy array or one pixel's series. No dates are needed: the test runs on the order of the observations, so the slope is per **time step** (one value per year gives a slope per year).
 
 <div class="params" markdown>
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `arr` | `dask.array.Array` | required | `(time, y, x)`; NaN for gaps. |
-| `method` | `str` | `"hamed_rao"` | `"original"`, `"hamed_rao"`, `"yue_wang"` or `"seasonal"`. |
+| `data` | path, `DataArray`, `Dataset`, `ndarray`, list or `pd.Series` | required | The series to test, one value per time step. |
+| `method` | `str` | `"hamed_rao"` | `"original"`, `"hamed_rao"` (autocorrelation-corrected, for annual composites), `"yue_wang"` or `"seasonal"` (Hirsch & Slack, pools `period` season slots). |
 | `alpha` | `float` | `0.05` | Significance level. |
 | `lag` | `int` | `None` | Lags used by the autocorrelation corrections. `None`: all. |
 | `period` | `int` | `1` | Observations per cycle, for `"seasonal"` (e.g. `23` for 16-day data). |
 | `min_valid` | `int` | `4` | Pixels with fewer valid values are NaN. |
-| `n_jobs` | `int` | `-1` | Threads. |
+| `dates` | list | `None` | Date of each time step. Not needed: the test only uses the order of the observations. |
+| `band` | `str` or `int` | `None` | The index to use in a `(time, band, y, x)` cube or a `Dataset`. |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | Value marking a missing observation besides NaN, as in [`bfast_monitor`](change-detection.md#bfast_monitor). |
+| `chunks` | `"auto"`, `dict` | `None` | Inputs read from disk: `None` reads into memory; `"auto"` or a dict keeps them lazy. |
+| `n_jobs` | `int` | `-1` | Threads. `-1` uses all cores but one. |
 
 </div>
 
-**Returns** `(9, y, x)`: `trend`, `h`, `p`, `z`, `tau`, `s`, `var_s`, `slope`, `intercept` (`zeit.trend.MK_METRIC_NAMES`). The slope is per array step, or per `period` for `"seasonal"`.
+**Returns** an `xarray.Dataset` of `(y, x)` float32 maps (no `y`/`x` dims for one pixel; lazy for a dask cube or `chunks=`):
+
+| Variable | Meaning |
+| :--- | :--- |
+| `trend` | `1` increasing, `-1` decreasing, `0` no significant trend. |
+| `h` | `1` if significant at `alpha`, else `0`. |
+| `p` | Two-sided p-value. |
+| `z` | Standardised test statistic. |
+| `tau` | Kendall's tau. |
+| `s`, `var_s` | Mann-Kendall score and its (corrected) variance. |
+| `slope` | Theil-Sen slope, per time step (per `period` for `"seasonal"`). |
+| `intercept` | Intercept of the robust line. |
 
 ```python
-from zeit.trend import run_mann_kendall_dask, MK_METRIC_NAMES
+annual = zeit.load_raster("LT_Stack_NDVI_Rondonia.tif")   # one NDVI value per year
+mk = zeit.mann_kendall(annual)
+browning = (mk.h == 1) & (mk.trend == -1)
+zeit.save_raster(mk, "mk_rondonia")                       # slope.tif, p.tif, ...
 
-out = run_mann_kendall_dask(annual_dask_array).compute()
-slope = out[MK_METRIC_NAMES.index("slope")]
+# 16-day composites tested directly: 23 observations per year
+mk16 = zeit.mann_kendall(ndvi_16d, method="seasonal", period=23)
+
+# One series
+zeit.mann_kendall([0.41, 0.44, 0.39, 0.47, 0.52, 0.49, 0.55, 0.58, 0.61, 0.60]).slope.item()
 ```
-
-### `run_mann_kendall_image` { .api }
-
-<!-- sig: zeit.raster.run_mann_kendall_image -->
-```python
-zeit.raster.run_mann_kendall_image(
-    input_path, output_dir, method="hamed_rao", alpha=0.05, lag=None,
-    period=1, min_valid=4, chunk_size=512, n_jobs=-1,
-    prefix="mann_kendall",
-)
-```
-
-The same test on a GeoTIFF (one band per time step), block by block. Writes `<output_dir>/<prefix>.tif` with one band per metric. Also exported as `zeit.run_mann_kendall_image`; CLI: `zeit mann-kendall`.
-
-<div class="params" markdown>
-
-| Parameter | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `input_path` | `str` | required | Input GeoTIFF. |
-| `output_dir` | `str` | required | Output folder. |
-| `method`, `alpha`, `lag`, `period`, `min_valid` | | `"hamed_rao"`, `0.05`, `None`, `1`, `4` | As in `run_mann_kendall_dask`. |
-| `chunk_size` | `int` | `512` | Block size in pixels. |
-| `n_jobs` | `int` | `-1` | Threads. |
-| `prefix` | `str` | `"mann_kendall"` | Output file name. |
-
-</div>
 
 ## Phenology
 
-### `run_phenology_dask` { .api }
+### `phenology` { .api #phenology }
 
-<!-- sig: zeit.phenology.run_phenology_dask -->
+<!-- sig: zeit.phenology -->
 ```python
-zeit.phenology.run_phenology_dask(
-    arr, dates, curve_type, extraction_method=0, max_seasons=2,
-    whittaker_lambda=10.0, apply_whittaker=True, apply_hants=False,
-    hants_frequencies=3, hants_threshold=0.1, min_season_length=0,
-    min_amplitude=0.0, min_pixel_amplitude=0.1, return_annual=True,
-    base_year=2001, n_jobs=-1, weights=None, season_retry=True,
+zeit.phenology(
+    data, curve="beck", method="threshold", weights=None, dates=None,
+    annual=True, max_seasons=None, whittaker_lambda=10.0,
+    apply_whittaker=True, apply_hants=False, hants_frequencies=3,
+    hants_threshold=0.1, min_season_length=0, min_amplitude=0.0,
+    min_pixel_amplitude=0.1, season_retry=True, band=None,
+    nodata="auto", chunks=None, n_jobs=-1,
 )
 ```
 
-Smoothing, curve fitting and extraction of 19 phenology metrics (plus fit R² and RMSE) for each pixel of a `(time, y, x)` Dask array. Follows the methodology of R `phenofit`. Tutorial: [Phenology](../tutorials/phenology.md).
+Land surface phenology, following the methodology of R `phenofit`: smooths each pixel's series (Whittaker or HANTS), splits it into seasons, fits a curve to each season and extracts 19 transition metrics plus the fit's R² and RMSE, every pixel in parallel in C++ / OpenMP. One function for every input, like [`bfast_monitor`](change-detection.md#bfast_monitor) (the same `data` table), with dates at any spacing. It replaces `zeit.phenology.run_phenology_dask` and `DataArray.zeit.run_phenology`; the accessor form is now [`DataArray.zeit.phenology`](xarray.md#phenology), and the engine module is internal (`zeit._phenology`). Tutorial: [Phenology](../tutorials/phenology.md).
+
+The day numbering of the core (days since January 1st of the first year) and the first year are computed from the dates, so no day-of-year array is needed.
 
 <div class="params" markdown>
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `arr` | `dask.array.Array` | required | `(time, y, x)` vegetation index. |
-| `dates` | 1-D array | required | Days since 1 January of `base_year` (`doy + (year - base_year) * 365`). |
-| `curve_type` | `int` | required | `int(CurveType.BECK)` etc., from `zeit._core.phenology`: `BECK`, `ELMORE`, `GU`, `KLOS`, `ZHANG`, `AG`, `DL`. |
-| `extraction_method` | `int` | `0` | Kept at `0`; all metrics are always returned. |
-| `max_seasons` | `int` | `2` | Season slots (per year with `return_annual=True`). |
+| `data` | path, `DataArray`, `Dataset`, `ndarray`, list or `pd.Series` | required | A vegetation-index series with dates (see [`bfast_monitor`](change-detection.md#bfast_monitor)). |
+| `curve` | `str` or `int` | `"beck"` | Fitted curve: `"beck"`, `"elmore"`, `"gu"`, `"klos"`, `"zhang"`, `"ag"` or `"dl"` (or its integer code). |
+| `method` | `str` or `int` | `"threshold"` | `"threshold"`, `"derivative"`, `"gu"` or `"klosterman"` (or its integer code). Recorded in `attrs`; every metric family is computed whatever the method. |
+| `weights` | `DataArray` or array | `None` | Per-observation reliability weights in `[0, 1]`, aligned with the data (e.g. from [`qc_sentinel2_scl`](data.md#qc_sentinel2_scl)). |
+| `dates` | list | `None` | Date of each time step, for numpy input and series without dates. |
+| `annual` | `bool` | `True` | `True`: one value per calendar year, `(year, y, x)`, dates as day of year. `False`: one value per detected season, `(season, y, x)`, dates as days since January 1st of the first year (`attrs["base_year"]`). |
+| `max_seasons` | `int` | `None` | Years (with `annual`) or seasons per pixel. Default: the number of years in the series. |
 | `whittaker_lambda` | `float` | `10.0` | Whittaker smoothness. |
 | `apply_whittaker` | `bool` | `True` | Smooth with Whittaker before fitting. |
 | `apply_hants` | `bool` | `False` | Smooth with HANTS (harmonics) instead. |
@@ -99,22 +102,25 @@ Smoothing, curve fitting and extraction of 19 phenology metrics (plus fit R² an
 | `min_season_length` | `int` | `0` | Drop seasons shorter than this many days. |
 | `min_amplitude` | `float` | `0.0` | Drop seasons with a smaller amplitude. |
 | `min_pixel_amplitude` | `float` | `0.1` | Skip pixels whose whole series varies less than this (water, urban). |
-| `return_annual` | `bool` | `True` | Align seasons to calendar years (`year` axis) instead of sequential slots. |
-| `base_year` | `int` | `2001` | First year of `dates`. |
-| `n_jobs` | `int` | `-1` | Threads. |
-| `weights` | `dask.array.Array` | `None` | `(time, y, x)` observation weights in `[0, 1]`, e.g. from `zeit.qc`. |
 | `season_retry` | `bool` | `True` | Retry pixels with no season once with a relaxed trough threshold. |
+| `band` | `str` or `int` | `None` | The index to use in a `(time, band, y, x)` cube or a `Dataset`. |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | Value marking a missing observation besides NaN, as in [`bfast_monitor`](change-detection.md#bfast_monitor). |
+| `chunks` | `"auto"`, `dict` | `None` | Inputs read from disk: `None` reads into memory; `"auto"` or a dict keeps them lazy. |
+| `n_jobs` | `int` | `-1` | Threads. `-1` uses all cores but one. |
 
 </div>
 
-**Returns** `(21, max_seasons, y, x)`: `TRS2.sos`, `TRS2.eos`, `TRS5.sos`, `TRS5.eos`, `TRS6.sos`, `TRS6.eos`, `DER.sos`, `DER.pos`, `DER.eos`, `UD`, `SD`, `DD`, `RD`, `Greenup`, `Maturity`, `Senescence`, `Dormancy`, `LOS`, `POP`, `R2`, `RMSE`. The accessor form, `DataArray.zeit.run_phenology`, returns the same array labelled with these names.
+**Returns** an `xarray.Dataset` with 21 variables, each `(year, y, x)` (`annual=True`, `year` coordinate from the first year) or `(season, y, x)` (`season` = 1, 2, …): `TRS2.sos`, `TRS2.eos`, `TRS5.sos`, `TRS5.eos`, `TRS6.sos`, `TRS6.eos`, `DER.sos`, `DER.pos`, `DER.eos`, `UD`, `SD`, `DD`, `RD`, `Greenup`, `Maturity`, `Senescence`, `Dormancy`, `LOS`, `POP`, `R2`, `RMSE` (see [the 19 metrics](../tutorials/phenology.md#the-19-metrics)). NaN where no season was found. The names contain dots, so select them with brackets: `pheno["TRS5.sos"]`. The result is georeferenced and lazy for a dask cube or `chunks=`; [`save_raster`](data.md#save_raster) writes one GeoTIFF per metric with one band per year (`2019`, `2020`, …) or season.
 
 ```python
-from zeit._core.phenology import CurveType
+ndvi_16d = zeit.regularize_time_series(ndvi, freq="16D", method="median")   # (time, y, x)
+pheno = zeit.phenology(ndvi_16d, curve="beck", min_season_length=45, min_amplitude=0.15)
+sos = pheno["TRS5.sos"]                         # (year, y, x), day of year
+late = sos.sel(year=2021) - sos.sel(year=[2019, 2020]).mean("year")
+zeit.save_raster(pheno, "pheno_out")            # TRS2.sos.tif, ..., one band per year
 
-pheno = ndvi_16d.zeit.run_phenology(dates=days, curve_type=int(CurveType.BECK),
-                                    max_seasons=3, base_year=2019).compute()
-sos = pheno.sel(metric="TRS5.sos")
+# Double cropping: up to 3 seasons per pixel instead of one value per year
+seasons = zeit.phenology(ndvi_16d, annual=False, max_seasons=3)
 ```
 
 ## Pattern matching (TWDTW)

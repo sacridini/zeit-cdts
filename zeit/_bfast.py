@@ -156,7 +156,7 @@ def run_bfast_lite_dask(
     breakpoints are reported via `max_breaks_output` (extra slots are
     NaN-padded; pixels needing more are simply not fully described - raise
     `max_breaks_output` if that matters for your data). Output row names:
-    `zeit.bfast.bfl_metric_names(max_breaks_output)`.
+    `zeit._bfast.bfl_metric_names(max_breaks_output)`.
 
     start_time: the series' start time (e.g. 2000.0), same convention as
     run_bfast_monitor_dask.

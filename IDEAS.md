@@ -138,13 +138,28 @@ ordinais de `time`.
   bandas ou de `--dates-file` (o fallback de datas fictícias de 16 dias saiu).
 - Implementado em `zeit/_ccdc_api.py`; idêntico ao motor de um pixel, segmento a segmento.
 
-## Fase 5: BFAST, Mann-Kendall e fenologia (0.31.0)
+## Fase 5: BFAST, Mann-Kendall e fenologia — **Feito** (0.31.0)
 
-`zeit.bfast`, `zeit.bfast_lite`, `zeit.bfast_monitor`, `zeit.mann_kendall` e
-`zeit.phenology` no mesmo padrão: qualquer entrada, tempo tirado do cubo (`start_time` e
-`frequency` inferidos de `time` quando regulares), saída `Dataset` georreferenciado com
-as métricas nomeadas. Os `run_*_image` e métodos do accessor viram atalhos para as
-funções novas. Módulos `bfast.py` e `phenology.py` viram `_bfast.py` e `_phenology.py`.
+`zeit.bfast_monitor(data, monitor_start)`, `zeit.bfast_lite`, `zeit.bfast`,
+`zeit.mann_kendall` e `zeit.phenology` no mesmo padrão: qualquer entrada, tempo tirado do
+cubo e saída `Dataset` georreferenciado com uma variável por métrica.
+
+- `start_time` e `frequency` (o eixo `ts` do R) saem das datas: a frequência do
+  espaçamento mediano (23 para 16 dias, 12 mensal, 1 anual) e o início da primeira data;
+  dados os dois, a série não precisa de datas. `monitor_start` aceita data ou ano decimal.
+- Fenologia: `curve="beck"`, `method="threshold"` por nome; a numeração de dias e o
+  `base_year` saem das datas (antes o usuário montava `dates_doy` à mão);
+  `max_seasons` padrão = número de anos. Corrigido: com `annual=True`, o LOS (uma
+  duração) era decodificado como data e caía sempre no primeiro ano; agora vai para o ano
+  do POP, como R2/RMSE.
+- `nodata="auto"` como no LandTrendr e no CCDC.
+- No `bfast`, a métrica `time` virou `break_time` (colidia com a coordenada `time`).
+- `run_*_image` e os métodos `run_*` do accessor saíram; `zeit/bfast.py` e
+  `zeit/phenology.py` viraram `_bfast.py` e `_phenology.py`; o `raster.py` ficou só com
+  os motores numpy do LandTrendr e do CCDC. A CLI grava o mesmo `<prefix>.tif`, com
+  `--start-time`/`--frequency` opcionais.
+- `save_raster` nomeia as bandas pela coordenada da dimensão (anos, vértices...).
+- Implementado em `zeit/_series_api.py`; resultados idênticos aos motores.
 
 ## Fase 6: arrumação final (0.32.0)
 

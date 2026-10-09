@@ -350,9 +350,8 @@ def _band_labels(da: Optional[xr.DataArray]) -> Tuple[Optional[List[str]], Optio
         return ["_".join(parts) for parts in itertools.product(*labels)], None
     if times is not None:
         return _date_label(times), times
-    values = _coord(da, lead[0])
-    if values is not None and values.dtype.kind in "OU":
-        return [str(v) for v in values], None
+    if lead[0] in da.coords:  # labels of the band axis: names, years, vertex numbers...
+        return [str(v) for v in da[lead[0]].values], None
     return None, None
 
 

@@ -134,11 +134,13 @@ zeit ccdc ./data/dense_stack.tif ./results \
 
 ## 3. BFAST Monitor (`bfast-monitor`)
 
-The `bfast-monitor` command runs near-real-time structural change monitoring on a multi-band GeoTIFF where every band is one equally-spaced observation (e.g. a 16-day composite), not a real calendar date - time is synthetic and regular, given by `--start-time` and `--frequency` (matching R's `ts`/`time()` semantics). See the [BFAST Monitor tutorial](tutorials/bfast_monitor.md) for the full method background.
+The `bfast-monitor` command runs [`zeit.bfast_monitor`](api/change-detection.md#bfast_monitor) on a multi-band GeoTIFF where every band is one equally-spaced observation (e.g. a 16-day composite), reading it block by block. Time is regular, as in R's `ts`: observation `i` is at `start_time + i / frequency`. Both are read from the band dates (descriptions such as `2020-01-15`, as `zeit.save_raster` writes them); give `--start-time` and `--frequency` for a stack without dates. See the [BFAST Monitor tutorial](tutorials/bfast_monitor.md) for the full method background.
+
+The four time-series commands (`bfast-monitor`, `bfast-lite`, `bfast`, `mann-kendall`) write one GeoTIFF, `<output_dir>/<prefix>.tif`, with one float32 band per metric, named after it.
 
 ### Syntax
 ```bash
-zeit bfast-monitor <input> <output_dir> --start-time <float> --monitor-start-time <float> --frequency <int> [OPTIONS]
+zeit bfast-monitor <input> <output_dir> --monitor-start-time <year or date> [OPTIONS]
 ```
 
 ### Positional Arguments
@@ -150,9 +152,9 @@ zeit bfast-monitor <input> <output_dir> --start-time <float> --monitor-start-tim
 ### Configuration Options
 | Option | Type | Default | Description |
 | :--- | :---: | :---: | :--- |
-| `--start-time` | `float` | *(required)* | The series' start time (e.g. `2015.0`). |
-| `--monitor-start-time` | `float` | *(required)* | The time monitoring begins (e.g. `2019.0`) - the boundary between the stable "history" and "monitoring" periods. |
-| `--frequency` | `int` | *(required)* | Observations per year (e.g. `23` for 16-day composites). |
+| `--monitor-start-time` | `float` or date | *(required)* | When monitoring begins, as a decimal year (`2019.0`) or a date (`2019-01-01`): the boundary between the stable "history" and "monitoring" periods. |
+| `--start-time` | `float` | from the band dates | The series' start time (e.g. `2015.0`). |
+| `--frequency` | `int` | from the band dates | Observations per year (e.g. `23` for 16-day composites). |
 | `--order` | `int` | `3` | Harmonic order for the seasonal regressors. |
 | `--h` | `float` | `0.25` | MOSUM window size, as a fraction of history length. Must be one of `0.25`, `0.5`, `1.0`. |
 | `--period` | `int` | `10` | Monitoring period parameter. Must be one of `2`, `4`, `6`, `8`, `10`. |
@@ -162,64 +164,66 @@ zeit bfast-monitor <input> <output_dir> --start-time <float> --monitor-start-tim
 | `--jobs` | `int` | `-1` | Number of CPU cores to use. `-1` uses all available cores. |
 | `--prefix` | `str` | `bfast_monitor` | Filename (without extension) for the output GeoTIFF. |
 
-Output bands (in order): `breakpoint`, `breakpoint_idx`, `magnitude`, `sigma`, `n_history`, `has_break`, `valid` (see `zeit.bfast.BFM_METRIC_NAMES`).
+Output bands (in order): `breakpoint`, `breakpoint_idx`, `magnitude`, `sigma`, `n_history`, `has_break`, `valid` (see [`zeit.bfast_monitor`](api/change-detection.md#bfast_monitor)).
 
 ### End-to-End Example
 ```bash
 zeit bfast-monitor ./data/ndvi_16day_stack.tif ./results \
-    --start-time 2015.0 \
-    --monitor-start-time 2019.0 \
-    --frequency 23 \
+    --monitor-start-time 2019-01-01 \
     --jobs -1
+
+# A stack without dates in its band names: give the time axis
+zeit bfast-monitor ./data/ndvi_16day_stack.tif ./results \
+    --start-time 2015.0 --frequency 23 --monitor-start-time 2019.0
 ```
 
 ---
 
 ## 4. BFAST Lite (`bfast-lite`)
 
-The `bfast-lite` command retrospectively segments the *whole* series into an optimal number of pieces in a single pass - the modern, non-iterative alternative to classic `bfast`. See the [BFAST Lite tutorial](tutorials/bfast_lite.md).
+The `bfast-lite` command runs [`zeit.bfast_lite`](api/change-detection.md#bfast_lite): it retrospectively segments the *whole* series into an optimal number of pieces in a single pass - the modern, non-iterative alternative to classic `bfast`. Input and time axis as for `bfast-monitor`. See the [BFAST Lite tutorial](tutorials/bfast_lite.md).
 
 ### Syntax
 ```bash
-zeit bfast-lite <input> <output_dir> --start-time <float> --frequency <int> [OPTIONS]
+zeit bfast-lite <input> <output_dir> [OPTIONS]
 ```
 
 ### Configuration Options
 | Option | Type | Default | Description |
 | :--- | :---: | :---: | :--- |
-| `--start-time` | `float` | *(required)* | The series' start time (e.g. `2010.0`). |
-| `--frequency` | `int` | *(required)* | Observations per year. |
+| `--start-time` | `float` | from the band dates | The series' start time (e.g. `2010.0`). |
+| `--frequency` | `int` | from the band dates | Observations per year. |
 | `--order` | `int` | `3` | Harmonic order. |
 | `--h` | `float` | `0.15` | Minimum segment size, as a fraction of the series length. |
-| `--max-breaks-output` | `int` | `5` | Maximum number of breakpoints to report (and search for) per pixel. |
+| `--max-breaks-output` | `int` | `5` | Maximum number of breakpoints to report per pixel (`max_breaks` in Python). |
 | `--min-valid` | `int` | `20` | Minimum valid observations per pixel. |
 | `--chunk-size` | `int` | `512` | Size of the image chunks to process simultaneously. |
 | `--jobs` | `int` | `-1` | Number of CPU cores to use. |
 | `--prefix` | `str` | `bfast_lite` | Filename (without extension) for the output GeoTIFF. |
 
-Output bands: `n_breaks`, `rss`, `lwz`, `n_valid`, `valid`, `breakpoint_idx_1..N` (see `zeit.bfast.bfl_metric_names`).
+Output bands: `n_breaks`, `rss`, `lwz`, `n_valid`, `valid`, `breakpoint_idx_1..N` (see [`zeit.bfast_lite`](api/change-detection.md#bfast_lite)).
 
 ### End-to-End Example
 ```bash
-zeit bfast-lite ./data/ndvi_16day_stack.tif ./results --start-time 2010.0 --frequency 23 --max-breaks-output 5
+zeit bfast-lite ./data/ndvi_16day_stack.tif ./results --max-breaks-output 5
 ```
 
 ---
 
 ## 5. Classic BFAST (`bfast`)
 
-The `bfast` command runs the original iterative `bfast()` algorithm: an STL seasonal seed followed by alternating trend/season segmented regressions, distinguishing trend breaks from seasonal (phenological) breaks. See the [BFAST tutorial](tutorials/bfast.md) for the full method background, scope notes, and R cross-validation results.
+The `bfast` command runs [`zeit.bfast`](api/change-detection.md#bfast), the original iterative `bfast()` algorithm: an STL seasonal seed followed by alternating trend/season segmented regressions, distinguishing trend breaks from seasonal (phenological) breaks. Input and time axis as for `bfast-monitor`. See the [BFAST tutorial](tutorials/bfast.md) for the full method background, scope notes, and R cross-validation results.
 
 ### Syntax
 ```bash
-zeit bfast <input> <output_dir> --start-time <float> --frequency <int> [OPTIONS]
+zeit bfast <input> <output_dir> [OPTIONS]
 ```
 
 ### Configuration Options
 | Option | Type | Default | Description |
 | :--- | :---: | :---: | :--- |
-| `--start-time` | `float` | *(required)* | The series' start time (e.g. `2000.0`). |
-| `--frequency` | `int` | *(required)* | Observations per year. Requires more than `2 * frequency` total observations. |
+| `--start-time` | `float` | from the band dates | The series' start time (e.g. `2000.0`). |
+| `--frequency` | `int` | from the band dates | Observations per year. Requires more than `2 * frequency` total observations. |
 | `--order` | `int` | `3` | Harmonic order for the season sub-model. |
 | `--h` | `float` | `0.15` | Minimum segment size (both trend and season), as a fraction of valid observations. |
 | `--max-breaks-trend` | `int` | `5` | Maximum number of trend breakpoints to report per pixel. |
@@ -231,18 +235,18 @@ zeit bfast <input> <output_dir> --start-time <float> --frequency <int> [OPTIONS]
 | `--jobs` | `int` | `-1` | Number of CPU cores to use. |
 | `--prefix` | `str` | `bfast` | Filename (without extension) for the output GeoTIFF. |
 
-Output bands: `n_trend_breaks`, `n_season_breaks`, `magnitude`, `time`, `n_iter`, `n_valid`, `valid`, `trend_breakpoint_idx_1..N`, `season_breakpoint_idx_1..N` (see `zeit.bfast.bf_metric_names`).
+Output bands: `n_trend_breaks`, `n_season_breaks`, `magnitude`, `break_time`, `n_iter`, `n_valid`, `valid`, `trend_breakpoint_idx_1..N`, `season_breakpoint_idx_1..N` (see [`zeit.bfast`](api/change-detection.md#bfast)).
 
 ### End-to-End Example
 ```bash
-zeit bfast ./data/ndvi_16day_stack.tif ./results --start-time 2000.0 --frequency 23
+zeit bfast ./data/ndvi_16day_stack.tif ./results
 ```
 
 ---
 
 ## 6. Mann-Kendall Trend Test (`mann-kendall`)
 
-The `mann-kendall` command runs the pixel-wise Mann-Kendall trend test and Theil-Sen slope estimator across a multi-band GeoTIFF (one band per observation - typically one annual composite per band). See the [Mann-Kendall tutorial](tutorials/mann_kendall.md).
+The `mann-kendall` command runs [`zeit.mann_kendall`](api/time-series.md#mann_kendall), the pixel-wise Mann-Kendall trend test and Theil-Sen slope estimator, across a multi-band GeoTIFF (one band per observation - typically one annual composite per band). No dates are needed. See the [Mann-Kendall tutorial](tutorials/mann_kendall.md).
 
 ### Syntax
 ```bash
@@ -261,7 +265,7 @@ zeit mann-kendall <input> <output_dir> [OPTIONS]
 | `--jobs` | `int` | `-1` | Number of CPU cores to use. |
 | `--prefix` | `str` | `mann_kendall` | Filename (without extension) for the output GeoTIFF. |
 
-Output bands: `trend`, `h`, `p`, `z`, `tau`, `s`, `var_s`, `slope`, `intercept` (see `zeit.trend.MK_METRIC_NAMES`). `slope`/`intercept` are per time step (per band), so one observation per year gives a directly interpretable per-year trend.
+Output bands: `trend`, `h`, `p`, `z`, `tau`, `s`, `var_s`, `slope`, `intercept`. `slope`/`intercept` are per time step (per band), so one observation per year gives a directly interpretable per-year trend.
 
 ### End-to-End Example
 ```bash

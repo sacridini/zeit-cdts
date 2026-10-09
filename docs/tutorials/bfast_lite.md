@@ -28,30 +28,29 @@ import zeit
 # ndvi_16d: (time, y, x) DataArray of 16-day composites starting in January 2010
 ndvi_16d = ndvi_16d.chunk({"time": -1, "y": 256, "x": 256})
 
-result = ndvi_16d.zeit.run_bfast_lite(
-    start_time=2010.0,
-    frequency=23,           # 23 observations per year
+result = zeit.bfast_lite(
+    ndvi_16d,               # start_time 2010.0 and frequency 23 (16-day steps), from the dates
     h=0.15,                 # each segment holds >= 15% of the observations
-    max_breaks_output=5,    # report at most 5 breaks per pixel
+    max_breaks=5,           # report at most 5 breaks per pixel
 ).compute()
 
-n_breaks = result.sel(metric="n_breaks")
-first_break = result.sel(metric="breakpoint_idx_1")    # NaN where n_breaks == 0
+n_breaks = result.n_breaks
+first_break = result.breakpoint_idx_1                  # NaN where n_breaks == 0
 ```
 
-To turn a break index into a date:
+To turn a break index into a date, for a series without gaps:
 
 ```python
-first_break_time = 2010.0 + first_break / 23           # fractional year
+first_break_time = result.attrs["start_time"] + first_break / result.attrs["frequency"]   # fractional year
 ```
 
-The same function is available for plain Dask arrays as `zeit.bfast.run_bfast_lite_dask`, for large GeoTIFFs as `zeit.run_bfast_lite_image`, and from the shell as [`zeit bfast-lite`](../cli.md#4-bfast-lite-bfast-lite).
+The same function takes a GeoTIFF larger than memory (`zeit.bfast_lite("ndvi_16d.tif", chunks="auto")`), a numpy array or a single pixel ([all inputs](../api/change-detection.md#bfast_lite)), and runs from the shell as [`zeit bfast-lite`](../cli.md#4-bfast-lite-bfast-lite). `zeit.save_raster(result, "results/bfl")` writes one georeferenced GeoTIFF per metric.
 
 ## Reading the output
 
-The number of breaks varies by pixel, so the output reserves `max_breaks_output` slots and fills the unused ones with `NaN`. Metric names come from `zeit.bfast.bfl_metric_names(max_breaks_output)`:
+The number of breaks varies by pixel, so the output reserves `max_breaks` slots and fills the unused ones with `NaN`. The `xarray.Dataset` has one `(y, x)` map per metric:
 
-| Metric | Meaning |
+| Variable | Meaning |
 | :--- | :--- |
 | `n_breaks` | Number of breaks chosen by the criterion (`0` if none). |
 | `rss` | Residual sum of squares of the selected model. |
@@ -67,11 +66,11 @@ The number of breaks varies by pixel, so the output reserves `max_breaks_output`
 
 | Parameter | Default | Effect |
 | :--- | :---: | :--- |
-| `start_time` | required | Time of the first observation, as a fractional year. |
-| `frequency` | required | Observations per year. |
+| `start_time` | from the dates | Time of the first observation, as a fractional year. |
+| `frequency` | from the dates | Observations per year. |
 | `order` | `3` | Number of seasonal harmonics. |
 | `h` | `0.15` | Minimum segment size as a fraction of the valid observations. Larger values forbid short segments. |
-| `max_breaks_output` | `5` | Number of break slots in the output. |
+| `max_breaks` | `5` | Number of break slots in the output. |
 
 ??? info "Implementation notes, validation and performance"
     **Scope.** The default `breaks="LWZ"` model selection over `response ~ trend + harmon`, with the segment RSS table computed from recursive residuals (O(n²) rather than O(n³)).
