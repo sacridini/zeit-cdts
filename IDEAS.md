@@ -1312,6 +1312,16 @@ dos algoritmos. Um teste com rede, opcional (marcado), lendo uma região pequena
   blocos menores não mudam nada). Com o cache, ~35 s viraram ~19 s, quase só o download.
 - A recusa vale também para Mann-Kendall, `smooth`, `tmask` e `coded`.
 
+## 1.0.0
+
+Com as Fases 1–15 o zeit carrega, roda, exporta e valida com a mesma convenção do cubo em
+todas as funções, e a API pública não mudou de forma desde a Fase 10. A 1.0 só declara isso:
+a partir dela, versionamento semântico (uma minor acrescenta, um patch corrige, nenhum dos
+dois muda o que uma chamada existente devolve; o que for sair avisa com
+`DeprecationWarning` por pelo menos uma minor e só sai na próxima major). A descrição do
+pacote no PyPI deixou de dizer "LandTrendr and CCDC tools", e o `pyproject.toml` ganhou
+classificadores (`Production/Stable`) e palavras-chave.
+
 ## Para depois
 
 - `zeit.plot`: medir de verdade o caso de notebook remoto (JupyterHub, Colab), que ficou

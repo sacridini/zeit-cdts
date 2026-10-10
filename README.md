@@ -397,6 +397,12 @@ Zeit safely blends Python-based distributed workflows (Dask) with highly paralle
 
 ---
 
+## Versioning
+
+From 1.0, Zeit follows [semantic versioning](https://semver.org/): a minor version adds features, a patch fixes bugs, and neither changes what an existing call returns. A function or argument to be removed first warns with a `DeprecationWarning` for at least one minor version, and only goes in the next major version.
+
+---
+
 ## License
 
 Zeit is free software, licensed under the [GNU General Public License v2.0 or later](https://github.com/sacridini/zeit-cdts/blob/main/LICENSE) (`GPL-2.0-or-later`). Several algorithms are ports of existing open-source implementations (bfast, strucchangeRcpp, GLMnet, pymannkendall, GERSL/CCDC, ...); their origins, licenses and copyright notices are listed in [THIRD_PARTY_NOTICES.md](https://github.com/sacridini/zeit-cdts/blob/main/THIRD_PARTY_NOTICES.md). Because the CCDC lasso solver derives from GPL-2.0-only code, the compiled extension as a whole is distributed under GPL version 2.
