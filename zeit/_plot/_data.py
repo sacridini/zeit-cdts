@@ -129,6 +129,12 @@ class Frames:
         return not ("y" in da.coords and self.height > 1 and float(da.y[1]) > float(da.y[0]))
 
 
+def is_path(data: Any) -> bool:
+    """A raster path (or a list of them), which ``load_raster`` reads."""
+    return isinstance(data, (str, bytes)) or hasattr(data, "__fspath__") or isinstance(data, (list, tuple)) and \
+        bool(data) and isinstance(data[0], str)
+
+
 def prepare(data: Any, *, var: Optional[str] = None, band: Any = None, rgb: Optional[bool] = None,
             chunks: Any = "auto") -> Tuple[Any, Optional[xr.Dataset]]:
     """The input as ``Frames`` (or a 1-D DataArray for one pixel's series), plus the Dataset
@@ -136,8 +142,7 @@ def prepare(data: Any, *, var: Optional[str] = None, band: Any = None, rgb: Opti
     from .._load import load_raster
 
     dataset = None
-    if isinstance(data, (str, bytes)) or hasattr(data, "__fspath__") or isinstance(data, (list, tuple)) and data \
-            and isinstance(data[0], str):
+    if is_path(data):
         data = load_raster(data, chunks=chunks)
     if isinstance(data, xr.Dataset):
         dataset = data

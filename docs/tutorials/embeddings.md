@@ -53,6 +53,13 @@ zeit.plot(emb)
 
 Dozens of dimensions cannot be shown at once, so `zeit.plot` shows the first three principal components as red, green and blue. The components are fitted once, on pixels of every year, and applied to all of them: a colour means the same embedding in 2017 and in 2025, and paging through the years shows the land changing (fields, clearings, regrowth). `zeit.plot(emb, band="A07")` shows one dimension.
 
+The viewer has two more views, picked in the panel beside the map, and computes all of them on the GPU from the vectors themselves:
+
+- **Similarity**: move the mouse, and every pixel is coloured by how much it looks like the one under the cursor (the cosine similarity of their embeddings). Click a pixel to pin it as the reference, tick *keep the reference's year*, and page through the years: a pasture that comes to look like the forest you pinned, or a field that stops looking like it, shows up. The chart below the map follows the cursor's pixel over the years.
+- **Change**: how far each pixel moved from the previous year (1 − cosine), the same distance as `zeit.embedding_change`.
+
+The components can also be fitted on the visible area only: zoom into a forest, and the colours spread over its differences instead of over forest versus city. See [Visualisation](../api/plot.md#embeddings) for the details.
+
 ## Classify from few samples
 
 The embeddings were made for this. Each dimension of a year is a feature:

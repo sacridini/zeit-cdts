@@ -49,7 +49,7 @@ Every dimension other than `y` and `x` becomes a frame axis, so the same viewer 
 | `data` | `DataArray`, `Dataset`, `ndarray`, dask array, path or `pd.Series` | required | What to show (see the table above). |
 | `var` | `str` | `None` | Variable of a `Dataset` to show. Default: the first one with `y` and `x` dims. |
 | `time` | `int`, `str`, date or list | `None` | Static plots: the frames to draw. An index (`0`, `-1`), a label (`"2015"`), a year (`2015`) or date (`"2015-07-01"`, nearest), a list of these, or `"all"`. Default: up to 12 frames spread over the series. The viewer always shows every frame. |
-| `band` | `str` or `int` | `None` | Band to show from a `(time, band, y, x)` cube (a label of its `band` coordinate). |
+| `band` | `str` or `int` | `None` | Band to show from a `(time, band, y, x)` cube (a label of its `band` coordinate). A cube of embeddings is shown through its principal components, or in the viewer's [embedding views](#embeddings); `band=` shows one dimension instead. |
 | `rgb` | `bool` | `None` | Show the red, green and blue bands as a colour image. Default: when the `band` axis has them (`red`/`green`/`blue`, `r`/`g`/`b`, `B04`/`B03`/`B02`, `SR_B4`/`SR_B3`/`SR_B2`). `False` shows one band at a time. |
 | `kind` | `str` | `None` | How to colour: `"continuous"`, `"diverging"`, `"categorical"`, `"years"` or `"rgb"`. Default: inferred (see [Colours](#colours)). |
 | `cmap` | `str` | `None` | Any matplotlib colormap name. Default: depends on `kind`. |
@@ -115,6 +115,20 @@ What `fit=` draws over a pixel's series:
 | [`mann_kendall`](time-series.md#mann_kendall) | The Theil-Sen line, labelled increasing, decreasing or no trend |
 
 The result is matched to the data by coordinates, so it may cover only part of the cube (a `fit` computed on a crop works on the whole map). A result without coordinates must have the data's shape.
+
+#### Embeddings
+
+A cube of embeddings ([`load_embeddings`](embeddings.md#load_embeddings)) has 64 or 128 dimensions per pixel, with no physical unit: what matters is how vectors compare. For it the viewer sends the vectors themselves to the browser, each year once, as one byte per dimension (a scale per dimension, from the 0.1 and 99.9 % percentiles of a sample), and the GPU computes each view from them. Changing view, reference or year does not involve Python. A panel beside the map picks the view:
+
+| View | What it shows |
+| :--- | :--- |
+| Components (RGB) | Three of the first six principal components as red, green and blue (PC1–3 by default), stretched between their 2 and 98 % percentiles, with the share of the variance each explains. Fitted on *every year*, so a colour means the same embedding in each year and playing the years shows change; or on the *visible area*, refitted when you stop panning or zooming, which spreads the colours over the differences on screen (the states of a forest rather than forest versus city). |
+| Similarity | The cosine similarity of every pixel to a reference vector: the pixel under the cursor, live as the mouse moves, or a pinned pixel (click a pixel; click it again or press Esc to unpin). *Keep the reference's year* fixes the year the reference is taken from while you page through the others ("did this pasture come to look like the forest?"). Colours from the 2nd percentile of the similarity to 1. |
+| Change | 1 − the cosine similarity of each pixel's vectors in the year shown and the previous year (or a year you pick). Colours from 0 to the 98th percentile. |
+
+Hovering reads the components, the similarity or the change under the cursor. The panel draws the *latent profile*, the values of the cursor's (and the pin's) vector along its dimensions, and the chart below the map follows the cursor: the similarity of its pixel (and the pin's) to the reference in every year.
+
+To keep the browser's memory bounded, a year's vectors are at most 48 MB: a 500 × 500 cube of 128 dimensions (TESSERA) travels at full resolution, larger ones at coarser cells, and zooming in fetches the visible window at finer cells, as for any cube. Measured on a 500 × 500 × 128 cube (2026-10-10, Edge, a local window): the first year on screen in 1.2 s, four years in 3.7 s, and the similarity map redrawn about 30 ms after the mouse moves. A static plot (`static=True`) shows the components fitted on every year.
 
 Outside a notebook, the viewer is served by a small HTTP server on 127.0.0.1 under a random token, so other users of the machine and other web pages cannot read the data. The server stops when the window is closed, when you call `close()`, or when Python exits.
 

@@ -21,6 +21,11 @@ def in_notebook() -> bool:
 _VIEWER_CLASS = None
 
 
+def viewer_bundle() -> str:
+    """viewer.js and embeddings.js (the views of a cube of embeddings) as one module."""
+    return (HERE / "viewer.js").read_text(encoding="utf-8") + chr(10) + (HERE / "embeddings.js").read_text(encoding="utf-8")
+
+
 def viewer_class():
     """The anywidget class, built once (anywidget is imported only when a viewer is made)."""
     global _VIEWER_CLASS
@@ -36,7 +41,7 @@ def viewer_class():
     class Viewer(anywidget.AnyWidget):
         """Interactive map viewer (zeit.plot)."""
 
-        _esm = HERE / "viewer.js"
+        _esm = viewer_bundle()
         _css_text = traitlets.Unicode((HERE / "viewer.css").read_text(encoding="utf-8")).tag(sync=True)
         height = traitlets.Int(480).tag(sync=True)
         fps = traitlets.Int(8).tag(sync=True)
@@ -70,10 +75,10 @@ def make_widget(session: Session, *, height: int = 480, fps: int = 8):
 
 
 def interpret_bundle() -> str:
-    """viewer.js and interpret.js as one module: anywidget loads a single module, and the
-    window serves the same text. The viewer's own default export (its widget) gives way to
-    the interpreter's."""
-    viewer = (HERE / "viewer.js").read_text(encoding="utf-8")
+    """The viewer (``viewer_bundle``) and interpret.js as one module: anywidget loads a single
+    module, and the window serves the same text. The viewer's own default export (its widget)
+    gives way to the interpreter's."""
+    viewer = viewer_bundle()
     marker = "export default {"
     if viewer.count(marker) != 1:
         raise RuntimeError("viewer.js: expected one default export")

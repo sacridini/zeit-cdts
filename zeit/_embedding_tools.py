@@ -261,26 +261,39 @@ def embedding_change(emb: Any, *, metric: str = "cosine", baseline: Any = "previ
 # Principal components, for zeit.plot
 # ---------------------------------------------------------------------------
 
-def pca_rgb(emb: xr.DataArray, *, sample: int = 40_000, seed: int = 0) -> xr.DataArray:
-    """The first three principal components of the embeddings, stretched to 0..1, as a
-    ``red``/``green``/``blue`` band axis. The components and their stretch are fitted once,
-    on pixels of every year, and applied to all of them: the same colour is the same
-    embedding in every year, so paging through the years shows change."""
-    da = _as_cube(emb, "pca_rgb")
-    nb = da.sizes["band"]
-    x = _sample(da, sample)
+def pca_fit(x: np.ndarray, *, k: int = 6, sample: int = 40_000, seed: int = 0) -> Dict[str, np.ndarray]:
+    """Principal components of embeddings ``x`` (n, band): the first ``k`` ``weights``
+    (k, band) with a fixed sign, the ``mean``, the 2 and 98 % percentiles of each component
+    (``lo``, ``hi``) and the fraction of the variance each one explains (``explained``)."""
+    x = np.asarray(x, dtype=np.float64)
+    x = x[np.isfinite(x).all(axis=1)]
     if len(x) < 3:
         raise ValueError("the cube has too few pixels with an embedding to find its principal components")
-    rng = np.random.default_rng(seed)
     if len(x) > sample:
-        x = x[rng.choice(len(x), sample, replace=False)]
+        x = x[np.random.default_rng(seed).choice(len(x), sample, replace=False)]
     mean = x.mean(axis=0)
-    _, _, vt = np.linalg.svd(x - mean, full_matrices=False)
-    k = min(3, nb, vt.shape[0])
+    _, sv, vt = np.linalg.svd(x - mean, full_matrices=False)
+    k = min(k, x.shape[1], vt.shape[0])
     comps = vt[:k]
     comps *= np.sign(comps[np.arange(k), np.abs(comps).argmax(axis=1)])[:, None]   # a fixed sign
     projected = (x - mean) @ comps.T
-    lo, hi = np.percentile(projected, 2, axis=0), np.percentile(projected, 98, axis=0)
+    variance = sv ** 2
+    return {"weights": comps, "mean": mean, "lo": np.percentile(projected, 2, axis=0),
+            "hi": np.percentile(projected, 98, axis=0),
+            "explained": variance[:k] / variance.sum() if variance.sum() > 0 else np.zeros(k)}
+
+
+def pca_rgb(emb: xr.DataArray, *, sample: int = 40_000, seed: int = 0, fit: Optional[Dict] = None) -> xr.DataArray:
+    """The first three principal components of the embeddings, stretched to 0..1, as a
+    ``red``/``green``/``blue`` band axis. The components and their stretch are fitted once,
+    on pixels of every year, and applied to all of them: the same colour is the same
+    embedding in every year, so paging through the years shows change. ``fit`` (from
+    ``pca_fit``) skips the fitting."""
+    da = _as_cube(emb, "pca_rgb")
+    if fit is None:
+        fit = pca_fit(_sample(da, sample), sample=sample, seed=seed)
+    k = min(3, len(fit["weights"]))
+    comps, mean, lo, hi = fit["weights"][:k], fit["mean"], fit["lo"][:k], fit["hi"][:k]
     span = np.where(hi > lo, hi - lo, 1.0)
     names = ["red", "green", "blue"][:k]
     w = xr.DataArray(comps.astype(np.float32), dims=("band_rgb", "band"),

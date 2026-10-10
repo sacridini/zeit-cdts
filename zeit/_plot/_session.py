@@ -11,7 +11,11 @@ Requests:
 - ``detail`` (index, x0, y0, x1, y1, max_px): one frame's window at a finer resolution,
   for zooming in;
 - ``select`` (var): show another variable of the Dataset;
-- ``pixel`` (x, y): one cell's full series (added by the pixel inspector).
+- ``pixel`` (x, y): one cell's full series (added by the pixel inspector);
+- ``pca`` (window): the principal components of the visible area (embeddings only).
+
+A cube of embeddings is shown in embedding mode (see ``_embeddings``): ``frames`` and
+``detail`` then carry each year's vectors, not colours.
 """
 
 import math
@@ -48,15 +52,28 @@ class Session:
         self._pool: Optional[ThreadPoolExecutor] = None
         self.handlers: Dict[str, Callable[[Dict[str, Any]], Reply]] = {
             "meta": self._meta, "frames": self._frames, "detail": self._detail, "select": self._select,
-            "pixel": self._pixel, "vectors": self._vectors,
+            "pixel": self._pixel, "vectors": self._vectors, "pca": self._pca,
         }
         self._load(var)
 
     # ------------------------------------------------------------------ setup
     def _load(self, var: Optional[str]) -> None:
         from . import style_for
+        from ._data import is_path
+        from ._embeddings import EmbeddingView, is_embedding_cube
 
-        frames, dataset = prepare(self.source, var=var, band=self.band, rgb=self.rgb_option)
+        if is_path(self.source):
+            from .._load import load_raster
+            self.source = load_raster(self.source, chunks="auto")
+        self.emb = None
+        if is_embedding_cube(self.source, self.band, self.rgb_option):
+            from .._embedding_tools import pca_rgb
+
+            da = prepare(self.source, rgb=False)[0].da   # lat/lon named y/x
+            self.emb = EmbeddingView(da, max_size=self.max_size)
+            frames, dataset = Frames(pca_rgb(da, fit=self.emb.fit), rgb=True), None
+        else:
+            frames, dataset = prepare(self.source, var=var, band=self.band, rgb=self.rgb_option)
         if not isinstance(frames, Frames):
             raise ValueError("the interactive viewer shows maps; plot a pixel's series with static=True")
         self.frames, self.dataset = frames, dataset
@@ -68,6 +85,9 @@ class Session:
         self.step = frames.step_for(self.max_size)
 
         self.flip = not frames.y_down()   # frames always go top row first
+        if self.emb is not None:
+            self.emb.flip = self.flip
+            self.step = self.emb.step
 
     def variables(self) -> List[str]:
         if self.dataset is None:
@@ -97,19 +117,30 @@ class Session:
         meta = {
             "n": f.n, "labels": f.labels, "width": w, "height": h, "full_width": f.width, "full_height": f.height,
             "step": self.step, "rgb": f.rgb, "extent": [left, right, bottom, top], "crs": crs,
-            "style": self.style.to_json(), "title": self.title if self.title is not None else f.name,
+            "style": self.style.to_json(), "title": self.title if self.title is not None else self._name(),
             "variables": self.variables(), "var": self.var, "compressed": self.compress,
             "dims": f.lead, "frame_bytes": w * h * (3 if f.rgb else 1), "has_fit": self.fit is not None,
             "basemap": None, "geo": None, "opacity": self.opacity, "has_vectors": self.vector is not None,
-            "vector_color": self.vector_color, "vector_width": self.vector_width,
+            "vector_color": self.vector_color, "vector_width": self.vector_width, "embedding": None,
         }
+        buffers = [self.style.lut().tobytes()]
+        if self.emb is not None:
+            from ._style import Style
+            meta["embedding"] = self.emb.meta()
+            meta["frame_bytes"] = self.emb.year_bytes(self.step)
+            buffers += [Style("continuous", cmap=c).lut().tobytes() for c in ("viridis", "magma")]
         if self.basemap is not None:
             from ._overlay import basemap_provider, geo_grids
             meta["basemap"] = basemap_provider(self.basemap)
             meta["geo"] = geo_grids(f, self._crs()) if meta["basemap"] else None
             if meta["geo"] is None:
                 meta["basemap"] = None   # not georeferenced: no basemap
-        return meta, [self.style.lut().tobytes()]
+        return meta, buffers
+
+    def _name(self) -> str:
+        if self.emb is not None:   # not the components': the panel switches views
+            return str(self.source.name) if getattr(self.source, "name", None) is not None else "embeddings"
+        return self.frames.name
 
     def _encode(self, frame: np.ndarray) -> bytes:
         codes = self.style.encode(frame, self.nodata)
@@ -121,6 +152,9 @@ class Session:
     def _frames(self, request: Dict[str, Any]) -> Reply:
         start = int(request["start"])
         count = max(1, min(int(request.get("count", 1)), self.frames.n - start))
+        if self.emb is not None:
+            raw = [q.tobytes() for q in self.emb.years(start, count)]
+            return {"start": start, "count": count}, [zlib.compress(b, 1) if self.compress else b for b in raw]
         block = self.frames.block(start, count, self.step)   # one read (dask parallelises it)
         if self._pool is None:
             self._pool = ThreadPoolExecutor(ENCODE_WORKERS, thread_name_prefix="zeit-plot")
@@ -143,12 +177,22 @@ class Session:
         if x1 <= x0 or y1 <= y0:
             return {"empty": True}, []
         max_px = max(64, int(request.get("max_px", 1024)))
+        if self.emb is not None:
+            max_px = min(max_px, self.emb.max_px())
         step = max(1, math.ceil(max(x1 - x0, y1 - y0) / max_px))
         if step >= self.step:   # no finer than what the browser already has
             return {"empty": True}, []
         x0 -= x0 % step
         y0 -= y0 % step
         rows = slice(f.height - y1, f.height - y0) if self.flip else slice(y0, y1)
+        if self.emb is not None:   # the vectors of the year, and of the year it is compared with
+            indices = [index] + ([int(request["other"])] if request.get("other") is not None else [])
+            years = self.emb.window(indices, rows, slice(x0, x1), step)
+            h, w = years[0].shape[1:3]
+            content = {"index": index, "other": indices[1] if len(indices) > 1 else None, "x0": x0, "y0": y0,
+                       "x1": x0 + w * step, "y1": y0 + h * step, "width": w, "height": h, "step": step}
+            raw = [q.tobytes() for q in years]
+            return content, [zlib.compress(b, 1) if self.compress else b for b in raw]
         sel = f.da.isel(f.index(index)).isel(y=rows, x=slice(x0, x1))
         if step > 1:
             sel = sel.isel(y=slice(None, None, step), x=slice(None, None, step))
@@ -180,6 +224,11 @@ class Session:
             return {"paths": [], "count": 0}, []
         content, buffer = vector_paths(self.frames, self.vector, self._crs(), self.step)
         return content, [buffer] if buffer else []
+
+    def _pca(self, request: Dict[str, Any]) -> Reply:
+        if self.emb is None:
+            raise ValueError("principal components are for cubes of embeddings")
+        return self.emb.pca(request.get("window")), []
 
     def _pixel(self, request: Dict[str, Any]) -> Reply:
         """One cell's full series (top-first cell coordinates) and the fit's overlays there."""

@@ -4,6 +4,9 @@
 // through a 256-colour lookup table, so the kernel never renders and, once a frame is in
 // the browser, paging through time does not talk to the kernel at all.
 //
+// A cube of embeddings travels as vectors instead (meta.embedding): `this.emb` (an
+// `Embeddings`, embeddings.js, appended to this file) then draws and reads them.
+//
 // `mount(el, transport)` builds the viewer; `transport.request(req)` resolves to
 // {content, buffers}. The notebook widget and the standalone window give different
 // transports to the same viewer.
@@ -191,6 +194,7 @@ export class Viewer {
   async inspect([cx, cy]) {
     const m = this.meta;
     if (!m || cx < 0 || cy < 0 || cx >= m.full_width || cy >= m.full_height) return;
+    if (this.emb) { this.emb.click(cx, cy); return; }
     this.pin = [Math.floor(cx) + 0.5, Math.floor(cy) + 0.5];
     this.render();
     this.chart.classList.add("zv-busy");
@@ -304,6 +308,8 @@ export class Viewer {
 
   setMeta(meta, buffers) {
     this.meta = meta;
+    if (this.emb) this.emb.destroy();
+    this.emb = meta.embedding ? new Embeddings(this, meta, buffers) : null;
     this.generation = (this.generation || 0) + 1;
     this.frames = new Array(meta.n);
     this.lru = [];
@@ -428,6 +434,7 @@ export class Viewer {
     gl.uniform1i(this.u.lut, 2);
     gl.uniform1i(this.u.rgb, rgb ? 1 : 0);
     this.uploaded = -1;
+    if (this.emb) this.emb.setupGL(gl);
   }
 
   // ------------------------------------------------------------------ view
@@ -499,6 +506,7 @@ export class Viewer {
   }
 
   key(e) {
+    if (this.emb && this.emb.key(e)) return;
     if (e.key === " ") { e.preventDefault(); this.toggle(); }
     else if (e.key === "ArrowRight") this.show(Math.min(this.meta.n - 1, this.index + 1));
     else if (e.key === "ArrowLeft") this.show(Math.max(0, this.index - 1));
@@ -513,8 +521,9 @@ export class Viewer {
     if (cx < 0 || cy < 0 || cx >= m.full_width || cy >= m.full_height) { this.readout.textContent = " "; return; }
     const [wx, wy] = this.toWorld(cx, cy);
     let text = `${m.labels[this.index]} · x ${wx.toFixed(5)}  y ${wy.toFixed(5)}`;
-    const value = this.valueAt(cx, cy);
+    const value = this.emb ? undefined : this.valueAt(cx, cy);
     if (value !== undefined) text += ` · ${formatValue(m.style, value)}`;
+    if (this.emb) { const read = this.emb.hover(cx, cy); if (read) text += ` · ${read}`; }
     this.readout.textContent = text;
     this.emit("hover", { cell: [cx, cy], world: [wx, wy], value });
   }
@@ -578,15 +587,24 @@ export class Viewer {
   async fetchDetail() {
     if (!this.meta || this.playing || !this.cssSize) return;
     const m = this.meta;
+    if (this.emb) this.emb.viewChanged();
     if (this.view.s * m.step <= 1.2) { this.detail = null; this.render(); return; }   // preview is fine enough
     const [x0, y0] = this.toCell(0, 0), [x1, y1] = this.toCell(...this.cssSize);
     const dpr = window.devicePixelRatio || 1;
     const index = this.index, generation = this.generation;
     const { content, buffers } = await this.transport.request({ type: "detail", index,
       x0: Math.max(0, x0), y0: Math.max(0, y0), x1: Math.min(m.full_width, x1), y1: Math.min(m.full_height, y1),
-      max_px: Math.round(Math.max(...this.cssSize) * dpr) });
+      max_px: Math.round(Math.max(...this.cssSize) * dpr), ...(this.emb ? this.emb.detailRequest() : {}) });
     if (content.empty || generation !== this.generation || index !== this.index) return;
     const bytes = await inflate(buffers[0], m.compressed);
+    if (this.emb) {
+      const other = buffers[1] ? await inflate(buffers[1], m.compressed) : null;
+      if (generation !== this.generation || index !== this.index) return;
+      this.detail = { ...content, bytes, otherBytes: other };
+      this.emb.setDetail(this.detail);
+      this.render();
+      return;
+    }
     const gl = this.gl;
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.detailTex);
     gl.texImage2D(gl.TEXTURE_2D, 0, this.texFormat[0], content.width, content.height, 0, this.texFormat[1],
@@ -610,7 +628,8 @@ export class Viewer {
     gl.useProgram(this.program);
     gl.uniform3f(this.u.view, this.view.ox, this.view.oy, this.view.s);
     gl.uniform2f(this.u.canvas, cw, ch);
-    const frame = this.frames[this.index];
+    const frame = this.emb ? null : this.frames[this.index];
+    if (this.emb) this.emb.drawGL(gl);
     if (frame) {
       gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.baseTex);
       if (this.uploaded !== this.index) {
@@ -622,7 +641,7 @@ export class Viewer {
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     }
     const d = this.detail;
-    if (d && d.index === this.index) {
+    if (d && d.index === this.index && !this.emb) {
       gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.detailTex);
       gl.uniform1i(this.u.data, 1);
       gl.uniform4f(this.u.rect, d.x0, d.y0, d.x1, d.y1);
@@ -641,6 +660,7 @@ export class Viewer {
     const s = this.meta.style;
     this.legend.replaceChildren();
     this.rampCanvas = null;
+    if (this.emb) { this.emb.drawLegend(); this.addOpacity(); return; }
     if (s.kind === "rgb") { this.addOpacity(); return; }
     if (s.kind === "categorical") {
       for (const [, text, color] of s.classes)

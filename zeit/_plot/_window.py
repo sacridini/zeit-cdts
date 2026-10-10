@@ -382,7 +382,8 @@ class Window:
     def files(self) -> Dict[str, Any]:
         """The files the page loads: route -> (bytes, content type)."""
         js, css = "text/javascript; charset=utf-8", "text/css; charset=utf-8"
-        out = {"/viewer.js": ((HERE / "viewer.js").read_bytes(), js),
+        from ._widget import viewer_bundle
+        out = {"/viewer.js": (viewer_bundle().encode("utf-8"), js),
                "/viewer.css": ((HERE / "viewer.css").read_bytes(), css)}
         if self.kind == "interpret":
             from ._widget import interpret_bundle

@@ -66,7 +66,10 @@ def plot(
         is shown in colour unless ``rgb=False``. A cube of embeddings
         (``zeit.load_embeddings``) is shown through its first three principal components as
         red, green and blue, fitted once on every year so that a colour means the same
-        embedding in all of them (``band=`` shows one dimension instead).
+        embedding in all of them (``band=`` shows one dimension instead). The viewer also
+        shows, computed on the GPU, the cosine similarity of every pixel to the one under the
+        cursor (or a pinned one) and the change from the previous year, and can fit the
+        components on the visible area.
     kind
         How to colour: ``"continuous"``, ``"diverging"``, ``"categorical"``, ``"years"``,
         ``"rgb"``. By default chosen from the data: integers with a few values (or ``bool``)
