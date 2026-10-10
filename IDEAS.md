@@ -1406,6 +1406,56 @@ zeit.ccdc(mixed)
   `download_gee_*`, e o FAQ do GEE desaconselha esse ajuste no Collection 2: decisão do
   usuário (tirar o ajuste, ou aplicar os de Roy na escala certa).
 
+## Fase 17: comparar embeddings no viewer — **Feito** (1.2.0)
+
+Pedida em 2026-10-10: ver embeddings como no Janus, comparando o pixel sob o mouse com o
+resto da imagem. A PCA do `zeit.plot` (15b) mostrava as dimensões como cor, mas não
+respondia "onde mais está isto?" nem "o que mudou aqui?" sem uma chamada ao Python por
+pergunta.
+
+```python
+emb = zeit.load_embeddings("aoi.gpkg", source="alphaearth", years=range(2018, 2025))
+zeit.plot(emb)       # vista: componentes, similaridade (ao cursor) ou mudança entre anos
+```
+
+**Princípio:** os vetores vão ao navegador, não as cores. Com os vetores na GPU, trocar de
+vista, de referência ou de ano não volta ao kernel, e a similaridade segue o mouse.
+
+### O que foi feito (1.2.0)
+
+- **Modo embedding no viewer** (`zeit/_plot/_embeddings.py`, `embeddings.js`): o cubo vai
+  ao navegador como vetores int8 (uma escala por dimensão, dos percentis 0,1–99,9 de uma
+  amostra; pixel sem embedding marcado com −128 na primeira dimensão), em camadas de 4
+  dimensões (`(D/4, h, w, 4)`) que entram direto numa textura `RGBA8I` do WebGL2. Um shader
+  só desenha as três vistas; as linhas por dimensão (referência × escala, componentes ×
+  escala, escala²) vão numa textura float pequena, não em uniforms.
+- **Componentes (RGB):** três das seis primeiras componentes principais (`pca_fit`, que o
+  `pca_rgb` passou a usar), com a variância explicada, ajustadas em todos os anos ou na área
+  visível (pedido `pca`, reajustado quando o pan/zoom para; usa os anos já enviados).
+- **Similaridade:** cosseno de cada pixel com o vetor sob o cursor, ao vivo; clique fixa o
+  pino (clicar nele de novo ou Esc solta); "manter o ano da referência" compara os outros
+  anos com o do pino. Cores do percentil 2 da similaridade até 1.
+- **Mudança:** 1 − cosseno com o ano anterior (ou um ano escolhido), a mesma distância do
+  `embedding_change`; cores de 0 ao percentil 98.
+- Painel ao lado do mapa com a vista, as opções e o perfil latente (os D valores do cursor e
+  do pino); o gráfico embaixo segue o cursor: a similaridade do pixel (e do pino) com a
+  referência em cada ano, pelo `drawChart` do viewer, sem pedido ao kernel.
+- Até 48 MB por ano no navegador (células maiores acima disso); o zoom busca a janela em
+  células mais finas, com o segundo ano junto na vista de mudança.
+- Medido (Edge headless, janela local): cubo sintético 500 × 500 × 128, 4 anos: primeiro ano
+  na tela em 1,2 s, os quatro em 3,7 s, similaridade redesenhada ~30 ms depois de mover o
+  mouse. Conferido também em AlphaEarth real (Rondônia, 7 anos × 64 dimensões, 554 × 549):
+  com o cursor numa floresta, as pastagens ficam em ~0,4 e as outras florestas perto de 1.
+- Testes em `tests/test_plot_embeddings.py` (9), um deles no Edge headless: a similaridade e
+  a mudança lidas de volta do shader (em 16 bits) conferem com o cosseno do numpy (< 5e-3).
+- Bug achado no caminho: um nome declarado em dois arquivos do bundle (`pct`, também no
+  `interpret.js`) quebrava o módulo inteiro do `zeit.interpret`; um teste confere os nomes
+  sem navegador.
+
+**Diferenças em relação ao Janus:** sem ROI desenhada (a "área visível" faz o papel da PCA
+local, e o pan/zoom é o jeito de escolher a área no viewer) e sem a vista de uma dimensão
+como banda (`zeit.plot(emb, band="A07")` já faz isso).
+
 ## Para depois
 
 - `zeit.plot`: medir de verdade o caso de notebook remoto (JupyterHub, Colab), que ficou
