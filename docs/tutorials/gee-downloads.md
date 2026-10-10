@@ -150,7 +150,7 @@ LandTrendr works on **one spectral index per year**. NBR is the standard choice 
 import zeit
 from zeit.gee import download_gee_timeseries
 
-# 1. Annual harmonized Landsat 5/7/8/9 medoid composites -> NBR, one file per year
+# 1. Annual Landsat 5/7/8/9 medoid composites -> NBR, one file per year
 download_gee_timeseries(
     roi="217/076",                   # WRS-2 path/row (Rio de Janeiro); or a bbox / .shp / .gpkg / .tif
     start_date="1985-01-01",
@@ -177,7 +177,7 @@ zeit.save_raster(loss, "./lt_rj/results")                     # yod.tif, magnitu
     2. **`nodata`.** For float data like this NBR, `zeit.landtrendr`'s default (`nodata="auto"`) treats only NaN and the raster's NoData as missing, so pixels whose NBR is exactly 0 are kept. For integer stacks without a NoData value, `0` is treated as missing; pass `nodata=None` if 0 is a valid value there.
     3. **2012 has gaps.** Landsat 5 stopped in November 2011 and Landsat 8 started in April 2013, so 2012 relies on Landsat 7 SLC-off alone and has striping gaps. LandTrendr tolerates missing years (`min_observations_needed=6` by default), so this is expected, not an error.
 
-**Resuming.** A download never leaves a partial file at its final path, so re-running the same call is safe. For fine-grained control, loop over the years yourself with `download_gee_image` and skip years whose file already exists. The composites come from `zeit.gee.composites.create_annual_medoid` on the collection from `zeit.gee.harmonization.get_harmonized_collection`.
+**Resuming.** A download never leaves a partial file at its final path, so re-running the same call is safe. For fine-grained control, loop over the years yourself with `download_gee_image` and skip years whose file already exists. The composites come from `zeit.gee.composites.create_annual_medoid` on the collection from `zeit.gee.harmonization.get_harmonized_collection`: Landsat 5, 7, 8 and 9 Collection 2 surface reflectance, cloud-masked, with Landsat 5/7's bands renamed as Landsat 8/9's and no adjustment between the sensors (Collection 2 is used across them as it comes; up to 1.3, Landsat 8/9 were rescaled by a few percent with coefficients of no known source).
 
 **Tile extent.** For `roi="217/076"`, `zeit` looks up the tile's footprint from a Landsat Collection 2 scene and downloads its bounding box, about 2.2° × 2.0° (~8,070 × 7,330 px at 30 m). Scenes from neighbouring paths/rows that overlap the box are also used, which fills the box corners and adds observations in the overlap zones.
 

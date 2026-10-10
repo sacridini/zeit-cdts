@@ -1397,7 +1397,7 @@ zeit.ccdc(mixed)
     no attribute 'values'`, que esconde a causa). Agora vai em `kwargs`.
   - A banda de QA era acrescentada à lista `bands` de quem chamava; chamar de novo com a
     mesma lista (S2 e depois Landsat) pedia a QA do outro sensor. Agora copia a lista.
-- Achado no caminho, **não corrigido**: `zeit.gee.harmonization.harmonize_oli_to_etm` diz
+- Achado no caminho (**corrigido na 1.4.0**, abaixo): `zeit.gee.harmonization.harmonize_oli_to_etm` diz
   usar Roy et al. (2016), mas os coeficientes (inclinações 0,9747, 0,9783, 0,9806, 1,0004,
   0,9859, 0,9888) não são nenhum dos de Roy (OLS OLI → ETM+: 0,8850, 0,9317, 0,9372, 0,8339,
   0,8639, 0,9165, com interceptos 0,0183...). Além disso são aplicados aos números digitais
@@ -1440,6 +1440,19 @@ centro do tile) e põe tudo numa grade de 30 m. O nome prometia mais do que a fu
 - Testes em `tests/test_cube.py` (3 novos): QA, mapa de bandas e bits do Fmask; as escalas
   do HLS por banda e produto; L30 + S30 por papel com fill, nuvem, reflectância, ordem no
   tempo, a recusa de nomes de asset com os dois produtos e a recusa no `bandpass_adjust`.
+
+### 16c: os downloads do GEE sem o ajuste sem fonte — **Feito** (1.4.0)
+
+Decisão do usuário: opção A, tirar o ajuste. `get_harmonized_collection` (e com ele os
+`download_gee_*`) passa a juntar Landsat 5/7/8/9 do Collection 2 como vêm, só com a máscara de
+nuvem e os nomes das bandas do 5/7 trocados pelos do 8/9. É o que o FAQ do Earth Engine
+recomenda para o Collection 2, e é coerente com o `bandpass_adjust`, que também não ajusta
+Landsat por padrão. Os compostos dos anos de Landsat 8/9 mudam alguns por cento em relação às
+versões até a 1.3 (a nota da versão diz isso). `harmonize_oli_to_etm` fica, com
+`DeprecationWarning` (sai na 2.0, como manda a política da 1.0). A opção de aplicar Roy na
+escala certa (`etm=`) não foi pedida. Testes em `tests/test_gee_harmonization.py`, com um `ee`
+falso que registra as chamadas: nenhuma cena multiplicada ou somada, as bandas do 5/7
+renomeadas, o aviso da função antiga.
 
 ## Fase 17: comparar embeddings no viewer — **Feito** (1.2.0)
 
