@@ -235,7 +235,7 @@ def build_time_series(
     if apply_cloud_mask:
         qa_band = _qa_band_for(col_name, source)
         if qa_band and bands and qa_band not in bands:
-            bands.append(qa_band)
+            bands = list(bands) + [qa_band]   # not the caller's list
             
     # 3.6 Pre-flight Validation
     if validate_items and bands:
@@ -291,7 +291,8 @@ def build_time_series(
         
         # Nodata QA pixels are NaN in a float cube: map them to 0 (not clear) before the
         # integer cast, which is undefined for NaN.
-        valid_mask = xr.apply_ufunc(_clear_mask, qa.fillna(0).astype("uint16"), qa_band,
+        # The band name as a keyword: positional, dask would pass it as a 0-d array.
+        valid_mask = xr.apply_ufunc(_clear_mask, qa.fillna(0).astype("uint16"), kwargs={"qa_band": qa_band},
                                     dask="parallelized", output_dtypes=[bool])
         cube = cube.where(valid_mask)
             

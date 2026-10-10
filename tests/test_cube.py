@@ -310,3 +310,58 @@ def test_build_spectral_temporal_metrics_validation():
         build_spectral_temporal_metrics(bbox=[0, 0, 1, 1], indices=["NDVI"], metrics=["variance"])
     with pytest.raises(ValueError, match="band_map"):
         build_spectral_temporal_metrics(collection="my-sensor", bbox=[0, 0, 1, 1], indices=["NDVI"])
+
+
+def test_cloud_mask_does_not_change_the_callers_bands(monkeypatch):
+    """The QA band is added to a copy: the same list can build a Sentinel-2 and a Landsat cube."""
+    import zeit.cube as cube_mod
+
+    class Search:
+        def item_collection(self):
+            return [object()]
+
+    class Catalog:
+        def search(self, **kw):
+            return Search()
+
+    asked = []
+
+    class Stop(Exception):
+        pass
+
+    def stack(items, **kw):
+        asked.append(list(kw["assets"]))
+        raise Stop
+
+    monkeypatch.setattr(cube_mod.Client, "open", staticmethod(lambda url: Catalog()))
+    monkeypatch.setattr(cube_mod.stackstac, "stack", stack)
+    bands = ["red", "nir08"]
+    for collection in ("sentinel-2-l2a", "landsat-c2-l2"):
+        with pytest.raises(Stop):
+            build_time_series(collection=collection, bbox=[0, 0, 1, 1], bands=bands, apply_cloud_mask=True)
+    assert bands == ["red", "nir08"]
+    assert asked == [["red", "nir08", "scl"], ["red", "nir08", "qa_pixel"]]
+
+
+def test_cloud_mask_on_a_lazy_cube(monkeypatch):
+    """The mask is computed block by block (it used to fail on the first read since 0.25)."""
+    class Search:
+        def item_collection(self):
+            return [object()]
+
+    class Catalog:
+        def search(self, **kw):
+            return Search()
+
+    scl = np.array([[4, 9], [8, 5]], dtype=np.float32)   # vegetation, cloud; cloud, soil
+    data = np.stack([np.full((2, 2), 1000.0, dtype=np.float32), scl])[None]   # (time, band, y, x)
+    fake = xr.DataArray(da.from_array(data, chunks=(1, 2, 1, 2)), dims=("time", "band", "y", "x"),
+                        coords={"time": pd.to_datetime(["2023-01-01"]), "band": ["red", "scl"]})
+    monkeypatch.setattr(cube_mod.Client, "open", staticmethod(lambda url: Catalog()))
+    monkeypatch.setattr(cube_mod.stackstac, "stack", lambda items, **kw: fake)
+    monkeypatch.setattr(cube_mod, "_item_scale_offset",
+                        lambda cube, items: (np.array([[1e-4, 1]], np.float32), np.zeros((1, 2), np.float32)))
+    cube = build_time_series(collection="sentinel-2-l2a", bbox=[0, 0, 1, 1], bands=["red"], apply_cloud_mask=True)
+    assert cube.chunks is not None
+    red = cube.sel(band="red").values[0]
+    np.testing.assert_allclose(red, [[0.1, np.nan], [np.nan, 0.1]], rtol=1e-6)
