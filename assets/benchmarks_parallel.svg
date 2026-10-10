@@ -1,0 +1,159 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 510" class="benchmark-chart" role="img" aria-label="Multi-Core Scaling on 20 Threads">
+  <style>
+    .bm-gridline { stroke: var(--bm-grid, #e2e8f0); stroke-width: 1; }
+    .bm-refline { stroke: var(--bm-refline, #94a3b8); stroke-width: 1.5; stroke-dasharray: 4 4; }
+    .bm-ref-label { font-size: 11px; font-weight: 600; fill: var(--bm-muted, #64748b); font-family: monospace; }
+    .bm-axis-tick { font-size: 11px; font-weight: 600; fill: var(--bm-muted, #64748b); font-family: monospace; }
+    .bm-bar-label { font-size: 13px; font-weight: 600; fill: var(--bm-text, #1e293b); font-family: system-ui, -apple-system, sans-serif; }
+    .bm-bar-val { font-size: 12px; font-weight: 700; fill: var(--bm-text, #1e293b); font-family: monospace; }
+    .bm-zeit-bar { fill: var(--bm-zeit, #2563eb); }
+    .bm-ref-bar { fill: var(--bm-ref, #ea580c); }
+    .bm-gpu-lo { fill: var(--bm-gpu-lo, #60a5fa); }
+    .bm-gpu-hi { fill: var(--bm-gpu-hi, #1d4ed8); }
+    .bm-bar-rect { cursor: pointer; }
+    .bm-bar-group:hover .bm-bar-rect { filter: brightness(1.12); }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-md-color-scheme="default"]) {
+        --bm-grid: #334155;
+        --bm-refline: #64748b;
+        --bm-muted: #94a3b8;
+        --bm-text: #f1f5f9;
+        --bm-zeit: #3b82f6;
+        --bm-ref: #f97316;
+        --bm-gpu-lo: #60a5fa;
+        --bm-gpu-hi: #93c5fd;
+      }
+    }
+  </style>
+  <line class="bm-gridline" x1="335.0" y1="26" x2="335.0" y2="482" />
+  <text class="bm-axis-tick" x="335.0" y="502" text-anchor="middle">0.2</text>
+  <line class="bm-gridline" x1="434.2" y1="26" x2="434.2" y2="482" />
+  <text class="bm-axis-tick" x="434.2" y="502" text-anchor="middle">0.5</text>
+  <line class="bm-gridline" x1="509.3" y1="26" x2="509.3" y2="482" />
+  <text class="bm-axis-tick" x="509.3" y="502" text-anchor="middle">1x</text>
+  <line class="bm-gridline" x1="584.3" y1="26" x2="584.3" y2="482" />
+  <text class="bm-axis-tick" x="584.3" y="502" text-anchor="middle">2x</text>
+  <line class="bm-gridline" x1="683.5" y1="26" x2="683.5" y2="482" />
+  <text class="bm-axis-tick" x="683.5" y="502" text-anchor="middle">5x</text>
+  <line class="bm-gridline" x1="758.6" y1="26" x2="758.6" y2="482" />
+  <text class="bm-axis-tick" x="758.6" y="502" text-anchor="middle">10x</text>
+  <line class="bm-refline" x1="509.3" y1="26" x2="509.3" y2="482" />
+  <text class="bm-ref-label" x="509.3" y="18" text-anchor="middle">1x (break-even)</text>
+  <text class="bm-bar-label" x="0" y="44.0">LandTrendr (real tile)</text>
+  <g class="bm-bar-group">
+    <title>LandTrendr (real tile) · Zeit: 9.19x gain</title>
+    <rect class="bm-bar-rect bm-zeit-bar" x="260.0" y="26.0" width="489.4" height="28.0" rx="4" />
+    <text class="bm-bar-val" x="757.4" y="44.0">9.2x</text>
+  </g>
+  <text class="bm-bar-label" x="0" y="82.0">CCDC (real stack)</text>
+  <g class="bm-bar-group">
+    <title>CCDC (real stack) · Zeit: 8.73x gain</title>
+    <rect class="bm-bar-rect bm-zeit-bar" x="260.0" y="64.0" width="483.9" height="28.0" rx="4" />
+    <text class="bm-bar-val" x="751.9" y="82.0">8.7x</text>
+  </g>
+  <text class="bm-bar-label" x="0" y="120.0">BFAST Lite</text>
+  <g class="bm-bar-group">
+    <title>BFAST Lite · Zeit: 8.43x gain</title>
+    <rect class="bm-bar-rect bm-zeit-bar" x="260.0" y="102.0" width="480.1" height="12.0" rx="4" />
+    <text class="bm-bar-val" x="748.1" y="112.0">8.4x</text>
+  </g>
+  <g class="bm-bar-group">
+    <title>BFAST Lite · Reference: 9.33x gain</title>
+    <rect class="bm-bar-rect bm-ref-bar" x="260.0" y="118.0" width="491.1" height="12.0" rx="4" />
+    <text class="bm-bar-val" x="759.1" y="128.0">9.3x</text>
+  </g>
+  <text class="bm-bar-label" x="0" y="158.0">TWDTW</text>
+  <g class="bm-bar-group">
+    <title>TWDTW · Zeit: 6.87x gain</title>
+    <rect class="bm-bar-rect bm-zeit-bar" x="260.0" y="140.0" width="457.9" height="12.0" rx="4" />
+    <text class="bm-bar-val" x="725.9" y="150.0">6.9x</text>
+  </g>
+  <g class="bm-bar-group">
+    <title>TWDTW · Reference: 7.45x gain</title>
+    <rect class="bm-bar-rect bm-ref-bar" x="260.0" y="156.0" width="466.7" height="12.0" rx="4" />
+    <text class="bm-bar-val" x="734.7" y="166.0">7.5x</text>
+  </g>
+  <text class="bm-bar-label" x="0" y="196.0">Phenology (real raster)</text>
+  <g class="bm-bar-group">
+    <title>Phenology (real raster) · Zeit: 6.46x gain</title>
+    <rect class="bm-bar-rect bm-zeit-bar" x="260.0" y="178.0" width="451.3" height="12.0" rx="4" />
+    <text class="bm-bar-val" x="719.3" y="188.0">6.5x</text>
+  </g>
+  <g class="bm-bar-group">
+    <title>Phenology (real raster) · Reference: 5.62x gain</title>
+    <rect class="bm-bar-rect bm-ref-bar" x="260.0" y="194.0" width="436.2" height="12.0" rx="4" />
+    <text class="bm-bar-val" x="704.2" y="204.0">5.6x</text>
+  </g>
+  <text class="bm-bar-label" x="0" y="234.0">BFAST (classic)</text>
+  <g class="bm-bar-group">
+    <title>BFAST (classic) · Zeit: 5.73x gain</title>
+    <rect class="bm-bar-rect bm-zeit-bar" x="260.0" y="216.0" width="438.3" height="12.0" rx="4" />
+    <text class="bm-bar-val" x="706.3" y="226.0">5.7x</text>
+  </g>
+  <g class="bm-bar-group">
+    <title>BFAST (classic) · Reference: 7.53x gain</title>
+    <rect class="bm-bar-rect bm-ref-bar" x="260.0" y="232.0" width="467.9" height="12.0" rx="4" />
+    <text class="bm-bar-val" x="735.9" y="242.0">7.5x</text>
+  </g>
+  <text class="bm-bar-label" x="0" y="272.0">BFAST Monitor</text>
+  <g class="bm-bar-group">
+    <title>BFAST Monitor · Zeit: 5.58x gain</title>
+    <rect class="bm-bar-rect bm-zeit-bar" x="260.0" y="254.0" width="435.4" height="12.0" rx="4" />
+    <text class="bm-bar-val" x="703.4" y="264.0">5.6x</text>
+  </g>
+  <g class="bm-bar-group">
+    <title>BFAST Monitor · Reference: 5.37x gain</title>
+    <rect class="bm-bar-rect bm-ref-bar" x="260.0" y="270.0" width="431.3" height="12.0" rx="4" />
+    <text class="bm-bar-val" x="699.3" y="280.0">5.4x</text>
+  </g>
+  <text class="bm-bar-label" x="0" y="310.0">SOM (Batch SOM)</text>
+  <g class="bm-bar-group">
+    <title>SOM (Batch SOM, bit-exact minisom port) · Zeit: 4.64x gain (15 threads, Ryzen 7 7730U laptop)</title>
+    <rect class="bm-bar-rect bm-zeit-bar" x="260.0" y="292.0" width="415.5" height="28.0" rx="4" />
+    <text class="bm-bar-val" x="683.5" y="310.0">4.6x</text>
+  </g>
+  <text class="bm-bar-label" x="0" y="348.0">Mann-Kendall</text>
+  <g class="bm-bar-group">
+    <title>Mann-Kendall · Zeit: 4.26x gain</title>
+    <rect class="bm-bar-rect bm-zeit-bar" x="260.0" y="330.0" width="406.2" height="12.0" rx="4" />
+    <text class="bm-bar-val" x="674.2" y="340.0">4.3x</text>
+  </g>
+  <g class="bm-bar-group">
+    <title>Mann-Kendall · Reference: 0.20x gain</title>
+    <rect class="bm-bar-rect bm-ref-bar" x="260.0" y="346.0" width="75.0" height="12.0" rx="4" />
+    <text class="bm-bar-val" x="343.0" y="356.0">0.20x</text>
+  </g>
+  <text class="bm-bar-label" x="0" y="386.0">TempCNN (batch 512)</text>
+  <g class="bm-bar-group">
+    <title>TempCNN (batch 512) · Zeit: 3.98x gain</title>
+    <rect class="bm-bar-rect bm-zeit-bar" x="260.0" y="368.0" width="398.8" height="12.0" rx="4" />
+    <text class="bm-bar-val" x="666.8" y="378.0">4.0x</text>
+  </g>
+  <g class="bm-bar-group">
+    <title>TempCNN (batch 512) · Reference: 1.94x gain</title>
+    <rect class="bm-bar-rect bm-ref-bar" x="260.0" y="384.0" width="321.0" height="12.0" rx="4" />
+    <text class="bm-bar-val" x="589.0" y="394.0">1.9x</text>
+  </g>
+  <text class="bm-bar-label" x="0" y="424.0">Official U-TAE</text>
+  <g class="bm-bar-group">
+    <title>Official U-TAE · Zeit: 2.52x gain</title>
+    <rect class="bm-bar-rect bm-zeit-bar" x="260.0" y="406.0" width="349.3" height="12.0" rx="4" />
+    <text class="bm-bar-val" x="617.3" y="416.0">2.5x</text>
+  </g>
+  <g class="bm-bar-group">
+    <title>Official U-TAE · Reference: 2.60x gain</title>
+    <rect class="bm-bar-rect bm-ref-bar" x="260.0" y="422.0" width="352.7" height="12.0" rx="4" />
+    <text class="bm-bar-val" x="620.7" y="432.0">2.6x</text>
+  </g>
+  <text class="bm-bar-label" x="0" y="462.0">LTAE / LightTAE (batch 512)</text>
+  <g class="bm-bar-group">
+    <title>LTAE / LightTAE (batch 512) · Zeit: 2.24x gain</title>
+    <rect class="bm-bar-rect bm-zeit-bar" x="260.0" y="444.0" width="336.6" height="12.0" rx="4" />
+    <text class="bm-bar-val" x="604.6" y="454.0">2.2x</text>
+  </g>
+  <g class="bm-bar-group">
+    <title>LTAE / LightTAE (batch 512) · Reference: 1.56x gain</title>
+    <rect class="bm-bar-rect bm-ref-bar" x="260.0" y="460.0" width="297.4" height="12.0" rx="4" />
+    <text class="bm-bar-val" x="565.4" y="470.0">1.6x</text>
+  </g>
+</svg>

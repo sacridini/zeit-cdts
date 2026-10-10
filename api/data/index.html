@@ -1,0 +1,4380 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Change detection and time-series analysis for satellite imagery, in Python. Fast C++ ports of LandTrendr, CCDC, BFAST and more, from a single pixel to a Dask cluster.">
+      
+      
+      
+        <link rel="canonical" href="https://sacridini.github.io/zeit-cdts/api/data/">
+      
+      
+        <link rel="prev" href="../">
+      
+      
+        <link rel="next" href="../embeddings/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Data & I/O - Zeit</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+  
+  
+    
+      
+      
+    
+  
+  
+  <style>:root{--md-admonition-icon--info:url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%3E%3Cpath%20d%3D%22M11%209h2V7h-2m1%2013c-4.41%200-8-3.59-8-8s3.59-8%208-8%208%203.59%208%208-3.59%208-8%208m0-18A10%2010%200%200%200%202%2012a10%2010%200%200%200%2010%2010%2010%2010%200%200%200%2010-10A10%2010%200%200%200%2012%202m-1%2015h2v-6h-2z%22/%3E%3C/svg%3E');}</style>
+
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/zeit.css">
+    
+      <link rel="stylesheet" href="../../assets/benchmarks.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#data-io" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Zeit" class="md-header__button md-logo" aria-label="Zeit" data-md-component="logo">
+      
+  <img src="../../assets/logo/zeit-lockup-light.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Zeit
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Data & I/O
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to system preference"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to system preference" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/sacridini/zeit-cdts" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    sacridini/zeit-cdts
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting-started/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Get Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../tutorials/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../" class="md-tabs__link">
+          
+  
+  
+    
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../cli/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  CLI
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../benchmarks/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Benchmarks
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Zeit" class="md-nav__button md-logo" aria-label="Zeit" data-md-component="logo">
+      
+  <img src="../../assets/logo/zeit-lockup-light.svg" alt="logo">
+
+    </a>
+    Zeit
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/sacridini/zeit-cdts" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    sacridini/zeit-cdts
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../getting-started/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Get Started
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Get Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Core Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/choosing-an-algorithm/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Choosing an Algorithm
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/docker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docker
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../tutorials/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_2" id="__nav_3_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Data
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Data
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/stac-downloads/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    STAC Data Cubes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/gee-downloads/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Google Earth Engine
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/tmask/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cloud Masking (Tmask)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/embeddings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Embeddings (TESSERA, AlphaEarth)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Visualisation
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Visualisation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/plotting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plotting & Exploring Results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_4" id="__nav_3_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Change Detection
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Change Detection
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/landtrendr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LandTrendr
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/ccdc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CCDC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/bfast/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    BFAST
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/bfast_monitor/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    BFAST Monitor
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/bfast_lite/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    BFAST Lite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/coded/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Forest Degradation (CODED)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_5" id="__nav_3_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Time-Series Analysis
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Time-Series Analysis
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/mann_kendall/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Trend Analysis (Mann-Kendall)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/phenology/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phenology
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/twdtw/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pattern Matching (TWDTW)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/som/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Clustering (SOM)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/snic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Segmentation (SNIC)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_6" id="__nav_3_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Validation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/accuracy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Accuracy & Area
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_7" id="__nav_3_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deep Learning
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Deep Learning
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/ai/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deep Learning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/tempcnn/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TempCNN
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/ltae/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LTAE & LightTAE
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/utae/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    UTAE
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/siamese/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Siamese Change Detector
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/geo_foundation_vit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GeoFoundationViT
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_8" id="__nav_3_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scaling Up
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Scaling Up
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/parallel-cloud-processing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parallel & Cloud Processing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data & I/O
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data & I/O
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#building-cubes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Building cubes
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Building cubes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#build_time_series" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        build_time_series
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#build_annual_composites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        build_annual_composites
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#build_spectral_temporal_metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        build_spectral_temporal_metrics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#compute_indices" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        compute_indices
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#download_gee_timeseries" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        download_gee_timeseries
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#download_gee_image" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        download_gee_image
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#resolve_roi" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        resolve_roi
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#compositing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Compositing
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Compositing">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#regularize_time_series" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        regularize_time_series
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reading-and-writing-rasters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reading and writing rasters
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Reading and writing rasters">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#load_raster" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_raster
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#save_raster" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        save_raster
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#get_georef" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_georef
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quality-bands-to-weights" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quality bands to weights
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Quality bands to weights">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qc_sentinel2_scl" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        qc_sentinel2_scl
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qc_modis_summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        qc_modis_summary
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qc_modis_state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        qc_modis_state
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../embeddings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Embeddings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../preprocessing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pre-processing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../change-detection/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Change Detection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../time-series/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Time-Series Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../post-processing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Post-processing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../plot/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Visualisation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ai/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deep Learning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../xarray/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Xarray Accessor
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../benchmarks/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmarks
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Benchmarks
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../benchmarks/fidelity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Algorithm Fidelity
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../benchmarks/performance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance & Scaling
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#building-cubes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Building cubes
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Building cubes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#build_time_series" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        build_time_series
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#build_annual_composites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        build_annual_composites
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#build_spectral_temporal_metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        build_spectral_temporal_metrics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#compute_indices" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        compute_indices
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#download_gee_timeseries" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        download_gee_timeseries
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#download_gee_image" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        download_gee_image
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#resolve_roi" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        resolve_roi
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#compositing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Compositing
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Compositing">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#regularize_time_series" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        regularize_time_series
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reading-and-writing-rasters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reading and writing rasters
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Reading and writing rasters">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#load_raster" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_raster
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#save_raster" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        save_raster
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#get_georef" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_georef
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quality-bands-to-weights" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quality bands to weights
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Quality bands to weights">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qc_sentinel2_scl" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        qc_sentinel2_scl
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qc_modis_summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        qc_modis_summary
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qc_modis_state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        qc_modis_state
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+  <nav class="md-path" aria-label="Navigation" >
+    <ol class="md-path__list">
+      
+        
+  
+  
+    <li class="md-path__item">
+      <a href="../.." class="md-path__link">
+        
+  <span class="md-ellipsis">
+    Home
+  </span>
+
+      </a>
+    </li>
+  
+
+      
+      
+        
+  
+  
+    
+    
+      <li class="md-path__item">
+        <a href="../" class="md-path__link">
+          
+  <span class="md-ellipsis">
+    API Reference
+  </span>
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ol>
+  </nav>
+
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/sacridini/zeit-cdts/edit/main/docs/api/data.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="data-io">Data &amp; I/O<a class="headerlink" href="#data-io" title="Permanent link">&para;</a></h1>
+<p class="lead">Build data cubes from cloud catalogs, Earth Engine or local files; read and write GeoTIFFs; composite to a regular time step; and turn QA bands into observation weights.</p>
+
+<h2 id="building-cubes">Building cubes<a class="headerlink" href="#building-cubes" title="Permanent link">&para;</a></h2>
+<h3 class="api" id="build_time_series"><code>build_time_series</code><a class="headerlink" href="#build_time_series" title="Permanent link">&para;</a></h3>
+<!-- sig: zeit.cube.build_time_series -->
+<div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">zeit</span><span class="o">.</span><span class="n">cube</span><span class="o">.</span><span class="n">build_time_series</span><span class="p">(</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">source</span><span class="o">=</span><span class="s2">"earth_search"</span><span class="p">,</span> <span class="n">collection</span><span class="o">=</span><span class="s2">"sentinel-2-l2a"</span><span class="p">,</span> <span class="n">bbox</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">vector_path</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">tiles</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">start_date</span><span class="o">=</span><span class="s2">"2020-01-01"</span><span class="p">,</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">end_date</span><span class="o">=</span><span class="s2">"2020-12-31"</span><span class="p">,</span> <span class="n">cloud_cover_max</span><span class="o">=</span><span class="mi">30</span><span class="p">,</span> <span class="n">bands</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">apply_cloud_mask</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">resolution</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">,</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">validate_items</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">access_token</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">chunksize</span><span class="o">=</span><span class="mi">2048</span><span class="p">,</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">dtype</span><span class="o">=</span><span class="s2">"float32"</span><span class="p">,</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="p">)</span>
+</span></code></pre></div>
+<p>Builds a lazy, Dask-backed <code>xarray.DataArray</code> from a STAC catalog. It searches the catalog, keeps the items matching the area, dates and cloud-cover limit, and stacks them into an aligned cube shaped <code>(time, band, y, x)</code>. Nothing is downloaded until the cube is computed. Also exported as <code>zeit.build_time_series</code>. Tutorial: <a href="../../tutorials/stac-downloads/">STAC Data Cubes</a>.</p>
+<div class="params">
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Parameter</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Default</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>source</code></td>
+<td style="text-align: left;"><code>str</code></td>
+<td style="text-align: left;"><code>"earth_search"</code></td>
+<td style="text-align: left;">Catalog alias (<code>"earth_search"</code>, <code>"planetary_computer"</code>, <code>"brazil_data_cube"</code>) or any STAC API URL.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>collection</code></td>
+<td style="text-align: left;"><code>str</code> or <code>list</code></td>
+<td style="text-align: left;"><code>"sentinel-2-l2a"</code></td>
+<td style="text-align: left;">Collection ID, e.g. <code>"sentinel-2-l2a"</code>, <code>"landsat-c2-l2"</code>, <code>"modis-13Q1-061"</code>. Available collections depend on <code>source</code>. HLS (<code>"hls2-l30"</code>, <code>"hls2-s30"</code> on Planetary Computer) is read as reflectance, and <code>["hls2-l30", "hls2-s30"]</code> builds both and joins them into one series sorted by time (see <a href="../preprocessing/#landsat-and-sentinel-2-in-one-series">Landsat and Sentinel-2 in one series</a>).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>bbox</code></td>
+<td style="text-align: left;"><code>list</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;"><code>[min_lon, min_lat, max_lon, max_lat]</code> in EPSG:4326.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>vector_path</code></td>
+<td style="text-align: left;"><code>str</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Vector file (Shapefile, GeoJSON) whose bounds define the area.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>tiles</code></td>
+<td style="text-align: left;"><code>list[str]</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Sentinel-2 MGRS tiles (<code>"22JFQ"</code>) or Landsat WRS-2 path/rows (<code>"215065"</code>).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>start_date</code>, <code>end_date</code></td>
+<td style="text-align: left;"><code>str</code></td>
+<td style="text-align: left;"><code>"2020-01-01"</code>, <code>"2020-12-31"</code></td>
+<td style="text-align: left;">Date range, <code>YYYY-MM-DD</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>cloud_cover_max</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;"><code>30</code></td>
+<td style="text-align: left;">Maximum scene cloud cover, in percent (metadata filter).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>bands</code></td>
+<td style="text-align: left;"><code>list[str]</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Assets to load, e.g. <code>["red", "nir"]</code>. For HLS, band roles (<code>coastal</code>, <code>blue</code>, <code>green</code>, <code>red</code>, <code>nir</code>, <code>swir1</code>, <code>swir2</code>) are read from each product's own asset (the NIR is L30's <code>B05</code> and S30's <code>B8A</code>) and keep the role's name; with both products, roles are required.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>apply_cloud_mask</code></td>
+<td style="text-align: left;"><code>bool</code></td>
+<td style="text-align: left;"><code>False</code></td>
+<td style="text-align: left;">Also load the QA band (<code>scl</code> for Sentinel-2, <code>qa_pixel</code> for Landsat, <code>Fmask</code> for HLS: cloud, adjacent to cloud or shadow, and shadow) and mask clouds and shadows. Other collections warn that nothing was masked.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>resolution</code></td>
+<td style="text-align: left;"><code>float</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Output pixel size, in units of <code>epsg</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>epsg</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;"><code>4326</code></td>
+<td style="text-align: left;">Output coordinate reference system.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>validate_items</code></td>
+<td style="text-align: left;"><code>bool</code></td>
+<td style="text-align: left;"><code>False</code></td>
+<td style="text-align: left;">Test each asset URL first and drop broken ones.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>access_token</code></td>
+<td style="text-align: left;"><code>str</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Token for catalogs that require one (e.g. Brazil Data Cube).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>chunksize</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;"><code>2048</code></td>
+<td style="text-align: left;">Spatial chunk size, in pixels. Large chunks mean fewer HTTP requests and fewer COG blocks read twice at chunk edges.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>dtype</code></td>
+<td style="text-align: left;"><code>str</code></td>
+<td style="text-align: left;"><code>"float32"</code></td>
+<td style="text-align: left;">Float types hold reflectance (scale and offset applied, NaN = nodata). Integer types (<code>"uint16"</code>) hold the raw digital numbers (0 = nodata) at half the memory, with per-scene <code>scale</code> and <code>offset</code> coordinates to recover reflectance; <code>apply_cloud_mask</code> must then stay <code>False</code>.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Returns</strong> a lazy <code>xarray.DataArray</code> <code>(time, band, y, x)</code>.</p>
+<p>Missing files (HTTP 404) and corrupted blocks become nodata. Access errors raise: Landsat on Earth Search lives in the requester-pays <code>s3://usgs-landsat</code> bucket and needs AWS credentials (the requester pays the transfer), while Planetary Computer serves the same Landsat files for free.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">zeit</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">cube</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">build_time_series</span><span class="p">(</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    <span class="n">source</span><span class="o">=</span><span class="s2">"earth_search"</span><span class="p">,</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    <span class="n">collection</span><span class="o">=</span><span class="s2">"sentinel-2-l2a"</span><span class="p">,</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    <span class="n">bbox</span><span class="o">=</span><span class="p">[</span><span class="o">-</span><span class="mf">48.0</span><span class="p">,</span> <span class="o">-</span><span class="mf">16.0</span><span class="p">,</span> <span class="o">-</span><span class="mf">47.9</span><span class="p">,</span> <span class="o">-</span><span class="mf">15.9</span><span class="p">],</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>    <span class="n">start_date</span><span class="o">=</span><span class="s2">"2021-01-01"</span><span class="p">,</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>    <span class="n">end_date</span><span class="o">=</span><span class="s2">"2021-12-31"</span><span class="p">,</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>    <span class="n">bands</span><span class="o">=</span><span class="p">[</span><span class="s2">"red"</span><span class="p">,</span> <span class="s2">"nir"</span><span class="p">],</span>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>    <span class="n">apply_cloud_mask</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>    <span class="n">resolution</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>
+</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>    <span class="n">epsg</span><span class="o">=</span><span class="mi">32722</span><span class="p">,</span>
+</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="p">)</span>
+</span></code></pre></div>
+<h3 class="api" id="build_annual_composites"><code>build_annual_composites</code><a class="headerlink" href="#build_annual_composites" title="Permanent link">&para;</a></h3>
+<!-- sig: zeit.cube.build_annual_composites -->
+<div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">zeit</span><span class="o">.</span><span class="n">cube</span><span class="o">.</span><span class="n">build_annual_composites</span><span class="p">(</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>    <span class="n">source</span><span class="o">=</span><span class="s2">"planetary_computer"</span><span class="p">,</span> <span class="n">collection</span><span class="o">=</span><span class="s2">"landsat-c2-l2"</span><span class="p">,</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>    <span class="n">bbox</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">vector_path</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">start_year</span><span class="o">=</span><span class="mi">1985</span><span class="p">,</span> <span class="n">end_year</span><span class="o">=</span><span class="mi">2024</span><span class="p">,</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>    <span class="n">season</span><span class="o">=</span><span class="p">(</span><span class="s1">'06-01'</span><span class="p">,</span> <span class="s1">'09-30'</span><span class="p">),</span> <span class="n">bands</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">cloud_cover_max</span><span class="o">=</span><span class="mi">30</span><span class="p">,</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>    <span class="n">method</span><span class="o">=</span><span class="s2">"median"</span><span class="p">,</span> <span class="n">apply_cloud_mask</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">resolution</span><span class="o">=</span><span class="mi">30</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">,</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>    <span class="n">access_token</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">chunksize</span><span class="o">=</span><span class="mi">2048</span><span class="p">,</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="p">)</span>
+</span></code></pre></div>
+<p>Builds one cloud-masked composite per year from a STAC catalog: the annual stack LandTrendr expects. Scenes are read as raw integers and reduced one spatial chunk at a time (QA mask, per-scene scale and offset, then median or medoid), so memory stays bounded by a few chunks however many scenes a year has, and every pixel is downloaded once. Also exported as <code>zeit.build_annual_composites</code>.</p>
+<div class="params">
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Parameter</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Default</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>source</code></td>
+<td style="text-align: left;"><code>str</code></td>
+<td style="text-align: left;"><code>"planetary_computer"</code></td>
+<td style="text-align: left;">Catalog alias or STAC API URL, as in <code>build_time_series</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>collection</code></td>
+<td style="text-align: left;"><code>str</code></td>
+<td style="text-align: left;"><code>"landsat-c2-l2"</code></td>
+<td style="text-align: left;">Collection ID. The QA band is picked from it (<code>qa_pixel</code> for Landsat, <code>scl</code> for Sentinel-2).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>bbox</code></td>
+<td style="text-align: left;"><code>list</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;"><code>[min_lon, min_lat, max_lon, max_lat]</code> in EPSG:4326. <code>bbox</code> or <code>vector_path</code> is required so every year shares one grid.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>vector_path</code></td>
+<td style="text-align: left;"><code>str</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Vector file whose bounds define the area.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>start_year</code>, <code>end_year</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;"><code>1985</code>, <code>2024</code></td>
+<td style="text-align: left;">Inclusive range of years.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>season</code></td>
+<td style="text-align: left;"><code>tuple</code></td>
+<td style="text-align: left;"><code>("06-01", "09-30")</code></td>
+<td style="text-align: left;"><code>("MM-DD", "MM-DD")</code> window inside each year. A window that wraps the new year (<code>("12-01", "02-28")</code>) is labelled with its first year.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>bands</code></td>
+<td style="text-align: left;"><code>list[str]</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Bands to composite, e.g. <code>["nir08", "swir22"]</code> for NBR. Required.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>cloud_cover_max</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;"><code>30</code></td>
+<td style="text-align: left;">Maximum scene cloud cover, in percent.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>method</code></td>
+<td style="text-align: left;"><code>str</code></td>
+<td style="text-align: left;"><code>"median"</code></td>
+<td style="text-align: left;"><code>"median"</code> (per band) or <code>"medoid"</code> (the real observation closest to the multi-band median).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>apply_cloud_mask</code></td>
+<td style="text-align: left;"><code>bool</code></td>
+<td style="text-align: left;"><code>True</code></td>
+<td style="text-align: left;">Mask clouds and shadows with the collection's QA band.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>resolution</code></td>
+<td style="text-align: left;"><code>float</code></td>
+<td style="text-align: left;"><code>30</code></td>
+<td style="text-align: left;">Output pixel size, in units of <code>epsg</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>epsg</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;"><code>4326</code></td>
+<td style="text-align: left;">Output coordinate reference system.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>access_token</code></td>
+<td style="text-align: left;"><code>str</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Token for catalogs that require one.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>chunksize</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;"><code>2048</code></td>
+<td style="text-align: left;">Spatial chunk size, in pixels. Memory per chunk in flight is about <code>scenes × bands × chunksize² × 2</code> bytes.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Returns</strong> a lazy float32 <code>xarray.DataArray</code> <code>(time, band, y, x)</code> of reflectance, with <code>time</code> on January 1st of each year and a <code>year</code> coordinate. Years without scenes are NaN, so the time axis has no gaps.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">zeit</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">comp</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">build_annual_composites</span><span class="p">(</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>    <span class="n">source</span><span class="o">=</span><span class="s2">"planetary_computer"</span><span class="p">,</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>    <span class="n">collection</span><span class="o">=</span><span class="s2">"landsat-c2-l2"</span><span class="p">,</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>    <span class="n">bbox</span><span class="o">=</span><span class="p">[</span><span class="mf">9.63</span><span class="p">,</span> <span class="mf">50.92</span><span class="p">,</span> <span class="mf">12.06</span><span class="p">,</span> <span class="mf">52.43</span><span class="p">],</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>    <span class="n">start_year</span><span class="o">=</span><span class="mi">1985</span><span class="p">,</span>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>    <span class="n">end_year</span><span class="o">=</span><span class="mi">2024</span><span class="p">,</span>
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>    <span class="n">bands</span><span class="o">=</span><span class="p">[</span><span class="s2">"nir08"</span><span class="p">,</span> <span class="s2">"swir22"</span><span class="p">],</span>
+</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>    <span class="n">epsg</span><span class="o">=</span><span class="mi">3035</span><span class="p">,</span>
+</span><span id="__span-3-11"><a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="p">)</span>
+</span><span id="__span-3-12"><a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="n">nbr</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">compute_indices</span><span class="p">(</span><span class="n">comp</span><span class="p">,</span> <span class="p">[</span><span class="s2">"NBR"</span><span class="p">])</span><span class="o">.</span><span class="n">sel</span><span class="p">(</span><span class="n">band</span><span class="o">=</span><span class="s2">"NBR"</span><span class="p">)</span>
+</span><span id="__span-3-13"><a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a><span class="n">zeit</span><span class="o">.</span><span class="n">save_raster</span><span class="p">(</span><span class="n">nbr</span><span class="p">,</span> <span class="s2">"nbr_1985_2024.tif"</span><span class="p">)</span>   <span class="c1"># one band per year, ready for LandTrendr</span>
+</span></code></pre></div>
+<h3 class="api" id="build_spectral_temporal_metrics"><code>build_spectral_temporal_metrics</code><a class="headerlink" href="#build_spectral_temporal_metrics" title="Permanent link">&para;</a></h3>
+<!-- sig: zeit.cube.build_spectral_temporal_metrics -->
+<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">zeit</span><span class="o">.</span><span class="n">cube</span><span class="o">.</span><span class="n">build_spectral_temporal_metrics</span><span class="p">(</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>    <span class="n">source</span><span class="o">=</span><span class="s2">"planetary_computer"</span><span class="p">,</span> <span class="n">collection</span><span class="o">=</span><span class="s2">"landsat-c2-l2"</span><span class="p">,</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>    <span class="n">bbox</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">vector_path</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">start_year</span><span class="o">=</span><span class="mi">1985</span><span class="p">,</span> <span class="n">end_year</span><span class="o">=</span><span class="mi">2024</span><span class="p">,</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>    <span class="n">season</span><span class="o">=</span><span class="p">(</span><span class="s1">'01-01'</span><span class="p">,</span> <span class="s1">'12-31'</span><span class="p">),</span> <span class="n">indices</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>    <span class="n">metrics</span><span class="o">=</span><span class="p">(</span><span class="s1">'median'</span><span class="p">,</span> <span class="s1">'p10'</span><span class="p">,</span> <span class="s1">'p25'</span><span class="p">,</span> <span class="s1">'p75'</span><span class="p">,</span> <span class="s1">'p90'</span><span class="p">,</span> <span class="s1">'std'</span><span class="p">),</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>    <span class="n">band_map</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">cloud_cover_max</span><span class="o">=</span><span class="mi">30</span><span class="p">,</span> <span class="n">apply_cloud_mask</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>    <span class="n">resolution</span><span class="o">=</span><span class="mi">30</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">,</span> <span class="n">access_token</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">chunksize</span><span class="o">=</span><span class="mi">1024</span><span class="p">,</span>
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="p">)</span>
+</span></code></pre></div>
+<p>Builds per-year spectral temporal metrics (STMs) from a STAC catalog: the median, percentiles, spread and so on of each index over every clear observation of a season. Each index is computed on every observation first, and the statistics are taken over time afterwards (the median NDVI, not the NDVI of the median bands). Scenes are read as raw integers and reduced one spatial chunk at a time, as in <code>build_annual_composites</code>, so the raw bands pass through memory once and only the metrics are kept. Also exported as <code>zeit.build_spectral_temporal_metrics</code>.</p>
+<div class="params">
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Parameter</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Default</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>source</code></td>
+<td style="text-align: left;"><code>str</code></td>
+<td style="text-align: left;"><code>"planetary_computer"</code></td>
+<td style="text-align: left;">Catalog alias or STAC API URL, as in <code>build_time_series</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>collection</code></td>
+<td style="text-align: left;"><code>str</code></td>
+<td style="text-align: left;"><code>"landsat-c2-l2"</code></td>
+<td style="text-align: left;">Collection ID. Picks the QA band and the default asset of each band role.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>bbox</code></td>
+<td style="text-align: left;"><code>list</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;"><code>[min_lon, min_lat, max_lon, max_lat]</code> in EPSG:4326. <code>bbox</code> or <code>vector_path</code> is required.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>vector_path</code></td>
+<td style="text-align: left;"><code>str</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Vector file whose bounds define the area.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>start_year</code>, <code>end_year</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;"><code>1985</code>, <code>2024</code></td>
+<td style="text-align: left;">Inclusive range of years.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>season</code></td>
+<td style="text-align: left;"><code>tuple</code></td>
+<td style="text-align: left;"><code>("01-01", "12-31")</code></td>
+<td style="text-align: left;"><code>("MM-DD", "MM-DD")</code> window inside each year; wraps the new year as in <code>build_annual_composites</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>indices</code></td>
+<td style="text-align: left;"><code>list[str]</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">What to summarize: indices (<code>NDVI</code>, <code>EVI</code>, <code>SAVI</code>, <code>kNDVI</code>, <code>NBR</code>, <code>NDMI</code>, <code>NDWI</code>, <code>MNDWI</code>, <code>NDFI</code>), band roles (<code>blue</code>, <code>green</code>, <code>red</code>, <code>nir</code>, <code>swir1</code>, <code>swir2</code>) or asset names. Required.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>metrics</code></td>
+<td style="text-align: left;"><code>list[str]</code></td>
+<td style="text-align: left;"><code>('median', 'p10', 'p25', 'p75', 'p90', 'std')</code></td>
+<td style="text-align: left;"><code>median</code>, <code>mean</code>, <code>std</code> (population), <code>min</code>, <code>max</code>, <code>iqr</code> (p75 − p25), <code>count</code> (clear observations) or any integer percentile such as <code>p5</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>band_map</code></td>
+<td style="text-align: left;"><code>dict</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Asset of each band role, e.g. <code>{"nir": "B8A"}</code>. Known for Landsat Collection 2 and Sentinel-2 L2A on Planetary Computer and Earth Search; needed for other collections.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>cloud_cover_max</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;"><code>30</code></td>
+<td style="text-align: left;">Maximum scene cloud cover, in percent.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>apply_cloud_mask</code></td>
+<td style="text-align: left;"><code>bool</code></td>
+<td style="text-align: left;"><code>True</code></td>
+<td style="text-align: left;">Mask clouds and shadows with the collection's QA band.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>resolution</code></td>
+<td style="text-align: left;"><code>float</code></td>
+<td style="text-align: left;"><code>30</code></td>
+<td style="text-align: left;">Output pixel size, in units of <code>epsg</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>epsg</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;"><code>4326</code></td>
+<td style="text-align: left;">Output coordinate reference system.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>access_token</code></td>
+<td style="text-align: left;"><code>str</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Token for catalogs that require one.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>chunksize</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;"><code>1024</code></td>
+<td style="text-align: left;">Spatial chunk size, in pixels. Memory per chunk in flight is about <code>scenes × chunksize² × (2 bytes per band loaded + 4 per band or index used)</code>.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Returns</strong> a lazy float32 <code>xarray.DataArray</code> <code>(time, band, y, x)</code> with one band per index and metric, named <code>"&lt;index&gt;_&lt;metric&gt;"</code> (<code>"NDVI_p10"</code>), <code>time</code> on January 1st of each year and a <code>year</code> coordinate. Years without scenes are NaN.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">zeit</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">stm</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">build_spectral_temporal_metrics</span><span class="p">(</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>    <span class="n">source</span><span class="o">=</span><span class="s2">"planetary_computer"</span><span class="p">,</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>    <span class="n">collection</span><span class="o">=</span><span class="s2">"sentinel-2-l2a"</span><span class="p">,</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>    <span class="n">bbox</span><span class="o">=</span><span class="p">[</span><span class="o">-</span><span class="mf">47.95</span><span class="p">,</span> <span class="o">-</span><span class="mf">15.85</span><span class="p">,</span> <span class="o">-</span><span class="mf">47.90</span><span class="p">,</span> <span class="o">-</span><span class="mf">15.80</span><span class="p">],</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>    <span class="n">start_year</span><span class="o">=</span><span class="mi">2021</span><span class="p">,</span>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>    <span class="n">end_year</span><span class="o">=</span><span class="mi">2024</span><span class="p">,</span>
+</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>    <span class="n">indices</span><span class="o">=</span><span class="p">[</span><span class="s2">"NDVI"</span><span class="p">,</span> <span class="s2">"NBR"</span><span class="p">],</span>
+</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a>    <span class="n">metrics</span><span class="o">=</span><span class="p">[</span><span class="s2">"median"</span><span class="p">,</span> <span class="s2">"p10"</span><span class="p">,</span> <span class="s2">"p90"</span><span class="p">,</span> <span class="s2">"iqr"</span><span class="p">],</span>
+</span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a>    <span class="n">resolution</span><span class="o">=</span><span class="mi">20</span><span class="p">,</span>
+</span><span id="__span-5-12"><a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a>    <span class="n">epsg</span><span class="o">=</span><span class="mi">32723</span><span class="p">,</span>
+</span><span id="__span-5-13"><a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="p">)</span>
+</span><span id="__span-5-14"><a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a><span class="n">zeit</span><span class="o">.</span><span class="n">save_raster</span><span class="p">(</span><span class="n">stm</span><span class="o">.</span><span class="n">sel</span><span class="p">(</span><span class="n">year</span><span class="o">=</span><span class="mi">2024</span><span class="p">),</span> <span class="s2">"stm_2024.tif"</span><span class="p">)</span>   <span class="c1"># 8 bands: NDVI_median ... NBR_iqr</span>
+</span></code></pre></div>
+<h3 class="api" id="compute_indices"><code>compute_indices</code><a class="headerlink" href="#compute_indices" title="Permanent link">&para;</a></h3>
+<!-- sig: zeit.indices.compute_indices -->
+<div class="language-python highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">zeit</span><span class="o">.</span><span class="n">indices</span><span class="o">.</span><span class="n">compute_indices</span><span class="p">(</span><span class="n">cube</span><span class="p">,</span> <span class="n">indices</span><span class="p">,</span> <span class="n">band_map</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</span></code></pre></div>
+<p>Computes spectral indices from a reflectance cube, lazily, so a cube from <code>build_time_series</code> or <code>build_annual_composites</code> can be saved as indices without ever writing its bands. Each band role is found by its usual asset names (<code>red</code>, <code>B04</code>, <code>SR_B4</code>...), so the same call works for Landsat and Sentinel-2 from any of the built-in catalogs. Also exported as <code>zeit.compute_indices</code>.</p>
+<div class="params">
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Parameter</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Default</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>cube</code></td>
+<td style="text-align: left;"><code>xr.DataArray</code></td>
+<td style="text-align: left;">required</td>
+<td style="text-align: left;">Float reflectance cube with a <code>band</code> dimension. Raw integer cubes are rejected.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>indices</code></td>
+<td style="text-align: left;"><code>list[str]</code></td>
+<td style="text-align: left;">required</td>
+<td style="text-align: left;"><code>NDVI</code>, <code>EVI</code>, <code>SAVI</code>, <code>kNDVI</code>, <code>NBR</code>, <code>NDMI</code>, <code>NDWI</code>, <code>MNDWI</code> or <code>NDFI</code> (any case; the NDFI unmixes the six Landsat bands, see <a href="../preprocessing/#unmix"><code>unmix</code></a>).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>band_map</code></td>
+<td style="text-align: left;"><code>dict</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Band to read a role from when the default doesn't fit, e.g. <code>{"nir": "B8A"}</code>.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Returns</strong> a DataArray with the cube's dimensions whose <code>band</code> coordinate lists the indices. Divisions by zero become NaN.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">cube</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">build_time_series</span><span class="p">(</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>    <span class="n">source</span><span class="o">=</span><span class="s2">"planetary_computer"</span><span class="p">,</span> <span class="n">collection</span><span class="o">=</span><span class="s2">"sentinel-2-l2a"</span><span class="p">,</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>    <span class="n">bbox</span><span class="o">=</span><span class="p">[</span><span class="o">-</span><span class="mf">47.95</span><span class="p">,</span> <span class="o">-</span><span class="mf">15.85</span><span class="p">,</span> <span class="o">-</span><span class="mf">47.90</span><span class="p">,</span> <span class="o">-</span><span class="mf">15.80</span><span class="p">],</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>    <span class="n">start_date</span><span class="o">=</span><span class="s2">"2024-01-01"</span><span class="p">,</span> <span class="n">end_date</span><span class="o">=</span><span class="s2">"2024-12-31"</span><span class="p">,</span>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>    <span class="n">bands</span><span class="o">=</span><span class="p">[</span><span class="s2">"B02"</span><span class="p">,</span> <span class="s2">"B04"</span><span class="p">,</span> <span class="s2">"B08"</span><span class="p">,</span> <span class="s2">"B12"</span><span class="p">],</span> <span class="n">apply_cloud_mask</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>    <span class="n">resolution</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">32723</span><span class="p">,</span>
+</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="p">)</span>
+</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="n">idx</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">compute_indices</span><span class="p">(</span><span class="n">cube</span><span class="p">,</span> <span class="p">[</span><span class="s2">"NDVI"</span><span class="p">,</span> <span class="s2">"EVI"</span><span class="p">,</span> <span class="s2">"NBR"</span><span class="p">])</span>   <span class="c1"># (time, 3, y, x), still lazy</span>
+</span></code></pre></div>
+<h3 class="api" id="download_gee_timeseries"><code>download_gee_timeseries</code><a class="headerlink" href="#download_gee_timeseries" title="Permanent link">&para;</a></h3>
+<!-- sig: zeit.gee.download_gee_timeseries -->
+<div class="language-python highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="n">zeit</span><span class="o">.</span><span class="n">gee</span><span class="o">.</span><span class="n">download_gee_timeseries</span><span class="p">(</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>    <span class="n">roi</span><span class="p">,</span> <span class="n">start_date</span><span class="p">,</span> <span class="n">end_date</span><span class="p">,</span> <span class="n">out_dir</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s2">"auto"</span><span class="p">,</span>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>    <span class="n">composite_type</span><span class="o">=</span><span class="s2">"annual"</span><span class="p">,</span> <span class="n">indices</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">project</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>    <span class="n">metrics</span><span class="o">=</span><span class="p">(</span><span class="s1">'median'</span><span class="p">,</span> <span class="s1">'p10'</span><span class="p">,</span> <span class="s1">'p25'</span><span class="p">,</span> <span class="s1">'p75'</span><span class="p">,</span> <span class="s1">'p90'</span><span class="p">,</span> <span class="s1">'std'</span><span class="p">),</span> <span class="n">bands</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="p">)</span>
+</span></code></pre></div>
+<p>Builds harmonised Landsat 5/7/8/9 composites on Google Earth Engine and downloads one GeoTIFF per composite. By default (<code>method="auto"</code>) it uses a concurrent tiled direct download and falls back to a Google Drive export for very large images or ones that hit Earth Engine's interactive compute limits. Tutorial: <a href="../../tutorials/gee-downloads/">Google Earth Engine</a>.</p>
+<div class="params">
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Parameter</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Default</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>roi</code></td>
+<td style="text-align: left;"><code>str</code>, <code>list</code>, file path, GeoDataFrame or <code>ee.Geometry</code></td>
+<td style="text-align: left;">required</td>
+<td style="text-align: left;">A Landsat WRS-2 path/row (<code>"217/076"</code>), a Sentinel-2 tile (<code>"23KPQ"</code>), a bbox <code>[min_lon, min_lat, max_lon, max_lat]</code>, a vector or raster file, a GeoDataFrame / shapely geometry, or an <code>ee.Geometry</code>. Local inputs are read offline; their bounding box is downloaded.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>start_date</code>, <code>end_date</code></td>
+<td style="text-align: left;"><code>str</code></td>
+<td style="text-align: left;">required</td>
+<td style="text-align: left;">Date range, <code>YYYY-MM-DD</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>out_dir</code></td>
+<td style="text-align: left;"><code>str</code></td>
+<td style="text-align: left;">required</td>
+<td style="text-align: left;">Output folder (for <code>"drive"</code>, used to name the exports).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>method</code></td>
+<td style="text-align: left;"><code>str</code></td>
+<td style="text-align: left;"><code>"auto"</code></td>
+<td style="text-align: left;"><code>"auto"</code> (direct, Drive when needed), or force <code>"direct"</code> / <code>"drive"</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>composite_type</code></td>
+<td style="text-align: left;"><code>str</code></td>
+<td style="text-align: left;"><code>"annual"</code></td>
+<td style="text-align: left;"><code>"annual"</code> medoid composites (LandTrendr), <code>"dense"</code> (every observation, CCDC) or <code>"stm"</code> (spectral temporal metrics per year).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>indices</code></td>
+<td style="text-align: left;"><code>list</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Indices (<code>"NDVI"</code>, <code>"EVI"</code>, <code>"SAVI"</code>, <code>"kNDVI"</code>, <code>"NBR"</code>, <code>"NDMI"</code>, <code>"NDWI"</code>, <code>"MNDWI"</code>, <code>"NDFI"</code>) and SR bands (<code>"SR_B2"</code> … <code>"SR_B7"</code>) to export, as in <code>build_spectral_temporal_metrics</code>. Indices are computed on surface reflectance; SR bands are exported as Collection 2 digital numbers. Default: the six reflective bands.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>project</code></td>
+<td style="text-align: left;"><code>str</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Google Cloud project used to initialise Earth Engine. Recommended.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>metrics</code></td>
+<td style="text-align: left;"><code>list</code></td>
+<td style="text-align: left;"><code>('median', 'p10', 'p25', 'p75', 'p90', 'std')</code></td>
+<td style="text-align: left;">With <code>composite_type="stm"</code>: <code>median</code>, <code>mean</code>, <code>std</code>, <code>min</code>, <code>max</code>, <code>iqr</code>, <code>count</code> or a percentile such as <code>"p10"</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>bands</code></td>
+<td style="text-align: left;"><code>list</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Deprecated name of <code>indices</code> (warns).</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">zeit.gee</span><span class="w"> </span><span class="kn">import</span> <span class="n">download_gee_timeseries</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="n">download_gee_timeseries</span><span class="p">(</span>
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>    <span class="n">roi</span><span class="o">=</span><span class="s2">"217/076"</span><span class="p">,</span>                      <span class="c1"># WRS-2 path/row; or a bbox, .shp, .gpkg, .tif ...</span>
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>    <span class="n">start_date</span><span class="o">=</span><span class="s2">"1985-01-01"</span><span class="p">,</span> <span class="n">end_date</span><span class="o">=</span><span class="s2">"2025-12-31"</span><span class="p">,</span>
+</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>    <span class="n">out_dir</span><span class="o">=</span><span class="s2">"./gee_data"</span><span class="p">,</span> <span class="n">composite_type</span><span class="o">=</span><span class="s2">"annual"</span><span class="p">,</span>
+</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>    <span class="n">indices</span><span class="o">=</span><span class="p">[</span><span class="s2">"NBR"</span><span class="p">],</span> <span class="n">project</span><span class="o">=</span><span class="s2">"my-gcp-project"</span><span class="p">,</span>
+</span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="p">)</span>
+</span><span id="__span-9-9"><a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a>
+</span><span id="__span-9-10"><a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a><span class="c1"># Spectral temporal metrics, reduced on Earth Engine: landsat_stm_2015.tif ... (8 bands each)</span>
+</span><span id="__span-9-11"><a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a><span class="n">download_gee_timeseries</span><span class="p">(</span>
+</span><span id="__span-9-12"><a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a>    <span class="n">roi</span><span class="o">=</span><span class="s2">"217/076"</span><span class="p">,</span> <span class="n">start_date</span><span class="o">=</span><span class="s2">"2015-01-01"</span><span class="p">,</span> <span class="n">end_date</span><span class="o">=</span><span class="s2">"2024-12-31"</span><span class="p">,</span>
+</span><span id="__span-9-13"><a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a>    <span class="n">out_dir</span><span class="o">=</span><span class="s2">"./gee_stm"</span><span class="p">,</span> <span class="n">composite_type</span><span class="o">=</span><span class="s2">"stm"</span><span class="p">,</span>
+</span><span id="__span-9-14"><a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a>    <span class="n">indices</span><span class="o">=</span><span class="p">[</span><span class="s2">"NDVI"</span><span class="p">,</span> <span class="s2">"NBR"</span><span class="p">],</span> <span class="n">metrics</span><span class="o">=</span><span class="p">[</span><span class="s2">"median"</span><span class="p">,</span> <span class="s2">"p10"</span><span class="p">,</span> <span class="s2">"p90"</span><span class="p">,</span> <span class="s2">"iqr"</span><span class="p">],</span>
+</span><span id="__span-9-15"><a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a>    <span class="n">project</span><span class="o">=</span><span class="s2">"my-gcp-project"</span><span class="p">,</span>
+</span><span id="__span-9-16"><a id="__codelineno-9-16" name="__codelineno-9-16" href="#__codelineno-9-16"></a><span class="p">)</span>
+</span></code></pre></div>
+<p>Masked pixels are written as <code>-inf</code> (float outputs), the files' NoData value: <code>load_raster</code> reads them as <code>NaN</code>, which LandTrendr treats as a missing year. See the <a href="../../tutorials/gee-downloads/#worked-example-a-full-landsat-tile-19852025-ready-for-landtrendr">worked example</a>.</p>
+<h3 class="api" id="download_gee_image"><code>download_gee_image</code><a class="headerlink" href="#download_gee_image" title="Permanent link">&para;</a></h3>
+<!-- sig: zeit.gee.downloader.download_gee_image -->
+<div class="language-python highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="n">zeit</span><span class="o">.</span><span class="n">gee</span><span class="o">.</span><span class="n">downloader</span><span class="o">.</span><span class="n">download_gee_image</span><span class="p">(</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>    <span class="n">image</span><span class="p">,</span> <span class="n">roi</span><span class="p">,</span> <span class="n">out_filename</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s2">"auto"</span><span class="p">,</span> <span class="n">scale</span><span class="o">=</span><span class="mi">30</span><span class="p">,</span> <span class="n">tile_size</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>    <span class="n">sub_tile_workers</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">crs</span><span class="o">=</span><span class="s2">"EPSG:4326"</span><span class="p">,</span> <span class="n">max_tile_mb</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>    <span class="n">max_direct_mb</span><span class="o">=</span><span class="mi">4096</span><span class="p">,</span> <span class="n">max_retries</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">base_backoff</span><span class="o">=</span><span class="mf">5.0</span><span class="p">,</span>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="p">)</span>
+</span></code></pre></div>
+<p>Downloads one <code>ee.Image</code> to a local GeoTIFF by the fastest route that works. This is what <code>download_gee_timeseries</code> calls for each composite; use it directly for images you build yourself or to tune the download. The direct route fixes one pixel grid for the whole ROI and fetches it as tiles with concurrent <code>ee.data.computePixels</code> calls, writing each tile into its window of the output file (no temporary tiles, no mosaicking). Concurrency adapts to <code>HTTP 429</code> responses.</p>
+<div class="params">
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Parameter</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Default</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>image</code></td>
+<td style="text-align: left;"><code>ee.Image</code></td>
+<td style="text-align: left;">required</td>
+<td style="text-align: left;">The image to download.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>roi</code></td>
+<td style="text-align: left;"><code>ee.Geometry</code></td>
+<td style="text-align: left;">required</td>
+<td style="text-align: left;">Region whose bounding box is downloaded. Build it with <code>resolve_roi</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>out_filename</code></td>
+<td style="text-align: left;"><code>str</code></td>
+<td style="text-align: left;">required</td>
+<td style="text-align: left;">Output GeoTIFF. Never left partially written.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>method</code></td>
+<td style="text-align: left;"><code>str</code></td>
+<td style="text-align: left;"><code>"auto"</code></td>
+<td style="text-align: left;"><code>"auto"</code>, <code>"direct"</code> or <code>"drive"</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>scale</code></td>
+<td style="text-align: left;"><code>float</code></td>
+<td style="text-align: left;"><code>30</code></td>
+<td style="text-align: left;">Pixel size in metres (converted to degrees at the equator for a geographic CRS, as Earth Engine does).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>tile_size</code></td>
+<td style="text-align: left;"><code>float</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Deprecated and ignored.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>sub_tile_workers</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;"><code>16</code></td>
+<td style="text-align: left;">Upper bound on concurrent requests. Starts at 4 and adapts to the account's limit (about 40 on a standard tier, about 2 in Restricted Mode).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>crs</code></td>
+<td style="text-align: left;"><code>str</code></td>
+<td style="text-align: left;"><code>"EPSG:4326"</code></td>
+<td style="text-align: left;">Output CRS, e.g. <code>"EPSG:32723"</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>max_tile_mb</code></td>
+<td style="text-align: left;"><code>float</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Cap on one tile request, in MB (at most 32, the default).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>max_direct_mb</code></td>
+<td style="text-align: left;"><code>float</code></td>
+<td style="text-align: left;"><code>4096</code></td>
+<td style="text-align: left;">With <code>"auto"</code>, larger images (raw size) go to a Drive export.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>max_retries</code>, <code>base_backoff</code></td>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"><code>5</code>, <code>5.0</code></td>
+<td style="text-align: left;">Retry policy for network or server errors. Throttled requests get short jittered retries instead.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Returns</strong> the output path, or <code>None</code> if the download failed (nothing is written in that case).</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">zeit.gee.auth</span><span class="w"> </span><span class="kn">import</span> <span class="n">initialize_gee</span>
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">zeit.gee.roi</span><span class="w"> </span><span class="kn">import</span> <span class="n">resolve_roi</span>
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">zeit.gee.harmonization</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_harmonized_collection</span>
+</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="kn">from</span><span class="w"> </span><span class="nn">zeit.gee.composites</span><span class="w"> </span><span class="kn">import</span> <span class="n">create_annual_medoid</span>
+</span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="kn">from</span><span class="w"> </span><span class="nn">zeit.gee.downloader</span><span class="w"> </span><span class="kn">import</span> <span class="n">download_gee_image</span>
+</span><span id="__span-11-6"><a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a>
+</span><span id="__span-11-7"><a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="n">initialize_gee</span><span class="p">(</span><span class="n">project</span><span class="o">=</span><span class="s2">"my-gcp-project"</span><span class="p">)</span>
+</span><span id="__span-11-8"><a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="n">roi</span> <span class="o">=</span> <span class="n">resolve_roi</span><span class="p">(</span><span class="s2">"data/study_area.gpkg"</span><span class="p">)</span>       <span class="c1"># or "217/076", "23KPQ", a bbox ...</span>
+</span><span id="__span-11-9"><a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="n">col</span> <span class="o">=</span> <span class="n">get_harmonized_collection</span><span class="p">(</span><span class="n">roi</span><span class="p">,</span> <span class="s2">"1985-01-01"</span><span class="p">,</span> <span class="s2">"2025-12-31"</span><span class="p">)</span>
+</span><span id="__span-11-10"><a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a>
+</span><span id="__span-11-11"><a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a><span class="k">for</span> <span class="n">year</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1985</span><span class="p">,</span> <span class="mi">2026</span><span class="p">):</span>
+</span><span id="__span-11-12"><a id="__codelineno-11-12" name="__codelineno-11-12" href="#__codelineno-11-12"></a>    <span class="n">img</span> <span class="o">=</span> <span class="n">create_annual_medoid</span><span class="p">(</span><span class="n">col</span><span class="p">,</span> <span class="n">year</span><span class="p">)</span>
+</span><span id="__span-11-13"><a id="__codelineno-11-13" name="__codelineno-11-13" href="#__codelineno-11-13"></a>    <span class="n">img</span> <span class="o">=</span> <span class="n">img</span><span class="o">.</span><span class="n">normalizedDifference</span><span class="p">([</span><span class="s2">"SR_B5"</span><span class="p">,</span> <span class="s2">"SR_B7"</span><span class="p">])</span><span class="o">.</span><span class="n">rename</span><span class="p">(</span><span class="s2">"NBR"</span><span class="p">)</span><span class="o">.</span><span class="n">toFloat</span><span class="p">()</span>
+</span><span id="__span-11-14"><a id="__codelineno-11-14" name="__codelineno-11-14" href="#__codelineno-11-14"></a>    <span class="n">download_gee_image</span><span class="p">(</span><span class="n">img</span><span class="p">,</span> <span class="n">roi</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"nbr_</span><span class="si">{</span><span class="n">year</span><span class="si">}</span><span class="s2">.tif"</span><span class="p">,</span> <span class="n">crs</span><span class="o">=</span><span class="s2">"EPSG:32723"</span><span class="p">,</span> <span class="n">sub_tile_workers</span><span class="o">=</span><span class="mi">32</span><span class="p">)</span>
+</span></code></pre></div>
+<h3 class="api" id="resolve_roi"><code>resolve_roi</code><a class="headerlink" href="#resolve_roi" title="Permanent link">&para;</a></h3>
+<!-- sig: zeit.gee.roi.resolve_roi -->
+<div class="language-python highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="n">zeit</span><span class="o">.</span><span class="n">gee</span><span class="o">.</span><span class="n">roi</span><span class="o">.</span><span class="n">resolve_roi</span><span class="p">(</span><span class="n">roi</span><span class="p">)</span>
+</span></code></pre></div>
+<p>Turns any supported area description into the <code>ee.Geometry</code> the Earth Engine functions need, so your code never builds Earth Engine objects. Local inputs are reduced to their bounding box.</p>
+<div class="params">
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Parameter</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Default</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>roi</code></td>
+<td style="text-align: left;">see below</td>
+<td style="text-align: left;">required</td>
+<td style="text-align: left;">Area description.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Input</th>
+<th style="text-align: left;">Example</th>
+<th style="text-align: left;">Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">WRS-2 path/row</td>
+<td style="text-align: left;"><code>"217/076"</code>, <code>"217_076"</code>, <code>"217076"</code></td>
+<td style="text-align: left;">Tile footprint, looked up from a Landsat Collection 2 scene</td>
+</tr>
+<tr>
+<td style="text-align: left;">Sentinel-2 MGRS tile</td>
+<td style="text-align: left;"><code>"23KPQ"</code>, <code>"T23KPQ"</code></td>
+<td style="text-align: left;">109.8 km tile computed offline (within ~50 m of real footprints). Tiles crossing 180° raise <code>ValueError</code></td>
+</tr>
+<tr>
+<td style="text-align: left;">Bounding box</td>
+<td style="text-align: left;"><code>[-43.6, -23.1, -43.1, -22.6]</code></td>
+<td style="text-align: left;">That box (lon/lat)</td>
+</tr>
+<tr>
+<td style="text-align: left;">Vector file</td>
+<td style="text-align: left;"><code>.shp</code>, <code>.gpkg</code>, <code>.geojson</code>, <code>.kml</code></td>
+<td style="text-align: left;">Extent of all features, reprojected to lon/lat</td>
+</tr>
+<tr>
+<td style="text-align: left;">Raster file</td>
+<td style="text-align: left;"><code>reference.tif</code></td>
+<td style="text-align: left;">Raster extent, reprojected to lon/lat</td>
+</tr>
+<tr>
+<td style="text-align: left;">GeoDataFrame / GeoSeries</td>
+<td style="text-align: left;"><code>geopandas.read_file(...)</code></td>
+<td style="text-align: left;">Extent, reprojected (no CRS: lon/lat assumed, with a warning)</td>
+</tr>
+<tr>
+<td style="text-align: left;">shapely geometry</td>
+<td style="text-align: left;"><code>box(...)</code></td>
+<td style="text-align: left;">Its bounds (assumed lon/lat)</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>ee.Geometry</code></td>
+<td style="text-align: left;"></td>
+<td style="text-align: left;">Passed through</td>
+</tr>
+</tbody>
+</table>
+<p>Sentinel-1 has no fixed tiling grid, so describe Sentinel-1 areas with any of the other inputs. Two offline helpers live in the same module: <code>zeit.gee.roi.roi_bounds(roi)</code> returns the lon/lat bounding box of a local input or a Sentinel-2 tile, and <code>zeit.gee.roi.s2_tile_utm_bounds("23KPQ")</code> returns a tile's exact UTM box, e.g. <code>("EPSG:32723", (600000, 7390200, 709800, 7500000))</code>.</p>
+<h2 id="compositing">Compositing<a class="headerlink" href="#compositing" title="Permanent link">&para;</a></h2>
+<h3 class="api" id="regularize_time_series"><code>regularize_time_series</code><a class="headerlink" href="#regularize_time_series" title="Permanent link">&para;</a></h3>
+<!-- sig: zeit.regularize.regularize_time_series -->
+<div class="language-python highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="n">zeit</span><span class="o">.</span><span class="n">regularize</span><span class="o">.</span><span class="n">regularize_time_series</span><span class="p">(</span>
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>    <span class="n">cube</span><span class="p">,</span> <span class="n">freq</span><span class="o">=</span><span class="s2">"16D"</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s2">"median"</span><span class="p">,</span>
+</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="p">)</span>
+</span></code></pre></div>
+<p>Composites an irregular cube to a fixed time step (16-day, monthly, yearly) with the median or the medoid of each window. Missing values (NaN and the cube's NoData) are left out; periods without observations, and pixels without one in a period, are NaN (an integer cube with NoData keeps its type, with NoData there). Georeferencing and NoData are kept. Stays lazy. Also exported as <code>zeit.regularize_time_series</code>.</p>
+<div class="params">
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Parameter</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Default</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>cube</code></td>
+<td style="text-align: left;"><code>DataArray</code> or path</td>
+<td style="text-align: left;">required</td>
+<td style="text-align: left;">Cube with a <code>time</code> dimension, <code>(time, y, x)</code> or <code>(time, band, y, x)</code>, or anything <code>load_raster</code> reads.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>freq</code></td>
+<td style="text-align: left;"><code>str</code></td>
+<td style="text-align: left;"><code>"16D"</code></td>
+<td style="text-align: left;">pandas frequency: <code>"16D"</code>, <code>"1MS"</code>, <code>"1YS"</code>, …</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>method</code></td>
+<td style="text-align: left;"><code>str</code></td>
+<td style="text-align: left;"><code>"median"</code></td>
+<td style="text-align: left;"><code>"median"</code> (per band) or <code>"medoid"</code> (the real observation closest to the multi-band median, so a composite's bands come from one date; with one band, the observation closest to the median). Only observations with every band are candidates, and on a tie the earliest wins. The medoid runs in C++, every pixel in parallel: on 60 dates of 4 bands and 300 × 300 pixels, 0.15 s against 1.0 s for xarray.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="n">cube_16d</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">regularize_time_series</span><span class="p">(</span><span class="n">cube</span><span class="p">,</span> <span class="n">freq</span><span class="o">=</span><span class="s2">"16D"</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s2">"medoid"</span><span class="p">)</span>
+</span></code></pre></div>
+<h2 id="reading-and-writing-rasters">Reading and writing rasters<a class="headerlink" href="#reading-and-writing-rasters" title="Permanent link">&para;</a></h2>
+<h3 class="api" id="load_raster"><code>load_raster</code><a class="headerlink" href="#load_raster" title="Permanent link">&para;</a></h3>
+<!-- sig: zeit.io.load_raster -->
+<div class="language-python highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="n">zeit</span><span class="o">.</span><span class="n">io</span><span class="o">.</span><span class="n">load_raster</span><span class="p">(</span>
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>    <span class="n">source</span><span class="p">,</span> <span class="n">dates</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">start_year</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">band</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">chunks</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>    <span class="n">clip</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">masked</span><span class="o">=</span><span class="s2">"auto"</span><span class="p">,</span> <span class="n">pattern</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">date_format</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a>    <span class="n">recursive</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">like</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">crs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">res</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">resampling</span><span class="o">=</span><span class="s2">"auto"</span><span class="p">,</span>
+</span><span id="__span-15-5"><a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>    <span class="n">validate</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-15-6"><a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a><span class="p">)</span>
+</span></code></pre></div>
+<p>Reads a time series, or a single map, as one georeferenced cube: an <code>xarray.DataArray</code> with dims <code>(time, y, x)</code> (one index) or <code>(time, band, y, x)</code> (several spectral bands), a <code>datetime64</code> <code>time</code> coordinate, and its CRS, transform and NoData through <code>.rio</code>. The georeferencing and the dates travel with the data, so the algorithms and <code>save_raster</code> need nothing else. Also exported as <code>zeit.load_raster</code>.</p>
+<p>It reads:</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Source</th>
+<th style="text-align: left;">Example</th>
+<th style="text-align: left;">Where the dates come from</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">A raster file with one band per date</td>
+<td style="text-align: left;"><code>"LT_Stack_NDVI_Rondonia.tif"</code></td>
+<td style="text-align: left;"><code>dates</code>/<code>start_year</code>; the dates <code>save_raster</code> writes into the file; the band descriptions (<code>yr1985</code>, <code>1985</code>, <code>2020-01-15</code>, <code>20200115</code>, or <code>2020-01-15_red</code> for a time × band stack); a <code>&lt;name&gt;_dates.csv</code> next to it</td>
+</tr>
+<tr>
+<td style="text-align: left;">A folder, a glob pattern or a list of single-date rasters</td>
+<td style="text-align: left;"><code>"tiles/*.tif"</code></td>
+<td style="text-align: left;">The first date in each file name, or <code>pattern=</code></td>
+</tr>
+<tr>
+<td style="text-align: left;">A Zarr store or a NetCDF file</td>
+<td style="text-align: left;"><code>"cube.zarr"</code></td>
+<td style="text-align: left;">Its <code>time</code> coordinate</td>
+</tr>
+<tr>
+<td style="text-align: left;">An <code>xarray.DataArray</code> or <code>Dataset</code></td>
+<td style="text-align: left;">the output of <code>build_time_series</code></td>
+<td style="text-align: left;">Its <code>time</code> coordinate (<code>lat</code>/<code>lon</code> are renamed <code>y</code>/<code>x</code>)</td>
+</tr>
+<tr>
+<td style="text-align: left;">A numpy array <code>(time, y, x)</code> or <code>(time, band, y, x)</code></td>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"><code>dates</code>/<code>start_year</code>; <code>like=</code> georeferences it</td>
+</tr>
+</tbody>
+</table>
+<p>Without dates, the band axis keeps the name <code>band</code> and the algorithms ask for <code>years</code>/<code>dates</code>. A single band is returned as <code>(y, x)</code>.</p>
+<div class="params">
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Parameter</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Default</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>source</code></td>
+<td style="text-align: left;">path, list, <code>DataArray</code>, <code>Dataset</code> or <code>ndarray</code></td>
+<td style="text-align: left;">required</td>
+<td style="text-align: left;">What to read (see the table above).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>dates</code></td>
+<td style="text-align: left;">list</td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Date of each time step: strings, datetimes, years (<code>1985</code>) or fractional years (<code>2020.5</code>). Overrides the dates found in the data.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>start_year</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Annual series: year of the first time step.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>band</code></td>
+<td style="text-align: left;"><code>int</code>, <code>str</code> or list</td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Bands to read: 1-based band numbers in a raster file, band or variable names in a cube or Dataset.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>chunks</code></td>
+<td style="text-align: left;"><code>"auto"</code>, <code>dict</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;"><code>None</code> loads the data into memory; anything else returns a lazy dask-backed cube, read block by block.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>clip</code></td>
+<td style="text-align: left;">bounds or geometries</td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Read only a region: <code>(xmin, ymin, xmax, ymax)</code> in the raster's CRS, or polygons (GeoDataFrame, GeoSeries, shapely).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>masked</code></td>
+<td style="text-align: left;"><code>"auto"</code>, <code>bool</code></td>
+<td style="text-align: left;"><code>"auto"</code></td>
+<td style="text-align: left;"><code>"auto"</code>: NoData becomes NaN in float rasters, while integer rasters (e.g. NDVI × 10000 in Int16) keep their values and type. <code>True</code>: NaN everywhere (integers become floats). <code>False</code>: values as stored.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>pattern</code></td>
+<td style="text-align: left;"><code>str</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Several files: regular expression with a named group <code>date</code> and optionally <code>band</code>, matched against each file name.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>date_format</code></td>
+<td style="text-align: left;"><code>str</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;"><code>strptime</code> format of the dates in file names or band descriptions (e.g. <code>"%Y%m%d"</code>).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>recursive</code></td>
+<td style="text-align: left;"><code>bool</code></td>
+<td style="text-align: left;"><code>False</code></td>
+<td style="text-align: left;">Folders: also search sub-folders.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>like</code></td>
+<td style="text-align: left;">path, <code>DataArray</code> or <code>Dataset</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">A reference raster whose grid the result takes (CRS, cells, extent and <code>x</code>/<code>y</code> coordinates), so that the two line up cell by cell; see <a href="#on-the-grid-of-another-raster">On the grid of another raster</a>. numpy input: a raster on the same grid whose coordinates and CRS georeference the array.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>crs</code></td>
+<td style="text-align: left;"><code>str</code>, <code>int</code>, <code>CRS</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Without a reference raster: the CRS to reproject to, as <code>gdalwarp -t_srs</code>; see <a href="#in-another-crs-or-at-another-resolution">In another CRS or at another resolution</a>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>res</code></td>
+<td style="text-align: left;">number or <code>(x, y)</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Without a reference raster: the cell size, in the units of <code>crs</code> (or of the data's CRS), as <code>gdalwarp -tr</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>resampling</code></td>
+<td style="text-align: left;"><code>str</code></td>
+<td style="text-align: left;"><code>"auto"</code></td>
+<td style="text-align: left;">With <code>like</code>, <code>crs</code> or <code>res</code>: <code>"auto"</code> takes the nearest cell for integer rasters and interpolates floats bilinearly (QA bands always take the nearest cell); or a GDAL method: <code>"nearest"</code>, <code>"bilinear"</code>, <code>"cubic"</code>, <code>"cubic_spline"</code>, <code>"lanczos"</code>, <code>"average"</code>, <code>"mode"</code>, <code>"min"</code>, <code>"max"</code>, <code>"med"</code>, <code>"q1"</code>, <code>"q3"</code>, <code>"rms"</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>validate</code></td>
+<td style="text-align: left;"><code>str</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;"><code>"landtrendr"</code>, <code>"ccdc"</code> or <code>"cold"</code>: warn when the series looks unfit for that algorithm (too few dates, values that do not look scaled).</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Returns</strong> <code>xarray.DataArray</code>.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="n">ndvi</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">load_raster</span><span class="p">(</span><span class="s2">"LT_Stack_NDVI_Rondonia.tif"</span><span class="p">)</span>      <span class="c1"># bands yr1985 ... yr2024</span>
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="n">ndvi</span><span class="o">.</span><span class="n">dims</span>                                                 <span class="c1"># ('time', 'y', 'x')</span>
+</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="n">ndvi</span><span class="o">.</span><span class="n">time</span><span class="o">.</span><span class="n">dt</span><span class="o">.</span><span class="n">year</span><span class="o">.</span><span class="n">values</span><span class="p">[[</span><span class="mi">0</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">]]</span>                         <span class="c1"># array([1985, 2024])</span>
+</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a>
+</span><span id="__span-16-5"><a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a><span class="n">ndvi</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">load_raster</span><span class="p">(</span><span class="s2">"ndvi_stack.tif"</span><span class="p">,</span> <span class="n">start_year</span><span class="o">=</span><span class="mi">1985</span><span class="p">,</span> <span class="n">chunks</span><span class="o">=</span><span class="s2">"auto"</span><span class="p">)</span>   <span class="c1"># lazy</span>
+</span><span id="__span-16-6"><a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a><span class="n">s2</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">load_raster</span><span class="p">(</span><span class="s2">"S2/"</span><span class="p">,</span> <span class="n">pattern</span><span class="o">=</span><span class="sa">r</span><span class="s2">"_(?P&lt;date&gt;\d</span><span class="si">{8}</span><span class="s2">)_(?P&lt;band&gt;B\d</span><span class="si">{2}</span><span class="s2">)\.tif$"</span><span class="p">)</span>   <span class="c1"># (time, band, y, x)</span>
+</span></code></pre></div>
+<h4 id="on-the-grid-of-another-raster">On the grid of another raster<a class="headerlink" href="#on-the-grid-of-another-raster" title="Permanent link">&para;</a></h4>
+<p><code>like=</code> puts the data on the grid of a reference raster, reprojecting and resampling it: Landsat at 30 m onto a Sentinel-2 grid at 10 m, a land-cover map onto the grid of a cube, or a folder of scenes from different orbits or UTM zones onto one grid.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="n">s2</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">load_raster</span><span class="p">(</span><span class="s2">"S2_ndvi.tif"</span><span class="p">)</span>
+</span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="n">landsat</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">load_raster</span><span class="p">(</span><span class="s2">"landsat_ndvi.tif"</span><span class="p">,</span> <span class="n">like</span><span class="o">=</span><span class="n">s2</span><span class="p">)</span>              <span class="c1"># bilinear for floats</span>
+</span><span id="__span-17-3"><a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="n">classes</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">load_raster</span><span class="p">(</span><span class="s2">"mapbiomas_2020.tif"</span><span class="p">,</span> <span class="n">like</span><span class="o">=</span><span class="n">s2</span><span class="p">)</span>           <span class="c1"># nearest cell for integers</span>
+</span><span id="__span-17-4"><a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a><span class="n">scenes</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">load_raster</span><span class="p">(</span><span class="s2">"scenes/"</span><span class="p">,</span> <span class="n">like</span><span class="o">=</span><span class="s2">"S2_ndvi.tif"</span><span class="p">,</span> <span class="n">chunks</span><span class="o">=</span><span class="s2">"auto"</span><span class="p">)</span>   <span class="c1"># each file onto the grid</span>
+</span><span id="__span-17-5"><a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a><span class="nb">bool</span><span class="p">((</span><span class="n">landsat</span><span class="o">.</span><span class="n">x</span> <span class="o">==</span> <span class="n">s2</span><span class="o">.</span><span class="n">x</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">())</span>                                     <span class="c1"># True: they line up</span>
+</span></code></pre></div>
+<ul>
+<li><strong>Every date on its own.</strong> Each date (and band) is resampled with its own NoData, as GDAL warping that date alone: a cloud in one date never leaks into the interpolation of another. (GDAL's warp of a multiband raster takes a cell as valid when <em>any</em> band is, so a cloudy cell of one date enters the bilinear or average of that date and spreads its NoData.)</li>
+<li><strong>GDAL's resampling, faster.</strong> The kernels are GDAL's (<code>gdalwarpkernel.cpp</code>, ported to C++ through landschaft), run in parallel; the source coordinates of the cells are computed once for every date. On a cube of 240 dates of 1000 × 1000 cells (UTM to EPSG:3035), nearest takes 0.5 s, bilinear 0.7 s and average 0.9 s, against 2.4 s, 22.6 s and 6.4 s for <code>rioxarray</code>'s <code>reproject_match</code>.</li>
+<li><strong>The same values however it runs</strong>: in memory, lazily (<code>chunks=</code>) or from a file, with any number of threads. A file is read only in the window the grid sees, and a lazy cube stays lazy.</li>
+<li><strong>No warp when it is not needed</strong>: a grid with the same CRS and cells, a whole number of cells apart, is only a crop (and padding with NoData) of the data.</li>
+<li>Cells outside the data are NoData (NaN for floats; integer rasters keep their NoData value, or get the largest value of unsigned types and the smallest of signed ones).</li>
+</ul>
+<h4 id="in-another-crs-or-at-another-resolution">In another CRS or at another resolution<a class="headerlink" href="#in-another-crs-or-at-another-resolution" title="Permanent link">&para;</a></h4>
+<p>Without a reference raster, <code>crs=</code> and <code>res=</code> make the grid <code>gdalwarp -t_srs crs -tr res</code> would: the extent that covers the data in that CRS, and either cells of <code>res</code> laid from its top-left corner or GDAL's suggested resolution. A folder's grid covers all of its files, at the finest of their resolutions, as gdalwarp does with several inputs. The warp is the same as with <code>like=</code>, so everything above applies.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="n">albers</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">load_raster</span><span class="p">(</span><span class="s2">"ndvi_stack.tif"</span><span class="p">,</span> <span class="n">crs</span><span class="o">=</span><span class="s2">"EPSG:5880"</span><span class="p">,</span> <span class="n">res</span><span class="o">=</span><span class="mi">30</span><span class="p">)</span>    <span class="c1"># reprojected, 30 m cells</span>
+</span><span id="__span-18-2"><a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="n">coarse</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">load_raster</span><span class="p">(</span><span class="s2">"ndvi_stack.tif"</span><span class="p">,</span> <span class="n">res</span><span class="o">=</span><span class="mi">250</span><span class="p">,</span> <span class="n">resampling</span><span class="o">=</span><span class="s2">"average"</span><span class="p">)</span>   <span class="c1"># same CRS, 250 m</span>
+</span><span id="__span-18-3"><a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a><span class="n">scenes</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">load_raster</span><span class="p">(</span><span class="s2">"scenes/"</span><span class="p">,</span> <span class="n">crs</span><span class="o">=</span><span class="mi">32722</span><span class="p">,</span> <span class="n">chunks</span><span class="o">=</span><span class="s2">"auto"</span><span class="p">)</span>          <span class="c1"># two UTM zones onto one</span>
+</span></code></pre></div>
+<p>The cells start at the corner of the data's extent, so two rasters loaded this way do not necessarily line up: to combine sources, load the first with <code>crs=</code>/<code>res=</code> and the others with <code>like=</code> it.</p>
+<h3 class="api" id="save_raster"><code>save_raster</code><a class="headerlink" href="#save_raster" title="Permanent link">&para;</a></h3>
+<!-- sig: zeit.io.save_raster -->
+<div class="language-python highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="n">zeit</span><span class="o">.</span><span class="n">io</span><span class="o">.</span><span class="n">save_raster</span><span class="p">(</span>
+</span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a>    <span class="n">data</span><span class="p">,</span> <span class="n">path</span><span class="p">,</span> <span class="n">like</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">crs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">transform</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">nodata</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-19-3"><a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a>    <span class="n">dtype</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">band_names</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">compress</span><span class="o">=</span><span class="s2">"deflate"</span><span class="p">,</span> <span class="n">driver</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-19-4"><a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a>    <span class="n">reference_cube</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-19-5"><a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a><span class="p">)</span>
+</span></code></pre></div>
+<p>Writes a map, a stack or a result so that GIS software and <code>load_raster</code> read it back as it was: georeferencing, NoData, band names and dates. Returns the path written. Also exported as <code>zeit.save_raster</code>.</p>
+<ul>
+<li>A <code>DataArray</code> brings its own georeferencing (<code>.rio</code>, or its <code>x</code>/<code>y</code> coordinates); a numpy or dask array takes it from <code>like=</code> (a raster or a path), or from <code>crs</code> and <code>transform</code>.</li>
+<li>A <code>time</code> axis becomes the band descriptions (<code>1985</code>, … for annual series, <code>2020-01-15</code>, … otherwise) and the <code>ZEIT_TIME</code> metadata tag, so <code>load_raster</code> gets the <code>time</code> coordinate back. A <code>(time, band, y, x)</code> cube is written as <code>2020-01-15_red</code>, <code>2020-01-15_nir</code>, …</li>
+<li>More leading dims become one band per combination, named by joining their labels: CCDC's <code>coefs (segment, band, coef, y, x)</code> is written as <code>1_blue_a0</code>, <code>1_blue_c1</code>, … Dates (<code>datetime64</code>, such as CCDC's <code>t_break</code>) are written as decimal years, NaN where there is none.</li>
+<li>A <code>Dataset</code> or a <code>dict</code> of maps (e.g. the result of <code>extract_events</code>, <code>bfast_monitor</code> or <code>mann_kendall</code>) becomes a folder with one GeoTIFF per variable when <code>path</code> has no extension, or one multi-band file named by variable when it ends in <code>.tif</code>. Variables with a leading dim get one band per label: each phenology metric <code>(year, y, x)</code> is written with bands <code>2010</code>, <code>2011</code>, …</li>
+<li>Floats with NaN get NaN as NoData (or <code>nodata</code>, which then replaces the NaN); <code>bool</code> is written as <code>uint8</code> and 64-bit integers as the smallest integer type that holds them.</li>
+<li>GeoTIFFs are compressed with the predictor that suits the type, tiled when larger than 256 × 256 and BigTIFF when needed; dask arrays are written block by block. The format follows the extension (<code>.tif</code>, <code>.img</code>, <code>.nc</code>, <code>.zarr</code>, …) or <code>driver</code> (<code>"COG"</code> for a Cloud-Optimised GeoTIFF). Missing folders are created.</li>
+</ul>
+<div class="params">
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Parameter</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Default</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>data</code></td>
+<td style="text-align: left;"><code>DataArray</code>, <code>Dataset</code>, <code>dict</code>, numpy or dask array</td>
+<td style="text-align: left;">required</td>
+<td style="text-align: left;">What to write: <code>(y, x)</code>, <code>(band\|time, y, x)</code>, <code>(time, band, y, x)</code> or more leading dims.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>path</code></td>
+<td style="text-align: left;"><code>str</code> or <code>Path</code></td>
+<td style="text-align: left;">required</td>
+<td style="text-align: left;">Output file, or folder for a <code>Dataset</code>/<code>dict</code>. Without an extension, <code>.tif</code> is added.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>like</code></td>
+<td style="text-align: left;">path or <code>DataArray</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">A raster on the same grid whose CRS and transform georeference <code>data</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>crs</code></td>
+<td style="text-align: left;"><code>str</code>, <code>int</code>, <code>CRS</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Coordinate reference system; overrides that of <code>data</code> and <code>like</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>transform</code></td>
+<td style="text-align: left;"><code>Affine</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Affine transform; overrides that of <code>data</code> and <code>like</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>nodata</code></td>
+<td style="text-align: left;"><code>float</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">NoData value; overrides that of <code>data</code>. NaN in floats are written as this value.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>dtype</code></td>
+<td style="text-align: left;"><code>str</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Data type to write (default: the data's). Floats cast to integers get <code>nodata</code> (or the type's maximum) where they are NaN.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>band_names</code></td>
+<td style="text-align: left;">list of <code>str</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Band descriptions; by default the dates of a <code>time</code> axis or the labels of a <code>band</code> axis.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>compress</code></td>
+<td style="text-align: left;"><code>str</code></td>
+<td style="text-align: left;"><code>"deflate"</code></td>
+<td style="text-align: left;">GeoTIFF compression: <code>"deflate"</code>, <code>"lzw"</code>, <code>"zstd"</code>, <code>None</code>…</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>driver</code></td>
+<td style="text-align: left;"><code>str</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">GDAL driver when the extension is not enough; <code>"COG"</code> writes a Cloud-Optimised GeoTIFF.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>reference_cube</code></td>
+<td style="text-align: left;">path or <code>DataArray</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Deprecated name of <code>like</code>.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Returns</strong> <code>pathlib.Path</code>.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="n">ndvi</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">load_raster</span><span class="p">(</span><span class="s2">"LT_Stack_NDVI_Rondonia.tif"</span><span class="p">)</span>
+</span><span id="__span-20-2"><a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="n">zeit</span><span class="o">.</span><span class="n">save_raster</span><span class="p">(</span><span class="n">ndvi</span><span class="o">.</span><span class="n">sel</span><span class="p">(</span><span class="n">time</span><span class="o">=</span><span class="s2">"2020"</span><span class="p">),</span> <span class="s2">"ndvi_2020.tif"</span><span class="p">)</span>       <span class="c1"># georeferencing from the cube</span>
+</span><span id="__span-20-3"><a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a><span class="n">zeit</span><span class="o">.</span><span class="n">save_raster</span><span class="p">(</span><span class="n">loss</span><span class="p">,</span> <span class="s2">"lt_rondonia"</span><span class="p">)</span>                          <span class="c1"># Dataset of maps: one GeoTIFF each</span>
+</span><span id="__span-20-4"><a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a><span class="n">zeit</span><span class="o">.</span><span class="n">save_raster</span><span class="p">(</span><span class="n">yod_array</span><span class="p">,</span> <span class="s2">"year_of_loss.tif"</span><span class="p">,</span> <span class="n">like</span><span class="o">=</span><span class="n">ndvi</span><span class="p">,</span> <span class="n">nodata</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>     <span class="c1"># numpy map</span>
+</span></code></pre></div>
+<h3 class="api" id="get_georef"><code>get_georef</code><a class="headerlink" href="#get_georef" title="Permanent link">&para;</a></h3>
+<!-- sig: zeit.io.get_georef -->
+<div class="language-python highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="n">zeit</span><span class="o">.</span><span class="n">io</span><span class="o">.</span><span class="n">get_georef</span><span class="p">(</span><span class="n">reference_cube</span><span class="p">)</span>
+</span></code></pre></div>
+<p>Extracts <code>{"crs": ..., "transform": ...}</code> from a rasterio dataset or an xarray object. Handy for <code>snic_to_polygons</code> or custom writers. Also exported as <code>zeit.get_georef</code>.</p>
+<div class="params">
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Parameter</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Default</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>reference_cube</code></td>
+<td style="text-align: left;">rasterio dataset or <code>xr.DataArray</code></td>
+<td style="text-align: left;">required</td>
+<td style="text-align: left;">Object to read the georeferencing from.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<h2 id="quality-bands-to-weights">Quality bands to weights<a class="headerlink" href="#quality-bands-to-weights" title="Permanent link">&para;</a></h2>
+<p>Decoders ported from <code>phenofit</code>'s <code>qcFUN.R</code>. Each turns a sensor's QA band into per-observation reliability weights in <code>[0, 1]</code> for the <code>weights=</code> of <a href="../preprocessing/#smooth"><code>zeit.smooth</code></a> and <a href="../time-series/#phenology"><code>zeit.phenology</code></a>. A QA cube (a <code>DataArray</code>, or a raster path) gives a weights cube with its dims, dates and georeferencing, lazy if it was, ready to pass along with the data it describes; the raster's NoData (and NaN) get the weight <code>0</code>. A numpy array gives a numpy array. All three are exported at the top level.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="n">cube</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">build_time_series</span><span class="p">(</span><span class="o">...</span><span class="p">,</span> <span class="n">bands</span><span class="o">=</span><span class="p">[</span><span class="s2">"red"</span><span class="p">,</span> <span class="s2">"nir"</span><span class="p">,</span> <span class="s2">"scl"</span><span class="p">])</span>
+</span><span id="__span-22-2"><a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a><span class="n">ndvi</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">compute_indices</span><span class="p">(</span><span class="n">cube</span><span class="p">,</span> <span class="p">[</span><span class="s2">"NDVI"</span><span class="p">])</span><span class="o">.</span><span class="n">sel</span><span class="p">(</span><span class="n">band</span><span class="o">=</span><span class="s2">"NDVI"</span><span class="p">)</span>
+</span><span id="__span-22-3"><a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a><span class="n">weights</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">qc_sentinel2_scl</span><span class="p">(</span><span class="n">cube</span><span class="o">.</span><span class="n">sel</span><span class="p">(</span><span class="n">band</span><span class="o">=</span><span class="s2">"scl"</span><span class="p">))</span>     <span class="c1"># (time, y, x), on the cube's grid</span>
+</span><span id="__span-22-4"><a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a><span class="n">pheno</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">phenology</span><span class="p">(</span><span class="n">ndvi</span><span class="p">,</span> <span class="n">weights</span><span class="o">=</span><span class="n">weights</span><span class="p">)</span>
+</span></code></pre></div>
+<h3 class="api" id="qc_sentinel2_scl"><code>qc_sentinel2_scl</code><a class="headerlink" href="#qc_sentinel2_scl" title="Permanent link">&para;</a></h3>
+<!-- sig: zeit.qc.qc_sentinel2_scl -->
+<div class="language-python highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="n">zeit</span><span class="o">.</span><span class="n">qc</span><span class="o">.</span><span class="n">qc_sentinel2_scl</span><span class="p">(</span><span class="n">scl</span><span class="p">,</span> <span class="n">wmin</span><span class="o">=</span><span class="mf">0.2</span><span class="p">,</span> <span class="n">wmid</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span> <span class="n">wmax</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span>
+</span></code></pre></div>
+<p>Sentinel-2 L2A Scene Classification Layer: vegetation, bare soil, water, unclassified and thin cirrus get <code>wmax</code>; medium-probability cloud gets <code>wmid</code>; everything else (saturated, shadow, high-probability cloud, snow, no data) gets <code>wmin</code>.</p>
+<div class="params">
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Parameter</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Default</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>scl</code></td>
+<td style="text-align: left;">array, <code>DataArray</code> or path</td>
+<td style="text-align: left;">required</td>
+<td style="text-align: left;">SCL values, any shape.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>wmin</code>, <code>wmid</code>, <code>wmax</code></td>
+<td style="text-align: left;"><code>float</code></td>
+<td style="text-align: left;"><code>0.2</code>, <code>0.5</code>, <code>1.0</code></td>
+<td style="text-align: left;">Weights for bad, doubtful and good observations.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<h3 class="api" id="qc_modis_summary"><code>qc_modis_summary</code><a class="headerlink" href="#qc_modis_summary" title="Permanent link">&para;</a></h3>
+<!-- sig: zeit.qc.qc_modis_summary -->
+<div class="language-python highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="n">zeit</span><span class="o">.</span><span class="n">qc</span><span class="o">.</span><span class="n">qc_modis_summary</span><span class="p">(</span><span class="n">qa</span><span class="p">,</span> <span class="n">wmin</span><span class="o">=</span><span class="mf">0.2</span><span class="p">,</span> <span class="n">wmid</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span> <span class="n">wmax</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span>
+</span></code></pre></div>
+<p>MOD13 "SummaryQA" / pixel reliability: <code>0</code> good → <code>wmax</code>, <code>1</code> marginal → <code>wmid</code>, <code>2</code> snow and <code>3</code> cloudy → <code>wmin</code>, fill → <code>0</code>.</p>
+<div class="params">
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Parameter</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Default</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>qa</code></td>
+<td style="text-align: left;">array, <code>DataArray</code> or path</td>
+<td style="text-align: left;">required</td>
+<td style="text-align: left;">SummaryQA values, any shape.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>wmin</code>, <code>wmid</code>, <code>wmax</code></td>
+<td style="text-align: left;"><code>float</code></td>
+<td style="text-align: left;"><code>0.2</code>, <code>0.5</code>, <code>1.0</code></td>
+<td style="text-align: left;">Weights for bad, doubtful and good observations.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">zeit.qc</span><span class="w"> </span><span class="kn">import</span> <span class="n">qc_modis_summary</span>
+</span><span id="__span-25-2"><a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a>
+</span><span id="__span-25-3"><a id="__codelineno-25-3" name="__codelineno-25-3" href="#__codelineno-25-3"></a><span class="n">weights</span> <span class="o">=</span> <span class="n">qc_modis_summary</span><span class="p">(</span><span class="n">qa_cube</span><span class="p">)</span>          <span class="c1"># a DataArray like qa_cube</span>
+</span></code></pre></div>
+<h3 class="api" id="qc_modis_state"><code>qc_modis_state</code><a class="headerlink" href="#qc_modis_state" title="Permanent link">&para;</a></h3>
+<!-- sig: zeit.qc.qc_modis_state -->
+<div class="language-python highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="n">zeit</span><span class="o">.</span><span class="n">qc</span><span class="o">.</span><span class="n">qc_modis_state</span><span class="p">(</span><span class="n">qa</span><span class="p">,</span> <span class="n">wmin</span><span class="o">=</span><span class="mf">0.2</span><span class="p">,</span> <span class="n">wmid</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span> <span class="n">wmax</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span>
+</span></code></pre></div>
+<p>MOD09 500 m 16-bit "State QA": decodes cloud state, cloud shadow, aerosol quantity and snow/ice bits.</p>
+<div class="params">
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Parameter</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Default</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>qa</code></td>
+<td style="text-align: left;">array, <code>DataArray</code> or path</td>
+<td style="text-align: left;">required</td>
+<td style="text-align: left;">State QA values, any shape.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>wmin</code>, <code>wmid</code>, <code>wmax</code></td>
+<td style="text-align: left;"><code>float</code></td>
+<td style="text-align: left;"><code>0.2</code>, <code>0.5</code>, <code>1.0</code></td>
+<td style="text-align: left;">Weights for bad, doubtful and good observations.</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../" class="md-footer__link md-footer__link--prev" aria-label="Previous: API Reference">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                API Reference
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../embeddings/" class="md-footer__link md-footer__link--next" aria-label="Next: Embeddings">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Embeddings
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Zeit is free software released under the GPL-2.0-or-later license.
+    </div>
+  
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+    <a href="https://github.com/sacridini/zeit-cdts" target="_blank" rel="noopener" title="Zeit on GitHub" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+    
+    
+    
+    
+    <a href="https://pypi.org/project/zeit-cdts/" target="_blank" rel="noopener" title="Zeit on PyPI" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.8 200.5c-7.7-30.9-22.3-54.2-53.4-54.2h-40.1v47.4c0 36.8-31.2 67.8-66.8 67.8H172.7c-29.2 0-53.4 25-53.4 54.3v101.8c0 29 25.2 46 53.4 54.3 33.8 9.9 66.3 11.7 106.8 0 26.9-7.8 53.4-23.5 53.4-54.3v-40.7H226.2v-13.6h160.2c31.1 0 42.6-21.7 53.4-54.2 11.2-33.5 10.7-65.7 0-108.6M286.2 444.7a20.4 20.4 0 1 1 0-40.7 20.4 20.4 0 1 1 0 40.7M167.8 248.1h106.8c29.7 0 53.4-24.5 53.4-54.3V91.9c0-29-24.4-50.7-53.4-55.6-35.8-5.9-74.7-5.6-106.8.1-45.2 8-53.4 24.7-53.4 55.6v40.7h106.9v13.6h-147c-31.1 0-58.3 18.7-66.8 54.2-9.8 40.7-10.2 66.1 0 108.6 7.6 31.6 25.7 54.2 56.8 54.2H101v-48.8c0-35.3 30.5-66.4 66.8-66.4m-6.6-183.4a20.4 20.4 0 1 1 0 40.8 20.4 20.4 0 1 1 0-40.8"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.indexes", "navigation.top", "navigation.footer", "navigation.instant", "navigation.instant.progress", "navigation.path", "toc.follow", "search.suggest", "search.highlight", "search.share", "content.code.copy", "content.code.annotate", "content.tabs.link", "content.tooltips", "content.action.edit"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../../javascripts/mathjax.js"></script>
+      
+        <script src="https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>

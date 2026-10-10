@@ -1,0 +1,250 @@
+/* Zeit Benchmarks & Validation Stylesheet */
+
+:root {
+  --bm-zeit: #2563eb;
+  --bm-ref: #ea580c;
+  --bm-gpu-lo: #60a5fa;
+  --bm-gpu-hi: #1d4ed8;
+  --bm-good: #16a34a;
+  --bm-warning: #d97706;
+  --bm-critical: #dc2626;
+  --bm-grid: #e2e8f0;
+  --bm-refline: #94a3b8;
+  --bm-text: var(--md-typeset-color, #1e293b);
+  --bm-muted: #64748b;
+  --bm-card-bg: var(--md-code-bg-color, #f8fafc);
+  --bm-border: rgba(0, 0, 0, 0.08);
+}
+
+[data-md-color-scheme="slate"] {
+  --bm-zeit: #3b82f6;
+  --bm-ref: #f97316;
+  --bm-gpu-lo: #60a5fa;
+  --bm-gpu-hi: #93c5fd;
+  --bm-good: #22c55e;
+  --bm-warning: #f59e0b;
+  --bm-critical: #ef4444;
+  --bm-grid: #334155;
+  --bm-refline: #64748b;
+  --bm-muted: #94a3b8;
+  --bm-card-bg: var(--md-code-bg-color, #1e293b);
+  --bm-border: rgba(255, 255, 255, 0.1);
+}
+
+/* KPI Tiles Grid */
+.bm-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin: 1.5em 0;
+}
+
+.bm-kpi-card {
+  background: var(--bm-card-bg);
+  border: 1px solid var(--bm-border);
+  border-radius: 12px;
+  padding: 18px 20px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.bm-kpi-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+}
+
+.bm-kpi-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--bm-muted);
+}
+
+.bm-kpi-value {
+  font-size: 2.2rem;
+  font-weight: 800;
+  line-height: 1.1;
+  color: var(--bm-zeit);
+  letter-spacing: -0.02em;
+}
+
+.bm-kpi-sub {
+  font-size: 0.85rem;
+  color: var(--bm-muted);
+  line-height: 1.4;
+}
+
+/* Status Badges */
+.bm-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-family: var(--md-code-font-family, monospace);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.bm-pill--compared {
+  background: rgba(22, 163, 74, 0.15);
+  color: var(--bm-good);
+}
+
+.bm-pill--partial {
+  background: rgba(217, 119, 6, 0.15);
+  color: var(--bm-warning);
+}
+
+.bm-pill--notcomp {
+  background: rgba(220, 38, 38, 0.15);
+  color: var(--bm-critical);
+}
+
+/* Chart Container & Legends */
+.bm-chart-card {
+  background: var(--bm-card-bg);
+  border: 1px solid var(--bm-border);
+  border-radius: 12px;
+  padding: 20px 24px;
+  margin: 1.5em 0;
+}
+
+.bm-legend {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--bm-muted);
+  margin-bottom: 14px;
+}
+
+.bm-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bm-legend-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  display: inline-block;
+}
+
+/* Benchmark SVG Chart Styling */
+.benchmark-chart {
+  width: 100%;
+  height: auto;
+  display: block;
+  overflow: visible;
+  font-family: var(--md-text-font-family, system-ui, sans-serif);
+}
+
+.bm-gridline {
+  stroke: var(--bm-grid);
+  stroke-width: 1;
+}
+
+.bm-refline {
+  stroke: var(--bm-refline);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 4;
+}
+
+.bm-ref-label {
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--bm-muted);
+  font-family: var(--md-code-font-family, monospace);
+}
+
+.bm-axis-tick {
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--bm-muted);
+  font-family: var(--md-code-font-family, monospace);
+}
+
+.bm-bar-label {
+  font-size: 13px;
+  font-weight: 600;
+  fill: var(--bm-text);
+}
+
+.bm-bar-val {
+  font-size: 12px;
+  font-weight: 700;
+  fill: var(--bm-text);
+  font-family: var(--md-code-font-family, monospace);
+}
+
+.bm-bar-rect {
+  cursor: pointer;
+  transition: opacity 0.15s ease, filter 0.15s ease;
+}
+
+.bm-bar-group:hover .bm-bar-rect {
+  filter: brightness(1.12);
+}
+
+.bm-zeit-bar {
+  fill: var(--bm-zeit);
+}
+
+.bm-ref-bar {
+  fill: var(--bm-ref);
+}
+
+.bm-gpu-lo {
+  fill: var(--bm-gpu-lo);
+}
+
+.bm-gpu-hi {
+  fill: var(--bm-gpu-hi);
+}
+
+/* Machine Comparison Callout */
+.bm-machine-box {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  background: var(--bm-card-bg);
+  border: 1px solid var(--bm-border);
+  border-radius: 12px;
+  padding: 20px;
+  margin: 1.5em 0;
+}
+
+@media (max-width: 768px) {
+  .bm-machine-box {
+    grid-template-columns: 1fr;
+  }
+}
+
+.bm-hw-spec {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bm-hw-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.bm-hw-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}

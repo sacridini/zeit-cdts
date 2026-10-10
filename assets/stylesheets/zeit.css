@@ -1,0 +1,941 @@
+/* ==========================================================================
+   Zeit documentation theme
+   Brand: navy + teal from the logo. Built on top of Material for MkDocs.
+   ========================================================================== */
+
+:root {
+  --zeit-navy: #0b3d6b;
+  --zeit-navy-2: #0f4f89;
+  --zeit-teal: #13868a;
+  --zeit-teal-soft: rgba(19, 134, 138, 0.1);
+  --zeit-ink: #1d2939;
+  --zeit-ink-2: #475467;
+  --zeit-muted: #667085;
+  --zeit-line: #e4e7ec;
+  --zeit-line-2: #d0d5dd;
+  --zeit-surface: #ffffff;
+  --zeit-surface-2: #f8fafc;
+  --zeit-surface-3: #f2f4f7;
+  --zeit-radius: 10px;
+  --zeit-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+  --zeit-shadow-lg: 0 8px 24px -6px rgba(16, 24, 40, 0.12);
+}
+
+[data-md-color-scheme="default"] {
+  --md-primary-fg-color: var(--zeit-navy);
+  --md-primary-fg-color--light: var(--zeit-navy-2);
+  --md-primary-fg-color--dark: #082c4e;
+  --md-primary-bg-color: #ffffff;
+  --md-accent-fg-color: var(--zeit-teal);
+  --md-accent-fg-color--transparent: var(--zeit-teal-soft);
+  --md-default-fg-color: var(--zeit-ink);
+  --md-default-fg-color--light: var(--zeit-ink-2);
+  --md-default-fg-color--lighter: #98a2b3;
+  --md-default-fg-color--lightest: #eaecf0;
+  --md-typeset-color: var(--zeit-ink);
+  --md-typeset-a-color: var(--zeit-navy-2);
+  --md-code-bg-color: #f6f8fa;
+  --md-code-fg-color: #24292f;
+}
+
+[data-md-color-scheme="slate"] {
+  --zeit-navy: #7cb4ea;
+  --zeit-navy-2: #8ec2f2;
+  --zeit-teal: #3cc2bf;
+  --zeit-teal-soft: rgba(60, 194, 191, 0.12);
+  --zeit-ink: #e6e9ee;
+  --zeit-ink-2: #b4bcc8;
+  --zeit-muted: #8b95a5;
+  --zeit-line: #263241;
+  --zeit-line-2: #33414f;
+  --zeit-surface: #121a24;
+  --zeit-surface-2: #16202c;
+  --zeit-surface-3: #1b2633;
+  --zeit-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --zeit-shadow-lg: 0 8px 24px -6px rgba(0, 0, 0, 0.5);
+  --md-hue: 212;
+  --md-default-bg-color: #0e151e;
+  --md-primary-fg-color: #0e151e;
+  --md-primary-bg-color: #e6e9ee;
+  --md-accent-fg-color: var(--zeit-teal);
+  --md-accent-fg-color--transparent: var(--zeit-teal-soft);
+  --md-typeset-a-color: var(--zeit-navy-2);
+  --md-code-bg-color: #151f2b;
+  --md-default-fg-color--lightest: #1f2a37;
+}
+
+/* ---------- Typography --------------------------------------------------- */
+
+.md-typeset {
+  font-size: 0.8rem;
+  line-height: 1.7;
+  font-feature-settings: "cv11", "ss01";
+}
+
+.md-typeset h1,
+.md-typeset h2,
+.md-typeset h3,
+.md-typeset h4 {
+  color: var(--zeit-ink);
+  letter-spacing: -0.015em;
+}
+
+.md-typeset h1 {
+  font-weight: 700;
+  font-size: 2rem;
+  line-height: 1.2;
+  margin-bottom: 0.6em;
+}
+
+.md-typeset h2 {
+  font-weight: 650;
+  font-size: 1.35rem;
+  margin-top: 2.2em;
+  padding-top: 0.2em;
+}
+
+.md-typeset h3 {
+  font-weight: 600;
+  font-size: 1.05rem;
+  margin-top: 1.8em;
+}
+
+.md-typeset h4 {
+  font-weight: 600;
+}
+
+/* Lead paragraph under a page title */
+.md-typeset .lead {
+  font-size: 0.92rem;
+  line-height: 1.65;
+  color: var(--zeit-ink-2);
+  margin-top: -0.2em;
+}
+
+.md-typeset hr {
+  border-bottom-color: var(--zeit-line);
+  margin: 2.2em 0;
+}
+
+.md-typeset a {
+  text-decoration-color: transparent;
+  transition: color 0.12s, text-decoration-color 0.12s;
+}
+
+.md-typeset a:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* ---------- Header & tabs ------------------------------------------------ */
+
+[data-md-color-scheme="default"] .md-header {
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--zeit-ink);
+  backdrop-filter: saturate(180%) blur(8px);
+  box-shadow: 0 1px 0 var(--zeit-line);
+}
+
+[data-md-color-scheme="slate"] .md-header {
+  background: rgba(14, 21, 30, 0.92);
+  backdrop-filter: saturate(180%) blur(8px);
+  box-shadow: 0 1px 0 var(--zeit-line);
+}
+
+.md-header__button.md-logo {
+  padding: 0.3rem 0.2rem;
+  margin-right: 0.2rem;
+}
+
+.md-header__button.md-logo img {
+  height: 1.9rem;
+}
+
+/* The logo is multi-colour (spectral bands), so swap in the dark variant
+   instead of flattening it with a filter. */
+[data-md-color-scheme="slate"] .md-header__button.md-logo img,
+[data-md-color-scheme="slate"] .zeit-hero__logo {
+  content: url("../logo/zeit-lockup-dark.svg");
+}
+
+.md-header__title {
+  font-weight: 650;
+  font-size: 0.85rem;
+}
+
+/* The logo already spells "Zeit": keep the text title only once scrolled. */
+.md-header__title .md-header__topic:first-child .md-ellipsis {
+  opacity: 0;
+}
+
+[data-md-color-scheme="default"] .md-search__form {
+  background: var(--zeit-surface-3);
+  border-radius: 8px;
+}
+
+[data-md-color-scheme="default"] .md-search__form:hover {
+  background: #eaecf0;
+}
+
+[data-md-color-scheme="default"] .md-search__input {
+  color: var(--zeit-ink);
+}
+
+[data-md-color-scheme="default"] .md-search__input::placeholder,
+[data-md-color-scheme="default"] .md-search__icon {
+  color: var(--zeit-muted);
+}
+
+.md-search__form {
+  border-radius: 8px;
+}
+
+[data-md-color-scheme="default"] .md-source {
+  color: var(--zeit-ink-2);
+}
+
+[data-md-color-scheme="default"] .md-tabs {
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--zeit-ink-2);
+  box-shadow: 0 1px 0 var(--zeit-line);
+}
+
+[data-md-color-scheme="slate"] .md-tabs {
+  background: rgba(14, 21, 30, 0.92);
+  box-shadow: 0 1px 0 var(--zeit-line);
+}
+
+.md-tabs__link {
+  font-size: 0.72rem;
+  font-weight: 500;
+  opacity: 1;
+  color: var(--zeit-ink-2);
+  margin-top: 0.55rem;
+}
+
+.md-tabs__item {
+  height: 2.6rem;
+}
+
+.md-tabs__item--active .md-tabs__link {
+  color: var(--zeit-navy);
+  font-weight: 600;
+}
+
+.md-tabs__item--active {
+  box-shadow: inset 0 -2px 0 var(--zeit-teal);
+}
+
+.md-tabs__link:hover {
+  color: var(--zeit-teal) !important;
+}
+
+/* ---------- Sidebars ----------------------------------------------------- */
+
+.md-nav {
+  font-size: 0.68rem;
+}
+
+.md-sidebar--primary .md-nav__item--section > .md-nav__link,
+.md-sidebar--primary .md-nav__item--section > label.md-nav__link {
+  font-size: 0.62rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--zeit-muted);
+  margin-top: 1.1em;
+}
+
+.md-sidebar--primary .md-nav__link {
+  border-radius: 6px;
+  padding: 0.18rem 0.5rem;
+  margin-top: 0.1em;
+  transition: background 0.12s, color 0.12s;
+}
+
+.md-sidebar--primary .md-nav__link:not(.md-nav__container):hover {
+  background: var(--zeit-surface-3);
+}
+
+.md-sidebar--primary .md-nav__link--active,
+.md-sidebar--primary .md-nav__item .md-nav__link--active {
+  color: var(--zeit-navy);
+  font-weight: 600;
+  background: var(--zeit-teal-soft);
+}
+
+.md-sidebar--primary .md-nav__item--section > .md-nav {
+  margin-left: 0;
+}
+
+.md-nav--primary .md-nav__title {
+  font-weight: 650;
+}
+
+/* Right-hand table of contents */
+.md-sidebar--secondary .md-nav__title {
+  font-size: 0.62rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--zeit-muted);
+  background: transparent;
+  box-shadow: none;
+}
+
+.md-sidebar--secondary .md-nav__list {
+  border-left: 1px solid var(--zeit-line);
+}
+
+.md-sidebar--secondary .md-nav__link {
+  color: var(--zeit-ink-2);
+  padding-left: 0.6rem;
+  margin-left: -1px;
+  border-left: 2px solid transparent;
+  margin-top: 0.35em;
+}
+
+.md-sidebar--secondary .md-nav__link--active,
+.md-sidebar--secondary .md-nav__link:hover {
+  color: var(--zeit-teal);
+}
+
+.md-sidebar--secondary .md-nav__link--active {
+  border-left-color: var(--zeit-teal);
+}
+
+.md-sidebar--secondary .md-nav .md-nav .md-nav__link {
+  padding-left: 1.2rem;
+}
+
+/* Breadcrumbs */
+.md-path {
+  font-size: 0.66rem;
+  color: var(--zeit-muted);
+}
+
+/* ---------- Content blocks ----------------------------------------------- */
+
+.md-typeset code {
+  border-radius: 5px;
+  font-size: 0.84em;
+  padding: 0.08em 0.35em;
+}
+
+.md-typeset pre > code {
+  font-size: 0.74rem;
+  line-height: 1.6;
+}
+
+.md-typeset .highlight,
+.md-typeset pre {
+  border-radius: var(--zeit-radius);
+}
+
+.md-typeset div.highlight {
+  border: 1px solid var(--zeit-line);
+  border-radius: var(--zeit-radius);
+  overflow: hidden;
+}
+
+.md-typeset .highlight span.filename {
+  font-size: 0.7rem;
+  font-weight: 600;
+  border-bottom: 1px solid var(--zeit-line);
+  background: var(--zeit-surface-3);
+}
+
+/* Admonitions */
+.md-typeset .admonition,
+.md-typeset details {
+  border-radius: var(--zeit-radius);
+  border-width: 1px;
+  border-left-width: 4px;
+  box-shadow: none;
+  font-size: 0.76rem;
+}
+
+.md-typeset .admonition-title,
+.md-typeset summary {
+  font-weight: 600;
+}
+
+/* Tables */
+.md-typeset table:not([class]) {
+  border: 1px solid var(--zeit-line);
+  border-radius: var(--zeit-radius);
+  font-size: 0.74rem;
+  box-shadow: none;
+  overflow: hidden;
+}
+
+.md-typeset table:not([class]) th {
+  background: var(--zeit-surface-2);
+  font-weight: 600;
+  color: var(--zeit-ink);
+  border-bottom: 1px solid var(--zeit-line);
+}
+
+.md-typeset table:not([class]) td {
+  border-top: 1px solid var(--zeit-line);
+  vertical-align: top;
+}
+
+.md-typeset table:not([class]) tr:hover {
+  background: var(--zeit-surface-2);
+  box-shadow: none;
+}
+
+/* Figures */
+.md-typeset figure {
+  margin: 1.6em auto;
+  max-width: 100%;
+}
+
+.md-typeset figure img {
+  border-radius: var(--zeit-radius);
+  border: 1px solid var(--zeit-line);
+  background: #fff;
+  padding: 0.6rem;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.md-typeset figcaption {
+  font-size: 0.72rem;
+  color: var(--zeit-muted);
+  max-width: 44rem;
+  margin: 0.7em auto 0;
+  line-height: 1.55;
+  font-style: normal;
+}
+
+.md-typeset figcaption strong {
+  color: var(--zeit-ink-2);
+}
+
+/* Buttons */
+.md-typeset .md-button {
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.78rem;
+  padding: 0.55em 1.25em;
+  border-width: 1px;
+  transition: all 0.15s;
+}
+
+.md-typeset .md-button--primary {
+  background: var(--zeit-navy);
+  border-color: var(--zeit-navy);
+  color: #fff;
+}
+
+[data-md-color-scheme="slate"] .md-typeset .md-button--primary {
+  color: #0e151e;
+}
+
+.md-typeset .md-button:not(.md-button--primary) {
+  color: var(--zeit-ink);
+  border-color: var(--zeit-line-2);
+  background: var(--zeit-surface);
+}
+
+.md-typeset .md-button:hover {
+  background: var(--zeit-teal);
+  border-color: var(--zeit-teal);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+/* ---------- Cards -------------------------------------------------------- */
+
+.md-typeset .grid.cards > ul > li,
+.md-typeset .grid > .card {
+  border-radius: 12px;
+  border: 1px solid var(--zeit-line);
+  box-shadow: var(--zeit-shadow);
+  background: var(--zeit-surface);
+  padding: 1rem 1.1rem;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+
+.md-typeset .grid.cards > ul > li:hover,
+.md-typeset .grid > .card:hover {
+  border-color: var(--zeit-line-2);
+  box-shadow: var(--zeit-shadow-lg);
+  transform: translateY(-1px);
+}
+
+.md-typeset .grid.cards > ul > li > hr {
+  margin: 0.6em 0;
+  border-bottom-color: var(--zeit-line);
+}
+
+.md-typeset .grid.cards .lg {
+  color: var(--zeit-teal);
+}
+
+/* Gallery cards: image on top, text below, whole card clickable */
+.md-typeset .gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: 1rem;
+  margin: 1.4em 0 2em;
+}
+
+.md-typeset .gallery a.tile {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--zeit-line);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--zeit-surface);
+  color: inherit;
+  box-shadow: var(--zeit-shadow);
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+  text-decoration: none;
+}
+
+.md-typeset .gallery a.tile:hover {
+  border-color: var(--zeit-teal);
+  box-shadow: var(--zeit-shadow-lg);
+  transform: translateY(-2px);
+}
+
+.md-typeset .gallery a.tile img {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+  background: #fff;
+  border-bottom: 1px solid var(--zeit-line);
+  display: block;
+}
+
+.md-typeset .gallery a.tile .tile-body {
+  padding: 0.75rem 0.9rem 0.9rem;
+}
+
+.md-typeset .gallery a.tile .tile-kicker {
+  font-size: 0.6rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--zeit-teal);
+}
+
+.md-typeset .gallery a.tile .tile-title {
+  display: block;
+  font-weight: 650;
+  font-size: 0.82rem;
+  color: var(--zeit-ink);
+  margin: 0.15em 0 0.25em;
+}
+
+.md-typeset .gallery a.tile .tile-text {
+  display: block;
+  font-size: 0.7rem;
+  color: var(--zeit-ink-2);
+  line-height: 1.5;
+}
+
+/* ---------- "At a glance" summary used at the top of tutorials ------------ */
+
+.md-typeset .glance {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
+  gap: 0;
+  border: 1px solid var(--zeit-line);
+  border-radius: 12px;
+  background: var(--zeit-surface-2);
+  margin: 1.2em 0 1.8em;
+  overflow: hidden;
+}
+
+.md-typeset .glance > div {
+  padding: 0.7rem 0.9rem;
+  border-right: 1px solid var(--zeit-line);
+}
+
+.md-typeset .glance > div:last-child {
+  border-right: 0;
+}
+
+.md-typeset .glance .k {
+  display: block;
+  font-size: 0.6rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--zeit-muted);
+  margin-bottom: 0.2em;
+}
+
+.md-typeset .glance .v {
+  display: block;
+  font-size: 0.74rem;
+  line-height: 1.45;
+  color: var(--zeit-ink);
+}
+
+@media screen and (max-width: 44.9375em) {
+  .md-typeset .glance > div {
+    border-right: 0;
+    border-bottom: 1px solid var(--zeit-line);
+  }
+}
+
+/* Numbered workflow steps (home page, quickstart) */
+.md-typeset .steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.8rem;
+  margin: 1.2em 0;
+  counter-reset: step;
+}
+
+.md-typeset .steps > div {
+  position: relative;
+  border: 1px solid var(--zeit-line);
+  border-radius: 12px;
+  padding: 0.9rem 1rem 0.9rem;
+  background: var(--zeit-surface);
+}
+
+.md-typeset .steps > div::before {
+  counter-increment: step;
+  content: counter(step);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  background: var(--zeit-teal-soft);
+  color: var(--zeit-teal);
+  font-weight: 700;
+  font-size: 0.7rem;
+  margin-bottom: 0.5rem;
+}
+
+.md-typeset .steps strong {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--zeit-ink);
+}
+
+.md-typeset .steps p {
+  font-size: 0.72rem;
+  color: var(--zeit-ink-2);
+  margin: 0.3em 0 0;
+  line-height: 1.5;
+}
+
+.md-typeset .steps code {
+  font-size: 0.66rem;
+}
+
+/* ---------- Home page ---------------------------------------------------- */
+
+.zeit-home .md-content__inner > h1:first-child {
+  display: none;
+}
+
+.md-typeset .zeit-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+  gap: 2.4rem;
+  align-items: center;
+  padding: 1.2rem 0 2rem;
+}
+
+.md-typeset .zeit-hero__logo {
+  width: 22rem;
+  max-width: 100%;
+  margin-bottom: 1rem;
+}
+
+.md-typeset .zeit-hero h1 {
+  font-size: 2.3rem;
+  line-height: 1.12;
+  font-weight: 750;
+  letter-spacing: -0.03em;
+  margin: 0 0 0.5em;
+}
+
+.md-typeset .zeit-hero h1 span {
+  color: var(--zeit-teal);
+}
+
+.md-typeset .zeit-hero .lead {
+  font-size: 0.98rem;
+  margin: 0 0 1.4em;
+}
+
+.md-typeset .zeit-hero .md-button {
+  margin: 0 0.4rem 0.5rem 0;
+}
+
+.md-typeset .zeit-hero__install {
+  margin-top: 0.8rem;
+  max-width: 22rem;
+}
+
+.md-typeset .zeit-hero__install .highlight {
+  margin: 0;
+}
+
+.md-typeset .zeit-hero__figure {
+  margin: 0;
+}
+
+.md-typeset .zeit-hero__figure img {
+  border-radius: 14px;
+  border: 1px solid var(--zeit-line);
+  box-shadow: var(--zeit-shadow-lg);
+  background: #fff;
+  padding: 0.5rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.md-typeset .zeit-hero__figure figcaption {
+  text-align: left;
+  margin-left: 0.2rem;
+}
+
+@media screen and (max-width: 59.9375em) {
+  .md-typeset .zeit-hero {
+    grid-template-columns: 1fr;
+    gap: 1.4rem;
+  }
+
+  .md-typeset .zeit-hero h1 {
+    font-size: 1.85rem;
+  }
+}
+
+.md-typeset .zeit-section-title {
+  text-align: left;
+  margin-top: 2.6em;
+}
+
+.md-typeset .kicker {
+  display: block;
+  font-size: 0.62rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--zeit-teal);
+  margin-bottom: -0.6em;
+  margin-top: 3em;
+}
+
+.md-typeset .stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.8rem;
+  margin: 1.4em 0;
+}
+
+.md-typeset .stats > div {
+  border: 1px solid var(--zeit-line);
+  border-radius: 12px;
+  padding: 0.9rem 1rem;
+  background: var(--zeit-surface);
+}
+
+.md-typeset .stats .n {
+  display: block;
+  font-size: 1.5rem;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+  color: var(--zeit-navy);
+  line-height: 1.2;
+}
+
+.md-typeset .stats .l {
+  display: block;
+  font-size: 0.7rem;
+  color: var(--zeit-ink-2);
+  line-height: 1.45;
+  margin-top: 0.2em;
+}
+
+/* ---------- API reference ------------------------------------------------ */
+
+.md-typeset h2.api,
+.md-typeset h3.api {
+  font-family: var(--md-code-font-family);
+  font-size: 0.92rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin-top: 2.6em;
+  padding-top: 1.4em;
+  border-top: 1px solid var(--zeit-line);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.md-typeset h2.api code,
+.md-typeset h3.api code {
+  background: none;
+  padding: 0;
+  font-size: 1em;
+  color: var(--zeit-navy);
+}
+
+.md-typeset h3.api::before,
+.md-typeset h2.api::before {
+  content: "function";
+  font-family: var(--md-text-font-family);
+  font-size: 0.58rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0.18em 0.55em;
+  border-radius: 999px;
+  background: var(--zeit-teal-soft);
+  color: var(--zeit-teal);
+}
+
+.md-typeset h3.api.cls::before,
+.md-typeset h2.api.cls::before {
+  content: "class";
+  background: rgba(99, 91, 255, 0.1);
+  color: #5b54d6;
+}
+
+.md-typeset h3.api.meth::before {
+  content: "method";
+  background: rgba(234, 88, 12, 0.1);
+  color: #c2410c;
+}
+
+.md-typeset h3.api.mod::before {
+  content: "module";
+  background: var(--zeit-surface-3);
+  color: var(--zeit-ink-2);
+}
+
+[data-md-color-scheme="slate"] .md-typeset h3.api.cls::before {
+  color: #a5a0ff;
+}
+
+[data-md-color-scheme="slate"] .md-typeset h3.api.meth::before {
+  color: #fb923c;
+}
+
+/* Signature block right under an API heading */
+.md-typeset .signature .highlight {
+  border-left: 3px solid var(--zeit-teal);
+}
+
+.md-typeset .signature pre > code {
+  white-space: pre-wrap;
+}
+
+/* Parameter tables: monospace names, muted types */
+.md-typeset .params table:not([class]) td:first-child {
+  font-family: var(--md-code-font-family);
+  font-size: 0.7rem;
+  white-space: nowrap;
+  color: var(--zeit-navy);
+}
+
+.md-typeset .params table:not([class]) td:nth-child(2),
+.md-typeset .params table:not([class]) td:nth-child(3) {
+  font-family: var(--md-code-font-family);
+  font-size: 0.68rem;
+  color: var(--zeit-ink-2);
+  white-space: nowrap;
+}
+
+.md-typeset .params table:not([class]) td code {
+  background: none;
+  padding: 0;
+}
+
+.md-typeset .params table {
+  display: table;
+  width: 100%;
+}
+
+.md-typeset .api-meta {
+  font-size: 0.72rem;
+  color: var(--zeit-muted);
+  margin-top: -0.4em;
+}
+
+/* Module index table on the API landing page */
+.md-typeset .api-index td:first-child {
+  white-space: nowrap;
+}
+
+/* ---------- Footer ------------------------------------------------------- */
+
+[data-md-color-scheme="default"] .md-footer {
+  background: var(--zeit-surface-2);
+  color: var(--zeit-ink-2);
+  border-top: 1px solid var(--zeit-line);
+}
+
+[data-md-color-scheme="default"] .md-footer__link,
+[data-md-color-scheme="default"] .md-footer__title {
+  color: var(--zeit-ink);
+}
+
+[data-md-color-scheme="default"] .md-footer-meta {
+  background: var(--zeit-surface-2);
+  border-top: 1px solid var(--zeit-line);
+}
+
+[data-md-color-scheme="default"] .md-footer-meta,
+[data-md-color-scheme="default"] .md-footer-meta a,
+[data-md-color-scheme="default"] .md-copyright {
+  color: var(--zeit-muted);
+}
+
+[data-md-color-scheme="default"] .md-social__link svg {
+  fill: var(--zeit-muted);
+}
+
+/* Mermaid diagrams: breathe a bit */
+.md-typeset .mermaid {
+  margin: 1.4em 0;
+  text-align: center;
+}
+
+/* ---------- Page-specific fixes ------------------------------------------ */
+
+.md-typeset .zeit-hero .headerlink {
+  display: none;
+}
+
+.md-content:has(.zeit-hero) .md-content__button {
+  display: none;
+}
+
+/* Two-column card grids (4 cards read better as 2 x 2 than 3 + 1) */
+.md-typeset .grid.cards.two > ul {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+}
+
+@media screen and (min-width: 60em) {
+  .md-typeset .grid.cards.two > ul {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* API: signature block right after the heading, no double rule after a section title */
+.md-typeset h3.api + .highlight {
+  border-left: 3px solid var(--zeit-teal);
+}
+
+.md-typeset h2 + h3.api,
+.md-typeset h2 + p + h3.api {
+  border-top: 0;
+  padding-top: 0;
+  margin-top: 1.2em;
+}

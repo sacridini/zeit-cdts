@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 510" class="benchmark-chart" role="img" aria-label="Single-Core Speedup by Algorithm">
+  <style>
+    .bm-gridline { stroke: var(--bm-grid, #e2e8f0); stroke-width: 1; }
+    .bm-refline { stroke: var(--bm-refline, #94a3b8); stroke-width: 1.5; stroke-dasharray: 4 4; }
+    .bm-ref-label { font-size: 11px; font-weight: 600; fill: var(--bm-muted, #64748b); font-family: monospace; }
+    .bm-axis-tick { font-size: 11px; font-weight: 600; fill: var(--bm-muted, #64748b); font-family: monospace; }
+    .bm-bar-label { font-size: 13px; font-weight: 600; fill: var(--bm-text, #1e293b); font-family: system-ui, -apple-system, sans-serif; }
+    .bm-bar-val { font-size: 12px; font-weight: 700; fill: var(--bm-text, #1e293b); font-family: monospace; }
+    .bm-zeit-bar { fill: var(--bm-zeit, #2563eb); }
+    .bm-ref-bar { fill: var(--bm-ref, #ea580c); }
+    .bm-gpu-lo { fill: var(--bm-gpu-lo, #60a5fa); }
+    .bm-gpu-hi { fill: var(--bm-gpu-hi, #1d4ed8); }
+    .bm-bar-rect { cursor: pointer; }
+    .bm-bar-group:hover .bm-bar-rect { filter: brightness(1.12); }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-md-color-scheme="default"]) {
+        --bm-grid: #334155;
+        --bm-refline: #64748b;
+        --bm-muted: #94a3b8;
+        --bm-text: #f1f5f9;
+        --bm-zeit: #3b82f6;
+        --bm-ref: #f97316;
+        --bm-gpu-lo: #60a5fa;
+        --bm-gpu-hi: #93c5fd;
+      }
+    }
+  </style>
+  <line class="bm-gridline" x1="300.3" y1="26" x2="300.3" y2="482" />
+  <text class="bm-axis-tick" x="300.3" y="502" text-anchor="middle">0.1</text>
+  <line class="bm-gridline" x1="434.0" y1="26" x2="434.0" y2="482" />
+  <text class="bm-axis-tick" x="434.0" y="502" text-anchor="middle">1x</text>
+  <line class="bm-gridline" x1="567.8" y1="26" x2="567.8" y2="482" />
+  <text class="bm-axis-tick" x="567.8" y="502" text-anchor="middle">10x</text>
+  <line class="bm-gridline" x1="701.5" y1="26" x2="701.5" y2="482" />
+  <text class="bm-axis-tick" x="701.5" y="502" text-anchor="middle">100x</text>
+  <line class="bm-refline" x1="434.0" y1="26" x2="434.0" y2="482" />
+  <text class="bm-ref-label" x="434.0" y="18" text-anchor="middle">1x (break-even)</text>
+  <text class="bm-bar-label" x="0" y="44.0">Phenology (vs R phenofit)</text>
+  <g class="bm-bar-group">
+    <title>Phenology: 244.5x speedup vs R phenofit on real EVI raster (638 px)</title>
+    <rect class="bm-bar-rect bm-zeit-bar" x="260.0" y="26.0" width="493.4" height="28.0" rx="4" />
+    <text class="bm-bar-val" x="761.4" y="44.0">244x</text>
+  </g>
+  <text class="bm-bar-label" x="0" y="82.0">LandTrendr (vs IDL on GDL)</text>
+  <g class="bm-bar-group">
+    <title>LandTrendr: 168.5x speedup vs Kennedy et al. 2010 IDL source (GDL warm loop)</title>
+    <rect class="bm-bar-rect bm-zeit-bar" x="260.0" y="64.0" width="471.8" height="28.0" rx="4" />
+    <text class="bm-bar-val" x="739.8" y="82.0">168x</text>
+  </g>
+  <text class="bm-bar-label" x="0" y="120.0">CCDC (vs MATLAB on Octave)</text>
+  <g class="bm-bar-group">
+    <title>CCDC: 83.7x speedup vs original Zhu/Woodcock MATLAB source (GNU Octave, synthetic)</title>
+    <rect class="bm-bar-rect bm-zeit-bar" x="260.0" y="102.0" width="431.2" height="28.0" rx="4" />
+    <text class="bm-bar-val" x="699.2" y="120.0">83.7x</text>
+  </g>
+  <text class="bm-bar-label" x="0" y="158.0">TWDTW (vs R twdtw/dtwSat)</text>
+  <g class="bm-bar-group">
+    <title>TWDTW: 43.9x speedup vs R twdtw (Maus et al. 2016)</title>
+    <rect class="bm-bar-rect bm-zeit-bar" x="260.0" y="140.0" width="393.7" height="28.0" rx="4" />
+    <text class="bm-bar-val" x="661.7" y="158.0">43.9x</text>
+  </g>
+  <text class="bm-bar-label" x="0" y="196.0">SOM training (vs minisom)</text>
+  <g class="bm-bar-group">
+    <title>SOM training: 37.2x speedup vs Python minisom (identical codebook, 1,500 samples, 500 online iterations); batch SOM 44-126x</title>
+    <rect class="bm-bar-rect bm-zeit-bar" x="260.0" y="178.0" width="384.1" height="28.0" rx="4" />
+    <text class="bm-bar-val" x="652.1" y="196.0">37.2x</text>
+  </g>
+  <text class="bm-bar-label" x="0" y="234.0">Mann-Kendall (vs pymannkendall)</text>
+  <g class="bm-bar-group">
+    <title>Mann-Kendall: 36.4x average speedup vs Python pymannkendall</title>
+    <rect class="bm-bar-rect bm-zeit-bar" x="260.0" y="216.0" width="382.7" height="28.0" rx="4" />
+    <text class="bm-bar-val" x="650.7" y="234.0">36.4x</text>
+  </g>
+  <text class="bm-bar-label" x="0" y="272.0">BFAST Monitor (vs R bfast)</text>
+  <g class="bm-bar-group">
+    <title>BFAST Monitor: 15.8x speedup vs R bfast::bfastmonitor()</title>
+    <rect class="bm-bar-rect bm-zeit-bar" x="260.0" y="254.0" width="334.5" height="28.0" rx="4" />
+    <text class="bm-bar-val" x="602.5" y="272.0">15.8x</text>
+  </g>
+  <text class="bm-bar-label" x="0" y="310.0">TempCNN (vs R sits)</text>
+  <g class="bm-bar-group">
+    <title>TempCNN: 11.1x speedup forward pass vs R sits::sits_tempcnn()</title>
+    <rect class="bm-bar-rect bm-zeit-bar" x="260.0" y="292.0" width="313.7" height="28.0" rx="4" />
+    <text class="bm-bar-val" x="581.7" y="310.0">11.1x</text>
+  </g>
+  <text class="bm-bar-label" x="0" y="348.0">LTAE / LightTAE (vs R sits)</text>
+  <g class="bm-bar-group">
+    <title>LightTAE: 5.8x speedup forward pass vs R sits::sits_lighttae()</title>
+    <rect class="bm-bar-rect bm-zeit-bar" x="260.0" y="330.0" width="276.3" height="28.0" rx="4" />
+    <text class="bm-bar-val" x="544.3" y="348.0">5.8x</text>
+  </g>
+  <text class="bm-bar-label" x="0" y="386.0">BFAST classic (vs R bfast)</text>
+  <g class="bm-bar-group">
+    <title>BFAST classic: 4.3x speedup vs R bfast::bfast()</title>
+    <rect class="bm-bar-rect bm-zeit-bar" x="260.0" y="368.0" width="258.3" height="28.0" rx="4" />
+    <text class="bm-bar-val" x="526.3" y="386.0">4.3x</text>
+  </g>
+  <text class="bm-bar-label" x="0" y="424.0">BFAST Lite (vs R bfast)</text>
+  <g class="bm-bar-group">
+    <title>BFAST Lite: 2.5x speedup vs R bfast::bfastlite()</title>
+    <rect class="bm-bar-rect bm-zeit-bar" x="260.0" y="406.0" width="228.2" height="28.0" rx="4" />
+    <text class="bm-bar-val" x="496.2" y="424.0">2.5x</text>
+  </g>
+  <text class="bm-bar-label" x="0" y="462.0">Official U-TAE (vs utae-paps)</text>
+  <g class="bm-bar-group">
+    <title>U-TAE: 1.08x speedup vs official VSainteuf/utae-paps repo</title>
+    <rect class="bm-bar-rect bm-zeit-bar" x="260.0" y="444.0" width="178.5" height="28.0" rx="4" />
+    <text class="bm-bar-val" x="446.5" y="462.0">1.1x</text>
+  </g>
+</svg>

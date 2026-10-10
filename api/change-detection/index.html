@@ -1,0 +1,4535 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Change detection and time-series analysis for satellite imagery, in Python. Fast C++ ports of LandTrendr, CCDC, BFAST and more, from a single pixel to a Dask cluster.">
+      
+      
+      
+        <link rel="canonical" href="https://sacridini.github.io/zeit-cdts/api/change-detection/">
+      
+      
+        <link rel="prev" href="../preprocessing/">
+      
+      
+        <link rel="next" href="../time-series/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Change Detection - Zeit</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+  
+  
+    
+      
+      
+    
+  
+  
+  <style>:root{--md-admonition-icon--info:url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%3E%3Cpath%20d%3D%22M11%209h2V7h-2m1%2013c-4.41%200-8-3.59-8-8s3.59-8%208-8%208%203.59%208%208-3.59%208-8%208m0-18A10%2010%200%200%200%202%2012a10%2010%200%200%200%2010%2010%2010%2010%200%200%200%2010-10A10%2010%200%200%200%2012%202m-1%2015h2v-6h-2z%22/%3E%3C/svg%3E');}</style>
+
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/zeit.css">
+    
+      <link rel="stylesheet" href="../../assets/benchmarks.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#change-detection" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Zeit" class="md-header__button md-logo" aria-label="Zeit" data-md-component="logo">
+      
+  <img src="../../assets/logo/zeit-lockup-light.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Zeit
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Change Detection
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to system preference"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to system preference" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/sacridini/zeit-cdts" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    sacridini/zeit-cdts
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting-started/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Get Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../tutorials/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../" class="md-tabs__link">
+          
+  
+  
+    
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../cli/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  CLI
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../benchmarks/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Benchmarks
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Zeit" class="md-nav__button md-logo" aria-label="Zeit" data-md-component="logo">
+      
+  <img src="../../assets/logo/zeit-lockup-light.svg" alt="logo">
+
+    </a>
+    Zeit
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/sacridini/zeit-cdts" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    sacridini/zeit-cdts
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../getting-started/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Get Started
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Get Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Core Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/choosing-an-algorithm/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Choosing an Algorithm
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/docker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docker
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../tutorials/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_2" id="__nav_3_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Data
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Data
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/stac-downloads/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    STAC Data Cubes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/gee-downloads/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Google Earth Engine
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/tmask/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cloud Masking (Tmask)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/embeddings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Embeddings (TESSERA, AlphaEarth)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Visualisation
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Visualisation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/plotting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plotting & Exploring Results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_4" id="__nav_3_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Change Detection
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Change Detection
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/landtrendr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LandTrendr
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/ccdc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CCDC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/bfast/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    BFAST
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/bfast_monitor/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    BFAST Monitor
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/bfast_lite/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    BFAST Lite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/coded/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Forest Degradation (CODED)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_5" id="__nav_3_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Time-Series Analysis
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Time-Series Analysis
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/mann_kendall/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Trend Analysis (Mann-Kendall)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/phenology/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phenology
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/twdtw/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pattern Matching (TWDTW)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/som/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Clustering (SOM)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/snic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Segmentation (SNIC)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_6" id="__nav_3_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Validation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/accuracy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Accuracy & Area
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_7" id="__nav_3_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deep Learning
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Deep Learning
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/ai/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deep Learning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/tempcnn/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TempCNN
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/ltae/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LTAE & LightTAE
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/utae/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    UTAE
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/siamese/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Siamese Change Detector
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/geo_foundation_vit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GeoFoundationViT
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_8" id="__nav_3_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scaling Up
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Scaling Up
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/parallel-cloud-processing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parallel & Cloud Processing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../data/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data & I/O
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../embeddings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Embeddings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../preprocessing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pre-processing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Change Detection
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Change Detection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#landtrendr_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LandTrendr
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="LandTrendr">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#landtrendr" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        landtrendr
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#extract_events" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        extract_events
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agreement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        agreement
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#apply_vertices" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        apply_vertices
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ccdc_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CCDC
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="CCDC">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ccdc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ccdc
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#predict_synthetic_image" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        predict_synthetic_image
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#coded-forest-degradation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CODED (forest degradation)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="CODED (forest degradation)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#coded" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        coded
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bfast-family" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BFAST family
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="BFAST family">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bfast_monitor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        bfast_monitor
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bfast_lite" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        bfast_lite
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bfast" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        bfast
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../time-series/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Time-Series Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../post-processing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Post-processing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../plot/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Visualisation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ai/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deep Learning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../xarray/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Xarray Accessor
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../benchmarks/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmarks
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Benchmarks
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../benchmarks/fidelity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Algorithm Fidelity
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../benchmarks/performance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance & Scaling
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#landtrendr_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LandTrendr
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="LandTrendr">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#landtrendr" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        landtrendr
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#extract_events" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        extract_events
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agreement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        agreement
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#apply_vertices" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        apply_vertices
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ccdc_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CCDC
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="CCDC">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ccdc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ccdc
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#predict_synthetic_image" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        predict_synthetic_image
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#coded-forest-degradation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CODED (forest degradation)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="CODED (forest degradation)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#coded" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        coded
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bfast-family" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BFAST family
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="BFAST family">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bfast_monitor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        bfast_monitor
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bfast_lite" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        bfast_lite
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bfast" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        bfast
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+  <nav class="md-path" aria-label="Navigation" >
+    <ol class="md-path__list">
+      
+        
+  
+  
+    <li class="md-path__item">
+      <a href="../.." class="md-path__link">
+        
+  <span class="md-ellipsis">
+    Home
+  </span>
+
+      </a>
+    </li>
+  
+
+      
+      
+        
+  
+  
+    
+    
+      <li class="md-path__item">
+        <a href="../" class="md-path__link">
+          
+  <span class="md-ellipsis">
+    API Reference
+  </span>
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ol>
+  </nav>
+
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/sacridini/zeit-cdts/edit/main/docs/api/change-detection.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="change-detection">Change Detection<a class="headerlink" href="#change-detection" title="Permanent link">&para;</a></h1>
+<p class="lead">LandTrendr and CCDC, one function each for every kind of input, and the BFAST family at every level: one pixel, an in-memory array, a GeoTIFF on disk, or a Dask array. The xarray accessor forms are listed in <a href="../xarray/">Xarray Accessor</a>.</p>
+
+<h2 id="landtrendr_1">LandTrendr<a class="headerlink" href="#landtrendr_1" title="Permanent link">&para;</a></h2>
+<p>Tutorial: <a href="../../tutorials/landtrendr/">LandTrendr</a>.</p>
+<h3 class="api" id="landtrendr"><code>landtrendr</code><a class="headerlink" href="#landtrendr" title="Permanent link">&para;</a></h3>
+<!-- sig: zeit.landtrendr -->
+<div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">zeit</span><span class="o">.</span><span class="n">landtrendr</span><span class="p">(</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">data</span><span class="p">,</span> <span class="n">years</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">direction</span><span class="o">=</span><span class="s2">"loss"</span><span class="p">,</span> <span class="n">band</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">max_segments</span><span class="o">=</span><span class="mi">6</span><span class="p">,</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">pval_threshold</span><span class="o">=</span><span class="mf">0.05</span><span class="p">,</span> <span class="n">recovery_threshold</span><span class="o">=</span><span class="mf">0.25</span><span class="p">,</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">prevent_fast_recovery</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">spike_threshold</span><span class="o">=</span><span class="mf">0.9</span><span class="p">,</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">best_model_proportion</span><span class="o">=</span><span class="mf">0.75</span><span class="p">,</span> <span class="n">vertex_count_overshoot</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">min_observations_needed</span><span class="o">=</span><span class="mi">6</span><span class="p">,</span> <span class="n">nodata</span><span class="o">=</span><span class="s2">"auto"</span><span class="p">,</span> <span class="n">fitted</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">ftv</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">chunks</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">n_jobs</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="p">)</span>
+</span></code></pre></div>
+<p>Segments annual time series with LandTrendr (Kennedy et al. 2010), every pixel in parallel in C++ / OpenMP. One function for every input: it reads what <code>data</code> is and returns the same <code>xarray.Dataset</code> of vertices, georeferenced when the input is. All parameters but <code>data</code> are keyword-only. It replaces <code>run_landtrendr</code>, <code>run_landtrendr_array</code>, <code>run_landtrendr_image</code> and <code>DataArray.zeit.run_landtrendr</code>; the accessor form is now <a href="../xarray/#landtrendr"><code>DataArray.zeit.landtrendr</code></a>.</p>
+<p><code>data</code> can be:</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Input</th>
+<th style="text-align: left;">Example</th>
+<th style="text-align: left;">Where the years come from</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">A raster file, folder, glob or Zarr/NetCDF store: anything <a href="../data/#load_raster"><code>load_raster</code></a> reads</td>
+<td style="text-align: left;"><code>"LT_Stack_NDVI_Rondonia.tif"</code></td>
+<td style="text-align: left;">The dates <code>load_raster</code> finds (band descriptions such as <code>yr1985</code>, file names, a <code>time</code> coordinate)</td>
+</tr>
+<tr>
+<td style="text-align: left;">A <code>(time, y, x)</code> cube, numpy- or dask-backed</td>
+<td style="text-align: left;">the output of <code>load_raster</code></td>
+<td style="text-align: left;">Its <code>time</code> coordinate. A dask cube stays lazy.</td>
+</tr>
+<tr>
+<td style="text-align: left;">A <code>(time, band, y, x)</code> cube or a <code>Dataset</code></td>
+<td style="text-align: left;"><code>cube</code> with <code>band="NBR"</code></td>
+<td style="text-align: left;">Its <code>time</code> coordinate; <code>band</code> names the index</td>
+</tr>
+<tr>
+<td style="text-align: left;">A numpy array <code>(time, y, x)</code></td>
+<td style="text-align: left;"><code>stack</code></td>
+<td style="text-align: left;"><code>years=</code></td>
+</tr>
+<tr>
+<td style="text-align: left;">One pixel's series: a list, 1-D array or <code>pandas.Series</code></td>
+<td style="text-align: left;"><code>[5200, 5100, 2100, ...]</code></td>
+<td style="text-align: left;"><code>years=</code>, or the Series' index of dates or years</td>
+</tr>
+</tbody>
+</table>
+<p>LandTrendr needs one value per year: a series whose years repeat raises an error asking for annual composites first (<a href="../data/#build_annual_composites"><code>build_annual_composites</code></a>, or <code>regularize_time_series(cube, freq="1YS")</code>).</p>
+<div class="params">
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Parameter</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Default</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>data</code></td>
+<td style="text-align: left;">path, <code>DataArray</code>, <code>Dataset</code>, <code>ndarray</code>, list or <code>pd.Series</code></td>
+<td style="text-align: left;">required</td>
+<td style="text-align: left;">What to segment (see the table above).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>years</code></td>
+<td style="text-align: left;">1-D array</td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Year of each time step. Only for numpy input and cubes without dates; otherwise taken from the <code>time</code> coordinate.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>direction</code></td>
+<td style="text-align: left;"><code>str</code></td>
+<td style="text-align: left;"><code>"loss"</code></td>
+<td style="text-align: left;">The change to look for. <code>"loss"</code>: drops of the index, such as vegetation loss on NDVI, NBR, EVI or wetness. <code>"gain"</code>: rises, for indices that rise with disturbance (SWIR, brightness) or to map regrowth. Output values are always in the original scale.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>band</code></td>
+<td style="text-align: left;"><code>str</code> or <code>int</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">The index to segment in a <code>(time, band, y, x)</code> cube or a <code>Dataset</code> (band or variable name).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>max_segments</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;"><code>6</code></td>
+<td style="text-align: left;">Maximum segments per pixel.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>pval_threshold</code></td>
+<td style="text-align: left;"><code>float</code></td>
+<td style="text-align: left;"><code>0.05</code></td>
+<td style="text-align: left;">Maximum p-value of an accepted model.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>recovery_threshold</code></td>
+<td style="text-align: left;"><code>float</code></td>
+<td style="text-align: left;"><code>0.25</code></td>
+<td style="text-align: left;">Rejects recoveries faster than <code>1 / recovery_threshold</code> years.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>prevent_fast_recovery</code></td>
+<td style="text-align: left;"><code>bool</code></td>
+<td style="text-align: left;"><code>True</code></td>
+<td style="text-align: left;">Kept for compatibility; has no effect (the recovery check always applies, as in the original).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>spike_threshold</code></td>
+<td style="text-align: left;"><code>float</code></td>
+<td style="text-align: left;"><code>0.9</code></td>
+<td style="text-align: left;">Spike dampening (<a href="../preprocessing/#desawtooth"><code>desawtooth</code></a>). <code>1.0</code> disables it.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>best_model_proportion</code></td>
+<td style="text-align: left;"><code>float</code></td>
+<td style="text-align: left;"><code>0.75</code></td>
+<td style="text-align: left;">Prefer the model with more vertices whose p-value is at most <code>(2 - best_model_proportion)</code> times the best, as in the original. <code>0.75</code> accepts models within 1.25× of the best p-value. Values above <code>1</code> make the rule stricter than the best model itself, so most pixels end up as a flat line.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>vertex_count_overshoot</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;"><code>3</code></td>
+<td style="text-align: left;">Extra candidate vertices before pruning.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>min_observations_needed</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;"><code>6</code></td>
+<td style="text-align: left;">Pixels with fewer valid years are not segmented.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>nodata</code></td>
+<td style="text-align: left;"><code>"auto"</code>, <code>float</code> or <code>None</code></td>
+<td style="text-align: left;"><code>"auto"</code></td>
+<td style="text-align: left;">Value marking a missing year, which is left out of the fit (NaN always is). <code>"auto"</code>: the raster's NoData value; for integer data without one, <code>0</code> (how Earth Engine exports masked pixels). A number: that value. <code>None</code>: only NaN.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>fitted</code></td>
+<td style="text-align: left;"><code>bool</code></td>
+<td style="text-align: left;"><code>False</code></td>
+<td style="text-align: left;">Also return the fitted trajectory, <code>fitted (time, y, x)</code>: the series rebuilt from the vertices (LT-GEE's fitted values).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>ftv</code></td>
+<td style="text-align: left;">list of <code>str</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Other bands to fit to the vertices of <code>band</code> (LT-GEE's fitted-to-vertex bands), by name: bands of the <code>(time, band, y, x)</code> cube or variables of the <code>Dataset</code>. Each is desawtoothed and fitted segment by segment through the vertex years found, in its own scale (not flipped by <code>direction</code>), as the original's <code>ftv_v1</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>chunks</code></td>
+<td style="text-align: left;"><code>"auto"</code>, <code>dict</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Inputs read from disk: <code>None</code> reads the raster into memory; <code>"auto"</code> or a dict of chunk sizes keeps it lazy, so the result is computed block by block, for rasters larger than memory.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>n_jobs</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;"><code>-1</code></td>
+<td style="text-align: left;">Threads. <code>-1</code> uses all cores but one.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Returns</strong> an <code>xarray.Dataset</code>:</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Variable</th>
+<th style="text-align: left;">Dims</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>vertex_year</code></td>
+<td style="text-align: left;"><code>(vertex, y, x)</code></td>
+<td style="text-align: left;">int16</td>
+<td style="text-align: left;">Year of each vertex; <code>0</code> past the last one.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>vertex_value</code></td>
+<td style="text-align: left;"><code>(vertex, y, x)</code></td>
+<td style="text-align: left;">float32</td>
+<td style="text-align: left;">Fitted value at each vertex; NaN past the last one.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>n_vertices</code></td>
+<td style="text-align: left;"><code>(y, x)</code></td>
+<td style="text-align: left;">uint8</td>
+<td style="text-align: left;">Number of vertices (<code>0</code>: not segmented).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rmse</code></td>
+<td style="text-align: left;"><code>(y, x)</code></td>
+<td style="text-align: left;">float32</td>
+<td style="text-align: left;">RMSE of the fit: the noise estimate behind <code>dsnr</code> in <code>extract_events</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>fitted</code></td>
+<td style="text-align: left;"><code>(time, y, x)</code></td>
+<td style="text-align: left;">float32</td>
+<td style="text-align: left;">Only with <code>fitted=True</code>: the fitted trajectory.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>ftv_&lt;band&gt;</code></td>
+<td style="text-align: left;"><code>(time, y, x)</code></td>
+<td style="text-align: left;">float32</td>
+<td style="text-align: left;">For each band in <code>ftv</code>: its series fitted to the vertices.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>vertex_value_&lt;band&gt;</code></td>
+<td style="text-align: left;"><code>(vertex, y, x)</code></td>
+<td style="text-align: left;">float32</td>
+<td style="text-align: left;">For each band in <code>ftv</code>: its fitted value at each vertex year; NaN past the last vertex.</td>
+</tr>
+</tbody>
+</table>
+<p>The <code>x</code>/<code>y</code> coordinates and CRS of the input are kept, so the result goes straight to <a href="../data/#save_raster"><code>save_raster</code></a>. <code>attrs</code> records the parameters, <code>direction</code> among them (the default <code>event_type</code> of <code>extract_events</code>). A single pixel's result has no <code>y</code>/<code>x</code> dims. With a dask cube or <code>chunks=</code>, the result is lazy.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">ndvi</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">load_raster</span><span class="p">(</span><span class="s2">"LT_Stack_NDVI_Rondonia.tif"</span><span class="p">)</span>    <span class="c1"># (time, y, x), bands yr1985 ... yr2024</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">lt</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">landtrendr</span><span class="p">(</span><span class="n">ndvi</span><span class="p">)</span>                                <span class="c1"># looks for NDVI drops (direction="loss")</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">loss</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">extract_events</span><span class="p">(</span><span class="n">lt</span><span class="p">,</span> <span class="n">min_magnitude</span><span class="o">=</span><span class="mi">1500</span><span class="p">)</span>        <span class="c1"># greatest loss per pixel</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">zeit</span><span class="o">.</span><span class="n">save_raster</span><span class="p">(</span><span class="n">loss</span><span class="p">,</span> <span class="s2">"lt_rondonia"</span><span class="p">)</span>                     <span class="c1"># one GeoTIFF per metric</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="c1"># A raster larger than memory: lazy, computed block by block while it is written</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="n">lt</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">landtrendr</span><span class="p">(</span><span class="s2">"nbr_1985_2024.tif"</span><span class="p">,</span> <span class="n">chunks</span><span class="o">=</span><span class="s2">"auto"</span><span class="p">)</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="n">zeit</span><span class="o">.</span><span class="n">save_raster</span><span class="p">(</span><span class="n">zeit</span><span class="o">.</span><span class="n">extract_events</span><span class="p">(</span><span class="n">lt</span><span class="p">,</span> <span class="n">min_magnitude</span><span class="o">=</span><span class="mi">2000</span><span class="p">),</span> <span class="s2">"lt_nbr"</span><span class="p">)</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="c1"># One pixel's series</span>
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="n">px</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">landtrendr</span><span class="p">([</span><span class="mi">8100</span><span class="p">,</span> <span class="mi">8000</span><span class="p">,</span> <span class="mi">8200</span><span class="p">,</span> <span class="mi">8050</span><span class="p">,</span> <span class="mi">3100</span><span class="p">,</span> <span class="mi">4200</span><span class="p">,</span> <span class="mi">5300</span><span class="p">,</span> <span class="mi">6100</span><span class="p">,</span> <span class="mi">6800</span><span class="p">,</span> <span class="mi">7300</span><span class="p">,</span> <span class="mi">7500</span><span class="p">,</span> <span class="mi">7600</span><span class="p">],</span>
+</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>                     <span class="n">years</span><span class="o">=</span><span class="nb">range</span><span class="p">(</span><span class="mi">2010</span><span class="p">,</span> <span class="mi">2022</span><span class="p">))</span>
+</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="n">px</span><span class="o">.</span><span class="n">vertex_year</span><span class="o">.</span><span class="n">values</span>      <span class="c1"># array([2010, 2013, 2014, 2018, 2021, 0, 0], dtype=int16)</span>
+</span></code></pre></div>
+<h4 id="fitted-to-vertices-ftv">Fitted to vertices (FTV)<a class="headerlink" href="#fitted-to-vertices-ftv" title="Permanent link">&para;</a></h4>
+<p><code>ftv=</code> describes the periods found on one index with other bands, as LT-GEE's <code>ftv</code> bands: segment on NBR, then fit NDVI, TCW or SWIR1 through the same vertex years.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">stack</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">load_raster</span><span class="p">(</span><span class="s2">"landsat_indices.tif"</span><span class="p">)</span>       <span class="c1"># (time, band, y, x): nbr, ndvi, tcw, ...</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">lt</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">landtrendr</span><span class="p">(</span><span class="n">stack</span><span class="p">,</span> <span class="n">band</span><span class="o">=</span><span class="s2">"nbr"</span><span class="p">,</span> <span class="n">ftv</span><span class="o">=</span><span class="p">[</span><span class="s2">"ndvi"</span><span class="p">,</span> <span class="s2">"tcw"</span><span class="p">])</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">lt</span><span class="o">.</span><span class="n">ftv_ndvi</span>                                           <span class="c1"># (time, y, x): NDVI fitted to the NBR vertices</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="n">lt</span><span class="o">.</span><span class="n">vertex_value_tcw</span>                                   <span class="c1"># (vertex, y, x): TCW at each vertex year</span>
+</span></code></pre></div>
+<p>It is a port of the original's <code>ftv_v1.pro</code> (with <code>apply_fitted_trajectory_v1.pro</code>), checked against it run under GDL. Each band is desawtoothed with <code>spike_threshold</code> and fitted segment by segment, early to late, by the better of a straight line between the vertices and a regression anchored at the segment's start (<code>find_best_trace</code>). A vertex year the band has no observation for (a cloud in that band only) moves to the band's nearest observation before it, or after it when that one is a vertex already. Missing first and last years get flat vertices, as in the segmentation. The bands must be on the same grid and years as the segmented one (see <a href="../data/#on-the-grid-of-another-raster"><code>load_raster(..., like=)</code></a>).</p>
+<h3 class="api" id="extract_events"><code>extract_events</code><a class="headerlink" href="#extract_events" title="Permanent link">&para;</a></h3>
+<!-- sig: zeit.metrics.extract_events -->
+<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">zeit</span><span class="o">.</span><span class="n">metrics</span><span class="o">.</span><span class="n">extract_events</span><span class="p">(</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>    <span class="n">result</span><span class="p">,</span> <span class="n">event_type</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">sort_by</span><span class="o">=</span><span class="s2">"greatest"</span><span class="p">,</span> <span class="n">min_magnitude</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>    <span class="n">min_duration</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">pre_val_threshold</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">rmse_map</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">band</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="p">)</span>
+</span></code></pre></div>
+<p>Turns the result of any change detection algorithm into maps of one event per pixel, such as the greatest loss: the same variables whichever algorithm found the change, so maps of LandTrendr, CCDC and BFAST can be compared (<a href="#agreement"><code>agreement</code></a>), combined, or validated the same way. Also exported as <code>zeit.extract_events</code>.</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Result of</th>
+<th style="text-align: left;">Candidate events of a pixel</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><a href="#landtrendr"><code>landtrendr</code></a></td>
+<td style="text-align: left;">Each segment that goes in the direction of <code>event_type</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="#ccdc"><code>ccdc</code></a></td>
+<td style="text-align: left;">Each break followed by another segment; the change is the next segment's model minus the previous one's, both on the date of the break. A break at the end of the series, with no model after it yet, has no magnitude and is left out.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="#bfast_monitor"><code>bfast_monitor</code></a></td>
+<td style="text-align: left;">The break, with its <code>magnitude</code> (the median residual of the monitoring period).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="#bfast_lite"><code>bfast_lite</code></a></td>
+<td style="text-align: left;">Each break, with <code>magnitude_k</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="#bfast"><code>bfast</code></a></td>
+<td style="text-align: left;">Each trend break, with <code>trend_magnitude_k</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><a href="../embeddings/#embedding_change"><code>embedding_change</code></a></td>
+<td style="text-align: left;">Each year: the distance between its embedding and the year before's, with no direction (<code>event_type="any"</code>); <code>dsnr</code> against the pixel's median distance.</td>
+</tr>
+</tbody>
+</table>
+<div class="params">
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Parameter</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Default</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>result</code></td>
+<td style="text-align: left;"><code>xr.Dataset</code></td>
+<td style="text-align: left;">required</td>
+<td style="text-align: left;">The result of one of the algorithms above, in memory or dask. A numpy LandTrendr vertex stack <code>(2 × vertices, rows, cols)</code>, years in the first half and values in the second, is also accepted.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>event_type</code></td>
+<td style="text-align: left;"><code>str</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;"><code>"loss"</code> (the value fell), <code>"gain"</code> (it rose) or <code>"any"</code> (either; the magnitude is then the size of the change). Default: the <code>direction</code> LandTrendr ran with (<code>"loss"</code> for a numpy stack), <code>"any"</code> for the other algorithms. LandTrendr takes <code>"loss"</code> or <code>"gain"</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>sort_by</code></td>
+<td style="text-align: left;"><code>str</code></td>
+<td style="text-align: left;"><code>"greatest"</code></td>
+<td style="text-align: left;">Which event to keep when a pixel has several: <code>"greatest"</code> (magnitude), <code>"newest"</code>, <code>"fastest"</code>, <code>"longest"</code> or <code>"dsnr"</code> (not for <code>bfast</code>, whose result keeps no noise estimate).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>min_magnitude</code></td>
+<td style="text-align: left;"><code>float</code></td>
+<td style="text-align: left;"><code>0.0</code></td>
+<td style="text-align: left;">Ignore events smaller than this, in data units. A flat segment (magnitude <code>0</code>) is never an event.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>min_duration</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;"><code>1</code></td>
+<td style="text-align: left;">Ignore events shorter than this many years.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>pre_val_threshold</code></td>
+<td style="text-align: left;"><code>float</code></td>
+<td style="text-align: left;"><code>0.0</code></td>
+<td style="text-align: left;">For losses, ignore events starting below this value (for gains, above). <code>0</code> disables. Needs the value before the change: LandTrendr, or CCDC with <code>band</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rmse_map</code></td>
+<td style="text-align: left;"><code>np.ndarray</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Numpy stacks only: <code>(rows, cols)</code> RMSE of each pixel's fit, which adds the <code>dsnr</code> output. A LandTrendr Dataset brings its own (<code>rmse</code>).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>band</code></td>
+<td style="text-align: left;"><code>str</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">CCDC only: the band whose change is measured, e.g. <code>"nir"</code>. Without it (and with several bands), the magnitude is the length of the change vector over the run's detection bands, with no direction (<code>event_type="any"</code>).</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Returns</strong> an <code>xarray.Dataset</code> on the same grid and CRS as <code>result</code> (lazy if <code>result</code> is), ready for <code>save_raster</code>:</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Variable</th>
+<th style="text-align: left;">Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>yod</code></td>
+<td style="text-align: left;">Year of the last observation before the change (<code>0</code> = no event). For LandTrendr, the year of the vertex where the event starts; the first year in which the change is visible is <code>yod + 1</code>. For BFAST, the year of the time step before <code>date</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>date</code></td>
+<td style="text-align: left;">Date of the first observation that shows the change (<code>NaT</code> = no event). For annual LandTrendr, January 1 of <code>yod + 1</code>; for CCDC, the break (<code>t_break</code>).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>magnitude</code></td>
+<td style="text-align: left;">Size of the change, in data units, positive in the direction of <code>event_type</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>duration</code></td>
+<td style="text-align: left;">Years the change took. <code>1</code> is abrupt, and every break of CCDC and BFAST is.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>pre_val</code>, <code>post_val</code></td>
+<td style="text-align: left;">Fitted value before and after (NaN for BFAST, whose results keep no model, and for CCDC without <code>band</code>).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rate</code></td>
+<td style="text-align: left;"><code>magnitude / duration</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>dsnr</code></td>
+<td style="text-align: left;">Magnitude divided by the noise of the fit (LT-GEE's disturbance signal-to-noise ratio): LandTrendr's RMSE, the CCDC segment's RMSE (over several bands, the change vector standardized band by band), BFAST Monitor's <code>sigma</code>, BFAST Lite's residual standard deviation, the median yearly distance of an embedding. Values above 2–3 are rarely noise.</td>
+</tr>
+</tbody>
+</table>
+<p>For a numpy vertex stack, a dict of <code>(rows, cols)</code> arrays with the LandTrendr variables except <code>date</code> (<code>dsnr</code> only with <code>rmse_map</code>).</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">lt</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">landtrendr</span><span class="p">(</span><span class="n">ndvi</span><span class="p">)</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">loss</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">extract_events</span><span class="p">(</span><span class="n">lt</span><span class="p">,</span> <span class="n">min_magnitude</span><span class="o">=</span><span class="mi">2000</span><span class="p">)</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="n">first_year_of_loss</span> <span class="o">=</span> <span class="p">(</span><span class="n">loss</span><span class="o">.</span><span class="n">yod</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">loss</span><span class="o">.</span><span class="n">yod</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="n">regrowth</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">extract_events</span><span class="p">(</span><span class="n">lt</span><span class="p">,</span> <span class="n">event_type</span><span class="o">=</span><span class="s2">"gain"</span><span class="p">,</span> <span class="n">sort_by</span><span class="o">=</span><span class="s2">"newest"</span><span class="p">)</span>   <span class="c1"># same fit, rises</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="n">segments</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">ccdc</span><span class="p">(</span><span class="n">cube</span><span class="p">)</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="n">nir_loss</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">extract_events</span><span class="p">(</span><span class="n">segments</span><span class="p">,</span> <span class="n">band</span><span class="o">=</span><span class="s2">"nir"</span><span class="p">,</span> <span class="n">event_type</span><span class="o">=</span><span class="s2">"loss"</span><span class="p">)</span>   <span class="c1"># the greatest NIR drop</span>
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="n">any_change</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">extract_events</span><span class="p">(</span><span class="n">segments</span><span class="p">,</span> <span class="n">sort_by</span><span class="o">=</span><span class="s2">"newest"</span><span class="p">)</span>              <span class="c1"># the latest break, any direction</span>
+</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>
+</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="n">bfm</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">extract_events</span><span class="p">(</span><span class="n">zeit</span><span class="o">.</span><span class="n">bfast_monitor</span><span class="p">(</span><span class="n">ndvi_16d</span><span class="p">,</span> <span class="s2">"2022-01-01"</span><span class="p">),</span> <span class="n">event_type</span><span class="o">=</span><span class="s2">"loss"</span><span class="p">)</span>
+</span></code></pre></div>
+<h3 class="api" id="agreement"><code>agreement</code><a class="headerlink" href="#agreement" title="Permanent link">&para;</a></h3>
+<!-- sig: zeit.agreement -->
+<div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">zeit</span><span class="o">.</span><span class="n">agreement</span><span class="p">(</span><span class="o">*</span><span class="n">events</span><span class="p">,</span> <span class="n">tolerance</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+</span></code></pre></div>
+<p>Where and when several change maps agree, e.g. LandTrendr, CCDC and BFAST on the same area. Each map is the result of <a href="#extract_events"><code>extract_events</code></a> (or any <code>yod</code> map), so every algorithm is compared by the year of the last observation before the change.</p>
+<div class="params">
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Parameter</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Default</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>events</code></td>
+<td style="text-align: left;"><code>xr.Dataset</code>, <code>DataArray</code> or <code>dict</code></td>
+<td style="text-align: left;">required</td>
+<td style="text-align: left;">Two or more maps of events on the same grid, or one <code>dict</code> of name → map. Without a <code>dict</code>, maps are named after their algorithm. Maps on different grids go through <a href="../data/#on-the-grid-of-another-raster"><code>load_raster(m, like=...)</code></a> first.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>tolerance</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;"><code>1</code></td>
+<td style="text-align: left;">Years two events may be apart and still agree (<code>0</code>: the same year).</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Returns</strong> an <code>xarray.Dataset</code> on the grid of the maps:</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Variable</th>
+<th style="text-align: left;">Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>yod</code></td>
+<td style="text-align: left;">The consensus year: the one the most maps agree with within <code>tolerance</code> (ties: the year more maps give exactly, then the earliest); <code>0</code> where no map has an event.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>n_detected</code></td>
+<td style="text-align: left;">How many maps have an event at the pixel.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>n_agree</code></td>
+<td style="text-align: left;">How many of them agree with the consensus year.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>spread</code></td>
+<td style="text-align: left;">Latest minus earliest year among the maps with an event; NaN without one.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>agrees</code></td>
+<td style="text-align: left;"><code>(map, y, x)</code>: <code>1</code> for the maps that agree with the consensus year.</td>
+</tr>
+</tbody>
+</table>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">lt</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">extract_events</span><span class="p">(</span><span class="n">zeit</span><span class="o">.</span><span class="n">landtrendr</span><span class="p">(</span><span class="n">nbr_annual</span><span class="p">))</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">cc</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">extract_events</span><span class="p">(</span><span class="n">zeit</span><span class="o">.</span><span class="n">ccdc</span><span class="p">(</span><span class="n">cube</span><span class="p">),</span> <span class="n">band</span><span class="o">=</span><span class="s2">"nbr"</span><span class="p">,</span> <span class="n">event_type</span><span class="o">=</span><span class="s2">"loss"</span><span class="p">)</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="n">bf</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">extract_events</span><span class="p">(</span><span class="n">zeit</span><span class="o">.</span><span class="n">bfast_lite</span><span class="p">(</span><span class="n">nbr_16d</span><span class="p">),</span> <span class="n">event_type</span><span class="o">=</span><span class="s2">"loss"</span><span class="p">)</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="n">agree</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">agreement</span><span class="p">({</span><span class="s2">"landtrendr"</span><span class="p">:</span> <span class="n">lt</span><span class="p">,</span> <span class="s2">"ccdc"</span><span class="p">:</span> <span class="n">cc</span><span class="p">,</span> <span class="s2">"bfast"</span><span class="p">:</span> <span class="n">bf</span><span class="p">},</span> <span class="n">tolerance</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="n">confident</span> <span class="o">=</span> <span class="n">agree</span><span class="o">.</span><span class="n">yod</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">agree</span><span class="o">.</span><span class="n">n_agree</span> <span class="o">&gt;=</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>        <span class="c1"># change two of the three algorithms see</span>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="c1"># An ensemble in the LCMS way: the events of each algorithm as the features of a classifier</span>
+</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="n">features</span> <span class="o">=</span> <span class="n">xr</span><span class="o">.</span><span class="n">merge</span><span class="p">([</span><span class="n">ev</span><span class="p">[[</span><span class="s2">"magnitude"</span><span class="p">,</span> <span class="s2">"dsnr"</span><span class="p">]]</span><span class="o">.</span><span class="n">fillna</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">rename</span><span class="p">({</span><span class="n">v</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">v</span><span class="si">}</span><span class="s2">"</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">"magnitude"</span><span class="p">,</span> <span class="s2">"dsnr"</span><span class="p">)})</span>
+</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a>                     <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">ev</span> <span class="ow">in</span> <span class="p">{</span><span class="s2">"lt"</span><span class="p">:</span> <span class="n">lt</span><span class="p">,</span> <span class="s2">"ccdc"</span><span class="p">:</span> <span class="n">cc</span><span class="p">,</span> <span class="s2">"bfast"</span><span class="p">:</span> <span class="n">bf</span><span class="p">}</span><span class="o">.</span><span class="n">items</span><span class="p">()],</span> <span class="n">compat</span><span class="o">=</span><span class="s2">"override"</span><span class="p">)</span>
+</span><span id="__span-6-10"><a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="n">model</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">train_classifier</span><span class="p">(</span><span class="n">features</span><span class="p">,</span> <span class="s2">"reference.gpkg"</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">"change"</span><span class="p">)</span>
+</span><span id="__span-6-11"><a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a><span class="n">change</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">classify</span><span class="p">(</span><span class="n">features</span><span class="p">,</span> <span class="n">model</span><span class="p">)</span>
+</span></code></pre></div>
+<h3 class="api" id="apply_vertices"><code>apply_vertices</code><a class="headerlink" href="#apply_vertices" title="Permanent link">&para;</a></h3>
+<!-- sig: zeit.apply_vertices -->
+<div class="language-python highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">zeit</span><span class="o">.</span><span class="n">apply_vertices</span><span class="p">(</span><span class="n">vertex_years</span><span class="p">,</span> <span class="n">other_band_years</span><span class="p">,</span> <span class="n">other_band_values</span><span class="p">)</span>
+</span></code></pre></div>
+<p>Describes another band with the vertex years found on the primary index, by interpolating that band's raw values at those years. For LT-GEE's fitted-to-vertex bands (the band fitted through the vertices, as the original does), use <a href="#fitted-to-vertices-ftv"><code>landtrendr(..., ftv=[...])</code></a>.</p>
+<div class="params">
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Parameter</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Default</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>vertex_years</code></td>
+<td style="text-align: left;">1-D array</td>
+<td style="text-align: left;">required</td>
+<td style="text-align: left;">Vertex years from the primary index.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>other_band_years</code></td>
+<td style="text-align: left;">1-D array</td>
+<td style="text-align: left;">required</td>
+<td style="text-align: left;">Years of the other band's series.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>other_band_values</code></td>
+<td style="text-align: left;">1-D array</td>
+<td style="text-align: left;">required</td>
+<td style="text-align: left;">The other band's values.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Returns</strong> a list of vertices, <code>[{"year": 1985, "value": ...}, ...]</code>.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="n">px</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">landtrendr</span><span class="p">(</span><span class="n">nbr</span><span class="p">,</span> <span class="n">years</span><span class="o">=</span><span class="n">years</span><span class="p">)</span>                     <span class="c1"># one pixel's NBR series</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="n">vertex_years</span> <span class="o">=</span> <span class="n">px</span><span class="o">.</span><span class="n">vertex_year</span><span class="o">.</span><span class="n">values</span><span class="p">[:</span> <span class="nb">int</span><span class="p">(</span><span class="n">px</span><span class="o">.</span><span class="n">n_vertices</span><span class="p">)]</span>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="n">ftv</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">apply_vertices</span><span class="p">(</span><span class="n">vertex_years</span><span class="p">,</span> <span class="n">years</span><span class="p">,</span> <span class="n">swir1</span><span class="p">)</span>      <span class="c1"># the same pixel's SWIR1</span>
+</span></code></pre></div>
+<h2 id="ccdc_1">CCDC<a class="headerlink" href="#ccdc_1" title="Permanent link">&para;</a></h2>
+<p>Tutorial: <a href="../../tutorials/ccdc/">CCDC</a>.</p>
+<h3 class="api" id="ccdc"><code>ccdc</code><a class="headerlink" href="#ccdc" title="Permanent link">&para;</a></h3>
+<!-- sig: zeit.ccdc -->
+<div class="language-python highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="n">zeit</span><span class="o">.</span><span class="n">ccdc</span><span class="p">(</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>    <span class="n">data</span><span class="p">,</span> <span class="n">qa</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">dates</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">bands</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">max_segments</span><span class="o">=</span><span class="mi">6</span><span class="p">,</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>    <span class="n">conseq_anom</span><span class="o">=</span><span class="mi">6</span><span class="p">,</span> <span class="n">chi2_prob_threshold</span><span class="o">=</span><span class="mf">0.99</span><span class="p">,</span>
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>    <span class="n">tmax_cg_prob_threshold</span><span class="o">=</span><span class="mf">0.999999</span><span class="p">,</span> <span class="n">detection_bands</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">num_c</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>    <span class="n">tmask_bands</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">thermal_band</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">valid_range</span><span class="o">=</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">10000.0</span><span class="p">),</span>
+</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>    <span class="n">thermal_range</span><span class="o">=</span><span class="p">(</span><span class="o">-</span><span class="mf">9320.0</span><span class="p">,</span> <span class="mf">7070.0</span><span class="p">),</span> <span class="n">nodata</span><span class="o">=</span><span class="s2">"auto"</span><span class="p">,</span> <span class="n">chunks</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>    <span class="n">n_jobs</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span>
+</span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="p">)</span>
+</span></code></pre></div>
+<p>Continuous Change Detection and Classification (Zhu &amp; Woodcock 2014): fits a harmonic model to every stable period of each pixel's multi-band series and dates the breaks between them, every pixel in parallel in C++ / OpenMP. The engine is a port of the original MATLAB code, validated segment for segment against it. One function for every input: it reads what <code>data</code> is and returns the same <code>xarray.Dataset</code> of segments, georeferenced when the input is. All parameters but <code>data</code> are keyword-only. It replaces <code>zeit.ccdc.run_ccdc</code>, <code>run_ccdc_array</code>, <code>run_ccdc_image</code> and <code>DataArray.zeit.run_ccdc</code>; the accessor form is now <a href="../xarray/#ccdc"><code>DataArray.zeit.ccdc</code></a>.</p>
+<p><code>data</code> can be:</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Input</th>
+<th style="text-align: left;">Example</th>
+<th style="text-align: left;">Where the dates and bands come from</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">A <code>(time, band, y, x)</code> cube, numpy- or dask-backed</td>
+<td style="text-align: left;">the output of <code>load_raster</code> or <code>build_time_series</code></td>
+<td style="text-align: left;">Its <code>time</code> and <code>band</code> coordinates. A dask cube stays lazy.</td>
+</tr>
+<tr>
+<td style="text-align: left;">A raster file whose bands are named <code>date_band</code>, or anything <a href="../data/#load_raster"><code>load_raster</code></a> reads</td>
+<td style="text-align: left;"><code>"landsat_sr.tif"</code> (bands <code>2008-01-05_blue</code>, …, as <code>save_raster</code> writes a cube), a folder read with <code>pattern=</code></td>
+<td style="text-align: left;">The dates and band names <code>load_raster</code> finds</td>
+</tr>
+<tr>
+<td style="text-align: left;">A raster interleaved by date without band names (all bands of date 1, then of date 2, …)</td>
+<td style="text-align: left;"><code>"stack.tif"</code></td>
+<td style="text-align: left;"><code>dates=</code>, and <code>bands=</code>: the names of the bands of each date</td>
+</tr>
+<tr>
+<td style="text-align: left;">A numpy array <code>(time, band, y, x)</code></td>
+<td style="text-align: left;"><code>stack</code></td>
+<td style="text-align: left;"><code>dates=</code></td>
+</tr>
+<tr>
+<td style="text-align: left;">One pixel: a <code>(time, band)</code> DataArray, or a <code>pandas.DataFrame</code> indexed by date with one column per band</td>
+<td style="text-align: left;"><code>cube.isel(y=0, x=0)</code></td>
+<td style="text-align: left;">Its <code>time</code> coordinate or index</td>
+</tr>
+</tbody>
+</table>
+<p>Values are <strong>surface reflectance × 10,000</strong> (the original's thresholds, range test and cloud screen are defined on that scale), bands ordered Blue, Green, Red, NIR, SWIR1, SWIR2 [, brightness temperature], unless <code>bands=</code> orders them. Dates can be any dates; they are converted to ordinal days internally.</p>
+<div class="params">
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Parameter</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Default</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>data</code></td>
+<td style="text-align: left;">path, <code>DataArray</code>, <code>ndarray</code> or <code>pd.DataFrame</code></td>
+<td style="text-align: left;">required</td>
+<td style="text-align: left;">What to run on (see the table above).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>qa</code></td>
+<td style="text-align: left;"><code>str</code>, <code>DataArray</code> or <code>ndarray</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Fmask codes per date: <code>0</code> clear land, <code>1</code> water, <code>2</code> cloud shadow, <code>3</code> snow, <code>4</code> cloud, <code>255</code> no observation. The name of a band of the cube (it is then left out of the spectral bands), a <code>(time, y, x)</code> cube or array (<code>(time,)</code> for one pixel), or <code>None</code>: every date is clear, and dates with NaN are no observation.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>dates</code></td>
+<td style="text-align: left;">list</td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Date of each time step (strings, datetimes, <code>datetime64</code>). Only for numpy input and cubes or rasters without dates; otherwise taken from the <code>time</code> coordinate.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>bands</code></td>
+<td style="text-align: left;">list of <code>str</code> or <code>int</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Spectral bands to use, by name or 0-based position, in the order above. For a raster interleaved by date without band names: the names of the bands of each date (including the QA band, if any).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>max_segments</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;"><code>6</code></td>
+<td style="text-align: left;">Maximum segments returned per pixel.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>conseq_anom</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;"><code>6</code></td>
+<td style="text-align: left;">Consecutive anomalous observations that confirm a break (the original's <code>conse</code>).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>chi2_prob_threshold</code></td>
+<td style="text-align: left;"><code>float</code></td>
+<td style="text-align: left;"><code>0.99</code></td>
+<td style="text-align: left;">Change probability for the chi-squared threshold. Lower is more sensitive.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>tmax_cg_prob_threshold</code></td>
+<td style="text-align: left;"><code>float</code></td>
+<td style="text-align: left;"><code>0.999999</code></td>
+<td style="text-align: left;">Outlier probability: observations beyond it are dropped as noise (for example missed clouds).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>detection_bands</code></td>
+<td style="text-align: left;">list of <code>str</code> or <code>int</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Bands used for change detection, by name or 0-based position among the spectral bands. Default: Green to SWIR2.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>num_c</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;"><code>8</code></td>
+<td style="text-align: left;">Maximum number of harmonic coefficients (4, 6 or 8).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>tmask_bands</code></td>
+<td style="text-align: left;">list of <code>str</code> or <code>int</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Bands of the internal Tmask cloud screen. Default: Green and SWIR1.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>thermal_band</code></td>
+<td style="text-align: left;"><code>str</code> or <code>int</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">The brightness-temperature band (°C × 100), if any.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>valid_range</code></td>
+<td style="text-align: left;"><code>tuple</code></td>
+<td style="text-align: left;"><code>(0.0, 10000.0)</code></td>
+<td style="text-align: left;">Valid range of the optical bands.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>thermal_range</code></td>
+<td style="text-align: left;"><code>tuple</code></td>
+<td style="text-align: left;"><code>(-9320.0, 7070.0)</code></td>
+<td style="text-align: left;">Valid range of the thermal band.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>nodata</code></td>
+<td style="text-align: left;"><code>"auto"</code>, <code>float</code> or <code>None</code></td>
+<td style="text-align: left;"><code>"auto"</code></td>
+<td style="text-align: left;">Value marking a missing observation besides NaN. <code>"auto"</code>: the raster's NoData value; for integer data without one, <code>0</code>. A number: that value. <code>None</code>: only NaN.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>chunks</code></td>
+<td style="text-align: left;"><code>"auto"</code>, <code>dict</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Inputs read from disk: <code>None</code> reads the raster into memory; <code>"auto"</code> or a dict of chunk sizes keeps it lazy, so the result is computed block by block, for rasters larger than memory.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>n_jobs</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;"><code>-1</code></td>
+<td style="text-align: left;">Threads. <code>-1</code> uses all cores but one.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Returns</strong> an <code>xarray.Dataset</code>:</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Variable</th>
+<th style="text-align: left;">Dims</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>t_start</code>, <code>t_end</code></td>
+<td style="text-align: left;"><code>(segment, y, x)</code></td>
+<td style="text-align: left;">datetime64</td>
+<td style="text-align: left;">First and last date of each segment; <code>NaT</code> past the last one.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>t_break</code></td>
+<td style="text-align: left;"><code>(segment, y, x)</code></td>
+<td style="text-align: left;">datetime64</td>
+<td style="text-align: left;">Date of the break that ended the segment; <code>NaT</code> if it ended without one, and past the last segment.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>n_segments</code></td>
+<td style="text-align: left;"><code>(y, x)</code></td>
+<td style="text-align: left;">uint8</td>
+<td style="text-align: left;">Number of segments (<code>0</code>: no model).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rmse</code></td>
+<td style="text-align: left;"><code>(segment, band, y, x)</code></td>
+<td style="text-align: left;">float32</td>
+<td style="text-align: left;">RMSE of each band's fit; NaN past the last segment.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>coefs</code></td>
+<td style="text-align: left;"><code>(segment, band, coef, y, x)</code></td>
+<td style="text-align: left;">float32</td>
+<td style="text-align: left;">The harmonic model of each band, <code>coef</code> = <code>a0</code>, <code>c1</code>, <code>a1</code>, <code>b1</code>, <code>a2</code>, <code>b2</code>, <code>a3</code>, <code>b3</code>; NaN past the last segment.</td>
+</tr>
+</tbody>
+</table>
+<p>The model is <code>a0 + c1·t + a1 cos(wt) + b1 sin(wt) + a2 cos(2wt) + b2 sin(2wt) + a3 cos(3wt) + b3 sin(3wt)</code> on the original's time axis: <code>t</code> = ordinal day + 366 (MATLAB datenum), <code>w</code> = 2π / 365.25. <a href="#predict_synthetic_image"><code>predict_synthetic_image</code></a> evaluates it on any date. The <code>x</code>/<code>y</code> coordinates and CRS of the input are kept, so the result goes straight to <a href="../data/#save_raster"><code>save_raster</code></a>: one GeoTIFF per variable, dates as decimal years (NaN: none), and <code>coefs.tif</code> with one band per segment, band and coefficient (<code>1_blue_a0</code>, <code>1_blue_c1</code>, …). <code>attrs</code> records the parameters. A single pixel's result has no <code>y</code>/<code>x</code> dims. With a dask cube or <code>chunks=</code>, the result is lazy.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="n">cube</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">load_raster</span><span class="p">(</span><span class="s2">"landsat_sr.tif"</span><span class="p">)</span>          <span class="c1"># (time, band, y, x): blue ... swir2 and fmask</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="n">segments</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">ccdc</span><span class="p">(</span><span class="n">cube</span><span class="p">,</span> <span class="n">qa</span><span class="o">=</span><span class="s2">"fmask"</span><span class="p">)</span>             <span class="c1"># QA band by name, left out of the spectral bands</span>
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="n">first_break</span> <span class="o">=</span> <span class="n">segments</span><span class="o">.</span><span class="n">t_break</span><span class="o">.</span><span class="n">isel</span><span class="p">(</span><span class="n">segment</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>     <span class="c1"># NaT where nothing changed</span>
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="n">july</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">predict_synthetic_image</span><span class="p">(</span><span class="n">segments</span><span class="p">,</span> <span class="s2">"2020-07-01"</span><span class="p">)</span>   <span class="c1"># (band, y, x)</span>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="n">zeit</span><span class="o">.</span><span class="n">save_raster</span><span class="p">(</span><span class="n">segments</span><span class="p">,</span> <span class="s2">"ccdc_out"</span><span class="p">)</span>             <span class="c1"># t_start.tif, ..., coefs.tif</span>
+</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a>
+</span><span id="__span-10-7"><a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="c1"># A raster larger than memory: lazy, computed block by block while it is written</span>
+</span><span id="__span-10-8"><a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="n">segments</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">ccdc</span><span class="p">(</span><span class="s2">"landsat_sr.tif"</span><span class="p">,</span> <span class="n">qa</span><span class="o">=</span><span class="s2">"fmask"</span><span class="p">,</span> <span class="n">chunks</span><span class="o">=</span><span class="s2">"auto"</span><span class="p">)</span>
+</span><span id="__span-10-9"><a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a><span class="n">zeit</span><span class="o">.</span><span class="n">save_raster</span><span class="p">(</span><span class="n">segments</span><span class="p">,</span> <span class="s2">"ccdc_out"</span><span class="p">)</span>
+</span><span id="__span-10-10"><a id="__codelineno-10-10" name="__codelineno-10-10" href="#__codelineno-10-10"></a>
+</span><span id="__span-10-11"><a id="__codelineno-10-11" name="__codelineno-10-11" href="#__codelineno-10-11"></a><span class="c1"># A stack interleaved by date without band names</span>
+</span><span id="__span-10-12"><a id="__codelineno-10-12" name="__codelineno-10-12" href="#__codelineno-10-12"></a><span class="n">segments</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">ccdc</span><span class="p">(</span><span class="s2">"stack.tif"</span><span class="p">,</span> <span class="n">dates</span><span class="o">=</span><span class="n">dates</span><span class="p">,</span> <span class="n">qa</span><span class="o">=</span><span class="s2">"fmask"</span><span class="p">,</span>
+</span><span id="__span-10-13"><a id="__codelineno-10-13" name="__codelineno-10-13" href="#__codelineno-10-13"></a>                     <span class="n">bands</span><span class="o">=</span><span class="p">[</span><span class="s2">"blue"</span><span class="p">,</span> <span class="s2">"green"</span><span class="p">,</span> <span class="s2">"red"</span><span class="p">,</span> <span class="s2">"nir"</span><span class="p">,</span> <span class="s2">"swir1"</span><span class="p">,</span> <span class="s2">"swir2"</span><span class="p">,</span> <span class="s2">"fmask"</span><span class="p">])</span>
+</span><span id="__span-10-14"><a id="__codelineno-10-14" name="__codelineno-10-14" href="#__codelineno-10-14"></a>
+</span><span id="__span-10-15"><a id="__codelineno-10-15" name="__codelineno-10-15" href="#__codelineno-10-15"></a><span class="c1"># One pixel: a DataFrame indexed by date, one column per band</span>
+</span><span id="__span-10-16"><a id="__codelineno-10-16" name="__codelineno-10-16" href="#__codelineno-10-16"></a><span class="n">px</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">ccdc</span><span class="p">(</span><span class="n">df</span><span class="p">,</span> <span class="n">qa</span><span class="o">=</span><span class="s2">"fmask"</span><span class="p">)</span>
+</span><span id="__span-10-17"><a id="__codelineno-10-17" name="__codelineno-10-17" href="#__codelineno-10-17"></a><span class="n">px</span><span class="p">[[</span><span class="s2">"t_start"</span><span class="p">,</span> <span class="s2">"t_end"</span><span class="p">,</span> <span class="s2">"t_break"</span><span class="p">]]</span><span class="o">.</span><span class="n">to_dataframe</span><span class="p">()</span><span class="o">.</span><span class="n">dropna</span><span class="p">(</span><span class="n">subset</span><span class="o">=</span><span class="p">[</span><span class="s2">"t_start"</span><span class="p">])</span>
+</span></code></pre></div>
+<h3 class="api" id="predict_synthetic_image"><code>predict_synthetic_image</code><a class="headerlink" href="#predict_synthetic_image" title="Permanent link">&para;</a></h3>
+<!-- sig: zeit.predict_synthetic_image -->
+<div class="language-python highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="n">zeit</span><span class="o">.</span><span class="n">predict_synthetic_image</span><span class="p">(</span>
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>    <span class="n">segments</span><span class="p">,</span> <span class="n">date</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">num_bands</span><span class="o">=</span><span class="mi">6</span><span class="p">,</span> <span class="n">target_julian_day</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="p">)</span>
+</span></code></pre></div>
+<p>Evaluates each pixel's CCDC model on a date, giving a cloud-free image for any day, including days without an acquisition. Each pixel uses the segment that covers the date; before the first segment, the first one; after the last, the last one.</p>
+<div class="params">
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Parameter</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Default</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>segments</code></td>
+<td style="text-align: left;"><code>xr.Dataset</code></td>
+<td style="text-align: left;">required</td>
+<td style="text-align: left;">The result of <a href="#ccdc"><code>ccdc</code></a>, in memory or dask (a lazy result gives a lazy image).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>date</code></td>
+<td style="text-align: left;"><code>str</code>, <code>datetime</code>, <code>datetime64</code> or <code>int</code></td>
+<td style="text-align: left;">required</td>
+<td style="text-align: left;">The date to predict; an <code>int</code> is a Python ordinal day.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>num_bands</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;"><code>6</code></td>
+<td style="text-align: left;">Legacy numpy stacks only (below): number of bands.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>target_julian_day</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Former name of <code>date</code>.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Returns</strong> a <code>(band, y, x)</code> <code>DataArray</code> on the grid and CRS of <code>segments</code> (<code>(band,)</code> for one pixel), NaN where a pixel has no model.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="n">july</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">predict_synthetic_image</span><span class="p">(</span><span class="n">segments</span><span class="p">,</span> <span class="s2">"2019-07-15"</span><span class="p">)</span>
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="n">zeit</span><span class="o">.</span><span class="n">save_raster</span><span class="p">(</span><span class="n">july</span><span class="p">,</span> <span class="s2">"synthetic_2019-07-15.tif"</span><span class="p">)</span>
+</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>
+</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="c1"># One pixel's curve, on the first day of every month</span>
+</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="n">px</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">ccdc</span><span class="p">(</span><span class="n">df</span><span class="p">,</span> <span class="n">qa</span><span class="o">=</span><span class="s2">"fmask"</span><span class="p">)</span>
+</span><span id="__span-12-6"><a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="n">days</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">date_range</span><span class="p">(</span><span class="s2">"2010-01-01"</span><span class="p">,</span> <span class="s2">"2020-12-01"</span><span class="p">,</span> <span class="n">freq</span><span class="o">=</span><span class="s2">"MS"</span><span class="p">)</span>
+</span><span id="__span-12-7"><a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="n">nir</span> <span class="o">=</span> <span class="p">[</span><span class="nb">float</span><span class="p">(</span><span class="n">zeit</span><span class="o">.</span><span class="n">predict_synthetic_image</span><span class="p">(</span><span class="n">px</span><span class="p">,</span> <span class="n">d</span><span class="p">)</span><span class="o">.</span><span class="n">sel</span><span class="p">(</span><span class="n">band</span><span class="o">=</span><span class="s2">"nir"</span><span class="p">))</span> <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">days</span><span class="p">]</span>
+</span></code></pre></div>
+<p>The numpy layout of older versions, <code>(max_segments, 3 + 9 × bands, rows, cols)</code> (per segment <code>t_start</code>, <code>t_end</code> and <code>t_break</code> in ordinal days, then each band's RMSE and 8 coefficients), is still accepted: <code>predict_synthetic_image(stack, target_julian_day=day, num_bands=6)</code> returns a <code>(num_bands, rows, cols)</code> float32 array.</p>
+<h2 id="coded-forest-degradation">CODED (forest degradation)<a class="headerlink" href="#coded-forest-degradation" title="Permanent link">&para;</a></h2>
+<h3 class="api" id="coded"><code>coded</code><a class="headerlink" href="#coded" title="Permanent link">&para;</a></h3>
+<!-- sig: zeit.coded -->
+<div class="language-python highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="n">zeit</span><span class="o">.</span><span class="n">coded</span><span class="p">(</span>
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>    <span class="n">data</span><span class="p">,</span> <span class="n">start</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">train_years</span><span class="o">=</span><span class="mf">3.0</span><span class="p">,</span> <span class="n">consec</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">thresh</span><span class="o">=</span><span class="mf">3.0</span><span class="p">,</span>
+</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>    <span class="n">min_years</span><span class="o">=</span><span class="mf">3.0</span><span class="p">,</span> <span class="n">min_obs</span><span class="o">=</span><span class="mi">6</span><span class="p">,</span> <span class="n">direction</span><span class="o">=</span><span class="s2">"loss"</span><span class="p">,</span> <span class="n">max_events</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
+</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a>    <span class="n">training</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">"label"</span><span class="p">,</span> <span class="n">forest_label</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">forest_ndfi</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span>
+</span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a>    <span class="n">endmembers</span><span class="o">=</span><span class="s2">"souza2005"</span><span class="p">,</span> <span class="n">bands</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">scale</span><span class="o">=</span><span class="s2">"auto"</span><span class="p">,</span>
+</span><span id="__span-13-6"><a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a>    <span class="n">cloud_threshold</span><span class="o">=</span><span class="mf">0.05</span><span class="p">,</span> <span class="n">seed</span><span class="o">=</span><span class="mi">42</span><span class="p">,</span> <span class="n">nodata</span><span class="o">=</span><span class="s2">"auto"</span><span class="p">,</span> <span class="n">chunks</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-13-7"><a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a>    <span class="n">n_jobs</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span>
+</span><span id="__span-13-8"><a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a><span class="p">)</span>
+</span></code></pre></div>
+<p>Continuous Degradation Detection (CODED; Bullock, Woodcock &amp; Olofsson 2020): forest degradation (a disturbance after which the land is still forest: selective logging, understory fire) and deforestation (after which it is not) from the NDFI of every Landsat observation. Per pixel, in C++: the fractions and NDFI of every observation (<code>unmix</code>, clouds masked by their fraction); a model of the NDFI (a constant and an annual harmonic) over a training period, with its RMSE; monitoring after it, where <code>consec</code> observations in a row more than <code>thresh</code> RMSEs below the model are a change; after each change, a new model of the next <code>min_years</code>, which is the land cover after it. Forest or not comes from the models: a random forest on their coefficients trained on land cover points, as in CODED, or else the model's mean NDFI against <code>forest_ndfi</code>. Also exported as <code>zeit.coded</code>; CLI: <code>zeit coded</code>. Tutorial: <a href="../../tutorials/coded/">Forest Degradation (CODED)</a>.</p>
+<div class="params">
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Parameter</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Default</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>data</code></td>
+<td style="text-align: left;"><code>DataArray</code>, <code>Dataset</code> or path</td>
+<td style="text-align: left;">required</td>
+<td style="text-align: left;">Landsat-like reflectance <code>(time, band, y, x)</code> with blue, green, red, NIR, SWIR1 and SWIR2 (every observation, not composites), or the result of <code>unmix</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>start</code></td>
+<td style="text-align: left;">year or date</td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Start of the monitoring; the training period is the <code>train_years</code> before it. Default: the training period starts with the series.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>train_years</code></td>
+<td style="text-align: left;"><code>float</code></td>
+<td style="text-align: left;"><code>3.0</code></td>
+<td style="text-align: left;">Years of the training period.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>consec</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;"><code>3</code></td>
+<td style="text-align: left;">Consecutive observations beyond the threshold that make a change.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>thresh</code></td>
+<td style="text-align: left;"><code>float</code></td>
+<td style="text-align: left;"><code>3.0</code></td>
+<td style="text-align: left;">The threshold, in RMSEs of the model.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>min_years</code></td>
+<td style="text-align: left;"><code>float</code></td>
+<td style="text-align: left;"><code>3.0</code></td>
+<td style="text-align: left;">Years after a change modelled as its new land cover; the least time between changes.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>min_obs</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;"><code>6</code></td>
+<td style="text-align: left;">Least observations to fit a model.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>direction</code></td>
+<td style="text-align: left;"><code>str</code></td>
+<td style="text-align: left;"><code>"loss"</code></td>
+<td style="text-align: left;"><code>"loss"</code> (drops of the NDFI, CODED's disturbances) or <code>"both"</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>max_events</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;"><code>3</code></td>
+<td style="text-align: left;">Changes kept per pixel.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>training</code></td>
+<td style="text-align: left;"><code>GeoDataFrame</code> or path</td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Land cover points of the training period, for the random forest.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>label</code>, <code>forest_label</code></td>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"><code>"label"</code>, <code>None</code></td>
+<td style="text-align: left;">Column with the class, and the class that is forest (default: <code>"forest"</code> or <code>1</code>).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>forest_ndfi</code></td>
+<td style="text-align: left;"><code>float</code></td>
+<td style="text-align: left;"><code>0.5</code></td>
+<td style="text-align: left;">Without <code>training</code>: forest where the model's mean NDFI is at least this.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>endmembers</code>, <code>bands</code>, <code>scale</code>, <code>cloud_threshold</code></td>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"></td>
+<td style="text-align: left;">The unmixing, as in <code>unmix</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>seed</code>, <code>nodata</code>, <code>chunks</code>, <code>n_jobs</code></td>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"><code>42</code>, <code>"auto"</code>, <code>None</code>, <code>-1</code></td>
+<td style="text-align: left;">Random forest seed; as elsewhere.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Returns</strong> an <code>xarray.Dataset</code>:</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Variable</th>
+<th style="text-align: left;">Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>t_change</code></td>
+<td style="text-align: left;"><code>(event, y, x)</code>: date of each change, its first observation beyond the threshold.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>t_before</code></td>
+<td style="text-align: left;">The observation before it.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>ndfi_change</code></td>
+<td style="text-align: left;">Mean NDFI residual of the change's observations (negative: the NDFI fell).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>type</code></td>
+<td style="text-align: left;">1 degradation (forest after the change), 2 deforestation, 3 disturbance (too few observations after it to tell), 0 none.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>post_ndfi</code></td>
+<td style="text-align: left;">Mean NDFI of the model after each change.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>n_events</code>, <code>forest</code></td>
+<td style="text-align: left;">Changes per pixel; forest in the training period.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>ndfi_mean</code>, <code>rmse</code>, <code>n_train</code></td>
+<td style="text-align: left;">The training model: mean NDFI, RMSE, observations.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>strata</code></td>
+<td style="text-align: left;">1 forest, 2 non-forest (no change), 3 degradation, 4 deforestation, 5 disturbance, by the first change, with <code>flag_meanings</code>.</td>
+</tr>
+</tbody>
+</table>
+<p>The <code>strata</code> map is what CODED's authors recommend using the result for: the strata of a sample from which the area of degradation is estimated (<a href="../validation/">Validation</a>). <a href="#extract_events"><code>extract_events</code></a> turns the changes into the same event maps as the other algorithms.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="n">result</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">coded</span><span class="p">(</span><span class="n">landsat</span><span class="p">,</span> <span class="n">start</span><span class="o">=</span><span class="mi">2000</span><span class="p">,</span> <span class="n">training</span><span class="o">=</span><span class="s2">"land_cover_1997_1999.gpkg"</span><span class="p">)</span>
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="n">design</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">sampling_design</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">strata</span><span class="p">,</span> <span class="n">expected_ua</span><span class="o">=</span><span class="p">{</span><span class="s2">"degradation"</span><span class="p">:</span> <span class="mf">0.6</span><span class="p">,</span> <span class="s2">"deforestation"</span><span class="p">:</span> <span class="mf">0.8</span><span class="p">})</span>
+</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="n">points</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">stratified_sample</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">strata</span><span class="p">,</span> <span class="n">design</span><span class="o">=</span><span class="n">design</span><span class="p">)</span>
+</span></code></pre></div>
+<h2 id="bfast-family">BFAST family<a class="headerlink" href="#bfast-family" title="Permanent link">&para;</a></h2>
+<p>Ports of R's <code>bfast</code> package: <a href="#bfast_monitor"><code>bfast_monitor</code></a> (near-real-time monitoring), <a href="#bfast_lite"><code>bfast_lite</code></a> (multiple breakpoints in one pass) and <a href="#bfast"><code>bfast</code></a> (classic iterative trend and season breaks). Tutorials: <a href="../../tutorials/bfast_monitor/">BFAST Monitor</a>, <a href="../../tutorials/bfast_lite/">BFAST Lite</a>, <a href="../../tutorials/bfast/">BFAST</a>.</p>
+<p>Like <code>landtrendr</code> and <code>ccdc</code>, each is one function for every input: it reads what <code>data</code> is and returns an <code>xarray.Dataset</code> with one variable per metric, georeferenced when the input is. All parameters but <code>data</code> (and <code>monitor_start</code>) are keyword-only. They replace <code>run_bfast_monitor_image</code>, <code>run_bfast_lite_image</code>, <code>run_bfast_image</code>, <code>zeit.bfast.run_bfast_monitor_dask</code>, <code>run_bfast_lite_dask</code>, <code>run_bfast_dask</code> and the accessor methods <code>DataArray.zeit.run_bfast_monitor</code>, <code>run_bfast_lite</code> and <code>run_bfast</code>; the accessor forms are now <a href="../xarray/#bfast_monitor"><code>DataArray.zeit.bfast_monitor</code></a>, <a href="../xarray/#bfast_lite"><code>bfast_lite</code></a> and <a href="../xarray/#bfast"><code>bfast</code></a>. The engine module is internal (<code>zeit._bfast</code>).</p>
+<h3 class="api" id="bfast_monitor"><code>bfast_monitor</code><a class="headerlink" href="#bfast_monitor" title="Permanent link">&para;</a></h3>
+<!-- sig: zeit.bfast_monitor -->
+<div class="language-python highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="n">zeit</span><span class="o">.</span><span class="n">bfast_monitor</span><span class="p">(</span>
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>    <span class="n">data</span><span class="p">,</span> <span class="n">monitor_start</span><span class="p">,</span> <span class="n">dates</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">start_time</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">frequency</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>    <span class="n">order</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">h</span><span class="o">=</span><span class="mf">0.25</span><span class="p">,</span> <span class="n">period</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.05</span><span class="p">,</span> <span class="n">min_valid</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">band</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a>    <span class="n">nodata</span><span class="o">=</span><span class="s2">"auto"</span><span class="p">,</span> <span class="n">chunks</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">n_jobs</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span>
+</span><span id="__span-15-5"><a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a><span class="p">)</span>
+</span></code></pre></div>
+<p>Near-real-time disturbance monitoring (<code>bfastmonitor</code>, Verbesselt et al. 2012): fits a linear trend plus <code>order</code> harmonics on the history before <code>monitor_start</code>, then flags the first observation after it where the OLS-MOSUM process crosses its boundary (<code>type="OLS-MOSUM"</code>, <code>history="all"</code>). Every pixel runs in parallel in C++ / OpenMP.</p>
+<p><code>data</code> can be (the same for <a href="#bfast_lite"><code>bfast_lite</code></a>, <a href="#bfast"><code>bfast</code></a>, <a href="../time-series/#mann_kendall"><code>mann_kendall</code></a> and <a href="../time-series/#phenology"><code>phenology</code></a>):</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Input</th>
+<th style="text-align: left;">Example</th>
+<th style="text-align: left;">Where the dates come from</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">A raster file, folder, glob or Zarr/NetCDF store: anything <a href="../data/#load_raster"><code>load_raster</code></a> reads</td>
+<td style="text-align: left;"><code>"ndvi_16d.tif"</code></td>
+<td style="text-align: left;">The dates <code>load_raster</code> finds (band descriptions such as <code>2020-01-15</code>, file names, a <code>time</code> coordinate)</td>
+</tr>
+<tr>
+<td style="text-align: left;">A <code>(time, y, x)</code> cube, numpy- or dask-backed</td>
+<td style="text-align: left;">the output of <code>load_raster</code> or <code>regularize_time_series</code></td>
+<td style="text-align: left;">Its <code>time</code> coordinate. A dask cube stays lazy.</td>
+</tr>
+<tr>
+<td style="text-align: left;">A <code>(time, band, y, x)</code> cube or a <code>Dataset</code></td>
+<td style="text-align: left;"><code>cube</code> with <code>band="ndvi"</code></td>
+<td style="text-align: left;">Its <code>time</code> coordinate; <code>band</code> names the index</td>
+</tr>
+<tr>
+<td style="text-align: left;">A numpy array <code>(time, y, x)</code></td>
+<td style="text-align: left;"><code>stack</code></td>
+<td style="text-align: left;"><code>dates=</code></td>
+</tr>
+<tr>
+<td style="text-align: left;">One pixel's series: a list, 1-D array or <code>pandas.Series</code></td>
+<td style="text-align: left;"><code>[0.71, 0.74, 0.69, ...]</code></td>
+<td style="text-align: left;"><code>dates=</code>, or the Series' index of dates</td>
+</tr>
+</tbody>
+</table>
+<p><strong>The time axis.</strong> The BFAST family works on a regular series, like R's <code>ts</code>: observation <code>i</code> is at <code>start_time + i / frequency</code>, in decimal years. Both are read from the dates: <code>frequency</code> from their median spacing (23 for 16-day composites, 12 for monthly, 1 for annual data) and <code>start_time</code> from the first date. Composite irregular data to a fixed step first (<a href="../data/#regularize_time_series"><code>regularize_time_series</code></a>), with NaN for the gaps. A series without dates (numpy without <code>dates=</code>, a plain list) needs both <code>start_time</code> and <code>frequency</code>.</p>
+<div class="params">
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Parameter</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Default</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>data</code></td>
+<td style="text-align: left;">path, <code>DataArray</code>, <code>Dataset</code>, <code>ndarray</code>, list or <code>pd.Series</code></td>
+<td style="text-align: left;">required</td>
+<td style="text-align: left;">What to monitor (see the table above).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>monitor_start</code></td>
+<td style="text-align: left;"><code>str</code>, <code>datetime</code> or <code>float</code></td>
+<td style="text-align: left;">required</td>
+<td style="text-align: left;">Start of the monitoring period: a date (<code>"2022-01-01"</code>) or a decimal year (<code>2022.0</code>). Observations before it are the history.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>dates</code></td>
+<td style="text-align: left;">list</td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Date of each time step. Only for numpy input, single series and cubes without dates; otherwise taken from the <code>time</code> coordinate.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>start_time</code></td>
+<td style="text-align: left;"><code>float</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Decimal year of the first observation. Default: from the first date.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>frequency</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Observations per year. Default: from the median spacing of the dates.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>order</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;"><code>3</code></td>
+<td style="text-align: left;">Seasonal harmonics.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>h</code></td>
+<td style="text-align: left;"><code>float</code></td>
+<td style="text-align: left;"><code>0.25</code></td>
+<td style="text-align: left;">MOSUM window, as a fraction of the history: <code>0.25</code>, <code>0.5</code> or <code>1.0</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>period</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;"><code>10</code></td>
+<td style="text-align: left;">Boundary horizon, in history lengths: <code>2</code>, <code>4</code>, <code>6</code>, <code>8</code> or <code>10</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>alpha</code></td>
+<td style="text-align: left;"><code>float</code></td>
+<td style="text-align: left;"><code>0.05</code></td>
+<td style="text-align: left;">Significance level.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>min_valid</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;"><code>10</code></td>
+<td style="text-align: left;">Minimum valid history observations.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>band</code></td>
+<td style="text-align: left;"><code>str</code> or <code>int</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">The index to use in a <code>(time, band, y, x)</code> cube or a <code>Dataset</code> (band or variable name).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>nodata</code></td>
+<td style="text-align: left;"><code>"auto"</code>, <code>float</code> or <code>None</code></td>
+<td style="text-align: left;"><code>"auto"</code></td>
+<td style="text-align: left;">Value marking a missing observation besides NaN. <code>"auto"</code>: the raster's NoData value; for integer data without one, <code>0</code> (how Earth Engine exports masked pixels). A number: that value. <code>None</code>: only NaN.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>chunks</code></td>
+<td style="text-align: left;"><code>"auto"</code>, <code>dict</code></td>
+<td style="text-align: left;"><code>None</code></td>
+<td style="text-align: left;">Inputs read from disk: <code>None</code> reads the raster into memory; <code>"auto"</code> or a dict of chunk sizes keeps it lazy, so the result is computed block by block, for rasters larger than memory.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>n_jobs</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;"><code>-1</code></td>
+<td style="text-align: left;">Threads. <code>-1</code> uses all cores but one.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><code>h</code> and <code>period</code> index a table of simulated critical values (from <code>strucchangeRcpp</code>), so other values raise an error.</p>
+<p><strong>Returns</strong> an <code>xarray.Dataset</code> of <code>(y, x)</code> float32 maps:</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Variable</th>
+<th style="text-align: left;">Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>breakpoint</code></td>
+<td style="text-align: left;">Decimal year of the first detected break on R's regular <code>ts</code> axis (<code>start_time + breakpoint_idx / frequency</code>); NaN if none.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>breakpoint_idx</code></td>
+<td style="text-align: left;">0-based index of that observation in the series.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>magnitude</code></td>
+<td style="text-align: left;">Median residual over the monitoring period: size and direction of the shift (negative: lower than expected).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>sigma</code></td>
+<td style="text-align: left;">Residual standard error of the history fit.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>n_history</code></td>
+<td style="text-align: left;">Valid observations in the history.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>has_break</code></td>
+<td style="text-align: left;"><code>1</code> if a break was detected, else <code>0</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>valid</code></td>
+<td style="text-align: left;"><code>0</code> if the history was too short to fit; the other variables are then NaN.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>break_date</code></td>
+<td style="text-align: left;">Date of the break's observation, from the data's dates (<code>NaT</code> if none).</td>
+</tr>
+</tbody>
+</table>
+<p>The <code>x</code>/<code>y</code> coordinates and CRS of the input are kept, so the result goes straight to <a href="../data/#save_raster"><code>save_raster</code></a>: one GeoTIFF per variable for a folder, or one band per variable for a <code>.tif</code> path. <code>attrs</code> records the parameters, including the <code>start_time</code> and <code>frequency</code> used. A single pixel's result has no <code>y</code>/<code>x</code> dims. With a dask cube or <code>chunks=</code>, the result is lazy.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="n">ndvi</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">load_raster</span><span class="p">(</span><span class="s2">"ndvi_16d.tif"</span><span class="p">)</span>       <span class="c1"># (time, y, x): 16-day composites from January 2010</span>
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="n">bfm</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">bfast_monitor</span><span class="p">(</span><span class="n">ndvi</span><span class="p">,</span> <span class="s2">"2022-01-01"</span><span class="p">)</span>  <span class="c1"># start_time 2010.0 and frequency 23, from the dates</span>
+</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="n">alerts</span> <span class="o">=</span> <span class="p">(</span><span class="n">bfm</span><span class="o">.</span><span class="n">has_break</span> <span class="o">==</span> <span class="mi">1</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">bfm</span><span class="o">.</span><span class="n">magnitude</span> <span class="o">&lt;</span> <span class="o">-</span><span class="mf">0.1</span><span class="p">)</span>
+</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="n">zeit</span><span class="o">.</span><span class="n">save_raster</span><span class="p">(</span><span class="n">bfm</span><span class="p">,</span> <span class="s2">"bfm_out"</span><span class="p">)</span>              <span class="c1"># breakpoint.tif, ..., valid.tif</span>
+</span><span id="__span-16-5"><a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a>
+</span><span id="__span-16-6"><a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a><span class="c1"># A raster larger than memory: lazy, computed block by block while it is written</span>
+</span><span id="__span-16-7"><a id="__codelineno-16-7" name="__codelineno-16-7" href="#__codelineno-16-7"></a><span class="n">bfm</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">bfast_monitor</span><span class="p">(</span><span class="s2">"ndvi_16d.tif"</span><span class="p">,</span> <span class="mf">2022.0</span><span class="p">,</span> <span class="n">chunks</span><span class="o">=</span><span class="s2">"auto"</span><span class="p">)</span>
+</span><span id="__span-16-8"><a id="__codelineno-16-8" name="__codelineno-16-8" href="#__codelineno-16-8"></a><span class="n">zeit</span><span class="o">.</span><span class="n">save_raster</span><span class="p">(</span><span class="n">bfm</span><span class="p">,</span> <span class="s2">"bfm_out"</span><span class="p">)</span>
+</span><span id="__span-16-9"><a id="__codelineno-16-9" name="__codelineno-16-9" href="#__codelineno-16-9"></a>
+</span><span id="__span-16-10"><a id="__codelineno-16-10" name="__codelineno-16-10" href="#__codelineno-16-10"></a><span class="c1"># One pixel's series without dates: give the time axis</span>
+</span><span id="__span-16-11"><a id="__codelineno-16-11" name="__codelineno-16-11" href="#__codelineno-16-11"></a><span class="n">px</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">bfast_monitor</span><span class="p">(</span><span class="n">values</span><span class="p">,</span> <span class="mf">2022.0</span><span class="p">,</span> <span class="n">start_time</span><span class="o">=</span><span class="mf">2010.0</span><span class="p">,</span> <span class="n">frequency</span><span class="o">=</span><span class="mi">23</span><span class="p">)</span>
+</span><span id="__span-16-12"><a id="__codelineno-16-12" name="__codelineno-16-12" href="#__codelineno-16-12"></a><span class="nb">float</span><span class="p">(</span><span class="n">px</span><span class="o">.</span><span class="n">breakpoint</span><span class="p">)</span>                          <span class="c1"># decimal year, NaN if no break</span>
+</span></code></pre></div>
+<h3 class="api" id="bfast_lite"><code>bfast_lite</code><a class="headerlink" href="#bfast_lite" title="Permanent link">&para;</a></h3>
+<!-- sig: zeit.bfast_lite -->
+<div class="language-python highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="n">zeit</span><span class="o">.</span><span class="n">bfast_lite</span><span class="p">(</span>
+</span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a>    <span class="n">data</span><span class="p">,</span> <span class="n">dates</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">start_time</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">frequency</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">order</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
+</span><span id="__span-17-3"><a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a>    <span class="n">h</span><span class="o">=</span><span class="mf">0.15</span><span class="p">,</span> <span class="n">max_breaks</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">min_valid</span><span class="o">=</span><span class="mi">20</span><span class="p">,</span> <span class="n">band</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">nodata</span><span class="o">=</span><span class="s2">"auto"</span><span class="p">,</span>
+</span><span id="__span-17-4"><a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a>    <span class="n">chunks</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">n_jobs</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span>
+</span><span id="__span-17-5"><a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a><span class="p">)</span>
+</span></code></pre></div>
+<p>Multiple breakpoints in one pass (<code>bfastlite</code>, Masiliūnas et al. 2021): fits <code>response ~ trend + harmon</code> and chooses the number and position of breaks with the Bai &amp; Perron dynamic program and the LWZ criterion. Input, time axis and output are as for <a href="#bfast_monitor"><code>bfast_monitor</code></a>.</p>
+<div class="params">
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Parameter</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Default</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>data</code></td>
+<td style="text-align: left;">path, <code>DataArray</code>, <code>Dataset</code>, <code>ndarray</code>, list or <code>pd.Series</code></td>
+<td style="text-align: left;">required</td>
+<td style="text-align: left;">What to segment (see <a href="#bfast_monitor"><code>bfast_monitor</code></a>).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>dates</code>, <code>start_time</code>, <code>frequency</code></td>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"><code>None</code>, <code>None</code>, <code>None</code></td>
+<td style="text-align: left;">The time axis, as in <code>bfast_monitor</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>order</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;"><code>3</code></td>
+<td style="text-align: left;">Seasonal harmonics.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>h</code></td>
+<td style="text-align: left;"><code>float</code></td>
+<td style="text-align: left;"><code>0.15</code></td>
+<td style="text-align: left;">Minimum segment size, as a fraction of the observations.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>max_breaks</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;"><code>5</code></td>
+<td style="text-align: left;">Break slots in the output (formerly <code>max_breaks_output</code>).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>min_valid</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;"><code>20</code></td>
+<td style="text-align: left;">Minimum valid observations.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>band</code>, <code>nodata</code>, <code>chunks</code>, <code>n_jobs</code></td>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"><code>None</code>, <code>"auto"</code>, <code>None</code>, <code>-1</code></td>
+<td style="text-align: left;">As in <code>bfast_monitor</code>.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Returns</strong> an <code>xarray.Dataset</code> of <code>(y, x)</code> float32 maps:</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Variable</th>
+<th style="text-align: left;">Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>n_breaks</code></td>
+<td style="text-align: left;">Number of breaks chosen by the criterion (<code>0</code> if none).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rss</code></td>
+<td style="text-align: left;">Residual sum of squares of the selected model.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>lwz</code></td>
+<td style="text-align: left;">Value of the LWZ criterion.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>n_valid</code></td>
+<td style="text-align: left;">Valid observations used.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>valid</code></td>
+<td style="text-align: left;"><code>1</code> if the series had enough observations to fit.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>breakpoint_idx_1</code> … <code>breakpoint_idx_{max_breaks}</code></td>
+<td style="text-align: left;">0-based index in the series (missing observations included) of the last observation before each break, in chronological order; NaN past <code>n_breaks</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>magnitude_1</code> … <code>magnitude_{max_breaks}</code></td>
+<td style="text-align: left;">The model after each break minus the model before it, both on the first observation after the break (the seasonal terms cancel, the change of level, trend and season shape remains).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>break_date_1</code> … <code>break_date_{max_breaks}</code></td>
+<td style="text-align: left;">Date of the first observation after each break (<code>NaT</code> past <code>n_breaks</code>).</td>
+</tr>
+</tbody>
+</table>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="n">bfl</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">bfast_lite</span><span class="p">(</span><span class="n">ndvi</span><span class="p">,</span> <span class="n">max_breaks</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+</span><span id="__span-18-2"><a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="n">first</span> <span class="o">=</span> <span class="n">bfl</span><span class="o">.</span><span class="n">break_date_1</span>                                  <span class="c1"># NaT where n_breaks == 0</span>
+</span><span id="__span-18-3"><a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a><span class="n">loss</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">extract_events</span><span class="p">(</span><span class="n">bfl</span><span class="p">,</span> <span class="n">event_type</span><span class="o">=</span><span class="s2">"loss"</span><span class="p">)</span>        <span class="c1"># the greatest drop of each pixel</span>
+</span></code></pre></div>
+<h3 class="api" id="bfast"><code>bfast</code><a class="headerlink" href="#bfast" title="Permanent link">&para;</a></h3>
+<!-- sig: zeit.bfast -->
+<div class="language-python highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="n">zeit</span><span class="o">.</span><span class="n">bfast</span><span class="p">(</span>
+</span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a>    <span class="n">data</span><span class="p">,</span> <span class="n">dates</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">start_time</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">frequency</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">order</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
+</span><span id="__span-19-3"><a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a>    <span class="n">h</span><span class="o">=</span><span class="mf">0.15</span><span class="p">,</span> <span class="n">max_breaks_trend</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">max_breaks_season</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">max_iter</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>
+</span><span id="__span-19-4"><a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a>    <span class="n">level</span><span class="o">=</span><span class="mf">0.05</span><span class="p">,</span> <span class="n">min_valid</span><span class="o">=</span><span class="mi">20</span><span class="p">,</span> <span class="n">band</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">nodata</span><span class="o">=</span><span class="s2">"auto"</span><span class="p">,</span> <span class="n">chunks</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-19-5"><a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a>    <span class="n">n_jobs</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span>
+</span><span id="__span-19-6"><a id="__codelineno-19-6" name="__codelineno-19-6" href="#__codelineno-19-6"></a><span class="p">)</span>
+</span></code></pre></div>
+<p>Classic iterative BFAST (Verbesselt et al. 2010): an STL seasonal seed, then alternating trend and season segmented regressions (breaks chosen with BIC) until neither changes, each preceded by an OLS-MOSUM stability test. Separates trend breaks from seasonal breaks. Input, time axis and output are as for <a href="#bfast_monitor"><code>bfast_monitor</code></a>; the series must hold more than <code>2 × frequency</code> observations.</p>
+<div class="params">
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Parameter</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Default</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>data</code></td>
+<td style="text-align: left;">path, <code>DataArray</code>, <code>Dataset</code>, <code>ndarray</code>, list or <code>pd.Series</code></td>
+<td style="text-align: left;">required</td>
+<td style="text-align: left;">What to decompose (see <a href="#bfast_monitor"><code>bfast_monitor</code></a>).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>dates</code>, <code>start_time</code>, <code>frequency</code></td>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"><code>None</code>, <code>None</code>, <code>None</code></td>
+<td style="text-align: left;">The time axis, as in <code>bfast_monitor</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>order</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;"><code>3</code></td>
+<td style="text-align: left;">Harmonics of the season model.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>h</code></td>
+<td style="text-align: left;"><code>float</code></td>
+<td style="text-align: left;"><code>0.15</code></td>
+<td style="text-align: left;">Minimum segment size, as a fraction of the valid observations.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>max_breaks_trend</code>, <code>max_breaks_season</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;"><code>5</code>, <code>5</code></td>
+<td style="text-align: left;">Trend and season break slots in the output.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>max_iter</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;"><code>10</code></td>
+<td style="text-align: left;">Maximum trend/season iterations.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>level</code></td>
+<td style="text-align: left;"><code>float</code></td>
+<td style="text-align: left;"><code>0.05</code></td>
+<td style="text-align: left;">Significance of the stability pre-test (<code>1.0</code> always searches for breaks).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>min_valid</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;"><code>20</code></td>
+<td style="text-align: left;">Minimum valid observations.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>band</code>, <code>nodata</code>, <code>chunks</code>, <code>n_jobs</code></td>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"><code>None</code>, <code>"auto"</code>, <code>None</code>, <code>-1</code></td>
+<td style="text-align: left;">As in <code>bfast_monitor</code>.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Returns</strong> an <code>xarray.Dataset</code> of <code>(y, x)</code> float32 maps:</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Variable</th>
+<th style="text-align: left;">Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>n_trend_breaks</code>, <code>n_season_breaks</code></td>
+<td style="text-align: left;">Number of trend and season breaks at convergence.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>magnitude</code></td>
+<td style="text-align: left;">Largest jump in the trend (R's <code>bf$Magnitude</code>); <code>0</code> without a trend break.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>break_time</code></td>
+<td style="text-align: left;">Decimal year of that jump (R's <code>bf$jump$x</code>); NaN if none. Formerly the <code>time</code> metric, renamed so it does not clash with the <code>time</code> coordinate.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>n_iter</code></td>
+<td style="text-align: left;">Iterations until convergence (or <code>max_iter</code>).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>n_valid</code></td>
+<td style="text-align: left;">Valid observations used.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>valid</code></td>
+<td style="text-align: left;"><code>1</code> if the series was long enough to fit.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>trend_breakpoint_idx_1</code> … <code>_{max_breaks_trend}</code></td>
+<td style="text-align: left;">0-based index in the series (missing observations included) of the last observation before each trend break; NaN past <code>n_trend_breaks</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>season_breakpoint_idx_1</code> … <code>_{max_breaks_season}</code></td>
+<td style="text-align: left;">The same for season breaks.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>trend_magnitude_1</code> … <code>_{max_breaks_trend}</code></td>
+<td style="text-align: left;">The jump of the trend at each trend break; <code>magnitude</code> is the largest of them.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>trend_break_date_1</code> … <code>_{max_breaks_trend}</code></td>
+<td style="text-align: left;">Date of the first observation after each trend break.</td>
+</tr>
+</tbody>
+</table>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="n">bf</span> <span class="o">=</span> <span class="n">zeit</span><span class="o">.</span><span class="n">bfast</span><span class="p">(</span><span class="n">ndvi</span><span class="p">)</span>
+</span><span id="__span-20-2"><a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="n">abrupt</span> <span class="o">=</span> <span class="p">(</span><span class="n">bf</span><span class="o">.</span><span class="n">n_trend_breaks</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">bf</span><span class="o">.</span><span class="n">magnitude</span> <span class="o">&lt;</span> <span class="o">-</span><span class="mf">0.1</span><span class="p">)</span>
+</span><span id="__span-20-3"><a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a><span class="n">when</span> <span class="o">=</span> <span class="n">bf</span><span class="o">.</span><span class="n">break_time</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">abrupt</span><span class="p">)</span>
+</span><span id="__span-20-4"><a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a><span class="n">zeit</span><span class="o">.</span><span class="n">save_raster</span><span class="p">(</span><span class="n">bf</span><span class="p">,</span> <span class="s2">"bfast.tif"</span><span class="p">)</span>                 <span class="c1"># one band per variable, named</span>
+</span></code></pre></div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../preprocessing/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Pre-processing">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Pre-processing
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../time-series/" class="md-footer__link md-footer__link--next" aria-label="Next: Time-Series Analysis">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Time-Series Analysis
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Zeit is free software released under the GPL-2.0-or-later license.
+    </div>
+  
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+    <a href="https://github.com/sacridini/zeit-cdts" target="_blank" rel="noopener" title="Zeit on GitHub" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+    
+    
+    
+    
+    <a href="https://pypi.org/project/zeit-cdts/" target="_blank" rel="noopener" title="Zeit on PyPI" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.8 200.5c-7.7-30.9-22.3-54.2-53.4-54.2h-40.1v47.4c0 36.8-31.2 67.8-66.8 67.8H172.7c-29.2 0-53.4 25-53.4 54.3v101.8c0 29 25.2 46 53.4 54.3 33.8 9.9 66.3 11.7 106.8 0 26.9-7.8 53.4-23.5 53.4-54.3v-40.7H226.2v-13.6h160.2c31.1 0 42.6-21.7 53.4-54.2 11.2-33.5 10.7-65.7 0-108.6M286.2 444.7a20.4 20.4 0 1 1 0-40.7 20.4 20.4 0 1 1 0 40.7M167.8 248.1h106.8c29.7 0 53.4-24.5 53.4-54.3V91.9c0-29-24.4-50.7-53.4-55.6-35.8-5.9-74.7-5.6-106.8.1-45.2 8-53.4 24.7-53.4 55.6v40.7h106.9v13.6h-147c-31.1 0-58.3 18.7-66.8 54.2-9.8 40.7-10.2 66.1 0 108.6 7.6 31.6 25.7 54.2 56.8 54.2H101v-48.8c0-35.3 30.5-66.4 66.8-66.4m-6.6-183.4a20.4 20.4 0 1 1 0 40.8 20.4 20.4 0 1 1 0-40.8"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.indexes", "navigation.top", "navigation.footer", "navigation.instant", "navigation.instant.progress", "navigation.path", "toc.follow", "search.suggest", "search.highlight", "search.share", "content.code.copy", "content.code.annotate", "content.tabs.link", "content.tooltips", "content.action.edit"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../../javascripts/mathjax.js"></script>
+      
+        <script src="https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>

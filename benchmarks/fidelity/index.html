@@ -1,0 +1,3398 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Change detection and time-series analysis for satellite imagery, in Python. Fast C++ ports of LandTrendr, CCDC, BFAST and more, from a single pixel to a Dask cluster.">
+      
+      
+      
+        <link rel="canonical" href="https://sacridini.github.io/zeit-cdts/benchmarks/fidelity/">
+      
+      
+        <link rel="prev" href="../">
+      
+      
+        <link rel="next" href="../performance/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Algorithm Fidelity - Zeit</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+  
+  
+    
+      
+      
+    
+  
+  
+  <style>:root{--md-admonition-icon--info:url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%3E%3Cpath%20d%3D%22M11%209h2V7h-2m1%2013c-4.41%200-8-3.59-8-8s3.59-8%208-8%208%203.59%208%208-3.59%208-8%208m0-18A10%2010%200%200%200%202%2012a10%2010%200%200%200%2010%2010%2010%2010%200%200%200%2010-10A10%2010%200%200%200%2012%202m-1%2015h2v-6h-2z%22/%3E%3C/svg%3E');}</style>
+
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/zeit.css">
+    
+      <link rel="stylesheet" href="../../assets/benchmarks.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#algorithmic-fidelity-scientific-validation" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Zeit" class="md-header__button md-logo" aria-label="Zeit" data-md-component="logo">
+      
+  <img src="../../assets/logo/zeit-lockup-light.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Zeit
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Algorithm Fidelity
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to system preference"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to system preference" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/sacridini/zeit-cdts" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    sacridini/zeit-cdts
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting-started/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Get Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../tutorials/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../api/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../cli/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  CLI
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Benchmarks
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Zeit" class="md-nav__button md-logo" aria-label="Zeit" data-md-component="logo">
+      
+  <img src="../../assets/logo/zeit-lockup-light.svg" alt="logo">
+
+    </a>
+    Zeit
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/sacridini/zeit-cdts" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    sacridini/zeit-cdts
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../getting-started/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Get Started
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Get Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Core Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/choosing-an-algorithm/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Choosing an Algorithm
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/docker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docker
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../tutorials/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_2" id="__nav_3_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Data
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Data
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/stac-downloads/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    STAC Data Cubes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/gee-downloads/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Google Earth Engine
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/tmask/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cloud Masking (Tmask)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/embeddings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Embeddings (TESSERA, AlphaEarth)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Visualisation
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Visualisation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/plotting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plotting & Exploring Results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_4" id="__nav_3_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Change Detection
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Change Detection
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/landtrendr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LandTrendr
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/ccdc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CCDC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/bfast/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    BFAST
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/bfast_monitor/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    BFAST Monitor
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/bfast_lite/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    BFAST Lite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/coded/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Forest Degradation (CODED)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_5" id="__nav_3_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Time-Series Analysis
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Time-Series Analysis
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/mann_kendall/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Trend Analysis (Mann-Kendall)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/phenology/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phenology
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/twdtw/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pattern Matching (TWDTW)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/som/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Clustering (SOM)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/snic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Segmentation (SNIC)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_6" id="__nav_3_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Validation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/accuracy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Accuracy & Area
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_7" id="__nav_3_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deep Learning
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Deep Learning
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/ai/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deep Learning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/tempcnn/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TempCNN
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/ltae/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LTAE & LightTAE
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/utae/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    UTAE
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/siamese/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Siamese Change Detector
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/geo_foundation_vit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GeoFoundationViT
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_8" id="__nav_3_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scaling Up
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Scaling Up
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/parallel-cloud-processing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parallel & Cloud Processing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../api/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/data/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data & I/O
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/embeddings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Embeddings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/preprocessing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pre-processing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/change-detection/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Change Detection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/time-series/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Time-Series Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/post-processing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Post-processing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/plot/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Visualisation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/ai/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deep Learning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/xarray/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Xarray Accessor
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmarks
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Benchmarks
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Algorithm Fidelity
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Algorithm Fidelity
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#validation-methodology" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validation Methodology
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#comprehensive-fidelity-matrix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Comprehensive Fidelity Matrix
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#detailed-algorithm-analyses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Detailed Algorithm Analyses
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Detailed Algorithm Analyses">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-landtrendr-kennedy-et-al-2010" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. LandTrendr (Kennedy et al. 2010)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-ccdc-zhu-woodcock-2014" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. CCDC (Zhu &amp; Woodcock 2014)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-bfast-family-verbesselt-et-al" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. BFAST Family (Verbesselt et al.)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-phenology-extraction-vs-r-phenofit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Phenology Extraction vs. R phenofit
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5-time-weighted-dynamic-time-warping-twdtw" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Time-Weighted Dynamic Time Warping (TWDTW)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#6-self-organizing-maps-som" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Self-Organizing Maps (SOM)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#7-deep-learning-weight-porting-zeitai" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Deep Learning Weight-Porting (zeit.ai)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#8-snic-superpixel-segmentation-achanta-susstrunk-2017" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. SNIC Superpixel Segmentation (Achanta &amp; Süsstrunk 2017)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#boundary-cases-nuances" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Boundary Cases &amp; Nuances
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Boundary Cases &amp; Nuances">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#siamese-change-detector-zeitaisiamese" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Siamese Change Detector (zeit.ai.siamese)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#geospatial-foundation-models-zeitaifoundation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Geospatial Foundation Models (zeit.ai.foundation)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../performance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance & Scaling
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#validation-methodology" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validation Methodology
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#comprehensive-fidelity-matrix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Comprehensive Fidelity Matrix
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#detailed-algorithm-analyses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Detailed Algorithm Analyses
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Detailed Algorithm Analyses">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-landtrendr-kennedy-et-al-2010" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. LandTrendr (Kennedy et al. 2010)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-ccdc-zhu-woodcock-2014" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. CCDC (Zhu &amp; Woodcock 2014)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-bfast-family-verbesselt-et-al" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. BFAST Family (Verbesselt et al.)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-phenology-extraction-vs-r-phenofit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Phenology Extraction vs. R phenofit
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5-time-weighted-dynamic-time-warping-twdtw" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Time-Weighted Dynamic Time Warping (TWDTW)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#6-self-organizing-maps-som" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Self-Organizing Maps (SOM)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#7-deep-learning-weight-porting-zeitai" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Deep Learning Weight-Porting (zeit.ai)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#8-snic-superpixel-segmentation-achanta-susstrunk-2017" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. SNIC Superpixel Segmentation (Achanta &amp; Süsstrunk 2017)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#boundary-cases-nuances" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Boundary Cases &amp; Nuances
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Boundary Cases &amp; Nuances">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#siamese-change-detector-zeitaisiamese" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Siamese Change Detector (zeit.ai.siamese)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#geospatial-foundation-models-zeitaifoundation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Geospatial Foundation Models (zeit.ai.foundation)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+  <nav class="md-path" aria-label="Navigation" >
+    <ol class="md-path__list">
+      
+        
+  
+  
+    <li class="md-path__item">
+      <a href="../.." class="md-path__link">
+        
+  <span class="md-ellipsis">
+    Home
+  </span>
+
+      </a>
+    </li>
+  
+
+      
+      
+        
+  
+  
+    
+    
+      <li class="md-path__item">
+        <a href="../" class="md-path__link">
+          
+  <span class="md-ellipsis">
+    Benchmarks
+  </span>
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ol>
+  </nav>
+
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/sacridini/zeit-cdts/edit/main/docs/benchmarks/fidelity.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="algorithmic-fidelity-scientific-validation">Algorithmic Fidelity &amp; Scientific Validation<a class="headerlink" href="#algorithmic-fidelity-scientific-validation" title="Permanent link">&para;</a></h1>
+<p>This page details the <strong>methodology, test suites, and quantitative results</strong> measuring how faithfully <code>zeit</code> reproduces the canonical algorithms and published reference implementations it ports.</p>
+<hr />
+<h2 id="validation-methodology">Validation Methodology<a class="headerlink" href="#validation-methodology" title="Permanent link">&para;</a></h2>
+<p>To ensure transparent and reproducible validation, Zeit benchmarks its <strong>8 core algorithm families (14 implementations)</strong> across <strong>four rigorous evaluation pillars</strong>, ranging from controlled ground-truth injection to bit-for-bit source parity and 25-year satellite raster joins:</p>
+<div class="benchmark-card" style="margin-bottom: 24px;">
+  <img src="../../assets/validation_methodology.svg" alt="Validation Methodology Framework" class="benchmark-chart" style="width: 100%; max-width: 960px; display: block; margin: 0 auto;" />
+  <p class="bm-kpi-sub" style="margin-top: 12px; text-align: center;">
+    The 4 evaluation strategies (pillars) used across Zeit algorithm families to guarantee mathematical and numerical fidelity.
+  </p>
+</div>
+
+<ol>
+<li><strong>Pillar 1: Controlled Ground-Truth Injection (Statistical Algorithms):</strong></li>
+<li><strong>Evaluated Algorithms:</strong> <code>BFAST (Classic)</code>, <code>BFAST Monitor</code>, <code>BFAST Lite</code>, and <code>TWDTW</code>.</li>
+<li><strong>Protocol:</strong> Parameterized synthetic time series with known disturbance dates, recovery slopes, noise amplitudes, and missing observation gaps (NaN dropout) to verify breakpoint recovery and pattern classification against mathematical ground truth.</li>
+<li><strong>Pillar 2: Direct Source-Level Port Parity (Original Codebases):</strong></li>
+<li><strong>Evaluated Algorithms:</strong> <code>LandTrendr</code>, <code>CCDC</code>, <code>SNIC</code>, and <code>SOM</code>.</li>
+<li><strong>Protocol:</strong> Executing the authentic, original source code written by the authors — Kennedy <em>et al.</em> (2010) IDL source (<code>fit_trajectory_v2.pro</code> / <code>tbcd_v2.pro</code>) executed via GNU Data Language (GDL 1.1.2), Zhu &amp; Woodcock (2014) MATLAB source (<code>TrendSeasonalFit_v12_30Line.m</code>) with compiled Fortran GLMnet (<code>glmnetMex.F</code>) executed unmodified under GNU Octave 11.3, Achanta &amp; Süsstrunk (2017) canonical C reference (<code>snic.c</code>, EPFL), and Python <code>minisom</code> (Vettigli) for SOM — validating model dates, vertex coordinates, superpixel segment labels, and SOM codebooks bit-for-bit.</li>
+<li><strong>Pillar 3: State-Dict Weight Porting (Deep Learning Architectures):</strong></li>
+<li><strong>Evaluated Algorithms:</strong> <code>TempCNN</code>, <code>LightTAE (LTAE)</code>, and <code>Official U-TAE</code>.</li>
+<li><strong>Protocol:</strong> Untrained random weights (seeded identically) exported from R <code>torch</code> (Lantern/LibTorch) and loaded into <code>zeit.ai</code> via direct <code>state_dict</code> mapping, testing forward-pass outputs for floating-point equivalence on identical input tensors (&lt; 1e-8 difference).</li>
+<li><strong>Pillar 4: Multi-Decadal Real-World Rasters (Phenology Extraction):</strong></li>
+<li><strong>Evaluated Algorithms:</strong> <code>Phenology Extraction</code> (Beck, Elmore, Gu double-logistic formulations).</li>
+<li><strong>Protocol:</strong> Evaluating real 25-year Landsat/MODIS EVI raster stacks (638 pixels × 575 timesteps, 2001–2025) via a full outer join of 178,000+ paired observations across pixel coordinates, years, curve types, and phenometric transition indices against R <code>phenofit</code>.</li>
+</ol>
+<hr />
+<h2 id="comprehensive-fidelity-matrix">Comprehensive Fidelity Matrix<a class="headerlink" href="#comprehensive-fidelity-matrix" title="Permanent link">&para;</a></h2>
+<p>The table below reports the primary and secondary agreement metrics for all evaluated modules.</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Algorithm</th>
+<th style="text-align: left;">Reference Package</th>
+<th style="text-align: left;">Scope / Sample Size</th>
+<th style="text-align: left;">Primary Metric</th>
+<th style="text-align: left;">Secondary Metric / Context</th>
+<th style="text-align: center;">Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><strong>LandTrendr</strong></td>
+<td style="text-align: left;">Kennedy <em>et al.</em> (2010) IDL (via GDL)</td>
+<td style="text-align: left;">330 synthetic series (30 original + 300 broad)</td>
+<td style="text-align: left;"><strong>100% identical vertex years</strong> (330/330)</td>
+<td style="text-align: left;">99.7% vertex values within 1 unit; p-val tie nuance resolved in 0.18.0</td>
+<td style="text-align: center;"><span class="bm-pill bm-pill--compared">compared</span></td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>CCDC</strong></td>
+<td style="text-align: left;">Zhu &amp; Woodcock (2014) MATLAB (Octave)</td>
+<td style="text-align: left;">200 synthetic + 150 real Landsat pixels</td>
+<td style="text-align: left;"><strong>100% identical model dates</strong> (350/350 px)</td>
+<td style="text-align: left;">599 models, 249 breaks match; coeffs agree to ~5e-10 relative</td>
+<td style="text-align: center;"><span class="bm-pill bm-pill--compared">compared</span></td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>SNIC (Superpixels)</strong></td>
+<td style="text-align: left;">Achanta &amp; Süsstrunk (2017) C (<code>snic.c</code>)</td>
+<td style="text-align: left;">Reference test fixtures (float32 &amp; float64)</td>
+<td style="text-align: left;"><strong>100% identical segment labels</strong> (bitwise match)</td>
+<td style="text-align: left;">Fixes upstream C crashes on single seeds &amp; 2×2; R <code>snic</code> grid 1:1 match</td>
+<td style="text-align: center;"><span class="bm-pill bm-pill--compared">compared</span></td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>SOM (Clustering)</strong></td>
+<td style="text-align: left;">Python <code>minisom</code></td>
+<td style="text-align: left;">1,500 + 20,000 samples, online &amp; batch</td>
+<td style="text-align: left;"><strong>max weight diff = 0.0 (exact match)</strong></td>
+<td style="text-align: left;">Identical codebooks, BMUs (ARI = 1.0) and quantization error in all 6 scenarios</td>
+<td style="text-align: center;"><span class="bm-pill bm-pill--compared">compared</span></td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>BFAST Monitor</strong></td>
+<td style="text-align: left;">R <code>bfast::bfastmonitor</code></td>
+<td style="text-align: left;">40 scenarios (breaks, noise, NaN gaps)</td>
+<td style="text-align: left;"><strong>100% break agreement</strong> (has_break)</td>
+<td style="text-align: left;">Magnitude correlation = 1.000; matches R's 44% false positive rate on noise</td>
+<td style="text-align: center;"><span class="bm-pill bm-pill--compared">compared</span></td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>BFAST Lite</strong></td>
+<td style="text-align: left;">R <code>bfast::bfastlite</code></td>
+<td style="text-align: left;">40 scenarios (single, multi, noise)</td>
+<td style="text-align: left;"><strong>100% break count match</strong> (n_breaks)</td>
+<td style="text-align: left;">80% exact breakpoint match (mean diff = 1.6 observations)</td>
+<td style="text-align: center;"><span class="bm-pill bm-pill--compared">compared</span></td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>BFAST (Classic)</strong></td>
+<td style="text-align: left;">R <code>bfast::bfast</code></td>
+<td style="text-align: left;">40 scenarios (trend &amp; season breaks)</td>
+<td style="text-align: left;"><strong>87.5% trend break count match</strong></td>
+<td style="text-align: left;">100% position match and mag correlation = 0.998 where breaks agree</td>
+<td style="text-align: center;"><span class="bm-pill bm-pill--compared">compared</span></td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>Phenology (Beck)</strong></td>
+<td style="text-align: left;">R <code>phenofit::curvefits</code></td>
+<td style="text-align: left;">Real 25-yr EVI raster (178,710 joined rows)</td>
+<td style="text-align: left;"><strong>MAE = 17.02 days</strong> (across 17 metrics)</td>
+<td style="text-align: left;">SOS metrics agree tightly (MAE 3.7d, 99.1% in 15d); EOS/senescence diverges</td>
+<td style="text-align: center;"><span class="bm-pill bm-pill--compared">compared</span></td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>Phenology (Elmore)</strong></td>
+<td style="text-align: left;">R <code>phenofit::curvefits</code></td>
+<td style="text-align: left;">Real 25-yr EVI raster (179,805 joined rows)</td>
+<td style="text-align: left;"><strong>MAE = 18.48 days</strong> (across 17 metrics)</td>
+<td style="text-align: left;">82.4% of observations within 15 days of reference</td>
+<td style="text-align: center;"><span class="bm-pill bm-pill--compared">compared</span></td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>Phenology (Gu)</strong></td>
+<td style="text-align: left;">R <code>phenofit::curvefits</code></td>
+<td style="text-align: left;">Real 25-yr EVI raster (177,983 joined rows)</td>
+<td style="text-align: left;"><strong>MAE = 35.38 days</strong> (across 17 metrics)</td>
+<td style="text-align: left;">Asymmetric Gu formulation exhibits highest sensitivity in tail fitting</td>
+<td style="text-align: center;"><span class="bm-pill bm-pill--compared">compared</span></td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>TWDTW</strong></td>
+<td style="text-align: left;">R <code>twdtw</code> / <code>dtwSat</code></td>
+<td style="text-align: left;">45 multi-class temporal trajectories; 12 series × pattern pairs</td>
+<td style="text-align: left;"><strong>Distances identical to R <code>twdtw</code> (1e-12)</strong> with <code>zeit.twdtw</code></td>
+<td style="text-align: left;">100% classification agreement on the 45 trajectories; both hit 100% accuracy vs ground truth</td>
+<td style="text-align: center;"><span class="bm-pill bm-pill--compared">compared</span></td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>TempCNN</strong></td>
+<td style="text-align: left;">R <code>sits::sits_tempcnn</code></td>
+<td style="text-align: left;">4 bands, 24 timesteps, 5 classes</td>
+<td style="text-align: left;"><strong>max abs diff = 5.59e-9</strong></td>
+<td style="text-align: left;">Pearson correlation = 1.000000; 1:1 parameter name mapping</td>
+<td style="text-align: center;"><span class="bm-pill bm-pill--compared">compared</span></td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>LightTAE (LTAE)</strong></td>
+<td style="text-align: left;">R <code>sits::sits_lighttae</code></td>
+<td style="text-align: left;">4 bands, 24 steps, 16 heads, 5 classes</td>
+<td style="text-align: left;"><strong>max abs diff = 8.94e-8</strong></td>
+<td style="text-align: left;">Pearson correlation = 1.000000; exact layer-for-layer port</td>
+<td style="text-align: center;"><span class="bm-pill bm-pill--compared">compared</span></td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>Official U-TAE</strong></td>
+<td style="text-align: left;">Official <code>utae-paps</code> repo</td>
+<td style="text-align: left;">Segmentation U-Net + LTAE2d (B=1, T=6)</td>
+<td style="text-align: left;"><strong>max abs diff = 0.0 (exact match)</strong></td>
+<td style="text-align: left;">Exact bitwise agreement on both regular and padded sampling paths</td>
+<td style="text-align: center;"><span class="bm-pill bm-pill--compared">compared</span></td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>Siamese CNN</strong></td>
+<td style="text-align: left;">Conceptual analog (R <code>sits</code> DTW)</td>
+<td style="text-align: left;">80 test patch pairs vs 1D series</td>
+<td style="text-align: left;"><strong>100% accuracy</strong> on respective tasks</td>
+<td style="text-align: left;">Approximate analog only: spatial 2D CNN vs temporal 1D curve distance</td>
+<td style="text-align: center;"><span class="bm-pill bm-pill--partial">partial</span></td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>Foundation ViT</strong></td>
+<td style="text-align: left;"><code>ibm-nasa-geospatial/Prithvi-100M</code></td>
+<td style="text-align: left;">HuggingFace Hub transformers backbone</td>
+<td style="text-align: left;"><strong>Wrapper fallback validated</strong></td>
+<td style="text-align: left;">Upstream remote code bug in HF repo; Conv3d fallback verified</td>
+<td style="text-align: center;"><span class="bm-pill bm-pill--notcomp">not_comparable</span></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="detailed-algorithm-analyses">Detailed Algorithm Analyses<a class="headerlink" href="#detailed-algorithm-analyses" title="Permanent link">&para;</a></h2>
+<h3 id="1-landtrendr-kennedy-et-al-2010">1. LandTrendr (Kennedy <em>et al.</em> 2010)<a class="headerlink" href="#1-landtrendr-kennedy-et-al-2010" title="Permanent link">&para;</a></h3>
+<p>LandTrendr simplifies annual satellite time series into straight-line segments using an iterative regression ladder and F-test model complexity selection.</p>
+<h4 id="canonical-idl-source-parity">Canonical IDL Source Parity<a class="headerlink" href="#canonical-idl-source-parity" title="Permanent link">&para;</a></h4>
+<p>Zeit (<code>src/landtrendr.cpp</code>) faithfully replicates the canonical Kennedy <em>et al.</em> (2010) IDL source (<code>fit_trajectory_v2.pro</code> / <code>tbcd_v2.pro</code>) executed via GNU Data Language (GDL 1.1.2). To achieve bit-for-bit fidelity with the original IDL implementation, Zeit reproduces all canonical core behaviors:</p>
+<ol>
+<li><strong>Desawtoothed Series Fitting:</strong> Uses the despiked series generated by <code>desawtooth</code> consistently across all subsequent rungs, fitting routines, and F-tests, matching IDL's processing pipeline.</li>
+<li><strong><code>take_out_weakest2</code> In-Place Mutation:</strong> Faithful in-place array modification when recovery segments exceed <code>recovery_threshold</code>, preserving the exact trajectory of ladder reduction.</li>
+<li><strong>Whole-Ladder Fallback Structure:</strong> Rebuilds the entire ladder from scratch via joint Levenberg-Marquardt fitting when the primary candidate model is statistically non-significant.</li>
+<li><strong>Flat-Line Fallback:</strong> Gracefully returns a horizontal mean line when fallback models remain non-significant (<code>p &gt; pval</code>), avoiding spurious over-segmentation on pure noise.</li>
+<li><strong>Float32 P-Value Tie Breaking:</strong> Replicates IDL's single-precision F-test p-value precision (<code>p &lt; 6 × 10⁻⁸</code> rounding to <code>0.0</code>), selecting the appropriate model under <code>pick_best_model6</code> complexity rules.</li>
+</ol>
+<h4 id="verification-parity-results">Verification &amp; Parity Results<a class="headerlink" href="#verification-parity-results" title="Permanent link">&para;</a></h4>
+<p>Across both original and expanded test batteries:
+- <strong>30 / 30</strong> original scenarios achieved <strong>100% identical vertex years</strong>.
+- <strong>300 / 300</strong> broad battery series achieved <strong>100% identical vertex years</strong> (299/300 within 1 integer unit).
+- Parity is continuously enforced in the CI suite by <code>tests/test_landtrendr_idl_parity.py</code> across 14 GDL-derived edge cases.</p>
+<div class="admonition tip">
+<p class="admonition-title">The Single Residual Tie Edge Case</p>
+<p>The only non-identical value out of 300 series occurred on a stable series where a segment spanned exactly <code>1 / threshold</code> years. In exact arithmetic, <code>|slope| / range == threshold</code>, and the comparison is decided by floating-point rounding inside the solver.</p>
+</div>
+<hr />
+<h3 id="2-ccdc-zhu-woodcock-2014">2. CCDC (Zhu &amp; Woodcock 2014)<a class="headerlink" href="#2-ccdc-zhu-woodcock-2014" title="Permanent link">&para;</a></h3>
+<p>CCDC models surface reflectance across multiple spectral bands using harmonic regressions, detecting breaks when consecutive residuals exceed a Chi-square threshold.</p>
+<h4 id="line-by-line-matlab-fortran-glmnet-parity">Line-by-Line MATLAB &amp; Fortran GLMnet Parity<a class="headerlink" href="#line-by-line-matlab-fortran-glmnet-parity" title="Permanent link">&para;</a></h4>
+<p>Zeit (<code>src/ccdc.cpp</code>) provides a line-by-line C++ port of the canonical MATLAB codebase (<code>TrendSeasonalFit_v12_30Line.m</code>) by Zhu &amp; Woodcock (2014):</p>
+<ul>
+<li><strong>Float32 GLMnet Lasso:</strong> High-performance native C++ port of the Fortran GLMnet lasso algorithm in single precision, reproducing the exact memory layout and numerical path of <code>glmnetMex.F</code>.</li>
+<li><strong>MATLAB <code>datenum</code> Time Axis:</strong> Temporal coordinate alignment (<code>python_ordinal + 366</code>) ensuring invariant harmonic phase alignment in lasso regularization.</li>
+<li><strong>Bisquare Robust Tmask:</strong> Native implementation of MATLAB's <code>statrobustfit_cor</code> bisquare M-estimator, including leverage adjustment, MAD-sigma scaling, and 4-iteration reweighting.</li>
+<li><strong>Numerical Rank Alignment:</strong> Matrix rank behavior matching MATLAB's <code>linsolve</code> decomposition for accurate Tmask outlier identification.</li>
+</ul>
+<h4 id="verification-parity-results_1">Verification &amp; Parity Results<a class="headerlink" href="#verification-parity-results_1" title="Permanent link">&para;</a></h4>
+<p>Testing on 200 synthetic Landsat pixels and 150 real Landsat Collection 2 pixels in Rondônia (599 models, 249 breaks):
+- <strong>100% model match rate:</strong> Every single pixel produced identical start dates, end dates, break dates, categories, and observation counts.
+- Harmonic coefficients and residual magnitudes matched to <strong>~5 × 10⁻¹⁰ relative tolerance</strong> (<code>~5e-10</code>, the export limit).
+- Parity is locked into regression tests in <code>tests/test_ccdc_matlab_parity.py</code>.</p>
+<hr />
+<h3 id="3-bfast-family-verbesselt-et-al">3. BFAST Family (Verbesselt <em>et al.</em>)<a class="headerlink" href="#3-bfast-family-verbesselt-et-al" title="Permanent link">&para;</a></h3>
+<p>The BFAST suite represents one of the most widely used statistical change detection families.</p>
+<ul>
+<li><strong>BFAST Monitor:</strong> Achieved <strong>100% agreement on break detection</strong> (<code>has_break</code>), with a magnitude correlation of <strong>1.000</strong>. The test battery specifically verified that Zeit reproduces R's documented ~44% false-positive rate when evaluating pure Gaussian noise under <code>history="all"</code>, confirming fidelity even in known edge cases.</li>
+<li><strong>BFAST Lite:</strong> Achieved <strong>100% agreement on break counts</strong>. Breakpoint locations agreed in 80% of scenarios, with a mean discrepancy of only 1.6 observations in remaining series. The evaluation harness resolved a potential 0-indexed (Python) vs. 1-indexed (R) convention mismatch.</li>
+<li><strong>BFAST Classic (Iterative STL):</strong> Achieved <strong>87.5% exact agreement on trend break counts</strong>. Whenever both implementations detected a break, breakpoint positions and change magnitudes matched <strong>100%</strong>. Minor discrepancies stem from slight differences in how seasonal Loess smoothers handle NaN gaps in C++ vs. R.</li>
+</ul>
+<hr />
+<h3 id="4-phenology-extraction-vs-r-phenofit">4. Phenology Extraction vs. R <code>phenofit</code><a class="headerlink" href="#4-phenology-extraction-vs-r-phenofit" title="Permanent link">&para;</a></h3>
+<p>Phenology extraction fits parametric double-logistic curves (Beck, Elmore, Gu) to multi-year vegetation index time series and derives critical transition dates (Start of Season, End of Season, Peak, Maturity, Senescence, Dormancy).</p>
+<p>Using a real 25-year Landsat/MODIS EVI raster stack (638 pixels × 25 years = 178,710 joined records for Beck):</p>
+<pre class="mermaid"><code>xychart-beta
+    title "Mean Absolute Error (Days) across Phenometrics (Beck Model vs R phenofit)"
+    x-axis ["TRS2.sos", "TRS5.sos", "TRS6.sos", "DER.sos", "UD", "Peak", "Maturity", "Senescence", "RD", "Dormancy"]
+    y-axis "MAE (Days)" 0 --&gt; 85
+    bar [4.1, 3.7, 4.3, 5.1, 5.3, 6.8, 9.4, 16.1, 67.0, 76.9]</code></pre>
+<h4 id="the-scientific-divergence-spring-vs-autumn-dynamics">The Scientific Divergence: Spring vs. Autumn Dynamics<a class="headerlink" href="#the-scientific-divergence-spring-vs-autumn-dynamics" title="Permanent link">&para;</a></h4>
+<p>Our analysis revealed a critical finding for Earth Observation researchers:
+- <strong>Start-of-Season (SOS) Metrics Agree Closely:</strong> Transition thresholds (<code>TRS2.sos</code>, <code>TRS5.sos</code>, <code>TRS6.sos</code>, <code>DER.sos</code>, <code>UD</code>) exhibit an MAE of <strong>3.7 to 5.3 days</strong>, with <strong>99.12% of observations agreeing within 15 days</strong>. Zeit and <code>phenofit</code> capture the rapid spring green-up trajectory with near-identical precision.
+- <strong>End-of-Season (EOS) Metrics Diverge:</strong> Metrics governing senescence and dormancy (<code>Dormancy</code> MAE = <strong>76.9 days</strong>, <code>RD</code> MAE = <strong>67.0 days</strong>).
+- <strong>Underlying Cause:</strong> This divergence is an inherent property of asymmetric curve fitting. Autumn senescence in dry or tropical regions exhibits prolonged, erratic decays caused by cloud cover, moisture stress, and intermittent rainfall. Small differences in objective function weighting between C++ Levenberg-Marquardt and R's <code>nloptr</code> optimizer produce different asymptotic tail fits without altering the primary seasonal peak.</p>
+<div class="admonition warning">
+<p class="admonition-title">Recommendation for Applied Research</p>
+<p>When reporting phenological shifts in publications, evaluate green-up (SOS) and brown-down (EOS) metrics separately. Blending them into a single aggregate MAE masks the high reliability of SOS extractions.</p>
+</div>
+<hr />
+<h3 id="5-time-weighted-dynamic-time-warping-twdtw">5. Time-Weighted Dynamic Time Warping (TWDTW)<a class="headerlink" href="#5-time-weighted-dynamic-time-warping-twdtw" title="Permanent link">&para;</a></h3>
+<p>TWDTW (Maus <em>et al.</em> 2016) calculates the optimal alignment between satellite time-series trajectories and reference phenological patterns, penalizing alignment points based on calendar time shifts.</p>
+<ul>
+<li>Evaluated against R <code>twdtw</code> on 45 temporal trajectories across three land-cover classes (Single Crop, Double Crop, Forest).</li>
+<li><strong>100% Classification Agreement:</strong> Zeit and the original R package produced identical land-cover classifications for all tested series.</li>
+<li><strong>Distance Metric Correlation:</strong> With the earlier engine's own time weight, the raw distances had a Pearson correlation of <strong>0.9381</strong>. Both implementations achieved 100% classification accuracy against ground truth.</li>
+<li><strong>Identical distances (<code>zeit.twdtw</code>, 0.41):</strong> with R twdtw's logistic weight and its day-of-year cycle, <code>zeit.twdtw</code> gives R <code>twdtw</code> 1.0.1's distances to 1e-12 on one- and two-band series, cloudy dates and patterns inside four-year series (<code>tests/test_twdtw_api.py</code>, fixtures from R in <code>tests/data</code>).</li>
+</ul>
+<hr />
+<h3 id="6-self-organizing-maps-som">6. Self-Organizing Maps (SOM)<a class="headerlink" href="#6-self-organizing-maps-som" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>zeit.ai.SOM</code> is an operation-by-operation port of Python <code>minisom</code> 2.3.6: same <code>numpy.random.RandomState</code> draws for initialization and sample order, NumPy's pairwise summation for the distance norm, <code>argmin</code> tie-breaking on the square-rooted distance, and the same neighborhood, decay and update expressions. The batch trainer accumulates each neuron's numerator and denominator in sample order, exactly like <code>MiniSom.train_batch_offline</code>, so its output does not depend on <code>n_jobs</code>.</li>
+<li>Evaluated with identical seed and <code>random_weights_init</code> on both sides, on 5 Gaussian clusters (1,500 samples, 5×5 grid; 20,000 samples, 10×10 grid), for <code>MiniSom.train</code> (sequential and random order) and <code>MiniSom.train_batch_offline</code> (1 thread and all threads):<ul>
+<li><strong>Codebook:</strong> max |w<sub>Zeit</sub> − w<sub>minisom</sub>| = <strong>0.0</strong> in all 6 scenarios.</li>
+<li><strong>BMU assignments:</strong> 100% agreement (ARI = 1.0); quantization errors identical.</li>
+</ul>
+</li>
+<li>The unit tests cover 67 further configurations (all four neighborhood functions, rectangular and hexagonal topologies, every decay function, random/PCA initialization, 1–150 features) against stored <code>minisom</code> outputs.</li>
+<li><strong>Earlier result (superseded):</strong> before this port, Zeit ran its own Batch SOM variant (exponential sigma decay, no learning rate, and <code>num_iters</code> counted full-data epochs instead of single-sample updates), which gave ARI = 0.394 against <code>minisom</code> and was 6–10× slower on the same call.</li>
+</ul>
+<hr />
+<h3 id="7-deep-learning-weight-porting-zeitai">7. Deep Learning Weight-Porting (<code>zeit.ai</code>)<a class="headerlink" href="#7-deep-learning-weight-porting-zeitai" title="Permanent link">&para;</a></h3>
+<p>For deep-learning architectures, we verified that <code>zeit.ai</code> represents an exact structural and numerical reproduction of published networks.</p>
+<h4 id="tempcnn-lighttae-vs-r-sits">TempCNN &amp; LightTAE (vs. R <code>sits</code>)<a class="headerlink" href="#tempcnn-lighttae-vs-r-sits" title="Permanent link">&para;</a></h4>
+<p>Weights from freshly initialized models in R <code>sits</code> (seed 42) were serialized and loaded directly into <code>zeit.ai.TempCNN</code> and <code>zeit.ai.utae.LightTAE</code>:
+- Parameter tensor shapes and layer names matched <strong>1:1 with zero translation tables required</strong>.
+- Given identical random inputs, the maximum absolute difference between Zeit outputs and R <code>sits</code> outputs was <strong>5.59 × 10⁻⁹</strong> (<code>5.59e-9</code>) for TempCNN and <strong>8.94 × 10⁻⁸</strong> (<code>8.94e-8</code>) for LightTAE, with a Pearson correlation of <strong>1.000000</strong>.
+- Zeit reproduces LibTorch forward passes down to machine floating-point precision.</p>
+<h4 id="bonus-finding-official-u-tae-segmentation-architecture">Bonus Finding: Official U-TAE Segmentation Architecture<a class="headerlink" href="#bonus-finding-official-u-tae-segmentation-architecture" title="Permanent link">&para;</a></h4>
+<p>During code inspection, <code>zeit.ai.utae</code> was found to contain not only the PSE+LTAE classification network from <code>sits</code>, but also the full <strong>U-Net + LTAE2d segmentation model</strong> from the official <code>VSainteuf/utae-paps</code> GitHub repository (Garnot &amp; Landrieu 2021).
+- Comparing Zeit against the official reference repository on both standard and irregular temporal padded sampling paths yielded an <strong>exact numerical match (max abs diff = 0.0)</strong>.</p>
+<hr />
+<h3 id="8-snic-superpixel-segmentation-achanta-susstrunk-2017">8. SNIC Superpixel Segmentation (Achanta &amp; Süsstrunk 2017)<a class="headerlink" href="#8-snic-superpixel-segmentation-achanta-susstrunk-2017" title="Permanent link">&para;</a></h3>
+<p>SNIC (Simple Non-Iterative Clustering; Achanta &amp; Süsstrunk, CVPR 2017) partitions an image or multi-spectral time-series cube into compact, contiguous, boundary-adhering regions of similar pixels (<em>superpixels</em>). In Earth Observation workflows, superpixel segmentation aggregates pixels into homogeneous spatio-temporal objects (such as <code>sits_segment()</code> in R <code>sits</code>), reducing sample volume by orders of magnitude and eliminating high-frequency classification noise.</p>
+<h4 id="direct-source-level-parity">Direct Source-Level Parity<a class="headerlink" href="#direct-source-level-parity" title="Permanent link">&para;</a></h4>
+<p>Zeit implements the canonical SNIC algorithm in C++ (<code>src/snic.cpp</code>), evaluated directly against the authors' original C reference implementation (<code>snic.c</code>, EPFL):</p>
+<ul>
+<li><strong>Bit-for-Bit Label Identity:</strong> Given identical seed coordinates, Zeit produces <strong>100% identical segment labels</strong> (<code>res.labels</code>), matching the reference C implementation pixel for pixel.</li>
+<li><strong>Exact Heap Tie-Breaking:</strong> When adjacent boundary pixels yield identical distance metrics to competing candidate clusters, Zeit reproduces the exact priority queue tie-breaking order of the reference implementation. Tests in <code>tests/test_snic.py</code> verify identical outputs across both single-precision <code>float32</code> and double-precision <code>float64</code> floating-point representations.</li>
+<li><strong>Topological &amp; Statistical Invariants:</strong><ul>
+<li><strong>Strict 4-Connectivity:</strong> Every superpixel forms a single, contiguous 4-connected region.</li>
+<li><strong>Seed Containment:</strong> Every generated superpixel strictly contains its initiating seed pixel.</li>
+<li><strong>Exact Feature Moments:</strong> Extracted segment means, centroids, and pixel counts match direct mathematical averages computed over the underlying rasters down to machine precision (<code>rtol=1e-12</code>).</li>
+</ul>
+</li>
+</ul>
+<h4 id="upstream-bug-fixes-edge-case-resilience">Upstream Bug Fixes &amp; Edge-Case Resilience<a class="headerlink" href="#upstream-bug-fixes-edge-case-resilience" title="Permanent link">&para;</a></h4>
+<p>Analysis of the authors' original C code (<code>snic.c</code>) revealed critical edge-case defects that Zeit resolves:</p>
+<ol>
+<li><strong>Heap Underflow on Single Seed:</strong> In <code>snic.c</code>, the <code>pop()</code> routine never removed the final remaining node from the priority queue. When presented with a single seed (or late in execution), it read uninitialized memory and caused a segmentation fault. Zeit properly drains the priority queue, supporting single-seed segmentations and arbitrary seed counts safely.</li>
+<li><strong>Spurious Label IDs on 2×2 Inputs:</strong> On tiny 2×2 images, the original C reference returned a non-existent label <code>1</code> due to boundary loop conditions. Zeit strictly bounds all label assignments to valid seed IDs <code>[0, K-1]</code>.</li>
+<li><strong>Robust NaN Masking:</strong> Conforms to the spatial masking semantics of R <code>snic</code> (<code>sits_snic</code>): any pixel with a NaN across any spectral band or date is excluded from distance accumulation and remains unlabelled (<code>-1</code>), while isolated valid clusters lacking seeds remain safely unassigned.</li>
+</ol>
+<h4 id="ecosystem-compatibility-spatio-temporal-cubes">Ecosystem Compatibility &amp; Spatio-Temporal Cubes<a class="headerlink" href="#ecosystem-compatibility-spatio-temporal-cubes" title="Permanent link">&para;</a></h4>
+<ul>
+<li><strong>R <code>snic</code> Grid Compatibility:</strong> The <code>snic_grid</code> generator in Zeit matches R <code>snic::snic_grid</code> 1:1, supporting <code>"rectangular"</code>, <code>"diamond"</code>, <code>"hexagonal"</code>, and <code>"random"</code> seed placement patterns with configurable boundary padding.</li>
+<li><strong>Full Trajectory Distance:</strong> While the original paper focused on 2D CIELAB photographs, Zeit natively handles 4D spatio-temporal arrays <code>(time, band, y, x)</code>. Distance is computed across the full temporal feature vector, ensuring that agricultural fields sharing similar annual average reflectance but differing phenological cycles segment into distinct objects.</li>
+<li><strong>Deterministic Tiled OpenMP Execution:</strong> For large satellite scenes, <code>run_snic(..., tile_size=512, n_jobs=-1)</code> segments spatial tiles independently in parallel. Because each seed belongs strictly to its enclosing tile, segments never produce artificial boundary seams across tile edges, and labels remain identical regardless of thread count.</li>
+</ul>
+<hr />
+<h2 id="boundary-cases-nuances">Boundary Cases &amp; Nuances<a class="headerlink" href="#boundary-cases-nuances" title="Permanent link">&para;</a></h2>
+<h3 id="siamese-change-detector-zeitaisiamese">Siamese Change Detector (<code>zeit.ai.siamese</code>)<a class="headerlink" href="#siamese-change-detector-zeitaisiamese" title="Permanent link">&para;</a></h3>
+<p>No canonical bi-temporal spatial CNN exists in R <code>sits</code> (the nearest equivalent, <code>sits_bayts</code>, requires a registered cube). To maintain testing discipline, <code>results/siamese.csv</code> records a <strong>conceptual analog</strong> comparison against sits's low-level <code>dtw_distance</code> core. Both methods achieved 100% accuracy on their respective synthetic test tasks, but this is reported with status <code>partial</code> to preserve apples-to-apples fidelity.</p>
+<h3 id="geospatial-foundation-models-zeitaifoundation">Geospatial Foundation Models (<code>zeit.ai.foundation</code>)<a class="headerlink" href="#geospatial-foundation-models-zeitaifoundation" title="Permanent link">&para;</a></h3>
+<p>When evaluating <code>zeit.ai.foundation.GeoFoundationViT</code> against <code>ibm-nasa-geospatial/Prithvi-100M</code> directly from HuggingFace, upstream custom remote code in the Prithvi repository threw a <code>TypeError: 'NoneType' object cannot be interpreted as an integer</code> under modern <code>transformers</code> (confirmed reproducible on multiple machines).
+- <code>zeit.ai.foundation</code> detected the upstream failure and <strong>gracefully fell back to its documented 3D-CNN representation</strong> (<code>has_hf=False</code>) without crashing.
+- Recorded as <code>not_comparable</code>, validating the fault-tolerant design of the Zeit wrapper.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../" class="md-footer__link md-footer__link--prev" aria-label="Previous: Benchmarks &amp;amp; Validation Suite">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Benchmarks &amp; Validation Suite
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../performance/" class="md-footer__link md-footer__link--next" aria-label="Next: Performance &amp; Scaling">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Performance & Scaling
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Zeit is free software released under the GPL-2.0-or-later license.
+    </div>
+  
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+    <a href="https://github.com/sacridini/zeit-cdts" target="_blank" rel="noopener" title="Zeit on GitHub" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+    
+    
+    
+    
+    <a href="https://pypi.org/project/zeit-cdts/" target="_blank" rel="noopener" title="Zeit on PyPI" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.8 200.5c-7.7-30.9-22.3-54.2-53.4-54.2h-40.1v47.4c0 36.8-31.2 67.8-66.8 67.8H172.7c-29.2 0-53.4 25-53.4 54.3v101.8c0 29 25.2 46 53.4 54.3 33.8 9.9 66.3 11.7 106.8 0 26.9-7.8 53.4-23.5 53.4-54.3v-40.7H226.2v-13.6h160.2c31.1 0 42.6-21.7 53.4-54.2 11.2-33.5 10.7-65.7 0-108.6M286.2 444.7a20.4 20.4 0 1 1 0-40.7 20.4 20.4 0 1 1 0 40.7M167.8 248.1h106.8c29.7 0 53.4-24.5 53.4-54.3V91.9c0-29-24.4-50.7-53.4-55.6-35.8-5.9-74.7-5.6-106.8.1-45.2 8-53.4 24.7-53.4 55.6v40.7h106.9v13.6h-147c-31.1 0-58.3 18.7-66.8 54.2-9.8 40.7-10.2 66.1 0 108.6 7.6 31.6 25.7 54.2 56.8 54.2H101v-48.8c0-35.3 30.5-66.4 66.8-66.4m-6.6-183.4a20.4 20.4 0 1 1 0 40.8 20.4 20.4 0 1 1 0-40.8"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.indexes", "navigation.top", "navigation.footer", "navigation.instant", "navigation.instant.progress", "navigation.path", "toc.follow", "search.suggest", "search.highlight", "search.share", "content.code.copy", "content.code.annotate", "content.tabs.link", "content.tooltips", "content.action.edit"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../../javascripts/mathjax.js"></script>
+      
+        <script src="https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>
