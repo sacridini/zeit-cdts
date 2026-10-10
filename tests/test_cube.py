@@ -365,3 +365,74 @@ def test_cloud_mask_on_a_lazy_cube(monkeypatch):
     assert cube.chunks is not None
     red = cube.sel(band="red").values[0]
     np.testing.assert_allclose(red, [[0.1, np.nan], [np.nan, 0.1]], rtol=1e-6)
+
+
+# ---------------------------------------------------------------------- HLS
+def test_hls_qa_band_map_and_fmask():
+    """HLS is neither Sentinel-2 nor Landsat to the name tests ("hls2-s30" contains "s2")."""
+    assert _qa_band_for("hls2-s30", "planetary_computer") == "Fmask" == _qa_band_for("hls2-l30")
+    assert _stac_band_map("hls2-l30")["nir"] == "B05" and _stac_band_map("hls2-l30")["swir1"] == "B06"
+    assert _stac_band_map("hls2-s30")["nir"] == "B8A" and _stac_band_map("hls2-s30")["swir1"] == "B11"
+    # Fmask: bit 1 cloud, 2 adjacent, 3 shadow; 4 snow, 5 water and 6-7 aerosol stay clear; 255 fill
+    qa = np.array([0, 64, 2, 4, 8, 16, 32, 192 + 32, 255], dtype="uint16")
+    assert _clear_mask(qa, "Fmask").tolist() == [True, True, False, False, False, True, True, True, False]
+
+
+def test_item_scale_offset_hls():
+    """HLS v2.0: reflectance x 10000, L30's thermal bands and the angles x 100, Fmask as is."""
+    bands = ["B04", "B11", "SZA", "Fmask"]
+    items = [SimpleNamespace(id=f"HLS.{p}.T34RGS.2023014T085533.v2.0", properties={},
+                             assets={b: SimpleNamespace(extra_fields={}) for b in bands}) for p in ("L30", "S30")]
+    cube = xr.DataArray(np.ones((2, 4, 2, 2), dtype="uint16"), dims=("time", "band", "y", "x"),
+                        coords={"band": bands, "id": ("time", [i.id for i in items])})
+    s, o = _item_scale_offset(cube, items)
+    np.testing.assert_allclose(s, [[1e-4, 0.01, 0.01, 1.0], [1e-4, 1e-4, 0.01, 1.0]], rtol=1e-6)
+    assert not o.any()
+
+
+def test_hls_landsat_and_sentinel2_by_role(monkeypatch):
+    """L30 and S30 together: each read from its own assets, one series named by role."""
+    def items_of(collection):
+        kind = collection[-3:].upper()
+        return [SimpleNamespace(id=f"HLS.{kind}.T34RGS.202301{d:02d}T085533.v2.0", properties={}, assets={})
+                for d in ((2, 18) if kind == "L30" else (7,))]
+
+    class Catalog:
+        def search(self, **kw):
+            found = items_of(kw["collections"][0])
+            return SimpleNamespace(item_collection=lambda: found)
+
+    asked = []
+
+    def stack(items, **kw):
+        assets = kw["assets"]
+        asked.append(list(assets))
+        n = len(items)
+        data = np.full((n, len(assets), 2, 2), 2000.0, dtype=np.float32)
+        data[:, assets.index("Fmask")] = 0
+        if n == 2:   # the first L30 date: a fill and a cloud
+            data[0, :, 0, 0] = -9999
+            data[0, assets.index("Fmask"), 1, 1] = 2
+        times = pd.to_datetime([i.id.split(".")[3][:8] for i in items])
+        return xr.DataArray(da.from_array(data), dims=("time", "band", "y", "x"),
+                            coords={"time": times, "band": assets, "id": ("time", [i.id for i in items]),
+                                    "y": [1.5, 0.5], "x": [0.5, 1.5],
+                                    "tile_only": ("time", ["x"] * n)})
+
+    monkeypatch.setattr(cube_mod.Client, "open", staticmethod(lambda url: Catalog()))
+    monkeypatch.setattr(cube_mod.stackstac, "stack", stack)
+    monkeypatch.setattr(cube_mod, "_is_planetary_computer", lambda source: False)
+    cube = build_time_series(collection=["hls2-l30", "hls2-s30"], bbox=[0, 0, 1, 1], bands=["red", "nir"],
+                             apply_cloud_mask=True)
+    assert asked == [["B04", "B05", "Fmask"], ["B04", "B8A", "Fmask"]]
+    assert list(cube.band.values) == ["red", "nir", "Fmask"] and cube.sizes["time"] == 3
+    assert cube.indexes["time"].is_monotonic_increasing
+    red = cube.sel(band="red").values
+    assert np.isnan(red[0, 0, 0]) and np.isnan(red[0, 1, 1])          # fill, cloud
+    np.testing.assert_allclose(red[0, 0, 1], 0.2, rtol=1e-6)           # reflectance
+    np.testing.assert_allclose(red[1], 0.2, rtol=1e-6)                 # the S30 date
+    with pytest.raises(ValueError, match="roles"):
+        build_time_series(collection=["hls2-l30", "hls2-s30"], bbox=[0, 0, 1, 1], bands=["B04", "B05"])
+    import zeit
+    with pytest.raises(ValueError, match="already bandpass-adjusted"):
+        zeit.bandpass_adjust(cube.sel(band=["red", "nir"]), sensor="sentinel-2a")

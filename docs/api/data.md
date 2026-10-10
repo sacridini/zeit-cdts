@@ -25,14 +25,14 @@ Builds a lazy, Dask-backed `xarray.DataArray` from a STAC catalog. It searches t
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `source` | `str` | `"earth_search"` | Catalog alias (`"earth_search"`, `"planetary_computer"`, `"brazil_data_cube"`) or any STAC API URL. |
-| `collection` | `str` or `list` | `"sentinel-2-l2a"` | Collection ID, e.g. `"sentinel-2-l2a"`, `"landsat-c2-l2"`, `"modis-13Q1-061"`. Available collections depend on `source`. |
+| `collection` | `str` or `list` | `"sentinel-2-l2a"` | Collection ID, e.g. `"sentinel-2-l2a"`, `"landsat-c2-l2"`, `"modis-13Q1-061"`. Available collections depend on `source`. HLS (`"hls2-l30"`, `"hls2-s30"` on Planetary Computer) is read as reflectance, and `["hls2-l30", "hls2-s30"]` builds both and joins them into one series sorted by time (see [Landsat and Sentinel-2 in one series](preprocessing.md#landsat-and-sentinel-2-in-one-series)). |
 | `bbox` | `list` | `None` | `[min_lon, min_lat, max_lon, max_lat]` in EPSG:4326. |
 | `vector_path` | `str` | `None` | Vector file (Shapefile, GeoJSON) whose bounds define the area. |
 | `tiles` | `list[str]` | `None` | Sentinel-2 MGRS tiles (`"22JFQ"`) or Landsat WRS-2 path/rows (`"215065"`). |
 | `start_date`, `end_date` | `str` | `"2020-01-01"`, `"2020-12-31"` | Date range, `YYYY-MM-DD`. |
 | `cloud_cover_max` | `int` | `30` | Maximum scene cloud cover, in percent (metadata filter). |
-| `bands` | `list[str]` | `None` | Assets to load, e.g. `["red", "nir"]`. |
-| `apply_cloud_mask` | `bool` | `False` | Also load the QA band (`scl` for Sentinel-2, `qa_pixel` for Landsat) and mask clouds and shadows. |
+| `bands` | `list[str]` | `None` | Assets to load, e.g. `["red", "nir"]`. For HLS, band roles (`coastal`, `blue`, `green`, `red`, `nir`, `swir1`, `swir2`) are read from each product's own asset (the NIR is L30's `B05` and S30's `B8A`) and keep the role's name; with both products, roles are required. |
+| `apply_cloud_mask` | `bool` | `False` | Also load the QA band (`scl` for Sentinel-2, `qa_pixel` for Landsat, `Fmask` for HLS: cloud, adjacent to cloud or shadow, and shadow) and mask clouds and shadows. Other collections warn that nothing was masked. |
 | `resolution` | `float` | `None` | Output pixel size, in units of `epsg`. |
 | `epsg` | `int` | `4326` | Output coordinate reference system. |
 | `validate_items` | `bool` | `False` | Test each asset URL first and drop broken ones. |

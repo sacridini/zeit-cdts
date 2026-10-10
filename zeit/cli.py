@@ -309,12 +309,12 @@ def run_coded_cli(args: argparse.Namespace) -> None:
         forest_label=forest_label, forest_ndfi=args.forest_ndfi, n_jobs=args.jobs))
 
 
-def run_harmonize_cli(args: argparse.Namespace) -> None:
-    from ._harmonize import harmonize
+def run_bandpass_cli(args: argparse.Namespace) -> None:
+    from ._bandpass import bandpass_adjust
 
     sensor = args.sensor if len(args.sensor) > 1 else args.sensor[0]
     scale = args.scale if args.scale is not None else "auto"
-    _run_cube_cli(args, "harmonize", lambda cube: harmonize(cube, sensor=sensor, etm=args.etm, scale=scale))
+    _run_cube_cli(args, "bandpass-adjust", lambda cube: bandpass_adjust(cube, sensor=sensor, etm=args.etm, scale=scale))
 
 
 def run_embeddings_cli(args: argparse.Namespace) -> None:
@@ -527,9 +527,9 @@ def main() -> None:
     cd_parser.add_argument("--forest-ndfi", type=float, default=0.5, help="Without training points: forest where the "
                                                                           "model's mean NDFI is at least this (default: 0.5)")
 
-    hz_parser = subparsers.add_parser("harmonize", help="Sentinel-2 (and optionally Landsat 5/7) reflectance on "
+    hz_parser = subparsers.add_parser("bandpass-adjust", help="Sentinel-2 (and optionally Landsat 5/7) reflectance on "
                                                         "Landsat 8's OLI scale (HLS bandpass adjustment)")
-    _add_cube_args(hz_parser, "harmonized", what="Path to a reflectance series (date_band bands, as save_raster "
+    _add_cube_args(hz_parser, "adjusted", what="Path to a reflectance series (date_band bands, as save_raster "
                                                  "writes them)")
     hz_parser.add_argument("--sensor", nargs="+", required=True, help="The sensor of every date (e.g. sentinel-2a), "
                                                                        "or one per date")
@@ -589,8 +589,8 @@ def main() -> None:
         run_som_cli(args)
     elif args.command == "coded":
         run_coded_cli(args)
-    elif args.command == "harmonize":
-        run_harmonize_cli(args)
+    elif args.command == "bandpass-adjust":
+        run_bandpass_cli(args)
     elif args.command == "embeddings":
         run_embeddings_cli(args)
     else:

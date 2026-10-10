@@ -1,4 +1,4 @@
-"""Landsat and Sentinel-2 on one radiometric scale: ``zeit.harmonize``.
+"""Landsat and Sentinel-2 on one radiometric scale: ``zeit.bandpass_adjust``.
 
 A dense series that mixes sensors has a step wherever the sensor changes: the bands of
 Sentinel-2's MSI are not those of Landsat 8's OLI, and CCDC or BFAST read the step as a
@@ -96,7 +96,7 @@ def _sensors(cube: xr.DataArray, sensor: Any) -> List[str]:
                     values = np.array([cube.attrs[key]])
                     break
             else:
-                raise ValueError("harmonize needs each date's sensor: the cube has no 'platform' coordinate "
+                raise ValueError("bandpass_adjust needs each date's sensor: the cube has no 'platform' coordinate "
                                  "(build_time_series keeps the one of STAC); pass sensor= (a name such as "
                                  "'sentinel-2a' or 'landsat-8' for every date, or one per date)")
         if values.size == 1:
@@ -179,7 +179,7 @@ def coefficients(sensors: Sequence[str], roles: Sequence[str], etm: Optional[str
     return slope, intercept, notes
 
 
-def harmonize(
+def bandpass_adjust(
     data: Any,
     *,
     sensor: Any = None,
@@ -197,7 +197,7 @@ def harmonize(
     data
         Surface reflectance ``(time, band, y, x)`` or ``(band, y, x)``, in memory or dask, or
         anything ``zeit.load_raster`` reads. Or a list of cubes on the same grid (one per
-        collection, say): each is harmonized, and they are joined into one series sorted by
+        collection, say): each is adjusted, and they are joined into one series sorted by
         time, with the bands they share matched by role and named after it (``blue``...
         ``swir2``) and the coordinates they share.
     sensor
@@ -232,13 +232,15 @@ def harmonize(
         The cube with the same dimensions, coordinates, type and georeferencing; lazy if the
         cube is. Sentinel-2 dates go through the HLS bandpass adjustment of their unit (HLS
         v2.0, Claverie et al. 2018), Landsat 8 and 9 stay as they are, and bands without a
-        line (red edge, B08, QA) are copied. ``attrs["harmonized"]`` says what was done.
+        line (red edge, B08, QA) are copied. ``attrs["bandpass_adjusted"]`` says what was done.
+        This is the bandpass step of HLS only: not its common atmospheric correction, cloud
+        mask or BRDF normalization (for those, load the HLS products themselves).
 
     Examples
     --------
     >>> s2 = zeit.build_time_series(collection="sentinel-2-l2a", ...)
     >>> landsat = zeit.build_time_series(collection="landsat-c2-l2", ...)   # the same grid
-    >>> mixed = zeit.harmonize([s2, landsat])       # one series: blue, green, red, nir, swir1, swir2
+    >>> mixed = zeit.bandpass_adjust([s2, landsat])       # one series: blue, green, red, nir, swir1, swir2
     >>> zeit.ccdc(mixed)                             # no break where the sensor changes
     """
     if isinstance(data, (list, tuple)) and data and all(isinstance(c, xr.DataArray) for c in data):
@@ -248,7 +250,7 @@ def harmonize(
 
 def _join(cubes: List[xr.DataArray], *, sensor: Any, etm: Optional[str], bands: Any, scale: Any,
           nodata: Any) -> xr.DataArray:
-    """Several cubes harmonized and joined in time, their shared bands named by role."""
+    """Several cubes adjusted and joined in time, their shared bands named by role."""
     n = len(cubes)
     sensors = [None] * n if sensor is None else sensor
     if isinstance(sensors, str) or len(sensors) != n:
@@ -264,19 +266,13 @@ def _join(cubes: List[xr.DataArray], *, sensor: Any, etm: Optional[str], bands: 
     for cube, found, s, m in zip(cubes, roles, sensors, maps):
         part = _one(cube.sel(band=[found[r] for r in common]), sensor=s, etm=etm, bands=m, scale=scale, nodata=nodata)
         parts.append(part.assign_coords(band=common))
-    for part in parts[1:]:
-        for d in ("y", "x"):
-            if part.sizes[d] != parts[0].sizes[d] or (d in part.coords and not np.allclose(part[d], parts[0][d])):
-                raise ValueError("the cubes are on different grids: put them on one first, e.g. with the same "
-                                 "bbox, resolution and epsg in build_time_series, or zeit.load_raster(..., like=)")
-    shared = set.intersection(*(set(p.coords) for p in parts))
-    parts = [p.drop_vars([c for c in p.coords if c not in shared]) for p in parts]
-    out = xr.concat(parts, "time", coords="minimal", compat="override", combine_attrs="drop_conflicts")
-    out = out.sortby("time")
-    done = [x for x in dict.fromkeys(x for p in parts for x in p.attrs["harmonized"].split("; "))
+    from .cube import join_in_time
+
+    out = join_in_time(parts)
+    done = [x for x in dict.fromkeys(x for p in parts for x in p.attrs["bandpass_adjusted"].split("; "))
             if not x.startswith("nothing")]
-    out.attrs["harmonized"] = "; ".join(done) if done else parts[0].attrs["harmonized"]
-    out.attrs["harmonized_bands"] = ", ".join(common)
+    out.attrs["bandpass_adjusted"] = "; ".join(done) if done else parts[0].attrs["bandpass_adjusted"]
+    out.attrs["bandpass_bands"] = ", ".join(common)
     return out
 
 
@@ -285,14 +281,16 @@ def _one(data: Any, *, sensor: Any, etm: Optional[str], bands: Any, scale: Any, 
     from ._embeddings import refuse
     from ._load import load_raster
 
-    refuse(data, "zeit.harmonize")
+    refuse(data, "zeit.bandpass_adjust")
     cube = data if isinstance(data, xr.DataArray) else load_raster(data, chunks=chunks)
     if "band" not in cube.dims:
-        raise ValueError("harmonize needs a cube with a band dimension, (time, band, y, x) or (band, y, x)")
-    if cube.attrs.get("harmonized"):
-        raise ValueError(f"the cube is already harmonized ({cube.attrs['harmonized']})")
+        raise ValueError("bandpass_adjust needs a cube with a band dimension, (time, band, y, x) or (band, y, x)")
+    if "id" in cube.coords and any(str(v).upper().startswith("HLS.") for v in np.atleast_1d(cube.id.values)):
+        raise ValueError("the cube is HLS, whose Sentinel-2 dates are already bandpass-adjusted to OLI")
+    if cube.attrs.get("bandpass_adjusted"):
+        raise ValueError(f"the cube is already bandpass-adjusted ({cube.attrs['bandpass_adjusted']})")
     if "scale" in cube.coords and np.issubdtype(cube.dtype, np.integer):
-        raise ValueError("harmonize needs reflectance: the cube holds digital numbers with per-scene scale and "
+        raise ValueError("bandpass_adjust needs reflectance: the cube holds digital numbers with per-scene scale and "
                          "offset; build it with a float dtype (build_time_series' default)")
     sensors = _sensors(cube, sensor)
     roles = _roles(cube, bands)
@@ -303,7 +301,7 @@ def _one(data: Any, *, sensor: Any, etm: Optional[str], bands: Any, scale: Any, 
     nir = roles.get("nir")
     if nir is not None and any(s2) and str(nir).lower() in _BROAD_NIR and not (bands and "nir" in bands):
         warnings.warn(f"band {nir!r} of the Sentinel-2 dates is the broad NIR (B08), which HLS does not adjust: "
-                      "it is left as it is. Load B8A (nir08) for a harmonized NIR, or pass bands={'nir': ...} if "
+                      "it is left as it is. Load B8A (nir08) for an adjusted NIR, or pass bands={'nir': ...} if "
                       "this band is B8A.", stacklevel=2)
         s2_skip = ("nir",)
     else:
@@ -341,8 +339,8 @@ def _one(data: Any, *, sensor: Any, etm: Optional[str], bands: Any, scale: Any, 
     done = ["Sentinel-2 -> OLI: HLS v2.0 bandpass adjustment (Claverie et al. 2018)"] if any(s2) else []
     if etm is not None and any(s in ("ETM", "TM") for s in sensors):
         done.append(f"ETM+/TM -> OLI: Roy et al. (2016), {etm.upper()}")
-    out.attrs["harmonized"] = "; ".join(done) if done else "nothing to adjust (Landsat 8/9 only)"
-    out.attrs["harmonized_bands"] = ", ".join(f"{r}={roles[r]}" for r in names)
+    out.attrs["bandpass_adjusted"] = "; ".join(done) if done else "nothing to adjust (Landsat 8/9 only)"
+    out.attrs["bandpass_bands"] = ", ".join(f"{r}={roles[r]}" for r in names)
     for note in notes:
         warnings.warn(note, stacklevel=2)
     if cube.rio.crs is not None:

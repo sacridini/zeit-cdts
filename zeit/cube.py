@@ -58,7 +58,27 @@ def _is_planetary_computer(source: str) -> bool:
     return "planetarycomputer" in STAC_CATALOGS.get(source, source)
 
 
+# HLS v2.0 (Harmonized Landsat Sentinel-2; User Guide, Tables 3, 6-9): the asset of each band
+# role in its Landsat (L30) and Sentinel-2 (S30) products. The S30 NIR is the narrow B8A, the
+# one adjusted to OLI's band 5; L30's B10/B11 are thermal, S30's B11/B12 are SWIR.
+HLS_ROLES = {
+    "l30": dict(coastal="B01", blue="B02", green="B03", red="B04", nir="B05", swir1="B06", swir2="B07"),
+    "s30": dict(coastal="B01", blue="B02", green="B03", red="B04", nir="B8A", swir1="B11", swir2="B12"),
+}
+HLS_ANGLES = ("SZA", "SAA", "VZA", "VAA")   # degrees x 100, fill 40000
+
+
+def _hls_kind(collection_name: str) -> Optional[str]:
+    """``"l30"`` or ``"s30"`` for an HLS collection (``hls2-l30``, ``HLSS30.v2.0``...), else None."""
+    name = collection_name.lower()
+    if "hls" not in name:
+        return None
+    return "l30" if "l30" in name else "s30" if "s30" in name else None
+
+
 def _qa_band_for(collection_name: str, source: str = "") -> Optional[str]:
+    if _hls_kind(collection_name):   # before the Sentinel-2 test: "hls2-s30" contains "s2"
+        return "Fmask"
     if "sentinel" in collection_name or "s2" in collection_name:
         # Planetary Computer keeps the Sentinel-2 asset names in capitals (B04, SCL).
         return "SCL" if _is_planetary_computer(source) else "scl"
@@ -69,6 +89,9 @@ def _qa_band_for(collection_name: str, source: str = "") -> Optional[str]:
 
 def _stac_band_map(collection_name: str, source: str = "") -> dict:
     """Asset name of each band role (see `zeit.indices`) for the known collections."""
+    kind = _hls_kind(collection_name)
+    if kind:
+        return {k: v for k, v in HLS_ROLES[kind].items() if k != "coastal"}
     if "landsat" in collection_name:
         return dict(blue="blue", green="green", red="red", nir="nir08", swir1="swir16", swir2="swir22")
     if "sentinel-2" in collection_name or "s2" in collection_name:
@@ -82,6 +105,9 @@ def _clear_mask(qa: np.ndarray, qa_band: str) -> np.ndarray:
     """Boolean clear-sky mask from an integer QA array."""
     if qa_band.lower() == "scl":
         return np.isin(qa, SCL_CLEAR)
+    if qa_band.lower() == "fmask":
+        # HLS Fmask: bits 1 cloud, 2 adjacent to cloud or shadow, 3 cloud shadow; 255 is fill.
+        return ((qa & 0b1110) == 0) & (qa != 255)
     # Landsat QA_PIXEL: bit 6 is set on clear pixels.
     return (qa & (1 << 6)) > 0
 
@@ -118,13 +144,17 @@ def build_time_series(
     Builds a lazy Dask-backed xarray DataCube from a STAC catalog.
     
     source: A string from STAC_CATALOGS or a custom STAC API URL.
-    collection: The dataset collection ID (e.g., "sentinel-2-l2a", "CBERS4A_WFI_L4_SR").
+    collection: The dataset collection ID (e.g., "sentinel-2-l2a", "CBERS4A_WFI_L4_SR"). For
+        HLS (Harmonized Landsat Sentinel-2: "hls2-l30", "hls2-s30" on Planetary Computer),
+        a list of both builds each and joins them into one series sorted by time.
     bbox: [minx, miny, maxx, maxy] in WGS84 (EPSG:4326).
     vector_path: Path to a shapefile or geojson to derive the bounding box.
     tiles: List of specific MGRS/WRS tiles to fetch (e.g., ["20LKP"]).
     start_date, end_date: YYYY-MM-DD strings.
     cloud_cover_max: Maximum cloud cover percentage for image filtering.
-    bands: List of band names to load (e.g., ["red", "green", "blue", "nir"]).
+    bands: List of band names to load (e.g., ["red", "green", "blue", "nir"]). For HLS, band
+        roles (coastal, blue, green, red, nir, swir1, swir2) are read from each product's
+        own asset (nir: L30's B05, S30's B8A) and keep the role's name.
     apply_cloud_mask: Automatically identify platform and mask out clouds (requires QA band).
     resolution: Target spatial resolution in meters (if reprojection is needed).
     validate_items: If True, tests each STAC item's URL before stacking to drop corrupted files.
@@ -138,6 +168,22 @@ def build_time_series(
         applied in place then, so `apply_cloud_mask` must stay False (load the QA band
         through `bands` instead).
     """
+    hls = [_hls_kind(c) for c in ([collection] if isinstance(collection, str) else collection)]
+    if all(hls) and len(hls) > 1:
+        if bands is None or any(b not in HLS_ROLES["l30"] for b in bands if b != "Fmask"):
+            raise ValueError("HLS L30 and S30 together need bands= as roles (coastal, blue, green, red, nir, swir1, "
+                             "swir2): the same asset name is another band in each (B05, B11...)")
+        parts = [build_time_series(source=source, collection=c, bbox=bbox, vector_path=vector_path, tiles=tiles,
+                                   start_date=start_date, end_date=end_date, cloud_cover_max=cloud_cover_max,
+                                   bands=list(bands), apply_cloud_mask=apply_cloud_mask, resolution=resolution,
+                                   epsg=epsg, validate_items=validate_items, access_token=access_token,
+                                   chunksize=chunksize, dtype=dtype) for c in collection]
+        return join_in_time(parts)
+    renames = {}
+    if hls[0] and bands:   # roles -> this product's assets, named back after the roles below
+        roles = HLS_ROLES[hls[0]]
+        renames = {roles[b]: b for b in bands if b in roles}
+        bands = [roles.get(b, b) for b in bands]
     integer_output = np.issubdtype(np.dtype(dtype), np.integer)
     if integer_output and apply_cloud_mask:
         raise ValueError(
@@ -236,6 +282,10 @@ def build_time_series(
         qa_band = _qa_band_for(col_name, source)
         if qa_band and bands and qa_band not in bands:
             bands = list(bands) + [qa_band]   # not the caller's list
+        if qa_band is None:
+            import warnings
+            warnings.warn(f"apply_cloud_mask: no known QA band for {col_name!r} (Sentinel-2's SCL, Landsat's "
+                          "QA_PIXEL and HLS's Fmask are); the cube is not masked", stacklevel=2)
             
     # 3.6 Pre-flight Validation
     if validate_items and bands:
@@ -278,6 +328,11 @@ def build_time_series(
         stack_kwargs["bounds_latlon"] = bbox
         
     cube = stackstac.stack(items_list, **stack_kwargs)
+    if hls[0] and not integer_output:   # HLS's fill values, in case the reader kept them
+        # Fmask's fill (255) stays: _clear_mask reads it as not clear.
+        fills = [40000 if str(b) in HLS_ANGLES else -1 if str(b) == "Fmask" else -9999 for b in cube.band.values]
+        cube = cube.where(cube != xr.DataArray(np.array(fills, dtype=cube.dtype), dims="band",
+                                               coords={"band": cube.band.values}))
     scale, offset = _item_scale_offset(cube, items_list)
     if integer_output:
         # Raw digital numbers: carry the per-scene factors so reflectance can be recovered.
@@ -298,7 +353,26 @@ def build_time_series(
             
         print(f"Applied semantic cloud mask using QA band '{qa_band}'")
 
+    if renames:
+        cube = cube.assign_coords(band=[renames.get(str(b), str(b)) for b in cube.band.values])
     return cube
+
+
+def join_in_time(cubes: Sequence[xr.DataArray]) -> xr.DataArray:
+    """Cubes on one grid with the same bands (one per collection, say) as one series sorted by
+    time, with the coordinates they all have."""
+    first = cubes[0]
+    for cube in cubes[1:]:
+        for d in ("y", "x"):
+            if cube.sizes[d] != first.sizes[d] or (d in cube.coords and not np.allclose(cube[d], first[d])):
+                raise ValueError("the cubes are on different grids: put them on one first, e.g. with the same "
+                                 "bbox, resolution and epsg in build_time_series, or zeit.load_raster(..., like=)")
+        if "band" in first.dims and list(map(str, cube.band.values)) != list(map(str, first.band.values)):
+            raise ValueError(f"the cubes have other bands: {list(first.band.values)} and {list(cube.band.values)}")
+    shared = set.intersection(*(set(c.coords) for c in cubes))
+    cubes = [c.drop_vars([k for k in c.coords if k not in shared]) for c in cubes]
+    out = xr.concat(cubes, "time", coords="minimal", compat="override", combine_attrs="drop_conflicts")
+    return out.sortby("time")
 
 
 def _nanmedian_time(a: np.ndarray, n_threads: int = 4) -> np.ndarray:
@@ -372,7 +446,9 @@ def _item_scale_offset(cube: xr.DataArray, items) -> Tuple[np.ndarray, np.ndarra
     Read from the items rather than the cube's coordinates: stackstac drops metadata that
     doesn't line up across bands (Earth Search Sentinel-2, for one). Sentinel-2 items
     without ``raster:bands`` (Planetary Computer) get the L2A factors from their
-    processing baseline: reflectance = DN / 10000, minus 0.1 from baseline 04.00 on.
+    processing baseline: reflectance = DN / 10000, minus 0.1 from baseline 04.00 on. HLS
+    items have none either: reflectance is DN / 10000, L30's thermal bands and the angles
+    DN / 100 (HLS v2.0 User Guide, Tables 6-8).
     """
     bands = list(cube.band.values)
     scale = np.ones((cube.sizes["time"], len(bands)), dtype=np.float32)
@@ -383,12 +459,16 @@ def _item_scale_offset(cube: xr.DataArray, items) -> Tuple[np.ndarray, np.ndarra
         if item is None:
             continue
         baseline = (getattr(item, "properties", None) or {}).get("s2:processing_baseline")
+        hls = str(item_id).upper().startswith("HLS.")
         for k, band in enumerate(bands):
             asset = item.assets.get(band)
             meta = asset.extra_fields.get("raster:bands") if asset is not None else None
             if isinstance(meta, list) and meta and isinstance(meta[0], dict):
                 scale[i, k] = meta[0].get("scale", 1.0)
                 offset[i, k] = meta[0].get("offset", 0.0)
+            elif hls:   # HLS items carry no raster:bands: reflectance x 10000, thermal and angles x 100
+                thermal = ".L30." in str(item_id).upper() and str(band) in ("B10", "B11")
+                scale[i, k] = 1.0 if str(band) == "Fmask" else 0.01 if thermal or str(band) in HLS_ANGLES else 1e-4
             elif baseline is not None and _S2_SPECTRAL.fullmatch(str(band)):
                 scale[i, k] = 1e-4
                 offset[i, k] = -0.1 if float(baseline) >= 4.0 else 0.0

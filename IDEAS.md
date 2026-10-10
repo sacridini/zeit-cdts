@@ -1406,6 +1406,41 @@ zeit.ccdc(mixed)
   `download_gee_*`, e o FAQ do GEE desaconselha esse ajuste no Collection 2: decisão do
   usuário (tirar o ajuste, ou aplicar os de Roy na escala certa).
 
+### 16b: HLS no `build_time_series`, e `harmonize` vira `bandpass_adjust` — **Feito** (1.3.0)
+
+Pergunta do usuário: "o `zeit.harmonize` gera um dataset igual ao HLS?". Não: faz só a etapa
+de bandpass. O HLS também corrige a atmosfera dos dois sensores com o mesmo algoritmo (LaSRC),
+mascara nuvens com o mesmo Fmask, normaliza o BRDF (visada no nadir, Sol na latitude do
+centro do tile) e põe tudo numa grade de 30 m. O nome prometia mais do que a função faz.
+
+- **Rename:** `zeit.harmonize` → `zeit.bandpass_adjust` (o termo do próprio HLS, "bandpass
+  adjustment"), CLI `zeit bandpass-adjust`, atributos `bandpass_adjusted`/`bandpass_bands`.
+  **Sem alias**, por decisão do usuário: o nome tinha poucas horas de publicado na 1.1.0. É
+  uma exceção consciente à política da 1.0 (aviso por uma minor, remoção só na major).
+- **HLS pelo `build_time_series`** (Planetary Computer: `hls2-l30`, `hls2-s30`), conferido com
+  o Guia do Usuário v2.0 (Tabelas 3 e 6–9) e com itens reais. Achados antes de mexer:
+  - `"hls2-s30"` e `"hls2-l30"` contêm `"s2"`: o zeit tratava os dois como Sentinel-2. A
+    máscara pedia a banda `SCL` (que não existe) e era pulada sem aviso; o mapa de bandas dos
+    compostos usaria `B08` como NIR e `B11` como SWIR1 no L30, onde `B11` é termal.
+  - Os itens não têm `raster:bands`: o cubo saía em números digitais (B04 3709–7116 em
+    Libya-4), não em reflectância.
+- O que foi feito: o `Fmask` como banda de QA (bits 1 nuvem, 2 adjacente, 3 sombra; 255
+  fill; neve, água e aerossol ficam); escala 0,0001 na reflectância, 0,01 no termal do L30 e
+  nos ângulos (sem offset); os fills −9999 e 40000 viram NaN. As bandas podem ser pedidas pelo
+  papel (`blue` ... `swir2`, `coastal`): cada produto lê o seu asset (NIR: `B05` no L30, `B8A`
+  no S30) e a banda fica com o nome do papel. `collection=["hls2-l30", "hls2-s30"]` monta os
+  dois e junta numa série ordenada no tempo (`join_in_time`, que o `bandpass_adjust` também
+  usa); com os dois, os papéis são obrigatórios (o mesmo nome de asset é outra banda em cada
+  um). `apply_cloud_mask=True` numa coleção sem QA conhecida agora avisa que nada foi
+  mascarado. `bandpass_adjust` recusa cubos HLS (já ajustados).
+- **Medido** (Libya-4, 2022–2023, mesmos critérios dos pares do 16): HLS L30 × S30, 27 pares,
+  razão S30/L30 de 0,988 a 1,014 por banda. L2A + Collection 2: 1,05–1,14 antes e
+  ~1,05–1,13 depois do `bandpass_adjust`. A doc agora recomenda o HLS primeiro e deixa o
+  `bandpass_adjust` para cubos L2A (datas antes do HLS, bandas de 10 m).
+- Testes em `tests/test_cube.py` (3 novos): QA, mapa de bandas e bits do Fmask; as escalas
+  do HLS por banda e produto; L30 + S30 por papel com fill, nuvem, reflectância, ordem no
+  tempo, a recusa de nomes de asset com os dois produtos e a recusa no `bandpass_adjust`.
+
 ## Fase 17: comparar embeddings no viewer — **Feito** (1.2.0)
 
 Pedida em 2026-10-10: ver embeddings como no Janus, comparando o pixel sob o mouse com o

@@ -118,18 +118,23 @@ Neither `earth_search` nor `brazil_data_cube` currently expose MODIS or Sentinel
 
 **Landsat and Sentinel-2 in one series**
 
-Two collections on the same grid (the same `bbox`, `resolution` and `epsg`) become one denser series with [`zeit.harmonize`](../api/preprocessing.md#harmonize), which takes each Sentinel-2 date to Landsat 8's reflectance scale (the HLS bandpass adjustment of its unit) and matches the bands by role, whatever each catalog calls them:
+HLS (Harmonized Landsat Sentinel-2) has both sensors processed alike, on one 30 m grid, with Sentinel-2 adjusted to Landsat 8's bands. Planetary Computer serves its two products; asking for both, with the bands named by role, gives one series sorted by time, each band read from its own product's asset (the NIR is L30's `B05` and S30's `B8A`) and the `Fmask` band masking clouds and shadows:
 
 ```python
-grid = dict(source="planetary_computer", bbox=[-52.10, -12.55, -51.95, -12.40], start_date="2019-01-01",
-            end_date="2024-12-31", apply_cloud_mask=True, resolution=30, epsg=32722)
-s2 = zeit.build_time_series(collection="sentinel-2-l2a", bands=["B02", "B03", "B04", "B8A", "B11", "B12"], **grid)
-landsat = zeit.build_time_series(collection="landsat-c2-l2",
-                                 bands=["blue", "green", "red", "nir08", "swir16", "swir22"], **grid)
-mixed = zeit.harmonize([s2, landsat])   # (time, band, y, x): blue, green, red, nir, swir1, swir2
+hls = zeit.build_time_series(
+    source="planetary_computer",
+    collection=["hls2-l30", "hls2-s30"],
+    bbox=[-52.10, -12.55, -51.95, -12.40],
+    start_date="2019-01-01",
+    end_date="2024-12-31",
+    bands=["blue", "green", "red", "nir", "swir1", "swir2"],
+    apply_cloud_mask=True,
+    resolution=30,
+    epsg=32722,
+)   # (time, band, y, x): the six bands, and Fmask
 ```
 
-Load Sentinel-2's narrow NIR (B8A, `nir08` on Earth Search): it is the band HLS adjusts to Landsat's. The adjustment is only part of what separates the two sensors; the [reference](../api/preprocessing.md#harmonize) shows what remains on a stable site.
+For dates or bands HLS does not have (before 2013, Sentinel-2's 10 m bands), [`zeit.bandpass_adjust`](../api/preprocessing.md#bandpass_adjust) applies HLS's bandpass step to Sentinel-2 L2A and joins it with Landsat Collection 2. It removes only part of the step between the sensors; the [reference](../api/preprocessing.md#landsat-and-sentinel-2-in-one-series) compares the two on a stable site.
 
 ## 4. Composite to a regular time step
 

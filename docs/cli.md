@@ -303,7 +303,7 @@ zeit mmu-filter ./results/lt_event_yod.tif ./results/lt_event_yod_mmu.tif --mmu-
 
 ## The other cube functions
 
-`phenology`, `smooth`, `tmask`, `twdtw`, `snic`, `classify`, `som`, `coded` and `harmonize` run the Python function of the same name on any raster [`load_raster`](api/data.md#load_raster) reads, with the dates in the band names (as `save_raster` writes them, `yr1985`, `2020-01-15` or `2020-01-15_red` for a time × band stack). They share the same syntax and options, and write `<output_dir>/<prefix>.tif`, one band per map (or per date), computed block by block in one pass:
+`phenology`, `smooth`, `tmask`, `twdtw`, `snic`, `classify`, `som`, `coded` and `bandpass-adjust` run the Python function of the same name on any raster [`load_raster`](api/data.md#load_raster) reads, with the dates in the band names (as `save_raster` writes them, `yr1985`, `2020-01-15` or `2020-01-15_red` for a time × band stack). They share the same syntax and options, and write `<output_dir>/<prefix>.tif`, one band per map (or per date), computed block by block in one pass:
 
 ```bash
 zeit <command> <input> <output_dir> [OPTIONS]
@@ -431,9 +431,9 @@ zeit classify ./data/s2_2023.tif ./results_2023 --model ./results/rf.joblib     
 zeit som ./data/LT_Stack_NDVI_Rondonia.tif ./results --x 2 --y 2 --sample 30000
 ```
 
-### 15. Sensor harmonization (`harmonize`)
+### 15. Bandpass adjustment (`bandpass-adjust`)
 
-[`zeit.harmonize`](api/preprocessing.md#harmonize): the reflectance series with its Sentinel-2 dates on Landsat 8's OLI scale (the HLS bandpass adjustment), as `<output_dir>/<prefix>.tif` with the input's bands and type. A GeoTIFF does not say which sensor took each date, so `--sensor` does.
+[`zeit.bandpass_adjust`](api/preprocessing.md#bandpass_adjust): the reflectance series with its Sentinel-2 dates on Landsat 8's OLI bands (HLS's bandpass step only), as `<output_dir>/<prefix>.tif` with the input's bands and type. A GeoTIFF does not say which sensor took each date, so `--sensor` does.
 
 | Option | Type | Default | Description |
 | :--- | :---: | :---: | :--- |
@@ -442,7 +442,7 @@ zeit som ./data/LT_Stack_NDVI_Rondonia.tif ./results --x 2 --y 2 --sample 30000
 | `--scale` | `float` | auto | Reflectance scale of the stack: 10000 for integers or values above 2, else 1. |
 
 ```bash
-zeit harmonize ./data/s2_2023.tif ./results --sensor sentinel-2b --prefix s2_2023_oli
+zeit bandpass-adjust ./data/s2_2023.tif ./results --sensor sentinel-2b --prefix s2_2023_oli
 ```
 
 ### 16. Embeddings (`embeddings`)

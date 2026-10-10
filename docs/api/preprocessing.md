@@ -1,49 +1,67 @@
 # Pre-processing
 
-<p class="lead">Clean time series before analysing them: put Landsat and Sentinel-2 on one scale, flag clouds and shadows that the QA band missed, smooth noise, remove one-off spikes, and unmix pixels into the fractions of their materials.</p>
+<p class="lead">Clean time series before analysing them: put Landsat and Sentinel-2 in one series, flag clouds and shadows that the QA band missed, smooth noise, remove one-off spikes, and unmix pixels into the fractions of their materials.</p>
 
-## Sensor harmonization
+## Landsat and Sentinel-2 in one series
 
-### `harmonize` { .api }
+A dense series that mixes Landsat and Sentinel-2 has a step wherever the sensor changes, which CCDC or BFAST read as a break. There are two ways to remove it:
 
-<!-- sig: zeit.harmonize -->
+- **HLS** (Harmonized Landsat Sentinel-2, NASA): both sensors processed alike from level 1 (the same atmospheric correction and cloud mask, view and sun angles normalized, a common 30 m grid) and Sentinel-2 adjusted to Landsat 8's bands. [`build_time_series`](data.md#build_time_series) reads it from Planetary Computer, both products in one call: `collection=["hls2-l30", "hls2-s30"]` with the bands named by role. This is the way to go wherever HLS covers the dates (from 2013 for Landsat 8, 2015 for Sentinel-2).
+- **[`bandpass_adjust`](#bandpass_adjust)** on cubes you already have (Landsat Collection 2 and Sentinel-2 L2A): only HLS's bandpass step, so only part of the step goes away.
+
+Measured over the Libya-4 desert site (2022–2023, Planetary Computer, pairs of Landsat 8/9 and Sentinel-2 observations at most a day apart, median of the area):
+
+| | Pairs | Sentinel-2 / Landsat, by band (blue ... SWIR2) |
+| :--- | :---: | :--- |
+| L2A and Collection 2, as they come | 21 | 1.14, 1.07, 1.09, 1.05, 1.09, 1.13 |
+| L2A after `bandpass_adjust` | 21 | blue and red about a third closer (differences 0.030 → 0.021 and 0.042 → 0.031), the rest about the same |
+| HLS (S30 and L30) | 27 | 1.01, 0.99, 0.99, 1.00, 1.01, 0.99 |
+
+The rest of the L2A step comes from the steps `bandpass_adjust` does not do: Sen2Cor and LaSRC correct the atmosphere differently, and the view geometry differs.
+
 ```python
-zeit.harmonize(
+grid = dict(source="planetary_computer", bbox=bbox, start_date="2019-01-01", end_date="2024-12-31",
+            apply_cloud_mask=True, resolution=30, epsg=32722)
+hls = zeit.build_time_series(collection=["hls2-l30", "hls2-s30"],
+                             bands=["blue", "green", "red", "nir", "swir1", "swir2"], **grid)
+result = zeit.ccdc(hls.sel(band=["blue", "green", "red", "nir", "swir1", "swir2"]))
+```
+
+### `bandpass_adjust` { .api }
+
+<!-- sig: zeit.bandpass_adjust -->
+```python
+zeit.bandpass_adjust(
     data, sensor=None, etm=None, bands=None, scale="auto", nodata="auto",
     chunks=None,
 )
 ```
 
-Puts Sentinel-2 and Landsat reflectance on the scale of Landsat 8's OLI, so that a dense series that mixes them has no step where the sensor changes, which CCDC or BFAST would otherwise read as a break. Sentinel-2 dates go through the bandpass adjustment of HLS (Harmonized Landsat Sentinel-2; Claverie et al. 2018): one line per band and Sentinel-2 unit, `OLI = slope × MSI + intercept`, from the HLS v2.0 User Guide (Table 5; S2A and S2B are also the v1.4 values, S2C has its own). OLI is the reference, as in HLS: Landsat 8 and 9 stay as they are (HLS applies no adjustment between them). Landsat 7 (ETM+) and 4-5 (TM) are left alone unless `etm` is given; then the lines of Roy et al. (2016, Table 2, surface reflectance) take them to OLI. Those were fitted on pre-collection data, and Landsat Collection 2 surface reflectance is generally used across sensors without them (see Earth Engine's FAQ on cross-sensor harmonization).
+Takes Sentinel-2 reflectance to the bands of Landsat 8's OLI with the bandpass adjustment of HLS (Claverie et al. 2018): one line per band and Sentinel-2 unit, `OLI = slope × MSI + intercept`, from the HLS v2.0 User Guide (Table 5; S2A and S2B are also the v1.4 values, S2C has its own). OLI is the reference, as in HLS: Landsat 8 and 9 stay as they are (HLS applies no adjustment between them). Landsat 7 (ETM+) and 4-5 (TM) are left alone unless `etm` is given; then the lines of Roy et al. (2016, Table 2, surface reflectance) take them to OLI. Those were fitted on pre-collection data, and Landsat Collection 2 surface reflectance is generally used across sensors without them (see Earth Engine's FAQ on cross-sensor harmonization). It is one step of HLS, not HLS (see above); HLS products are refused, since their Sentinel-2 dates are already adjusted.
 
 <div class="params" markdown>
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `data` | `DataArray`, path or list | required | Surface reflectance `(time, band, y, x)` or `(band, y, x)`, in memory or dask. Or a list of cubes on the same grid (one per collection): each is harmonized and they are joined into one series sorted by time, with the bands they share matched by role and named after it (`blue` ... `swir2`), whatever each catalog calls them, and the coordinates they share. |
+| `data` | `DataArray`, path or list | required | Surface reflectance `(time, band, y, x)` or `(band, y, x)`, in memory or dask. Or a list of cubes on the same grid (one per collection): each is adjusted and they are joined into one series sorted by time, with the bands they share matched by role and named after it (`blue` ... `swir2`), whatever each catalog calls them, and the coordinates they share. |
 | `sensor` | `str` or list | `None` | Each date's sensor: by default the cube's `platform` coordinate (which [`build_time_series`](data.md#build_time_series) keeps from STAC) or attribute; or one name for every date (`"sentinel-2a"`, `"S2B"`, `"landsat-8"`, `"LANDSAT_7"`...), or one per date. With a list of cubes, one of these per cube. A Sentinel-2 date of unknown unit is adjusted as S2A, with a warning. |
 | `etm` | `"rma"`, `"ols"` or `None` | `None` | Landsat 7 and 4-5: left as they are, or taken to OLI with the reduced major axis or least squares lines of Roy et al. (2016). TM is treated as ETM+, as in Earth Engine's harmonization tutorial (no TM lines are published). |
 | `bands` | `dict` | `None` | The cube's band of each role (`coastal`, `blue`, `green`, `red`, `nir`, `swir1`, `swir2`), when its names are not the usual ones (`red`, `B04`, `SR_B4`...). With a list of cubes, one dict for all or one per cube. |
-| `scale` | `"auto"` or `float` | `"auto"` | What the reflectance is multiplied by in the data: 10000 for integers or values above 2, else 1. The intercepts are in reflectance. |
+| `scale` | `"auto"` or `float` | `"auto"` | What the reflectance is multiplied by in the data: 10000 for integers or values above 2, else 1 (a lazy cube is checked on a small window). The intercepts are in reflectance. |
 | `nodata` | `"auto"`, `float` or `None` | `"auto"` | Missing values besides NaN (the raster's NoData; 0 for integers without one). They stay missing. |
 | `chunks` | `"auto"`, `dict` | `None` | Inputs read from disk: `None` reads into memory; otherwise the result is lazy. |
 
 </div>
 
-**Returns** the cube with the same dimensions, coordinates, type and georeferencing (a list: the joined series), lazy if the input is. Bands without a line (the red edge, QA bands) are copied. `attrs["harmonized"]` says what was done, and a harmonized cube is refused a second time.
+**Returns** the cube with the same dimensions, coordinates, type and georeferencing (a list: the joined series), lazy if the input is. Bands without a line (the red edge, QA bands) are copied. `attrs["bandpass_adjusted"]` says what was done, and an adjusted cube is refused a second time.
 
-**Sentinel-2's NIR.** HLS adjusts the narrow NIR, B8A (`nir08` on Earth Search, `B8A` on Planetary Computer), the band that matches OLI's band 5. B08, the broad NIR (`nir` on Earth Search, `B08`), has no line: it is left as it is, with a warning. Load B8A for a series to harmonize, or pass `bands={"nir": ...}` when a band is B8A under another name.
-
-**What it does not do.** The bandpass adjustment is one of the steps of HLS. HLS also runs the same atmospheric correction on both sensors and normalizes the view and sun angles (BRDF), and those differences are often larger. Measured over the Libya-4 desert site (21 pairs of Landsat 8/9 and Sentinel-2 L2A observations at most a day apart, 2022–2023, Planetary Computer), Sentinel-2 was 5–14 % brighter than Landsat; the adjustment took the blue difference from 0.030 to 0.021 and the red from 0.042 to 0.031, and changed the SWIR little. Where the step matters, the HLS products themselves (HLSS30 and HLSL30, on NASA's LP DAAC and Planetary Computer) are harmonized end to end.
+**Sentinel-2's NIR.** HLS adjusts the narrow NIR, B8A (`nir08` on Earth Search, `B8A` on Planetary Computer), the band that matches OLI's band 5. B08, the broad NIR (`nir` on Earth Search, `B08`), has no line: it is left as it is, with a warning. Load B8A, or pass `bands={"nir": ...}` when a band is B8A under another name.
 
 ```python
-grid = dict(source="planetary_computer", bbox=bbox, start_date="2019-01-01", end_date="2024-12-31",
-            apply_cloud_mask=True, resolution=30, epsg=32722)   # the same grid for both
 s2 = zeit.build_time_series(collection="sentinel-2-l2a", bands=["B02", "B03", "B04", "B8A", "B11", "B12"], **grid)
 landsat = zeit.build_time_series(collection="landsat-c2-l2",
                                  bands=["blue", "green", "red", "nir08", "swir16", "swir22"], **grid)
-mixed = zeit.harmonize([s2, landsat])            # one series: blue, green, red, nir, swir1, swir2
-result = zeit.ccdc(mixed)
+mixed = zeit.bandpass_adjust([s2, landsat])      # one series: blue, green, red, nir, swir1, swir2
 ```
 
 ## Cloud masking
