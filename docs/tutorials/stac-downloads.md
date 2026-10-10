@@ -116,6 +116,21 @@ Radar backscatter is dense (Sentinel-1 revisits every 6-12 days regardless of cl
 
 Neither `earth_search` nor `brazil_data_cube` currently expose MODIS or Sentinel-1 collections, so `planetary_computer` is the practical default for both. `source` also accepts any custom STAC API URL (e.g. a national or provider-specific SAR catalog) if you need one outside the three built-in aliases.
 
+**Landsat and Sentinel-2 in one series**
+
+Two collections on the same grid (the same `bbox`, `resolution` and `epsg`) become one denser series with [`zeit.harmonize`](../api/preprocessing.md#harmonize), which takes each Sentinel-2 date to Landsat 8's reflectance scale (the HLS bandpass adjustment of its unit) and matches the bands by role, whatever each catalog calls them:
+
+```python
+grid = dict(source="planetary_computer", bbox=[-52.10, -12.55, -51.95, -12.40], start_date="2019-01-01",
+            end_date="2024-12-31", apply_cloud_mask=True, resolution=30, epsg=32722)
+s2 = zeit.build_time_series(collection="sentinel-2-l2a", bands=["B02", "B03", "B04", "B8A", "B11", "B12"], **grid)
+landsat = zeit.build_time_series(collection="landsat-c2-l2",
+                                 bands=["blue", "green", "red", "nir08", "swir16", "swir22"], **grid)
+mixed = zeit.harmonize([s2, landsat])   # (time, band, y, x): blue, green, red, nir, swir1, swir2
+```
+
+Load Sentinel-2's narrow NIR (B8A, `nir08` on Earth Search): it is the band HLS adjusts to Landsat's. The adjustment is only part of what separates the two sensors; the [reference](../api/preprocessing.md#harmonize) shows what remains on a stable site.
+
 ## 4. Composite to a regular time step
 
 Raw STAC data usually comes in irregular time steps (e.g., passing every 5, 8, or 12 days). For advanced Machine Learning and TWDTW, you must regularize the cube to fixed temporal steps.

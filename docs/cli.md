@@ -303,7 +303,7 @@ zeit mmu-filter ./results/lt_event_yod.tif ./results/lt_event_yod_mmu.tif --mmu-
 
 ## The other cube functions
 
-`phenology`, `smooth`, `tmask`, `twdtw`, `snic`, `classify` and `som` run the Python function of the same name on any raster [`load_raster`](api/data.md#load_raster) reads, with the dates in the band names (as `save_raster` writes them, `yr1985`, `2020-01-15` or `2020-01-15_red` for a time × band stack). They share the same syntax and options, and write `<output_dir>/<prefix>.tif`, one band per map (or per date), computed block by block in one pass:
+`phenology`, `smooth`, `tmask`, `twdtw`, `snic`, `classify`, `som`, `coded` and `harmonize` run the Python function of the same name on any raster [`load_raster`](api/data.md#load_raster) reads, with the dates in the band names (as `save_raster` writes them, `yr1985`, `2020-01-15` or `2020-01-15_red` for a time × band stack). They share the same syntax and options, and write `<output_dir>/<prefix>.tif`, one band per map (or per date), computed block by block in one pass:
 
 ```bash
 zeit <command> <input> <output_dir> [OPTIONS]
@@ -431,7 +431,21 @@ zeit classify ./data/s2_2023.tif ./results_2023 --model ./results/rf.joblib     
 zeit som ./data/LT_Stack_NDVI_Rondonia.tif ./results --x 2 --y 2 --sample 30000
 ```
 
-### 15. Embeddings (`embeddings`)
+### 15. Sensor harmonization (`harmonize`)
+
+[`zeit.harmonize`](api/preprocessing.md#harmonize): the reflectance series with its Sentinel-2 dates on Landsat 8's OLI scale (the HLS bandpass adjustment), as `<output_dir>/<prefix>.tif` with the input's bands and type. A GeoTIFF does not say which sensor took each date, so `--sensor` does.
+
+| Option | Type | Default | Description |
+| :--- | :---: | :---: | :--- |
+| `--sensor` | `str` ... | *required* | The sensor of every date (`sentinel-2a`, `S2B`, `landsat-8`...), or one per date. |
+| `--etm` | `str` | *None* | `rma` or `ols`: also take Landsat 5/7 dates to OLI (Roy et al. 2016). |
+| `--scale` | `float` | auto | Reflectance scale of the stack: 10000 for integers or values above 2, else 1. |
+
+```bash
+zeit harmonize ./data/s2_2023.tif ./results --sensor sentinel-2b --prefix s2_2023_oli
+```
+
+### 16. Embeddings (`embeddings`)
 
 [`zeit.load_embeddings`](api/embeddings.md#load_embeddings): download the yearly embeddings of a foundation model over a region into one GeoTIFF, `<output_dir>/<prefix>.tif`, one band per year and dimension (`2024_A00`, `2024_A01`...), which `zeit.load_raster` reads back as a `(time, band, y, x)` cube that remembers which embeddings it holds. Unlike the other commands it takes no input raster: the region is given by `--bbox` or `--region`.
 

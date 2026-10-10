@@ -309,6 +309,14 @@ def run_coded_cli(args: argparse.Namespace) -> None:
         forest_label=forest_label, forest_ndfi=args.forest_ndfi, n_jobs=args.jobs))
 
 
+def run_harmonize_cli(args: argparse.Namespace) -> None:
+    from ._harmonize import harmonize
+
+    sensor = args.sensor if len(args.sensor) > 1 else args.sensor[0]
+    scale = args.scale if args.scale is not None else "auto"
+    _run_cube_cli(args, "harmonize", lambda cube: harmonize(cube, sensor=sensor, etm=args.etm, scale=scale))
+
+
 def run_embeddings_cli(args: argparse.Namespace) -> None:
     import os
 
@@ -519,6 +527,17 @@ def main() -> None:
     cd_parser.add_argument("--forest-ndfi", type=float, default=0.5, help="Without training points: forest where the "
                                                                           "model's mean NDFI is at least this (default: 0.5)")
 
+    hz_parser = subparsers.add_parser("harmonize", help="Sentinel-2 (and optionally Landsat 5/7) reflectance on "
+                                                        "Landsat 8's OLI scale (HLS bandpass adjustment)")
+    _add_cube_args(hz_parser, "harmonized", what="Path to a reflectance series (date_band bands, as save_raster "
+                                                 "writes them)")
+    hz_parser.add_argument("--sensor", nargs="+", required=True, help="The sensor of every date (e.g. sentinel-2a), "
+                                                                       "or one per date")
+    hz_parser.add_argument("--etm", choices=["rma", "ols"], default=None, help="Also take Landsat 5/7 to OLI with "
+                                                                              "Roy et al. (2016) (default: no)")
+    hz_parser.add_argument("--scale", type=float, default=None, help="Reflectance scale of the stack (default: 10000 "
+                                                                     "for integers or values above 2, else 1)")
+
     em_parser = subparsers.add_parser("embeddings", help="Download the yearly embeddings of a foundation model "
                                                          "(TESSERA, AlphaEarth) over a region, as one GeoTIFF")
     em_parser.add_argument("output_dir", help="Directory to save the GeoTIFF")
@@ -570,6 +589,8 @@ def main() -> None:
         run_som_cli(args)
     elif args.command == "coded":
         run_coded_cli(args)
+    elif args.command == "harmonize":
+        run_harmonize_cli(args)
     elif args.command == "embeddings":
         run_embeddings_cli(args)
     else:

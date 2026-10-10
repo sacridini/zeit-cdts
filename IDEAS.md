@@ -1322,11 +1322,96 @@ dois muda o que uma chamada existente devolve; o que for sair avisa com
 pacote no PyPI deixou de dizer "LandTrendr and CCDC tools", e o `pyproject.toml` ganhou
 classificadores (`Production/Stable`) e palavras-chave.
 
+## Fase 16: harmonizar Landsat e Sentinel-2 — **Feito** (1.1.0)
+
+Uma série densa que mistura Landsat e Sentinel-2 tem um degrau onde o sensor muda: as bandas
+do MSI não são as do OLI, e o CCDC e o BFAST leem o degrau como quebra. O HLS (Harmonized
+Landsat Sentinel-2) resolve isso em várias etapas; a que cabe numa função sobre um cubo já
+pronto é o ajuste de bandpass: uma reta por banda e por unidade do Sentinel-2.
+
+```python
+mixed = zeit.harmonize([s2, landsat])       # cada data do S2 pela sua unidade: S2A, S2B ou S2C
+zeit.ccdc(mixed)
+```
+
+**Princípios:**
+
+- **OLI como referência, como no HLS.** Landsat 8 e 9 ficam como estão (o HLS não ajusta um
+  ao outro, e os estudos de underfly acham os dois consistentes). Sem `to=`: o HLS só publica
+  a direção MSI → OLI, e inverter as retas para levar Landsat ao MSI seria um produto que
+  ninguém valida.
+- **Só coeficientes lidos da fonte.** Pesquisa nas fontes primárias antes de escrever o
+  código: Guia do Usuário do HLS v2.0 (abr. 2026, Tabela 5, S2A/S2B/S2C), conferido com o
+  v1.4 (Claverie et al. 2018; S2A e S2B idênticos) e o v1.5; Roy et al. (2016), Tabela 2
+  (reflectância de superfície, OLS e RMA), pelo manuscrito do autor no PMC.
+- **ETM+/TM só quando pedido** (`etm="rma"|"ols"`). As retas de Roy foram ajustadas em dados
+  anteriores às coleções, e o próprio tutorial do Earth Engine que as popularizou hoje diz
+  que, para o Collection 2 de superfície, elas não são recomendadas nem necessárias (FAQ do
+  GEE). TM entra como ETM+, como no tutorial (não há retas próprias publicadas).
+
+### O que foi feito (1.1.0)
+
+- **`zeit.harmonize`** (`zeit/_harmonize.py`): o sensor de cada data pela coordenada
+  `platform` que o `stackstac` traz do STAC (ou atributo, ou `sensor=` para todas as datas
+  ou uma por data; nomes como `sentinel-2a`, `S2B`, `LANDSAT_8`, `LC08`, `LT05`). Os papéis
+  das bandas pelos nomes de sempre (`coastal`/`B01`, `blue`/`B02`/`SR_B2`..., NIR estreito
+  `nir08`/`B8A`), ou `bands=`. Reflectância em 0–1 ou × 10000 (`scale="auto"`), o tipo e o
+  NoData mantidos (inteiros arredondados), lazy num cubo dask (só uma multiplicação e uma
+  soma por `(time, band)`). Bandas sem reta (red edge, QA) passam como estão;
+  `attrs["harmonized"]` diz o que foi feito, e um cubo harmonizado é recusado de novo. Um
+  cubo de números digitais com `scale`/`offset` por cena (`build_time_series(dtype="uint16")`)
+  é recusado: o intercepto está em reflectância e o offset do Landsat é −0,2.
+- **Uma lista de cubos vira uma série** (`zeit.harmonize([s2, landsat])`): não estava no
+  plano. Ao rodar o exemplo da doc em dados reais, o `xr.concat` dos dois cubos do Planetary
+  Computer falhava: cada coleção traz coordenadas próprias por data (`s2:granule_id`...) e
+  nomes de banda próprios (`B02` × `blue`). A lista casa as bandas comuns pelo papel e as
+  nomeia por ele (`blue` ... `swir2`), mantém só as coordenadas comuns, confere a grade e
+  ordena no tempo. Libya-4, jan.–mar. de 2023, com máscara de nuvem: 25 datas do S2 e 15 do
+  Landsat 8/9 numa série de 40, em 1,7 s (lazy; 8 s para calcular um recorte de 20 × 20).
+- **O NIR do Sentinel-2:** o HLS ajusta o B8A, que corresponde à banda 5 do OLI. O B08 (o
+  `nir` do Earth Search) fica como está, com um aviso; `bands={"nir": ...}` diz que uma banda
+  é o B8A. No ETM+ o NIR continua sendo ajustado (o aviso é só sobre as datas do Sentinel-2).
+- **CLI** `zeit harmonize ENTRADA SAÍDA --sensor ...` (um nome, ou um por data).
+- Testes em `tests/test_harmonize.py` (23): as tabelas contra os valores publicados, os
+  nomes de plataforma, cada unidade do S2 pela sua reta, Landsat 8/9 intactos, o degrau
+  sintético (OLI visto pelo inverso da reta do HLS) que volta ao OLI, ETM+/TM só com `etm=`,
+  inteiros × 10000 com NoData, lazy igual a em memória, `sensor=` e imagem única, o B08, as
+  recusas e a CLI.
+- **Medido em dados reais** (Libya-4, deserto estável, 2022–2023, Planetary Computer: 21
+  pares Landsat 8/9 × Sentinel-2 L2A com até um dia de diferença, mediana da área): o
+  Sentinel-2 sai 5–14 % mais claro que o Landsat em todas as bandas. O ajuste de bandpass leva
+  a diferença do azul de 0,030 a 0,021 e a do vermelho de 0,042 a 0,031, e quase não mexe no
+  verde, no NIR e nos SWIR (SWIR2: 0,084 → 0,083). O resto vem das outras etapas do HLS:
+  a mesma correção atmosférica (LaSRC) nos dois sensores, em vez de Sen2Cor × LaSRC, e a
+  normalização de BRDF. A doc diz isso com os números, e aponta os produtos HLSS30/HLSL30
+  quando o degrau importa.
+
+**Diferenças em relação ao plano:**
+
+- `to="landsat8"` saiu: só existe a direção MSI → OLI (acima).
+- Dois bugs do `build_time_series` achados ao rodar o exemplo, com testes:
+  - **`apply_cloud_mask=True` quebrava toda leitura de um cubo lazy desde a 0.25.0:** o nome
+    da banda de QA ia ao `xr.apply_ufunc(..., dask="parallelized")` como argumento
+    posicional, que o dask entrega como array numpy, e o `_clear_mask` falhava em
+    `qa_band.lower()` (o xarray mostra isso como um `AttributeError: 'DataArray' object has
+    no attribute 'values'`, que esconde a causa). Agora vai em `kwargs`.
+  - A banda de QA era acrescentada à lista `bands` de quem chamava; chamar de novo com a
+    mesma lista (S2 e depois Landsat) pedia a QA do outro sensor. Agora copia a lista.
+- Achado no caminho, **não corrigido**: `zeit.gee.harmonization.harmonize_oli_to_etm` diz
+  usar Roy et al. (2016), mas os coeficientes (inclinações 0,9747, 0,9783, 0,9806, 1,0004,
+  0,9859, 0,9888) não são nenhum dos de Roy (OLS OLI → ETM+: 0,8850, 0,9317, 0,9372, 0,8339,
+  0,8639, 0,9165, com interceptos 0,0183...). Além disso são aplicados aos números digitais
+  do Collection 2 (`SR_B*` sem a escala 0,0000275 e o offset −0,2), com interceptos em
+  reflectância, que ali viram quase nada. Corrigir muda os compostos de quem usa o
+  `download_gee_*`, e o FAQ do GEE desaconselha esse ajuste no Collection 2: decisão do
+  usuário (tirar o ajuste, ou aplicar os de Roy na escala certa).
+
 ## Para depois
 
 - `zeit.plot`: medir de verdade o caso de notebook remoto (JupyterHub, Colab), que ficou
   como estimativa no 7a.
-- Harmonizar Landsat e Sentinel-2 (ajuste de bandpass do HLS, Claverie et al. 2018) para
-  séries densas que misturam os dois sensores: `zeit.harmonize(cube, to="landsat8")`, com
-  o sensor de cada data lido do STAC ou de uma coordenada `platform`. Hoje um cubo misto
-  tem um degrau entre sensores que vira quebra falsa no CCDC e no BFAST.
+- `zeit.harmonize` com as outras etapas do HLS que dependem só da geometria: a normalização
+  de BRDF (c-factor de Roy et al. 2016, com os ângulos de cada cena, que o STAC às vezes traz
+  em `view:*`) tiraria parte do degrau que sobra. A correção atmosférica comum não cabe: é
+  refazer o L2A.
+

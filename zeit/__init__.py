@@ -33,6 +33,7 @@ from .qc import qc_modis_summary, qc_modis_state, qc_sentinel2_scl
 from ._tmask_api import tmask
 from ._sma import unmix
 from ._coded import coded
+from ._harmonize import harmonize
 
 from .regularize import regularize_time_series
 
@@ -89,6 +90,7 @@ __all__ = [
     "extract_water_mask",
     "qc_modis_summary", "qc_modis_state", "qc_sentinel2_scl",
     "build_time_series",
+    "harmonize",
     "build_annual_composites",
     "build_spectral_temporal_metrics",
     "compute_indices",

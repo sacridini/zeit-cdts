@@ -22,6 +22,7 @@ Built with highly optimized C++ extensions (OpenMP and Eigen SIMD) bound to Pyth
 
 - **ARD Data Cube Ingestion:** Fetch cloud-native STAC catalogs (via MGRS/WRS tiles or Bounding Boxes) or parse local TIFF directories into lazy Dask-backed `xarray` Datacubes.
 - **Semantic Cloud Masking:** Automated extraction and translation of Quality Assessment (QA) bands for Landsat and Sentinel-2 directly inside the query pipeline, plus a temporal **Tmask** harmonic baseline model to catch clouds/shadows missed by the native QA mask.
+- **Sensor Harmonization:** `harmonize` puts Sentinel-2 reflectance on Landsat 8's OLI scale with the HLS bandpass adjustment of each Sentinel-2 unit (A, B, C), and optionally Landsat 5/7 with Roy et al. (2016), so a dense series that mixes sensors has no step for CCDC or BFAST to read as a break.
 - **Temporal Regularization:** Mathematical composite generation (e.g., Medoid, Median) to align irregular satellite acquisitions into uniform time steps (crucial for Deep Learning and DTW).
 - **High-Performance C++ Algorithms:**
   - **TWDTW** (Time-Weighted Dynamic Time Warping): Highly optimized with LB_Keogh lower bounding, early abandonment, Sakoe-Chiba constraints, and multivariate Eigen vectorization.
@@ -112,6 +113,21 @@ cube = zeit.build_time_series(
 
 print(cube) # Returns an xarray.DataArray (Time, Band, Y, X)
 ```
+
+## Sensor Harmonization
+
+A dense series that mixes Landsat and Sentinel-2 has a step wherever the sensor changes. `zeit.harmonize` takes each Sentinel-2 date to Landsat 8's OLI with the bandpass adjustment of HLS (one line per band and Sentinel-2 unit, from the HLS v2.0 User Guide), reading each date's sensor from the `platform` coordinate STAC provides. Given cubes of several collections on one grid, it joins them into one series, matching the bands by role:
+
+```python
+grid = dict(source="planetary_computer", bbox=bbox, start_date="2019-01-01", end_date="2024-12-31",
+            apply_cloud_mask=True, resolution=30, epsg=32722)
+s2 = zeit.build_time_series(collection="sentinel-2-l2a", bands=["B02", "B03", "B04", "B8A", "B11", "B12"], **grid)
+landsat = zeit.build_time_series(collection="landsat-c2-l2", bands=["blue", "green", "red", "nir08", "swir16", "swir22"], **grid)
+mixed = zeit.harmonize([s2, landsat])            # S2A, S2B and S2C dates each by its own lines; Landsat 8/9 as they are
+zeit.ccdc(mixed)
+```
+
+It is the bandpass step of HLS only, not its common atmospheric correction or BRDF normalization; see the [reference](https://sacridini.github.io/zeit-cdts/api/preprocessing/#harmonize) for what that leaves.
 
 ## Temporal Regularization
 

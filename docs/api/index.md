@@ -95,6 +95,7 @@
 | [`similarity`](embeddings.md#similarity) | Where (and when) pixels look like reference samples |
 | [`embedding_change`](embeddings.md#embedding_change) | How far each pixel's embedding moved from year to year (events with `extract_events`) |
 | **Pre-processing** | |
+| [`harmonize`](preprocessing.md#harmonize) | Sentinel-2 (and Landsat 5/7) reflectance on Landsat 8's scale (HLS bandpass adjustment) |
 | [`tmask`](preprocessing.md#tmask) | Time-series cloud and shadow detection of a cube |
 | [`smooth`](preprocessing.md#smooth) | Whittaker (uneven dates, gaps, weights) or Savitzky-Golay smoothing of a cube or series |
 | [`unmix`](preprocessing.md#unmix) | Fractions of green vegetation, NPV, soil, shade, cloud; the NDFI |
