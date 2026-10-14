@@ -11,6 +11,8 @@ zeit <algorithm> [OPTIONS] <input_file> <output_directory>
 ```
 *(Alternatively: `python -m zeit.cli <algorithm> ...`)*
 
+To run a command on a whole folder of tiles, on this computer and on others of the local network, see [Many tiles, on this and other computers](#many-tiles-on-this-and-other-computers).
+
 To get general help or see the list of available commands:
 ```bash
 zeit --help
@@ -466,6 +468,66 @@ zeit bandpass-adjust ./data/s2_2023.tif ./results --sensor sentinel-2b --prefix 
 zeit embeddings ./results --source tessera --bbox -63.0 -10.0 -62.9 -9.9 --years 2018-2024
 zeit classify ./results/tessera.tif ./results --samples ./data/samples.gpkg   # every year and dimension a feature
 ```
+
+---
+
+## Many tiles, on this and other computers
+
+### 17. Many tiles, here and on other computers
+
+Every command that reads one raster (`landtrendr`, `ccdc`, `bfast-monitor`, `bfast-lite`, `bfast`, `mann-kendall`, `phenology`, `smooth`, `tmask`, `twdtw`, `snic`, `classify`, `som`, `coded`, `bandpass-adjust`) also runs on a whole folder of tiles, with the same options, writing `<output_dir>/<tile name>/` per tile. Add `--helpers` and the computers of the local network running [`zeit worker`](#18-lending-a-computer-zeit-worker) process tiles too. The Python form is [`zeit.run_tiles`](api/parallel.md#run_tiles); the tutorial, with what limits the speed, is [Many tiles on several computers](tutorials/parallel-cloud-processing.md#many-tiles-on-several-computers).
+
+```bash
+zeit landtrendr nbr_tiles/ lt_out/ --tiles                    # every tile, on this computer
+zeit landtrendr nbr_tiles/ lt_out/ --helpers                  # here and on the helpers
+zeit landtrendr nbr_tiles/ lt_out/ --helpers --no-local       # only on the helpers; this computer stays free
+zeit landtrendr nbr_tiles/ lt_out/ --helpers --local-cores 4  # here with 4 cores, and on the helpers
+zeit landtrendr "nbr_tiles/LT_2*.tif" lt_out/ --tiles         # a quoted glob instead of a folder
+```
+
+| Option | Type | Default | Description |
+| :--- | :---: | :---: | :--- |
+| `--tiles` | `flag` | `False` | The input is a folder of tiles (its `.tif` files) or a quoted glob: run every tile. |
+| `--helpers` | `flag` | `False` | Also send tiles to the helpers of this computer's group (implies `--tiles`). |
+| `--no-local` | `flag` | `False` | With `--helpers`: process nothing here, only hand out the tiles and collect the results. |
+| `--local-cores` | `int` | `--jobs` | Cores for the tiles processed here (all but one by default). Each helper uses the cores it lends. |
+| `--port` | `int` | `47801` | TCP port the helpers connect to. |
+
+- **Resumable.** Finished tiles are kept: running the same command again processes only the others. Running it with other options into the same output folder is refused rather than mixing results.
+- **Where the helpers read the tiles.** From shared storage (a NAS) when they see the same file, otherwise this computer sends it; a helper keeps the tiles it received (20 GB by default), so another run does not send them again.
+- **Progress.** One line with the tiles done, the computers at work, the network rate and the time left; the helpers that join or leave; a tile that fails (tried again elsewhere, given up after two failures and listed at the end, with exit code 1).
+- **Files used by every tile** (`--patterns` of `twdtw`, `--dates-file` of `ccdc`, `--model` of `classify`, `--training` of `coded`) are sent to the helpers. Options naming a file of one raster (`--weights`, `--samples`) cannot be used with many tiles.
+
+### 18. Lending a computer (`zeit worker`)
+
+Run on each computer that helps. It waits for a computer of its group that runs tiles, processes the tiles it gets with all the cores it lends, and waits again, until Ctrl+C. The first time, it joins the group with the code shown by [`zeit helpers invite`](#19-the-group-zeit-helpers).
+
+```bash
+zeit worker --join K7QM-2XDP     # the first time
+zeit worker                      # from then on
+zeit worker --cores 6            # lend only 6 cores
+zeit worker --map "Z:\=/mnt/nas" # the NAS the coordinator sees as Z:\ is /mnt/nas here
+```
+
+| Option | Type | Default | Description |
+| :--- | :---: | :---: | :--- |
+| `--join` | `str` | *None* | The invitation code, the first time only. |
+| `--cores` | `int` | all but one | Cores to lend. |
+| `--connect` | `HOST[:PORT]` | *None* | The coordinator's address, when broadcasts do not reach it (another subnet, a VPN). |
+| `--map` | `SRC=DST` | *None* | A shared folder mounted elsewhere here (repeatable). Mapped Windows drives are sent as UNC paths (`\\nas\tiles`), which Windows helpers read without a map. |
+| `--cache-dir` | `dirpath` | the user's cache folder | Where received tiles are kept. |
+| `--cache-gb` | `float` | `20` | Space the kept tiles may take. |
+
+A helper only opens outgoing connections (no firewall rule on it) and only runs zeit's own commands. Both computers need the same zeit version; a helper with another one is told which to install. It keeps the computer from sleeping while it works.
+
+### 19. The group (`zeit helpers`)
+
+| Command | What it does |
+| :--- | :--- |
+| `zeit helpers invite [--minutes 10]` | Shows a code (such as `K7QM-2XDP`) with which other computers join this computer's group, while it runs. Any computer of the group can then run tiles with the others' help. |
+| `zeit helpers list [--seconds 5]` | The helpers waiting for work on the local network: name, address, cores, zeit version. Busy helpers do not show. |
+| `zeit helpers firewall` | On Windows, creates the inbound rules (TCP 47801 and UDP 47800, from the local subnet only), asking for administrator rights once. Needed on the computer that runs tiles, not on the helpers. |
+| `zeit helpers leave` | Takes this computer out of its group (forgets the group's secret). |
 
 ---
 

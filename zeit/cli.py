@@ -340,9 +340,91 @@ def run_embeddings_cli(args: argparse.Namespace) -> None:
           f"({emb.sizes['y']} x {emb.sizes['x']} cells) to {path}")
 
 
-def main() -> None:
+def _add_tile_args(p: argparse.ArgumentParser) -> None:
+    """Many tiles, on this computer and on helpers (see `zeit worker`)."""
+    g = p.add_argument_group("many tiles, here and on other computers")
+    g.add_argument("--tiles", action="store_true", help="The input is a folder of tiles (or a quoted glob such as "
+                   "'tiles/*.tif'): run every tile, writing <output_dir>/<tile name>/. Finished tiles are kept: "
+                   "running again continues where it stopped")
+    g.add_argument("--helpers", action="store_true", help="With --tiles (implied): also send tiles to the computers "
+                   "of this computer's group running `zeit worker`")
+    g.add_argument("--no-local", action="store_true", help="With --helpers: process nothing here, only hand out "
+                   "the tiles and collect the results")
+    g.add_argument("--local-cores", type=int, default=None, help="Cores for the tiles processed here (default: "
+                   "--jobs, i.e. all but one)")
+    g.add_argument("--port", type=int, default=47801, help="TCP port the helpers connect to (default: 47801)")
+
+
+def run_tiles_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    from ._tiles import run_tiles
+    from ._tiles._tasks import RUN_OPTIONS
+
+    if args.no_local and not args.helpers:
+        raise SystemExit("--no-local needs --helpers: something has to process the tiles")
+    sub = parser.zeit_commands[args.command]
+    options = {a.dest: getattr(args, a.dest) for a in sub._actions
+               if a.option_strings and a.dest not in RUN_OPTIONS}
+    cores = args.local_cores if args.local_cores is not None else (args.jobs if args.jobs > 0 else None)
+    try:
+        result = run_tiles(args.command, args.input, args.output_dir, helpers=args.helpers,
+                           local=not args.no_local, local_cores=cores, port=args.port, **options)
+    except KeyboardInterrupt:
+        sys.exit(130)
+    except (ValueError, TypeError, OSError, RuntimeError) as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+    sys.exit(0 if result.ok else 1)
+
+
+def run_worker_cli(args: argparse.Namespace) -> None:
+    from ._tiles._worker import run_worker
+
+    try:
+        run_worker(cores=args.cores, connect=args.connect, join=args.join, maps=args.map or (),
+                   cache_dir=args.cache_dir, cache_gb=args.cache_gb)
+    except (ValueError, OSError, RuntimeError) as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+
+
+def run_helpers_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    from ._tiles import _group
+
+    if args.helpers_command == "invite":
+        from ._tiles import invite_helpers
+
+        try:
+            joined = invite_helpers(args.minutes, port=args.port)
+        except (OSError, RuntimeError) as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+        print(f"{len(joined)} computer(s) joined." if joined else "No computer joined.")
+    elif args.helpers_command == "list":
+        from ._tiles._pairing import list_helpers
+
+        try:
+            found = list_helpers(args.seconds)
+        except (OSError, RuntimeError) as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+        if not found:
+            print("No helper is waiting for work (busy helpers do not show).")
+        for h in found:
+            print(f"{h['name']}  {h['address']}  {h['cores']} cores  zeit {h['version']}")
+    elif args.helpers_command == "firewall":
+        from ._tiles._system import open_firewall
+
+        print(open_firewall(args.port, _group.UDP_PORT))
+    elif args.helpers_command == "leave":
+        print("This computer left its group." if _group.forget_secret() else "This computer is not in a group.")
+    else:
+        parser.zeit_commands["helpers"].print_help()
+
+
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="zeit: Change Detection Python Library")
     subparsers = parser.add_subparsers(dest="command", help="Available algorithms")
+    parser.zeit_commands = subparsers.choices
     
     # LandTrendr Subparser
     lt_parser = subparsers.add_parser("landtrendr", help="Run LandTrendr algorithm")
@@ -369,6 +451,7 @@ def main() -> None:
     lt_parser.add_argument("--vertex-count-overshoot", type=int, default=3, help="LT-GEE's vertexCountOvershoot: extra vertices allowed in the initial candidate pool beyond max_segments + 1, pruned back down before model selection (default: 3)")
     lt_parser.add_argument("--min-observations-needed", type=int, default=6, help="LT-GEE's minObservationsNeeded: below this many observations, skip fitting entirely and pass the raw trajectory through unsegmented (default: 6)")
     lt_parser.add_argument("--no-data-value", type=float, default=None, help="Value marking a missing observation (default: the raster's NoData, or 0 for integer stacks without one)")
+    _add_tile_args(lt_parser)
     
     # CCDC Subparser
     ccdc_parser = subparsers.add_parser("ccdc", help="Run CCDC algorithm")
@@ -383,6 +466,7 @@ def main() -> None:
     ccdc_parser.add_argument("--conse", type=int, default=6, help="Consecutive anomalous observations to flag a change (default: 6, as in the original CCDC)")
     ccdc_parser.add_argument("--cold", action="store_true", help="Deprecated: same as --conse 6 (now the default)")
     ccdc_parser.add_argument("--prefix", default="ccdc", help="Prefix for output files (default: ccdc)")
+    _add_tile_args(ccdc_parser)
 
     # Shared time-series arguments for the bfast family (bfastmonitor/bfastlite/bfast) and
     # Mann-Kendall: every band in the input is one equally-spaced observation
@@ -392,6 +476,7 @@ def main() -> None:
         p.add_argument("output_dir", help="Directory to save the output")
         p.add_argument("--chunk-size", type=int, default=512, help="Size of the image chunks to process at once (default: 512)")
         p.add_argument("--jobs", type=int, default=-1, help="Number of CPU cores to use (-1 for all, default: -1)")
+        _add_tile_args(p)
 
     # bfastmonitor Subparser
     bfm_parser = subparsers.add_parser("bfast-monitor", help="Run bfastmonitor (near-real-time disturbance monitoring)")
@@ -454,6 +539,7 @@ def main() -> None:
         p.add_argument("--chunk-size", type=int, default=512, help="Size of the image chunks to process at once (default: 512)")
         p.add_argument("--jobs", type=int, default=-1, help="Number of CPU cores to use (-1 for all, default: -1)")
         p.add_argument("--prefix", default=prefix, help=f"Name of the output file (default: {prefix})")
+        _add_tile_args(p)
 
     phen_parser = subparsers.add_parser("phenology", help="Land surface phenology: fit a seasonal curve, extract its metrics")
     _add_cube_args(phen_parser, "phenology")
@@ -557,9 +643,45 @@ def main() -> None:
     em_parser.add_argument("--cache-dir", default=None, help="Where downloads are kept (default: ~/.cache/zeit/embeddings)")
     em_parser.add_argument("--prefix", default=None, help="Name of the output file (default: the source)")
 
-    args = parser.parse_args()
+    wk_parser = subparsers.add_parser("worker", help="Lend this computer to the group: wait for tiles and process "
+                                                      "them (see `zeit helpers invite`)")
+    wk_parser.add_argument("--join", default=None, metavar="CODE", help="Join a group with the code shown by "
+                           "`zeit helpers invite` on one of its computers (the first time only)")
+    wk_parser.add_argument("--cores", type=int, default=None, help="Cores to lend (default: all but one)")
+    wk_parser.add_argument("--connect", default=None, metavar="HOST[:PORT]", help="The coordinator's address, when "
+                           "the broadcasts of the local network do not reach it")
+    wk_parser.add_argument("--map", action="append", default=None, metavar="SRC=DST", help="A shared folder mounted "
+                           "elsewhere here: tiles the coordinator sees under SRC are read under DST (repeatable), "
+                           "e.g. --map Z:/=/mnt/nas")
+    wk_parser.add_argument("--cache-dir", default=None, help="Where received tiles are kept (default: the user's "
+                           "cache folder)")
+    wk_parser.add_argument("--cache-gb", type=float, default=20.0, help="Space the kept tiles may take, in GB "
+                           "(default: 20)")
 
-    if args.command == "landtrendr":
+    hp_parser = subparsers.add_parser("helpers", help="The group of computers that process tiles together")
+    hp_sub = hp_parser.add_subparsers(dest="helpers_command")
+    inv = hp_sub.add_parser("invite", help="Show a code with which other computers join this one's group")
+    inv.add_argument("--minutes", type=float, default=10.0, help="How long the code is valid (default: 10)")
+    inv.add_argument("--port", type=int, default=47801, help="TCP port (default: 47801)")
+    ls = hp_sub.add_parser("list", help="The helpers of the group waiting for work on the local network")
+    ls.add_argument("--seconds", type=float, default=5.0, help="How long to listen (default: 5)")
+    fw = hp_sub.add_parser("firewall", help="Let helpers reach this computer (Windows: creates the firewall rules)")
+    fw.add_argument("--port", type=int, default=47801, help="TCP port (default: 47801)")
+    hp_sub.add_parser("leave", help="Take this computer out of its group")
+    return parser
+
+
+def main(argv: Optional[List[str]] = None) -> None:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    if getattr(args, "tiles", False) or getattr(args, "helpers", False) is True or getattr(args, "no_local", False):
+        run_tiles_cli(args, parser)
+    elif args.command == "worker":
+        run_worker_cli(args)
+    elif args.command == "helpers":
+        run_helpers_cli(args, parser)
+    elif args.command == "landtrendr":
         run_landtrendr(args)
     elif args.command == "ccdc":
         run_ccdc_cli(args)

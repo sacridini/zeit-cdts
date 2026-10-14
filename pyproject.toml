@@ -36,6 +36,7 @@ dependencies = [
     "planetary-computer",
     "earthengine-api",
     "requests",
+    "cryptography",
     "zarr",
     "pyarrow",
     "rioxarray",

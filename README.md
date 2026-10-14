@@ -399,6 +399,24 @@ zeit landtrendr input_stack.tif output_dir/ --max-segments 6 --jobs -1   # years
 
 See the [CLI reference](https://sacridini.github.io/zeit-cdts/cli/) for the full list of subcommands and options.
 
+## Many Tiles on Several Computers
+
+A folder of tiles runs on this computer and on any computer of the local network that lends itself, with one command on each and no cluster to set up. Finished tiles are kept, so an interrupted run continues where it stopped.
+
+```bash
+zeit helpers invite                                  # once, on the computer with the tiles: shows a code
+zeit worker --join K7QM-2XDP                         # once, on each helper; from then on just `zeit worker`
+
+zeit landtrendr nbr_tiles/ lt_out/ --helpers         # here and on the helpers
+zeit landtrendr nbr_tiles/ lt_out/ --helpers --no-local   # only on the helpers: this computer stays free
+```
+
+```python
+zeit.run_tiles("landtrendr", "nbr_tiles/", "lt_out/", helpers=True, max_segments=6)
+```
+
+Helpers pull tiles as they free up (fetching the next while processing one), read them straight from a NAS when they see the same file, keep what they received for the next run, and only run zeit's own commands over an authenticated, encrypted connection. The run says when the network, not the processors, is what limits it. See [Many tiles on several computers](https://sacridini.github.io/zeit-cdts/tutorials/parallel-cloud-processing/#many-tiles-on-several-computers).
+
 ---
 
 ## Architecture & Threading Safety

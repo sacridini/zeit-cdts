@@ -1504,6 +1504,209 @@ vista, de referência ou de ano não volta ao kernel, e a similaridade segue o m
 local, e o pan/zoom é o jeito de escolher a área no viewer) e sem a vista de uma dimensão
 como banda (`zeit.plot(emb, band="A07")` já faz isso).
 
+## Fase 18: muitos tiles em vários computadores da rede — 18a **Feito** (1.5.0)
+
+Pedida em 2026-10-14, a partir do que foi feito no Terraflux. Hoje o paralelismo entre
+máquinas passa pelo Dask (`dask scheduler`, `dask worker`, regra no firewall, versões
+alinhadas, variáveis do OpenMP no macOS), e a seção de Troubleshooting do tutorial
+`parallel-cloud-processing.md` mostra quanta coisa dá errado para quem nunca montou um
+cluster. O caso que motiva: uma pasta com muitos tiles Landsat para o LandTrendr,
+processada no PC principal e em outros computadores da mesma rede, ou só nos outros,
+com o principal livre para outras coisas.
+
+```bash
+# em cada computador ajudante, um comando só
+zeit worker                      # espera tiles; na primeira vez pede o código do grupo
+zeit worker --cores 6            # empresta só parte da máquina
+
+# no computador principal
+zeit landtrendr tiles/ out/ --helpers                   # processa aqui e nos ajudantes
+zeit landtrendr tiles/ out/ --helpers --no-local        # só orquestra; a CPU fica livre
+zeit landtrendr tiles/ out/ --helpers --local-cores 4   # ajuda com parte dos núcleos
+```
+
+```python
+zeit.run_tiles("landtrendr", "tiles/", "out/", helpers=True, local=False, max_segments=6)
+```
+
+**Princípio:** a unidade de trabalho é o tile inteiro, não o chunk do Dask, e o ajudante
+só executa comandos do zeit (os mesmos do CLI, com os parâmetros), nunca código arbitrário.
+O usuário não vê "scheduler", "porta" nem "worker": vê "ajudar" e "usar ajudantes". Com
+`--no-local` o principal só serve os tiles e grava os resultados, mas precisa continuar
+ligado; desligado ou suspenso, o lote pausa e retoma depois.
+
+### Por que não o Dask
+
+- Por blocos, o Dask manda arrays decodificados (no máximo com lz4) a partir da máquina que
+  tem os arquivos, e não sabe que o cabo dela é o gargalo nem que o tile processado ali não
+  precisa viajar. E hoje o `load_raster` abre o caminho em cada worker: um ajudante sem os
+  arquivos falha.
+- Uma tarefa do Dask por tile funcionaria, mas agendar de 50 a 500 tarefas independentes é
+  trivial; a transferência dos arquivos, a pré-busca e a retomada teriam de ser feitas de
+  qualquer jeito.
+- Um worker do Dask executa qualquer pickle que recebe: emprestar a máquina seria dar
+  execução de código a quem controla o scheduler.
+- Avaliados e descartados também: pasta compartilhada (SMB: os mesmos bytes sem compressão,
+  o GDAL lendo aos pedaços pela rede, permissões do Windows), HTCondor (feito para usar
+  desktops ociosos, mas a instalação é a complexidade que se quer evitar), Ray, Celery e RQ
+  (o perfil do Dask, alguns com um Redis).
+
+O Dask continua sendo o caminho para um cubo único maior que uma máquina (ver Para depois).
+
+### O que limita: a rede, não a CPU
+
+Do `docs/benchmarks/performance.md`: um tile de 54,7 M px × 41 anos roda o LandTrendr em
+98 s (i5-13600K, 20 threads). Enviar esse tile por 1 Gbps (~110 MB/s):
+
+| Tile | Tamanho | Envio | Ajudantes que o cabo do principal sustenta* |
+|---|---|---|---|
+| float32 sem compressão | 9,0 GB | ~80 s | ~1 |
+| int16 sem compressão | 4,5 GB | ~40 s | ~2 |
+| int16 + ZSTD com predictor | ~1,5–2,5 GB (a medir) | ~15–25 s | ~4–6 |
+| o mesmo por Wi-Fi | ~1,5–2,5 GB | ~40–80 s | ~1–2 |
+
+\* Do porte da máquina do benchmark (tempo de processar ÷ tempo de enviar); ajudantes mais
+fracos demoram mais por tile e cabem mais deles.
+
+- O formato do tile pesa mais que a tecnologia de transporte. int16 × 10000 perde precisão
+  (4 casas no NBR): é opção explícita, nunca automática. Sem perda, float32 com ZSTD e
+  predictor 3 ganha menos (~1,5–2×).
+- Expectativa: 100 tiles levam ~2,7 h no principal sozinho; com 3–5 ajudantes no cabo e
+  tiles int16 comprimidos, algo entre 30 e 50 min. Por Wi-Fi o ganho é pequeno.
+
+### Baixar nos ajudantes: só com links independentes
+
+Quando os tiles vêm do STAC ou do GEE, a tarefa pode ser "baixe e processe o tile X", sem
+nada passar pelo principal. Mas só acelera com links de internet independentes (outro
+prédio, a casa de um colega, VMs perto dos dados):
+
+- STAC: montar um tile do zero leva ~35 min e ~41 GB, contra 98 s de LandTrendr, e o
+  benchmark já está no limite do link (20–22 MB/s de 22–26). Ajudantes no mesmo laboratório
+  dividem esse link.
+- GEE: o limite de requisições simultâneas é do projeto (~2 no Restricted Mode, ~40 no
+  padrão), não da máquina; ajudantes com a mesma conta dividem a cota.
+
+O worker mede o próprio download e o principal avisa quando os links são o mesmo.
+
+### De onde vêm os tiles: disco do principal ou NAS
+
+- **Disco do principal:** o caso base; o principal envia. Num HD (não SSD) o disco pode virar
+  o gargalo antes da rede (~150–200 MB/s lendo em sequência, bem menos com leituras
+  concorrentes): o principal lê um tile por vez, em sequência, para todos os destinos (o
+  benchmark de leitura do tutorial já mostrou 16 threads 4,6× mais lentas que 1 num NVMe).
+- **NAS que todas as máquinas veem:** o ajudante lê direto do NAS, sem passar pelo principal
+  (passar por ele dobraria o tráfego no cabo dele). A tarefa leva o caminho; o ajudante
+  confere que enxerga o mesmo arquivo (tamanho e data, ou hash de um trecho) e, se não
+  enxerga, o principal envia como no caso base. Caminhos diferentes entre máquinas (`Z:\`,
+  `\\nas\tiles`, `/mnt/nas`) com um mapa no worker (`zeit worker --map Z:\=/mnt/nas`), e UNC
+  por padrão no Windows.
+- No NAS o ajudante copia o tile inteiro para um temporário local, em sequência, em vez de o
+  GDAL ler aos pedaços pela rede (o problema da pasta compartilhada como transporte).
+- O gargalo passa a ser o NAS (muitos têm 1 GbE e discos HDD em RAID): a mesma tabela vale
+  com o link do NAS no lugar do cabo do principal, e o principal com `--no-local` deixa de
+  carregar dados. Com 10 GbE ou agregação de links cabem bem mais ajudantes.
+- Resultados: gravados direto na pasta de saída quando o ajudante a enxerga (rename atômico
+  no mesmo compartilhamento), senão enviados ao principal; são pequenos perto da entrada.
+
+### A fila
+
+- **Puxada:** cada ajudante pede o próximo tile quando fica livre; isso equilibra máquinas
+  rápidas e lentas. Os tiles maiores saem primeiro.
+- **Pré-busca:** o próximo tile chega enquanto o atual é processado.
+- **Local primeiro:** o principal (sem `--no-local`) pega tiles sem custo de rede; um
+  ajudante só recebe um tile se terminaria antes de o principal chegar nele.
+- **Fim da fila duplicado:** os últimos tiles atrasados rodam também em máquinas ociosas, e
+  vale o que terminar primeiro (as *backup tasks* do MapReduce), para não esperar o ajudante
+  mais lento.
+- **Comprimido nos dois sentidos:** o arquivo vai como está no disco, ou recomprimido por
+  bloco no envio (ZSTD rápido) quando não tem compressão; os resultados voltam comprimidos.
+- **Cache por hash no ajudante:** rodar de novo com outros parâmetros não reenvia os tiles.
+- **Retomada:** cada resultado é gravado com rename atômico; rodar de novo pula os tiles
+  prontos ("180 de 200 prontos"), e o tile de um ajudante que cai volta para a fila.
+- **Medições e avisos:** velocidade da rede, tempo por tile, estimativa do total e "a rede é
+  o gargalo; mais ajudantes não vão acelerar"; aviso ao mandar float32 sem compressão.
+
+### Descoberta, pareamento e segurança
+
+- **Descoberta:** broadcast UDP na rede local (só a biblioteca padrão; zeroconf não precisa).
+- **Pareamento:** o código curto (`ZT-4821` ou QR) é só o convite: autentica um pareamento
+  único, que expira em minutos e tem limite de tentativas. Nele o ajudante recebe o segredo
+  do grupo (aleatório, 256 bits) e fixa o certificado TLS. O grupo fica salvo nos dois lados;
+  depois basta `zeit worker`.
+- **Versão rígida:** zeit, Python e plataforma conferidos antes de entrar, com mensagem
+  clara ("este computador tem o zeit 1.3.0; atualize para 1.4.0").
+- **Portas fixas** (faixa curta) e `zeit worker --firewall`, que cria a regra do Windows só
+  para a sub-rede, com elevação.
+- **O que o Troubleshooting pede à mão, o worker faz sozinho:** roda com o `sys.executable`
+  dele (nada de outro Python no PATH), define `KMP_DUPLICATE_LIB_OK`/`OMP_NUM_THREADS` no
+  macOS, passa os núcleos emprestados como `n_jobs` e impede a suspensão da máquina enquanto
+  há tarefa (`SetThreadExecutionState`, `caffeinate`, `systemd-inhibit`).
+
+### Etapas
+
+- **18a:** fila, `zeit worker`, `--helpers`/`--no-local`/`--local-cores`, `zeit.run_tiles`,
+  descoberta, pareamento, checagem de versão, retomada e medições. Sem dependência nova além
+  da `cryptography` para o TLS. — **Feito** (1.5.0)
+- **18b:** formato compacto como padrão sugerido: int16 com ZSTD e predictor no
+  `save_raster` e nos downloads, e a recompressão no envio.
+- **18c:** ajudantes que baixam os próprios dados (STAC, GEE), para links independentes.
+
+### 18a: o que foi feito
+
+- **`zeit/_tiles/`**, em módulos: `_group` (segredo do grupo, código do convite, provas,
+  versão), `_net` (HTTP sobre TLS, handshake, broadcasts UDP), `_tasks` (comandos, opções,
+  plano, execução de um tile, tar), `_coordinator` (fila e servidor), `_worker` (o ajudante),
+  `_pairing` (convite e entrada no grupo), `_system` (não suspender, firewall). Na API:
+  `zeit.run_tiles`, `zeit.run_worker`, `zeit.invite_helpers`. No CLI: `--tiles`, `--helpers`,
+  `--no-local`, `--local-cores` e `--port` nos 15 comandos que leem um raster; `zeit worker`;
+  `zeit helpers invite|list|firewall|leave`. `cli.main` virou `build_parser()` + `main(argv)`.
+- **Um tile = um processo** `python -m zeit.cli <comando> <tile> <saída> <opções> --jobs <núcleos>`,
+  aqui ou no ajudante: um crash custa um tile, e o ajudante confere as opções com o próprio
+  parser antes de rodar (nada de `--tiles`/`--helpers`, nada de caminhos de arquivo; os
+  arquivos de todos os tiles, como `--patterns`, vão à parte e o ajudante põe o caminho local).
+- **Rede:** HTTP/1.1 sobre TLS com `http.server`/`http.client` da biblioteca padrão, certificado
+  autoassinado por execução (`cryptography`). As provas HMAC (as duas pontas) incluem a
+  impressão digital do certificado, e o ajudante a fixa nas conexões seguintes: sem homem no
+  meio, sem CA. Medido: 1 GB em 2,05 s (488 MB/s) no loopback, folga de 4× sobre 1 GbE.
+- **Descoberta:** quem faz broadcast é o ajudante ocioso (UDP 47800); o coordenador responde
+  com a porta TCP (47801). Só o coordenador escuta, então só ele precisa da regra de firewall
+  (`zeit helpers firewall`: `netsh`, `remoteip=localsubnet`, um pedido de elevação). `--connect`
+  quando o broadcast não chega (outra sub-rede, VPN).
+- **Pareamento:** código de 8 caracteres Crockford base32 (40 bits), chave por scrypt
+  (n=2^15, sal por convite), 10 códigos errados fecham o convite. O ajudante recebe o segredo
+  de 256 bits, guardado em `%APPDATA%\zeit\group.json` (ou `~/.config/zeit`).
+- **Versão:** além do número, uma impressão digital do código Python do zeit. Achado no teste:
+  neste ambiente de desenvolvimento os metadados instalados diziam 0.24.0 num processo e
+  0.43.0 noutro (egg-info velho na raiz); a versão agora vem do `pyproject.toml` quando o zeit
+  roda de um checkout.
+- **Fila:** puxada; o ajudante segura até dois tiles (um rodando, um chegando); maiores
+  primeiro; o último tile fica no principal quando ele terminaria antes; um tile atrasado vai
+  também a uma máquina ociosa que terminaria antes com folga (30 s ou 10%), e o primeiro
+  resultado vale (o outro é cancelado pelo heartbeat). Estimativas por máquina: bytes/s de
+  processamento e de busca (média móvel). Falha: tenta em outra máquina; duas falhas, desiste.
+  Uma transferência que quebra (tile ou resultado) não é falha do tile: ele volta à fila (até
+  5 vezes, depois conta como falha).
+  Heartbeat a cada 5 s; 60 s sem notícia, a máquina sai e os tiles voltam à fila; uma tentativa
+  que o ajudante não relata em 20 s (resposta perdida) também volta.
+- **Disco e NAS:** o principal lê os tiles em pedaços de 16 MB, um por vez. O ajudante usa o
+  arquivo do NAS quando tamanho e SHA-256 do primeiro e do último MiB conferem (drive mapeado
+  do Windows vai como UNC; `--map SRC=DST` para Linux/macOS) e copia o tile inteiro para o
+  cache. Cache LRU de 20 GB, com a data de modificação na chave.
+- **Retomada:** cada tile termina com `os.replace` da pasta pronta e um `.zeit-tile.json` com o
+  hash das opções (e dos arquivos compartilhados); rodar de novo pula os prontos; outras opções
+  na mesma pasta de saída dão erro em vez de misturar.
+- **Avisos:** float32 sem compressão; rede como gargalo (ajudantes esperando tiles mais de 25%
+  do tempo, sem contar o primeiro tile de cada um); nenhum ajudante depois de 20 s, com o que
+  fazer.
+- **Diferente do plano:** os resultados sempre voltam pelo principal, mesmo com NAS (são
+  pequenos perto da entrada); "local primeiro" vale só para o último tile.
+- Testes em `tests/test_tiles.py` (18): opções, arquivos compartilhados, opções recebidas
+  recusadas, mapa de caminhos, tar que tenta sair da pasta, execução local e retomada, tile
+  quebrado, o CLI, um ajudante pela rede e pelo "NAS", o cache, grupo/versão/código errados,
+  pareamento, a descoberta por UDP, a duplicação de atrasados, transferências quebradas e o
+  último tile que fica no principal. Ponta a ponta também com um
+  `zeit worker` de verdade em outro processo.
+
 ## Para depois
 
 - `zeit.plot`: medir de verdade o caso de notebook remoto (JupyterHub, Colab), que ficou
@@ -1512,4 +1715,8 @@ como banda (`zeit.plot(emb, band="A07")` já faz isso).
   de BRDF (c-factor de Roy et al. 2016, com os ângulos de cada cena, que o STAC às vezes traz
   em `view:*`) tiraria parte do degrau que sobra. A correção atmosférica comum não cabe: é
   refazer o L2A.
+- Depois da Fase 18: o modo Dask para um cubo único maior que uma máquina (`zeit.cluster()`
+  sobre o mesmo pareamento, leitura presa à máquina que tem os arquivos, `n_jobs` automático
+  dentro de um worker, escrita do `save_raster` sem a espera entre faixas); um perfil de HPC
+  sobre o `dask-jobqueue`; pausar o ajudante quando o usuário volta a usar a máquina; nuvem.
 

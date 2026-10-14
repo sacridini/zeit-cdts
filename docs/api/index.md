@@ -67,6 +67,12 @@
 
     `DataArray.zeit.*`: every algorithm on lazy Dask cubes, and Zarr output.
 
+-   :material-lan:{ .lg .middle } **[Many Tiles & Helpers](parallel.md)**
+
+    ---
+
+    A folder of tiles on this computer and on others of the local network, resumable.
+
 -   :material-console:{ .lg .middle } **[Command Line](../cli.md)**
 
     ---
@@ -140,5 +146,9 @@
 | [`GeoFoundationViT`](ai.md#geofoundationvit) | Foundation-model fine-tuning |
 | [`STACCubeDataset`](ai.md#staccubedataset) | Windows that cover a lazy cube, for a loop of your own |
 | [`FocalLoss`](ai.md#focalloss), [`TverskyLoss`](ai.md#tverskyloss), [`ContrastiveSiameseLoss`](ai.md#contrastivesiameseloss) | Losses for imbalanced data |
+| **Many tiles & helpers** | |
+| [`run_tiles`](parallel.md#run_tiles) | A command on every tile of a folder, here and on helpers; resumes where it stopped |
+| [`run_worker`](parallel.md#run_worker) | Lend this computer to the group: wait for tiles and process them |
+| [`invite_helpers`](parallel.md#invite_helpers) | A code with which other computers join the group |
 
 </div>

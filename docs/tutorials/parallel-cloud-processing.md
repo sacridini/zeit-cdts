@@ -1,19 +1,22 @@
 # Parallel & Cloud Processing
 
-<p class="lead">The same Zeit code runs on one laptop core, on every core of a workstation, or on a cluster of machines. This page explains the two levels of parallelism, how to set up a Dask cluster, and how to write results that many machines can produce at once.</p>
+<p class="lead">The same Zeit code runs on one laptop core, on every core of a workstation, or on several machines. This page explains the levels of parallelism, how to spread a folder of tiles over the computers of a local network with one command on each, how to set up a Dask cluster for a single cube larger than one machine, and how to write results that many machines can produce at once.</p>
 
 <div class="glance" markdown>
 <div><span class="k">Level 1</span><span class="v">C++ threads (OpenMP) inside one process: <code>n_jobs</code></span></div>
+<div><span class="k">Many tiles</span><span class="v">A folder of tiles here and on helpers: <code>--helpers</code>, <code>zeit worker</code></span></div>
 <div><span class="k">Level 2</span><span class="v">Dask chunks across processes and machines: the <code>.zeit</code> accessor</span></div>
 <div><span class="k">Storage</span><span class="v">Zarr for parallel writes, GeoTIFF for final products</span></div>
 <div><span class="k">Rule</span><span class="v">Chunk in space, never in time</span></div>
 </div>
 
-## Two levels of parallelism
+## Levels of parallelism
 
 **Threads within one machine.** Every algorithm's per-pixel loop runs in C++ with OpenMP. `n_jobs=-1` (the default) uses all cores but one, and needs nothing else: `zeit.landtrendr`, `zeit.ccdc` and friends are already parallel.
 
-**Chunks across processes or machines.** For data larger than memory, or more machines, wrap the data in a Dask-backed xarray cube and pass it to the algorithm (`zeit.landtrendr(cube)`, `zeit.mann_kendall(cube)`, …) or to its `.zeit` accessor form. Zeit maps the C++ code over spatial chunks, and Dask schedules those chunks on its workers.
+**Tiles across machines.** When the data already comes in tiles, each tile is a job of its own: `zeit landtrendr tiles/ out/ --helpers` runs them here and on the computers of the local network running `zeit worker`. See [Many tiles on several computers](#many-tiles-on-several-computers): it is the simplest way to use more machines.
+
+**Chunks across processes or machines.** For a single cube larger than memory, or one area split over more machines, wrap the data in a Dask-backed xarray cube and pass it to the algorithm (`zeit.landtrendr(cube)`, `zeit.mann_kendall(cube)`, …) or to its `.zeit` accessor form. Zeit maps the C++ code over spatial chunks, and Dask schedules those chunks on its workers.
 
 ```python
 import xarray as xr
@@ -32,9 +35,93 @@ trend.to_zarr("s3://my-bucket/ndvi_trend.zarr", consolidated=True)    # computes
 !!! tip "Avoid oversubscription"
     If Dask already runs one task per core, give each task one thread (`n_jobs=1`). If instead you run **one worker process per machine**, let that worker use all its cores (`n_jobs=-1`, `--nthreads 1`). Mixing both gives cores × cores threads fighting over the CPU.
 
+## Many tiles on several computers
+
+When the work is a folder of tiles (Landsat tiles for LandTrendr, say), every tile is a job of its own and no cluster is needed. Zeit runs the folder on this computer, and any computer of the local network can lend itself with one command. No scheduler, no ports to choose, no versions to align by hand.
+
+### Once: bring the computers into a group
+
+On the computer that has the tiles:
+
+```bash
+zeit helpers invite              # shows a code, e.g. K7QM-2XDP, valid for 10 minutes
+zeit helpers firewall            # Windows only: lets the helpers reach this computer (asks for admin rights)
+```
+
+On each computer that will help, with the same zeit version installed:
+
+```bash
+zeit worker --join K7QM-2XDP     # joins the group, then waits for work
+```
+
+From then on, `zeit worker` is all a helper needs (in a terminal it can leave open, or at startup). It lends all its cores but one (`--cores` to lend fewer), only runs zeit's own commands, and keeps the computer from sleeping while it works. Any computer of the group can run tiles with the others' help, and invite more.
+
+### Running the tiles
+
+```bash
+zeit landtrendr nbr_tiles/ lt_out/ --helpers --max-segments 6              # here and on the helpers
+zeit landtrendr nbr_tiles/ lt_out/ --helpers --no-local --max-segments 6   # only on the helpers
+```
+
+```python
+import zeit
+
+result = zeit.run_tiles("landtrendr", "nbr_tiles/", "lt_out/", helpers=True, max_segments=6)
+result = zeit.run_tiles("landtrendr", "nbr_tiles/", "lt_out/", helpers=True, local=False)   # only coordinate
+```
+
+Every tile gets its own folder, `lt_out/<tile name>/`, with what `zeit landtrendr` writes for one file. With `--no-local` (`local=False`) this computer processes nothing: it hands out the tiles and collects the results, and stays free for other work. It must stay on, though: the results come back to it.
+
+The run prints the helpers as they join and one progress line:
+
+```text
+landtrendr: 120 tiles to process, 538.2 GB; this computer uses 19 cores; helpers welcome
+Helpers join by running `zeit worker` (port 47801).
++ lab-03 (192.168.1.23, 15 cores) joined
++ lab-07 (192.168.1.27, 7 cores) joined
+landtrendr: 37/120 tiles | 3 computers | sending 104.3 MB/s | ~1 h 12 min left
+```
+
+What happens underneath:
+
+- **The helpers pull.** Each asks for a tile when it has room and fetches the next while it processes the current one, so a fast workstation takes more tiles than a laptop without any setting. The largest tiles go first.
+- **No waiting for the slowest.** Near the end, an idle computer that would finish a straggler clearly sooner runs it too, and the first result wins. The last tile stays on the main computer when it would finish it before a helper.
+- **Nothing is lost.** A tile that fails is tried again on another computer (after two failures it is listed at the end). A helper that is switched off gives its tiles back to the queue. Stopping the run (Ctrl+C) keeps the finished tiles, and running the same command again processes only the others.
+
+### Where the tiles come from
+
+- **The main computer's disk.** The main computer sends each tile to the helper that gets it, in 16 MB pieces read one at a time, so a hard disk is never asked for several files at once (which is much slower than reading them in turn).
+- **A NAS that every computer sees.** A helper that sees the same file reads it from the NAS itself, and the main computer sends nothing. Mapped Windows drives travel as their UNC path (`\\nas\tiles\...`), which Windows helpers read directly; a Linux or macOS helper says where the share is mounted: `zeit worker --map "\\nas\tiles=/mnt/tiles"`. The helper copies the whole tile before processing it, which is much faster than GDAL reading it piece by piece over the network.
+- **Again.** A helper keeps the tiles it received (20 GB by default, `--cache-gb`), so a second run with other options does not send them again.
+
+### What limits the speed: the network
+
+A full Landsat tile, 54.7 million pixels × 41 years, takes about **98 s** of LandTrendr on a 20-thread desktop (see [Performance](../benchmarks/performance.md)). Sending that tile to a helper over a 1 Gbit/s cable (about 110 MB/s) takes:
+
+| Tile | Size | Sent in | Helpers the main computer's cable keeps busy* |
+| :--- | :---: | :---: | :---: |
+| float32, no compression | 9.0 GB | ~80 s | ~1 |
+| int16, no compression | 4.5 GB | ~40 s | ~2 |
+| int16, ZSTD compression | ~1.5–2.5 GB | ~15–25 s | ~4–6 |
+| the same over Wi-Fi | ~1.5–2.5 GB | ~40–80 s | ~1–2 |
+
+\* As fast as that desktop: the time to process a tile divided by the time to send it. Slower helpers take longer per tile, so more of them fit. The compressed sizes depend on the data.
+
+So the format of the tiles matters more than the number of helpers. An index scaled by 10000 as int16 (as Earth Engine exports NBR) with ZSTD compression is a fraction of a float32 stack; the conversion costs four decimal places, so it is your call, not Zeit's. A NAS changes where the bottleneck is (its own network link and disks) but not the arithmetic. The run warns when the tiles are float32 without compression, and when the helpers spend more than a quarter of their time waiting for tiles: then more helpers will not make it faster.
+
+!!! note "Tiles downloaded from the internet"
+    Building the tiles from STAC or Earth Engine on each helper only pays off when the helpers have independent internet links. In the same office they share one link (a Landsat tile from STAC is ~41 GB of scenes), and Earth Engine limits concurrent requests per project, not per computer.
+
+### When the helpers do not appear
+
+- **Windows.** Run `zeit helpers firewall` on the main computer (the helpers need no rule: they only connect out). A network marked *Public* blocks incoming connections without it.
+- **Another subnet or a VPN.** Broadcasts do not cross routers. Start the helper with the main computer's address: `zeit worker --connect 192.168.2.10`.
+- **Which helpers are listening.** `zeit helpers list` on any computer of the group shows the helpers waiting for work, with their cores and zeit version.
+- **Another zeit version.** A helper with another version (or other code, as with a development install) is told which version to install, and the main computer says so too.
+
 ## Setting up a cluster
 
-A Dask cluster has one **scheduler**, which hands out work, and any number of **workers**, which do it.
+For a single cube that does not fit one machine. A Dask cluster has one **scheduler**, which hands out work, and any number of **workers**, which do it.
 
 ### On one machine
 
@@ -66,7 +153,7 @@ from dask.distributed import Client
 client = Client("tcp://192.168.1.10:8786")
 ```
 
-If a worker cannot connect or crashes, see [Troubleshooting](#troubleshooting-a-multi-machine-cluster) below.
+If a worker cannot connect or crashes, see [Troubleshooting](#troubleshooting-a-dask-cluster) below.
 
 ### In the cloud
 
@@ -121,7 +208,7 @@ loss.to_zarr("gs://my-bucket/landtrendr_loss.zarr", mode="w")       # yod, magni
 
 `zeit.landtrendr` and `extract_events` return lazy `xarray.Dataset`s here: each `to_zarr` runs the C++ code on every chunk in parallel and streams the result to storage. Saving the vertices first means they are computed once, and other event maps (`event_type="gain"`, another `sort_by`) come from them without segmenting again. The dashboard (`client.dashboard_link`, port 8787 by default) shows progress, memory and CPU for every worker.
 
-## Troubleshooting a multi-machine cluster
+## Troubleshooting a Dask cluster
 
 Connecting a mixed-OS cluster (e.g. a Windows desktop as scheduler + a macOS laptop as a worker) over a home/office network hits a handful of predictable snags. Here's what to check, roughly in the order you'll hit them.
 

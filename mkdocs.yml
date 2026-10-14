@@ -173,6 +173,7 @@ nav:
       - Visualisation: api/plot.md
       - Deep Learning: api/ai.md
       - Xarray Accessor: api/xarray.md
+      - Many Tiles & Helpers: api/parallel.md
   - CLI: cli.md
   - Benchmarks:
       - benchmarks/index.md
