@@ -17,6 +17,8 @@ import zeit
 from zeit import _alphaearth, _embeddings, _tessera
 
 zarr = pytest.importorskip("zarr")
+# the TESSERA stores are Zarr v3: zarr 3, which needs Python 3.11+
+ZARR3 = int(zarr.__version__.split(".")[0]) >= 3
 
 YEARS = [2018, 2019, 2020]
 NB = 8           # dimensions of the fake TESSERA store (the real one has 128)
@@ -58,6 +60,8 @@ def tessera(tmp_path_factory):
     """A store like the published v1.1: zone 20 (in the northern CRS, with negative northings
     south of the equator) with a block of embeddings around (-62.5, -10) and one at the zone's
     eastern edge, and zone 21 with a block just across -60 degrees."""
+    if not ZARR3:
+        pytest.skip("TESSERA stores need zarr 3")
     path = tmp_path_factory.mktemp("tessera") / "store.zarr"
     root = zarr.open_group(str(path), mode="w", zarr_format=3)
     root.attrs.update({"geoemb:dimensions": NB, "geoemb:model": "https://geotessera.org/model/1.1",
@@ -207,6 +211,7 @@ def test_tessera_like_averages_onto_coarser_cells(tessera):
         zeit.load_embeddings(source="tessera", like=like, crs=32720, store=path)
 
 
+@pytest.mark.skipif(not ZARR3, reason="TESSERA stores need zarr 3")
 def test_tessera_matryoshka_depth(tmp_path):
     path = tmp_path / "v2.zarr"
     root = zarr.open_group(str(path), mode="w", zarr_format=3)

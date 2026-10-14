@@ -79,6 +79,9 @@ def parts(bbox, years: Optional[List[int]], *, version: Optional[str], variant: 
     """The embeddings over ``bbox``, one lazy cube per UTM zone it touches, and their identity."""
     import zarr
 
+    if int(zarr.__version__.split(".")[0]) < 3:  # pragma: no cover - depends on the environment
+        raise ImportError(f"source='tessera' reads Zarr v3 stores, which need zarr 3 (Python 3.11 or newer); "
+                          f"zarr {zarr.__version__} is installed here")
     location, dataset, name = _open(version, variant, store, cache_dir)
     root = zarr.open_group(location, mode="r")
     attrs = dict(root.attrs)

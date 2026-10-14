@@ -61,12 +61,18 @@ def scene():
 
 # ---------------------------------------------------------------------- unmixing
 def test_nnls_matches_scipy():
+    """The optimum (the KKT conditions), with no larger a residual than scipy's. Not scipy's x
+    itself: scipy 1.15 (the last on Python 3.10) stops short of the optimum on some of these
+    systems, and the residual it reports is not that of its x."""
     rng = np.random.default_rng(1)
     for _ in range(500):
         m, n = int(rng.integers(3, 9)), int(rng.integers(2, 7))
         A, b = rng.normal(size=(m, n)), rng.normal(size=m)
         got = np.array(sma.nnls(A.ravel().tolist(), b.tolist(), m, n))
-        np.testing.assert_allclose(got, scipy_nnls(A, b)[0], atol=1e-9)
+        grad = A.T @ (b - A @ got)
+        assert got.min() >= 0
+        assert np.all(grad[got == 0] <= 1e-9) and np.allclose(grad[got > 0], 0, atol=1e-9)
+        assert np.linalg.norm(A @ got - b) <= np.linalg.norm(A @ scipy_nnls(A, b)[0] - b) + 1e-9
 
 
 def test_unmixing_recovers_the_fractions():
