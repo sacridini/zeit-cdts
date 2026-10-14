@@ -29,6 +29,7 @@ LOST_AFTER = 20.0         # an attempt a helper does not report holding is lost
 DISK_CHUNK = 16 << 20     # tiles are read one chunk at a time: sequential on a hard disk
 NO_HELPERS_HINT = 20.0
 EMA = 0.5
+CACHE_BYTES = 20 * 10 ** 9   # tiles this computer built and keeps for the next run
 
 
 @dataclass
@@ -48,11 +49,17 @@ class Machine:
     starved_s: float = 0.0
     to_cancel: set = field(default_factory=set)
     via: Dict[str, int] = field(default_factory=dict)
+    builds: bool = False                    # this computer builds its tiles (recipes): it fetches too
+    placed: int = 0                         # results written straight into the output folder
+
+    @property
+    def fetches(self) -> bool:
+        return not self.local or self.builds
 
     def estimate(self, size: int) -> Optional[float]:
-        if self.compute_rate is None or (not self.local and self.fetch_rate is None):
+        if self.compute_rate is None or (self.fetches and self.fetch_rate is None):
             return None
-        return (0.0 if self.local else size / self.fetch_rate) + size / self.compute_rate
+        return (size / self.fetch_rate if self.fetches else 0.0) + size / self.compute_rate
 
 
 @dataclass
@@ -180,8 +187,12 @@ class Coordinator:
         self.local_machine: Optional[Machine] = None
         if local:
             cores = local_cores if local_cores and local_cores > 0 else max(1, (os.cpu_count() or 2) - 1)
-            self.local_machine = Machine(f"{self.name} (this computer)", True, cores)
+            self.local_machine = Machine(f"{self.name} (this computer)", True, cores, builds=plan.recipes)
             self._machines.append(self.local_machine)
+        self.compress_transfers = True
+        self._sending: Dict[int, Path] = {}     # tile id -> its compressed copy for the network
+        self._send_locks: Dict[int, threading.Lock] = {}
+        self._results: Optional[dict] = None    # where helpers that see the output folder put results
         self._shared = [_tasks.shared_files(s["path"]) for s in plan.shared]
         if not self._tasks:
             self.finished.set()
@@ -206,7 +217,9 @@ class Coordinator:
                 except OSError as e:
                     self._print.line(f"Discovery is off (UDP port {_group.UDP_PORT}: {e}); helpers can still "
                                      f"connect with: zeit worker --connect {self._address()}:{self.port}")
-            self._warn_formats()
+            self._results = self._results_probe()
+            if not self.plan.recipes:
+                self._warn_formats()
         if self.local_machine is not None and not self.finished.is_set():
             self._spawn(self._local_loop, "zeit-tiles-local")
         self._spawn(self._monitor, "zeit-tiles-monitor")
@@ -260,6 +273,12 @@ class Coordinator:
                 return s.getsockname()[0]
         except OSError:
             return socket.gethostbyname(socket.gethostname())
+
+    def _same_network(self, address: str) -> bool:
+        if address.startswith("127."):
+            return True
+        mine = self._address()
+        return mine.rsplit(".", 1)[0] == address.rsplit(".", 1)[0]
 
     def _answer(self, message: dict, addr) -> Optional[dict]:
         if message.get("kind") == "helper" and message.get("group") == self._gid and not self.finished.is_set():
@@ -358,6 +377,7 @@ class Coordinator:
                 return False
             self._close(attempt)
             task.state = "done"
+            self._drop_sending(task)
             for other in task.attempts:
                 if not other.closed:
                     self._close(other)
@@ -367,15 +387,17 @@ class Coordinator:
             compute_s = max(float(stats.get("compute_s") or 0), 1e-3)
             machine.compute_rate = _ema(machine.compute_rate, size / compute_s)
             fetch_s = float(stats.get("fetch_s") or 0)
-            if not machine.local and fetch_s > 0.05:
+            if machine.fetches and fetch_s > 0.05:
                 machine.fetch_rate = _ema(machine.fetch_rate, size / fetch_s)
-            elif not machine.local and machine.fetch_rate is None:
+            elif machine.fetches and machine.fetch_rate is None:
                 machine.fetch_rate = float("inf")
             machine.done += 1
             machine.compute_s += compute_s
             machine.starved_s += float(stats.get("starved_s") or 0)
             via = str(stats.get("via") or "local")
             machine.via[via] = machine.via.get(via, 0) + 1
+            if stats.get("results") == "shared":
+                machine.placed += 1
             self._check_finished()
         self._wake.set()
         return True
@@ -392,6 +414,8 @@ class Coordinator:
             if task.state in ("done", "failed") or any(not a.closed for a in task.attempts):
                 return
             task.state = "failed" if task.failures >= MAX_FAILURES else "pending"
+            if task.state == "failed":
+                self._drop_sending(task)
             first = message.strip().splitlines()[-1] if message.strip() else "no message"
             again = "given up" if task.state == "failed" else "will try again"
             self._print.line(f"! {task.tile.stem} failed on {machine.name} ({again}): {first}")
@@ -435,18 +459,46 @@ class Coordinator:
             tile = attempt.task.tile
             folder = _tasks.partial_dir(self.plan, f"{tile.stem}-{attempt.id}")
             out = folder / "out"
+            stats = {"via": "local"}
             try:
-                ok, seconds, message = _tasks.execute(self.plan.command, tile.path, out, self.plan.args, shared,
+                path = tile.path
+                if tile.recipe is not None:
+                    path, stats["fetch_s"], stats["via"] = self._build_here(tile, attempt, folder)
+                ok, seconds, message = _tasks.execute(self.plan.command, path, out, self.plan.args, shared,
                                                       machine.cores, attempt.cancel, log_path=folder / "log.txt")
             except Exception as e:
                 ok, seconds, message = False, 0.0, f"{type(e).__name__}: {e}"
             if ok:
-                self._complete(attempt, out, {"compute_s": seconds, "via": "local"})
+                self._complete(attempt, out, {**stats, "compute_s": seconds})
             elif attempt.cancel.is_set():
                 self._lose(attempt)
             else:
                 self._fail(attempt, message)
             shutil.rmtree(folder, ignore_errors=True)
+
+    def _build_here(self, tile: Tile, attempt: _Attempt, folder: Path) -> Tuple[Path, float, str]:
+        """A recipe tile on this computer: from the cache, or built into it."""
+        from . import _sources
+        from ._worker import default_cache_dir, evict_cache
+
+        cache = default_cache_dir()
+        cache.mkdir(parents=True, exist_ok=True)
+        cached = cache / f"{tile.key}.tif"
+        if cached.is_file():
+            os.utime(cached)
+            return cached, 0.0, "cache"
+        part = cache / f"{tile.key}.{attempt.id}.build.tif"
+        try:
+            ok, seconds, message = _sources.run_build(tile.recipe, part, self.local_machine.cores, attempt.cancel,
+                                                      log_path=folder / "build.log")
+            if not ok:
+                raise RuntimeError(f"could not build the tile: {message}")
+            os.replace(part, cached)
+        finally:
+            if part.exists():
+                part.unlink()
+        evict_cache(cache, CACHE_BYTES, keep=cached)
+        return cached, seconds, "built"
 
     # -------------------------------------------------------------- the helpers' requests
 
@@ -532,6 +584,12 @@ class Coordinator:
             self._machines.append(machine)
             self._by_token[machine.token] = machine
         self._print.line(f"+ {machine.name} ({address}, {cores} cores) joined")
+        if self.plan.recipes and self._same_network(address):
+            self._warn_once("shared-link",
+                            f"! {machine.name} is on this computer's local network, so it most likely shares its "
+                            "internet link: building tiles there is faster only if one computer cannot fill the "
+                            "link alone. (Earth Engine also limits concurrent requests per project, not per "
+                            "computer.)")
         handler.send_json(200, {"token": machine.token, "name": self.name, "command": self.plan.command})
 
     def _serve_next(self, handler, machine: Machine) -> None:
@@ -545,16 +603,39 @@ class Coordinator:
 
     def _payload(self, attempt: _Attempt) -> dict:
         tile = attempt.task.tile
-        if not tile.probe:
-            tile.probe = _tasks.probe(tile.path, tile.size)
-            tile.shared_path = _tasks.network_path(tile.path)
         shared = []
         for i, (spec, files) in enumerate(zip(self.plan.shared, self._shared)):
             shared.append({"option": spec["option"], "index": i, "main": Path(spec["path"]).name,
                            "files": [{"name": Path(f).name, "size": os.path.getsize(f)} for f in files]})
-        return {"attempt": attempt.id, "command": self.plan.command, "args": self.plan.args, "shared": shared,
-                "tile": {"name": tile.path.name, "size": tile.size, "key": tile.key, "probe": tile.probe,
-                         "path": tile.shared_path}}
+        if tile.recipe is not None:
+            about = {"name": tile.path.name, "key": tile.key, "recipe": tile.recipe}
+        else:
+            if not tile.probe:
+                tile.probe = _tasks.probe(tile.path, tile.size)
+                tile.shared_path = _tasks.network_path(tile.path)
+            about = {"name": tile.path.name, "size": tile.size, "key": tile.key, "probe": tile.probe,
+                     "path": tile.shared_path}
+        payload = {"attempt": attempt.id, "command": self.plan.command, "args": self.plan.args, "shared": shared,
+                   "tile": about}
+        if self._results is not None:
+            payload["results"] = {**self._results, "name": self._placed_name(attempt)}
+        return payload
+
+    def _placed_name(self, attempt: _Attempt) -> str:
+        return f"{attempt.task.tile.stem}-{attempt.id}-placed"
+
+    def _results_probe(self) -> Optional[dict]:
+        """A file in the output folder by which a helper that sees the folder too (a NAS)
+        recognizes it, and then writes its results there instead of sending them."""
+        root = self.plan.output_dir / _tasks.PARTIAL
+        try:
+            root.mkdir(parents=True, exist_ok=True)
+            token = secrets.token_hex(16)
+            name = f"probe-{token[:8]}.txt"
+            (root / name).write_text(token)
+        except OSError:
+            return None
+        return {"path": _tasks.network_path(root), "probe": name, "token": token}
 
     def _serve_tile(self, handler, machine: Machine, attempt_id: str) -> None:
         attempt = self._attempts.get(attempt_id)
@@ -562,9 +643,19 @@ class Coordinator:
             handler.send_json(404, {"error": "no such task"})
             return
         tile = attempt.task.tile
+        if tile.recipe is not None:
+            handler.send_json(404, {"error": "this tile is built by the helper"})
+            return
+        try:
+            path = self._to_send(tile)
+        except Exception as e:
+            self._warn_once(f"compress:{tile.id}", f"! Could not compress {tile.path.name} for the network ({e}); "
+                                                   "sending it as it is.")
+            path = tile.path
+        size = os.path.getsize(path)
 
         def chunks():
-            with open(tile.path, "rb") as f:
+            with open(path, "rb") as f:
                 while True:
                     with self._disk:       # one read at a time: sequential on a hard disk
                         data = f.read(DISK_CHUNK)
@@ -575,7 +666,40 @@ class Coordinator:
                         yield piece
                         self._count_sent(len(piece))
 
-        handler.send_stream(tile.size, chunks())
+        handler.send_stream(size, chunks())
+
+    def _to_send(self, tile: Tile) -> Path:
+        """The file to send: the tile itself, or a losslessly compressed copy of a tile
+        stored without compression (the same values, a fraction of the bytes on the wire)."""
+        if not self.compress_transfers or tile.compressed:
+            return tile.path
+        with self._lock:
+            lock = self._send_locks.setdefault(tile.id, threading.Lock())
+        with lock:
+            if tile.id in self._sending and self._sending[tile.id].exists():
+                return self._sending[tile.id]
+            if tile.compressed is None:
+                tile.compressed = _tasks.is_compressed(tile.path)
+            if tile.compressed:
+                return tile.path
+            folder = self.plan.output_dir / _tasks.PARTIAL / "send"
+            folder.mkdir(parents=True, exist_ok=True)
+            target = folder / f"{tile.stem}.tif"
+            start = time.monotonic()
+            _tasks.compress_copy(tile.path, target)
+            size = os.path.getsize(target)
+            self._print.line(f"  {tile.path.name}: compressed for the network, {format_bytes(tile.size)} -> "
+                             f"{format_bytes(size)} in {format_seconds(time.monotonic() - start)}")
+            self._sending[tile.id] = target
+            return target
+
+    def _drop_sending(self, task: _Task) -> None:
+        path = self._sending.pop(task.tile.id, None)
+        if path is not None:
+            try:
+                path.unlink()
+            except OSError:
+                pass
 
     def _serve_shared(self, handler, i: int, j: int) -> None:
         try:
@@ -616,6 +740,21 @@ class Coordinator:
             stats = json.loads(handler.headers.get("X-Zeit-Stats") or "{}")
         except ValueError:
             stats = {}
+        stats = stats if isinstance(stats, dict) else {}
+        placed = handler.headers.get("X-Zeit-Placed")
+        if placed is not None:
+            while body.read(_net.CHUNK):
+                pass
+            folder = self.plan.output_dir / _tasks.PARTIAL / self._placed_name(attempt)
+            if placed != self._placed_name(attempt) or not _tasks.check_placed(folder):
+                shutil.rmtree(folder, ignore_errors=True)
+                self._lose(attempt, transfer_error="the results placed in the output folder are not there")
+                handler.send_json(200, {"accepted": False})
+                return
+            accepted = self._complete(attempt, folder, {**stats, "results": "shared"})
+            shutil.rmtree(folder, ignore_errors=True)
+            handler.send_json(200, {"accepted": accepted})
+            return
         folder = _tasks.partial_dir(self.plan, f"{attempt.task.tile.stem}-{attempt.id}")
         out = folder / "out"
         try:
@@ -739,9 +878,9 @@ class Coordinator:
         if compression is None and dtype in ("float32", "float64"):
             size = self._tasks[0].tile.size
             self._print.line(
-                f"! The tiles are {dtype} without compression ({format_bytes(size)} each): every tile a helper "
-                "gets crosses the network at full size. int16 with ZSTD compression is often 3-6x smaller "
-                "(for indices scaled by 10000, at the cost of 4 decimal places).")
+                f"! The tiles are {dtype} without compression ({format_bytes(size)} each). They are compressed "
+                "without loss for the network (about 1.4x smaller for Landsat NBR); stored as int16 with ZSTD "
+                "they would be about 3x smaller (an index scaled by 10000, at the cost of 4 decimal places).")
 
     def _result(self) -> TileRunResult:
         with self._lock:

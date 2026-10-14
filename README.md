@@ -415,7 +415,7 @@ zeit landtrendr nbr_tiles/ lt_out/ --helpers --no-local   # only on the helpers:
 zeit.run_tiles("landtrendr", "nbr_tiles/", "lt_out/", helpers=True, max_segments=6)
 ```
 
-Helpers pull tiles as they free up (fetching the next while processing one), read them straight from a NAS when they see the same file, keep what they received for the next run, and only run zeit's own commands over an authenticated, encrypted connection. The run says when the network, not the processors, is what limits it. See [Many tiles on several computers](https://sacridini.github.io/zeit-cdts/tutorials/parallel-cloud-processing/#many-tiles-on-several-computers).
+Helpers pull tiles as they free up (fetching the next while processing one), read them straight from a NAS when they see the same file (and write their results there), receive the others compressed, keep what they received for the next run, and only run zeit's own commands over an authenticated, encrypted connection. Tiles can also be recipes that every computer downloads or builds for itself: `zeit.tile_urls`, `zeit.stac_tiles` (annual composites from STAC), `zeit.gee_tiles` (from Earth Engine). The run says when the network, not the processors, is what limits it. See [Many tiles on several computers](https://sacridini.github.io/zeit-cdts/tutorials/parallel-cloud-processing/#many-tiles-on-several-computers).
 
 ---
 

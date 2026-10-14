@@ -1504,7 +1504,7 @@ vista, de referência ou de ano não volta ao kernel, e a similaridade segue o m
 local, e o pan/zoom é o jeito de escolher a área no viewer) e sem a vista de uma dimensão
 como banda (`zeit.plot(emb, band="A07")` já faz isso).
 
-## Fase 18: muitos tiles em vários computadores da rede — 18a **Feito** (1.5.0)
+## Fase 18: muitos tiles em vários computadores da rede — 18a **Feito** (1.5.0), 18b e 18c **Feito** (a lançar)
 
 Pedida em 2026-10-14, a partir do que foi feito no Terraflux. Hoje o paralelismo entre
 máquinas passa pelo Dask (`dask scheduler`, `dask worker`, regra no firewall, versões
@@ -1561,16 +1561,17 @@ Do `docs/benchmarks/performance.md`: um tile de 54,7 M px × 41 anos roda o Land
 | Tile | Tamanho | Envio | Ajudantes que o cabo do principal sustenta* |
 |---|---|---|---|
 | float32 sem compressão | 9,0 GB | ~80 s | ~1 |
-| int16 sem compressão | 4,5 GB | ~40 s | ~2 |
-| int16 + ZSTD com predictor | ~1,5–2,5 GB (a medir) | ~15–25 s | ~4–6 |
-| o mesmo por Wi-Fi | ~1,5–2,5 GB | ~40–80 s | ~1–2 |
+| float32 + ZSTD sem perda (como o zeit envia) | ~6,3 GB (medido: 1,43×) | ~57 s | ~1,7 |
+| int16 sem compressão | 4,5 GB | ~40 s | ~2,5 |
+| int16 + ZSTD com predictor | ~2,9 GB (medido: 3,1×) | ~26 s | ~4 |
+| o mesmo por Wi-Fi | ~2,9 GB | ~60–100 s | ~1–2 |
 
 \* Do porte da máquina do benchmark (tempo de processar ÷ tempo de enviar); ajudantes mais
 fracos demoram mais por tile e cabem mais deles.
 
 - O formato do tile pesa mais que a tecnologia de transporte. int16 × 10000 perde precisão
   (4 casas no NBR): é opção explícita, nunca automática. Sem perda, float32 com ZSTD e
-  predictor 3 ganha menos (~1,5–2×).
+  predictor 3 ganha menos (medido: 1,43× no NBR do tile 215/067; int16 com ZSTD: 3,1×).
 - Expectativa: 100 tiles levam ~2,7 h no principal sozinho; com 3–5 ajudantes no cabo e
   tiles int16 comprimidos, algo entre 30 e 50 min. Por Wi-Fi o ganho é pequeno.
 
@@ -1648,8 +1649,9 @@ O worker mede o próprio download e o principal avisa quando os links são o mes
   descoberta, pareamento, checagem de versão, retomada e medições. Sem dependência nova além
   da `cryptography` para o TLS. — **Feito** (1.5.0)
 - **18b:** formato compacto como padrão sugerido: int16 com ZSTD e predictor no
-  `save_raster` e nos downloads, e a recompressão no envio.
+  `save_raster` e nos downloads, e a recompressão no envio. — **Feito** (a lançar)
 - **18c:** ajudantes que baixam os próprios dados (STAC, GEE), para links independentes.
+  — **Feito** (a lançar)
 
 ### 18a: o que foi feito
 
@@ -1698,14 +1700,53 @@ O worker mede o próprio download e o principal avisa quando os links são o mes
 - **Avisos:** float32 sem compressão; rede como gargalo (ajudantes esperando tiles mais de 25%
   do tempo, sem contar o primeiro tile de cada um); nenhum ajudante depois de 20 s, com o que
   fazer.
-- **Diferente do plano:** os resultados sempre voltam pelo principal, mesmo com NAS (são
-  pequenos perto da entrada); "local primeiro" vale só para o último tile.
+- **Diferente do plano:** "local primeiro" vale só para o último tile. (Na 18a os resultados
+  sempre voltavam pelo principal; depois passaram a ir direto ao NAS, ver abaixo.)
 - Testes em `tests/test_tiles.py` (18): opções, arquivos compartilhados, opções recebidas
   recusadas, mapa de caminhos, tar que tenta sair da pasta, execução local e retomada, tile
   quebrado, o CLI, um ajudante pela rede e pelo "NAS", o cache, grupo/versão/código errados,
   pareamento, a descoberta por UDP, a duplicação de atrasados, transferências quebradas e o
   último tile que fica no principal. Ponta a ponta também com um
   `zeit worker` de verdade em outro processo.
+
+### 18b, 18c e os resultados no NAS: o que foi feito
+
+- **Resultados direto no NAS:** o coordenador grava em `<saída>/.zeit-partial/` um arquivo de
+  prova com um token aleatório e manda o caminho (UNC, se for drive mapeado) com a tarefa. O
+  ajudante que lê o mesmo token ali (pelo `--map` também) copia as saídas para
+  `.zeit-partial/<tile>-<tentativa>-placed/` e só avisa; o coordenador confere (só arquivos
+  comuns, sem links, sem marcador) e faz o `os.replace` como antes. Se a cópia falha, envia
+  pela rede. Ajudante que não vê a pasta: nada muda.
+- **18b, compressão no envio:** um tile guardado sem compressão vai para a rede como uma
+  cópia ZSTD sem perda (nível 1, predictor do tipo, todas as bandas, descrições, tags e
+  NoData; DEFLATE onde o GDAL não tiver ZSTD), feita uma vez por tile em
+  `.zeit-partial/send/` e apagada quando o tile termina. `compress_transfers=False` desliga.
+  Medido no tile 215/067 (8 anos de NBR float32, 1,89 GB): 1,43× menor, a 308 MB/s com 2
+  threads (575 MB/s com 4), três vezes o que um cabo de 1 Gbps carrega. O mesmo NBR em int16 ×
+  10000 com ZSTD: 3,1× menor que o float32 (a tabela acima, que estimava 3,6–6×, foi corrigida
+  com isso).
+- **18b, formato compacto:** o `save_raster` já grava DEFLATE com predictor e o downloader do
+  GEE LZW com predictor; trocar o padrão para ZSTD quebraria a leitura em GIS antigos, então
+  ficou como está. O int16 entrou como padrão onde o zeit monta tiles para outra máquina (as
+  receitas abaixo), e o aviso de float32 sem compressão dá os números medidos.
+- **18c, tiles que cada computador baixa ou monta:** `zeit.tile_urls` (https, ou s3/gs/az pelo
+  GDAL), `zeit.stac_tiles` (`build_annual_composites` numa caixa por tile, opcionalmente um
+  índice) e `zeit.gee_tiles` (`download_gee_timeseries` anual, empilhado num arquivo). São
+  receitas em JSON, conferidas por quem as monta contra uma lista fechada de tipos e opções
+  (URL só com esquema de rede: uma receita nunca nomeia um arquivo do ajudante). Quem processa
+  o tile o monta num processo à parte (`python -m zeit._tiles._sources`) no próprio cache,
+  com a chave = hash da receita e da versão do zeit; a principal também, quando processa. O
+  índice sai em int16 × 10000 (NoData −32768) por padrão. Tamanhos desconhecidos antes de
+  montar: todos pesam 1 na fila, e o tempo de montar entra na estimativa de cada máquina. A
+  retomada confere também a receita (outra fonte com o mesmo nome dá erro em vez de misturar).
+  No CLI, um `.txt` de URLs como entrada; STAC e GEE só pela API.
+- **Aviso de link compartilhado:** com receitas, um ajudante na mesma /24 da principal gera o
+  aviso de que provavelmente divide o link de internet (e a cota do Earth Engine é por projeto).
+- Testes (23 no total em `tests/test_tiles.py`): tile sem compressão vai comprimido e dá o
+  mesmo resultado; URLs servidas por um servidor HTTP local, aqui e num ajudante, com retomada
+  e conflito de fonte; tile que não monta; receitas recusadas; o int16 compacto; resultados
+  colocados direto na pasta (no teste "pelo NAS"). STAC e GEE de verdade não entram nos testes
+  (rede e credenciais): só as receitas.
 
 ## Para depois
 

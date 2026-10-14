@@ -10,14 +10,17 @@ from typing import Callable, Iterable, List, Optional, Union
 
 from . import _group
 from ._coordinator import Coordinator, TileRunResult, summary
+from ._sources import TileSources, gee_tiles, stac_tiles, tile_urls
 from ._tasks import format_bytes, make_plan, option_values
 
-__all__ = ["run_tiles", "run_worker", "invite_helpers", "TileRunResult"]
+__all__ = ["run_tiles", "run_worker", "invite_helpers", "tile_urls", "stac_tiles", "gee_tiles", "TileSources",
+           "TileRunResult"]
 
 
 def run_tiles(command: str, inputs: Union[str, Path, Iterable], output_dir: Union[str, Path], *,
               helpers: bool = False, local: bool = True, local_cores: Optional[int] = None,
-              port: int = _group.TCP_PORT, verbose: bool = True, **options) -> TileRunResult:
+              port: int = _group.TCP_PORT, compress_transfers: bool = True, verbose: bool = True,
+              **options) -> TileRunResult:
     """Run ``command`` on every tile, writing ``<output_dir>/<tile name>/``.
 
     Parameters
@@ -26,7 +29,9 @@ def run_tiles(command: str, inputs: Union[str, Path, Iterable], output_dir: Unio
         A command of the zeit command line that reads one raster: ``"landtrendr"``,
         ``"ccdc"``, ``"bfast_monitor"``, ``"mann_kendall"``, ``"phenology"``, ...
     inputs
-        A folder (its ``.tif`` files), a glob pattern (``"tiles/LT_*.tif"``) or a list of files.
+        A folder (its ``.tif`` files), a glob pattern (``"tiles/LT_*.tif"``), a list of files,
+        a text file of URLs (one per line), or tiles that each computer fetches or builds for
+        itself: ``zeit.tile_urls``, ``zeit.stac_tiles``, ``zeit.gee_tiles``.
     output_dir
         One folder per tile is written in it. Tiles already finished there with the same
         options are skipped, so an interrupted run continues where it stopped.
@@ -39,6 +44,9 @@ def run_tiles(command: str, inputs: Union[str, Path, Iterable], output_dir: Unio
         computer only hands out tiles and collects the results.
     local_cores
         Cores for the tiles processed here (default: all but one).
+    compress_transfers
+        Send a tile stored without compression as a losslessly compressed copy (ZSTD with a
+        predictor): the same values, a fraction of the bytes on the network.
     **options
         The command's options, as keyword arguments (``max_segments=6``, ``event_type="gain"``).
 
@@ -55,17 +63,23 @@ def run_tiles(command: str, inputs: Union[str, Path, Iterable], output_dir: Unio
     """
     out: Optional[Callable[[str], None]] = None if verbose else (lambda text: None)
     command = command.replace("_", "-")
+    if isinstance(inputs, (str, Path)) and str(inputs).lower().endswith(".txt") and Path(inputs).is_file():
+        urls = [line.strip() for line in Path(inputs).read_text().splitlines()
+                if line.strip() and not line.lstrip().startswith("#")]
+        inputs = tile_urls(urls)
     plan = make_plan(command, inputs, output_dir, option_values(command, options))
     say = out or (lambda text: print(text, flush=True))
     if not plan.tiles:
         say(f"All {len(plan.done)} tiles are already done in {plan.output_dir}.")
         return TileRunResult(plan.output_dir, [], [t.stem for t in plan.done], {}, {}, 0.0)
     coordinator = Coordinator(plan, local=local, local_cores=local_cores, helpers=helpers, port=port, out=out)
+    coordinator.compress_transfers = compress_transfers
     total = sum(t.size for t in plan.tiles)
     done = f" ({len(plan.done)} already done)" if plan.done else ""
+    size = "built by whoever processes them" if plan.recipes else format_bytes(total)
     here = (f"this computer uses {coordinator.local_machine.cores} cores" if coordinator.local_machine
             else "this computer only coordinates")
-    say(f"{plan.command}: {len(plan.tiles)} tiles to process{done}, {format_bytes(total)}; {here}"
+    say(f"{plan.command}: {len(plan.tiles)} tiles to process{done}, {size}; {here}"
         + ("; helpers welcome" if helpers else ""))
     coordinator.start()
     if helpers:

@@ -483,6 +483,7 @@ zeit landtrendr nbr_tiles/ lt_out/ --helpers                  # here and on the 
 zeit landtrendr nbr_tiles/ lt_out/ --helpers --no-local       # only on the helpers; this computer stays free
 zeit landtrendr nbr_tiles/ lt_out/ --helpers --local-cores 4  # here with 4 cores, and on the helpers
 zeit landtrendr "nbr_tiles/LT_2*.tif" lt_out/ --tiles         # a quoted glob instead of a folder
+zeit landtrendr urls.txt lt_out/ --helpers                    # URLs, one per line: each computer downloads its tiles
 ```
 
 | Option | Type | Default | Description |
@@ -494,7 +495,8 @@ zeit landtrendr "nbr_tiles/LT_2*.tif" lt_out/ --tiles         # a quoted glob in
 | `--port` | `int` | `47801` | TCP port the helpers connect to. |
 
 - **Resumable.** Finished tiles are kept: running the same command again processes only the others. Running it with other options into the same output folder is refused rather than mixing results.
-- **Where the helpers read the tiles.** From shared storage (a NAS) when they see the same file, otherwise this computer sends it; a helper keeps the tiles it received (20 GB by default), so another run does not send them again.
+- **Where the helpers read the tiles.** From shared storage (a NAS) when they see the same file, otherwise this computer sends it (a file stored without compression goes as a lossless ZSTD copy); a helper keeps the tiles it received (20 GB by default), so another run does not send them again. Given a `.txt` file of URLs, each computer downloads the tiles it processes. Tiles built from STAC or Earth Engine on each computer: [`zeit.stac_tiles`, `zeit.gee_tiles`](api/parallel.md#tiles-each-computer-builds) (Python).
+- **Where the results go.** A helper that sees the output folder too (a NAS) writes into it; otherwise it sends them back.
 - **Progress.** One line with the tiles done, the computers at work, the network rate and the time left; the helpers that join or leave; a tile that fails (tried again elsewhere, given up after two failures and listed at the end, with exit code 1).
 - **Files used by every tile** (`--patterns` of `twdtw`, `--dates-file` of `ccdc`, `--model` of `classify`, `--training` of `coded`) are sent to the helpers. Options naming a file of one raster (`--weights`, `--samples`) cannot be used with many tiles.
 

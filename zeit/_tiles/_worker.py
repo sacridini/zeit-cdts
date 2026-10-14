@@ -66,6 +66,28 @@ def map_path(path: str, maps: Sequence[Tuple[str, str]]) -> List[str]:
     return out
 
 
+def evict_cache(cache: Path, limit: int, keep: Path) -> None:
+    """Remove the least recently used tiles until the cache holds at most ``limit`` bytes
+    (never ``keep``, nor files being written)."""
+    try:
+        files = [p for p in cache.iterdir() if p.is_file() and p.suffix.lower() in _tasks.SUFFIXES
+                 and ".part" not in p.name and ".build" not in p.name]
+    except OSError:
+        return
+    total = sum(p.stat().st_size for p in files)
+    for p in sorted(files, key=lambda p: p.stat().st_mtime):
+        if total <= limit:
+            break
+        if p == keep:
+            continue
+        try:
+            size = p.stat().st_size
+            p.unlink()
+            total -= size
+        except OSError:
+            pass     # in use
+
+
 def _target(connect: str) -> Tuple[str, int]:
     host, _, port = connect.rpartition(":") if connect.count(":") == 1 else (connect, "", "")
     return (host or connect), int(port) if port else _group.TCP_PORT
@@ -149,6 +171,10 @@ def run_worker(*, cores: Optional[int] = None, connect: Optional[str] = None, jo
         out("Stopped.")
 
 
+class _BuildError(RuntimeError):
+    """A tile recipe that did not build (a failure of the tile, not of the network)."""
+
+
 class _Job:
     """Work for one coordinator, until it has no more tiles or goes away."""
 
@@ -164,6 +190,7 @@ class _Job:
         self.error: Optional[str] = None
         self.tmp = Path(tempfile.mkdtemp(prefix="zeit-worker-"))
         self.shared: Dict[int, str] = {}
+        self.results_roots: Dict[Tuple[str, str], Optional[str]] = {}
 
     def run(self) -> None:
         threads = [threading.Thread(target=self._fetcher, name="zeit-worker-fetch", daemon=True),
@@ -236,6 +263,11 @@ class _Job:
                     start = time.monotonic()
                     path, via = self._prepare(s, task)
                     self.ready.put((task, path, via, start, time.monotonic()))
+                except _BuildError as e:
+                    if not self.ended.is_set():
+                        self.out(f"! {task['tile'].get('name')}: could not build it: {str(e).strip()[-300:]}")
+                        self._report_failure(s, aid, f"could not build the tile: {e}")
+                    self._release(aid)
                 except Exception as e:
                     if not self.ended.is_set():
                         transfer = isinstance(e, (OSError, _net.ProtocolError, http.client.HTTPException))
@@ -249,38 +281,53 @@ class _Job:
 
     def _prepare(self, s: _net.Session, task: dict) -> Tuple[Path, str]:
         tile = task["tile"]
-        key = str(tile["key"])
-        if not key.isalnum():
-            raise ValueError("bad tile key")
+        recipe = tile.get("recipe")
+        if recipe is not None:
+            from . import _sources
+
+            _sources.check_recipe(recipe)
+            key = _sources.recipe_key(recipe)     # computed here: the cache is named by what it holds
+        else:
+            key = str(tile["key"])
+            if not key.isalnum():
+                raise ValueError("bad tile key")
         suffix = Path(str(tile["name"])).suffix.lower()
         suffix = suffix if suffix in _tasks.SUFFIXES else ".tif"
-        size = int(tile["size"])
-        cached = self.cache / f"{key}{suffix}"
+        cached = self.cache / f"{key}{suffix}"     # complete: files only get there by a rename
         self._fetch_shared(s, task)
-        if cached.is_file() and cached.stat().st_size == size:
+        if cached.is_file():
             os.utime(cached)
             self.out(f"> {tile['name']}: from the cache")
             return cached, "cache"
-        part = self.cache / f"{key}.{task['attempt']}.part"
+        part = self.cache / f"{key}.{task['attempt']}.part{suffix}"
         start = time.monotonic()
-        source = self._shared_source(tile)
         try:
-            if source is not None:
-                shutil.copyfile(source, part)
-                via = "shared"
+            if recipe is not None:
+                with self.lock:
+                    cancel = self.held.get(str(task["attempt"]))
+                self.out(f"  {tile['name']}: building it here ({recipe['kind']})")
+                ok, _, message = _sources.run_build(recipe, part, self.cores, cancel,
+                                                    log_path=self.tmp / f"build-{task['attempt']}.log")
+                if not ok:
+                    raise _BuildError(message)
+                via = "built"
             else:
-                s.download(f"/tile/{task['attempt']}", part)
-                via = "network"
-            if part.stat().st_size != size:
-                raise IOError(f"got {part.stat().st_size} of {size} bytes")
+                source = self._shared_source(tile)
+                if source is not None:
+                    shutil.copyfile(source, part)
+                    via = "shared"
+                else:
+                    s.download(f"/tile/{task['attempt']}", part)    # checks the length it was told
+                    via = "network"
             os.replace(part, cached)
         finally:
             if part.exists():
                 part.unlink()
         seconds = max(time.monotonic() - start, 1e-3)
-        where = "shared storage" if via == "shared" else "the network"
-        self.out(f"> {tile['name']}: {format_bytes(size)} from {where} in {format_seconds(seconds)} "
-                 f"({format_bytes(size / seconds)}/s)")
+        size = cached.stat().st_size
+        where = {"shared": "from shared storage", "network": "from the network", "built": "built"}[via]
+        self.out(f"> {tile['name']}: {format_bytes(size)} {where} in {format_seconds(seconds)}"
+                 + (f" ({format_bytes(size / seconds)}/s)" if via != "built" else ""))
         self._evict(keep=cached)
         return cached, via
 
@@ -310,22 +357,7 @@ class _Job:
             self.shared[i] = str(folder / Path(str(spec["main"])).name)
 
     def _evict(self, keep: Path) -> None:
-        try:
-            files = [p for p in self.cache.iterdir() if p.suffix.lower() in _tasks.SUFFIXES and p.is_file()]
-        except OSError:
-            return
-        total = sum(p.stat().st_size for p in files)
-        for p in sorted(files, key=lambda p: p.stat().st_mtime):
-            if total <= self.cache_bytes:
-                break
-            if p == keep:
-                continue
-            try:
-                size = p.stat().st_size
-                p.unlink()
-                total -= size
-            except OSError:
-                pass     # in use
+        evict_cache(self.cache, self.cache_bytes, keep)
 
     # -------------------------------------------------------------- running
 
@@ -369,14 +401,19 @@ class _Job:
             ok, seconds, message = _tasks.execute(task["command"], path, out_dir, task["args"], shared,
                                                   self.cores, cancel, log_path=folder / "log.txt")
             if ok:
-                archive = folder / "out.tar"
-                size = _tasks.pack(out_dir, archive)
                 stats = {"compute_s": round(seconds, 3), "fetch_s": round(fetch_s, 3),
                          "starved_s": round(starved, 3), "via": via}
-                with open(archive, "rb") as f:
-                    status, reply = s.call("PUT", f"/result/{aid}", body=f, headers={
-                        "Content-Length": str(size), "Content-Type": "application/x-tar",
-                        "X-Zeit-Stats": json.dumps(stats)})
+                placed = self._place(task, out_dir)
+                if placed is not None:     # in the output folder already: only say so
+                    status, reply = s.call("PUT", f"/result/{aid}", body=b"", headers={
+                        "X-Zeit-Placed": placed, "X-Zeit-Stats": json.dumps(stats)})
+                else:
+                    archive = folder / "out.tar"
+                    size = _tasks.pack(out_dir, archive)
+                    with open(archive, "rb") as f:
+                        status, reply = s.call("PUT", f"/result/{aid}", body=f, headers={
+                            "Content-Length": str(size), "Content-Type": "application/x-tar",
+                            "X-Zeit-Stats": json.dumps(stats)})
                 if status == 200 and reply.get("accepted"):
                     self.out(f"< {name}: done in {format_seconds(seconds)}")
                 elif status == 200:
@@ -394,6 +431,42 @@ class _Job:
             self._end(f"{type(e).__name__}: {e}")
         finally:
             shutil.rmtree(folder, ignore_errors=True)
+
+    def _place(self, task: dict, out_dir: Path) -> Optional[str]:
+        """Copy the outputs into the coordinator's output folder when this computer sees it
+        (a NAS): the name of the folder written, or None to send them instead."""
+        spec = task.get("results")
+        if not isinstance(spec, dict):
+            return None
+        name = str(spec.get("name") or "")
+        if not name or Path(name).name != name or name in (".", ".."):
+            return None
+        root = self._results_root(spec)
+        if root is None:
+            return None
+        dest = Path(root) / name
+        try:
+            shutil.copytree(out_dir, dest)
+        except OSError as e:
+            shutil.rmtree(dest, ignore_errors=True)
+            self.out(f"  could not write into the shared output folder ({e}); sending the results")
+            return None
+        return name
+
+    def _results_root(self, spec: dict) -> Optional[str]:
+        key = (str(spec.get("path")), str(spec.get("token")))
+        if key not in self.results_roots:
+            found = None
+            probe = Path(str(spec.get("probe") or "")).name
+            for candidate in map_path(key[0], self.maps) if probe else ():
+                try:
+                    if (Path(candidate) / probe).read_text().strip() == key[1]:
+                        found = candidate
+                        break
+                except OSError:
+                    continue
+            self.results_roots[key] = found
+        return self.results_roots[key]
 
     def _report_failure(self, s: _net.Session, aid: str, message: str, transfer: bool = False) -> None:
         try:

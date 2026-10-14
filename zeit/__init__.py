@@ -61,6 +61,9 @@ _LAZY = {
     "run_tiles": "._tiles",
     "run_worker": "._tiles",
     "invite_helpers": "._tiles",
+    "tile_urls": "._tiles",
+    "stac_tiles": "._tiles",
+    "gee_tiles": "._tiles",
 }
 _LAZY_MODULES = {"ai", "cube"}
 
@@ -100,6 +103,6 @@ __all__ = [
     "regularize_time_series",
     "load_raster", "save_raster", "plot", "interpret",
     "load_embeddings", "similarity", "embedding_change",
-    "run_tiles", "run_worker", "invite_helpers",
+    "run_tiles", "run_worker", "invite_helpers", "tile_urls", "stac_tiles", "gee_tiles",
     "ai"
 ]

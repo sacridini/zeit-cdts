@@ -199,10 +199,16 @@ class Tile:
     mtime_ns: int
     probe: str = ""
     shared_path: str = ""
+    recipe: Optional[dict] = None       # a tile each computer builds for itself (see _sources)
+    compressed: Optional[bool] = None   # known once checked, for the transfers
 
     @property
     def key(self) -> str:
-        """Names the tile in a helper's cache: changes whenever the file does."""
+        """Names the tile in a helper's cache: changes whenever the file (or recipe) does."""
+        if self.recipe is not None:
+            from ._sources import recipe_key
+
+            return recipe_key(self.recipe)
         return hashlib.sha256(f"{self.path.name}|{self.size}|{self.mtime_ns}|{self.probe}".encode()).hexdigest()[:32]
 
 
@@ -215,6 +221,7 @@ class Plan:
     tiles: List[Tile]
     done: List[Tile] = field(default_factory=list)
     digest: str = ""
+    recipes: bool = False               # the tiles are built by whoever processes them
 
 
 def params_digest(command: str, args: Sequence[str], shared: Sequence[dict]) -> str:
@@ -227,21 +234,29 @@ def params_digest(command: str, args: Sequence[str], shared: Sequence[dict]) -> 
 
 
 def make_plan(command: str, inputs, output_dir, values: Dict[str, Any]) -> Plan:
+    from ._sources import TileSources
+
     command = command_name(command)
     args, shared = forward_args(command, values)
-    tiles_in = list_tiles(inputs)
     output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
     digest = params_digest(command, args, shared)
-    plan = Plan(command, args, shared, output_dir, [], digest=digest)
+    if isinstance(inputs, TileSources):
+        # Sizes are unknown until built: every tile weighs the same.
+        tiles = [Tile(i, Path(f"{name}.tif"), name, 1, 0, recipe=recipe) for i, (name, recipe) in enumerate(inputs)]
+    else:
+        tiles = []
+        for i, path in enumerate(list_tiles(inputs)):
+            st = path.stat()
+            tiles.append(Tile(i, path, path.stem, st.st_size, st.st_mtime_ns))
+    output_dir.mkdir(parents=True, exist_ok=True)
+    plan = Plan(command, args, shared, output_dir, [], digest=digest, recipes=isinstance(inputs, TileSources))
     conflicts = []
-    for i, path in enumerate(tiles_in):
-        st = path.stat()
-        tile = Tile(i, path, path.stem, st.st_size, st.st_mtime_ns)
+    for tile in tiles:
         target = output_dir / tile.stem
         if target.exists():
             marker = _read_marker(target)
-            if marker is not None and marker.get("params") == digest:
+            if (marker is not None and marker.get("params") == digest
+                    and marker.get("source") == (tile.key if tile.recipe is not None else None)):
                 plan.done.append(tile)
                 continue
             conflicts.append(tile.stem)
@@ -268,8 +283,9 @@ def finalize(plan: Plan, tile: Tile, folder: Path, info: dict) -> bool:
     if target.exists():
         return False
     folder.mkdir(parents=True, exist_ok=True)
+    source = {"source": tile.key, "recipe": tile.recipe} if tile.recipe is not None else {"tile": str(tile.path)}
     (folder / MARKER).write_text(json.dumps({"params": plan.digest, "command": plan.command, "args": plan.args,
-                                             "tile": str(tile.path), **info}, indent=1))
+                                             **source, **info}, indent=1))
     os.replace(folder, target)
     return True
 
@@ -332,6 +348,42 @@ def execute(command: str, tile_path: Union[str, Path], out_dir: Union[str, Path]
     except OSError:
         tail = []
     return False, seconds, "\n".join(tail) or f"exit code {code}"
+
+
+def is_compressed(path: Union[str, Path]) -> bool:
+    import rasterio
+
+    try:
+        with rasterio.open(path) as src:
+            return src.compression is not None
+    except Exception:
+        return True       # not a raster GDAL reads: send it as it is
+
+
+def compress_copy(src: Union[str, Path], dst: Union[str, Path], threads: int = 2) -> None:
+    """A lossless copy for the network: ZSTD (DEFLATE where GDAL lacks it) with the
+    predictor of the data type, every band, description, tag and NoData kept."""
+    import rasterio
+    import rasterio.shutil
+
+    with rasterio.open(src) as s:
+        predictor = 3 if s.dtypes[0].startswith("float") else 2
+    options = dict(driver="GTiff", PREDICTOR=predictor, TILED="YES", BLOCKXSIZE=512, BLOCKYSIZE=512,
+                   BIGTIFF="IF_SAFER", NUM_THREADS=str(threads))
+    try:
+        rasterio.shutil.copy(str(src), str(dst), COMPRESS="ZSTD", ZSTD_LEVEL=1, **options)
+    except Exception:
+        rasterio.shutil.copy(str(src), str(dst), COMPRESS="DEFLATE", ZLEVEL=1, **options)
+
+
+def check_placed(folder: Path) -> bool:
+    """Results a helper wrote into the output folder: regular files only, no marker."""
+    if not folder.is_dir() or folder.is_symlink():
+        return False
+    for path in folder.rglob("*"):
+        if path.is_symlink() or not (path.is_file() or path.is_dir()) or path.name == MARKER:
+            return False
+    return True
 
 
 def pack(folder: Union[str, Path], archive: Union[str, Path]) -> int:

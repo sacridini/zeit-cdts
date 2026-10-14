@@ -150,5 +150,6 @@
 | [`run_tiles`](parallel.md#run_tiles) | A command on every tile of a folder, here and on helpers; resumes where it stopped |
 | [`run_worker`](parallel.md#run_worker) | Lend this computer to the group: wait for tiles and process them |
 | [`invite_helpers`](parallel.md#invite_helpers) | A code with which other computers join the group |
+| [`tile_urls`](parallel.md#tile_urls), [`stac_tiles`](parallel.md#stac_tiles), [`gee_tiles`](parallel.md#gee_tiles) | Tiles each computer downloads or builds for itself |
 
 </div>

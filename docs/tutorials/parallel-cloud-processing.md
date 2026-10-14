@@ -93,6 +93,7 @@ What happens underneath:
 - **The main computer's disk.** The main computer sends each tile to the helper that gets it, in 16 MB pieces read one at a time, so a hard disk is never asked for several files at once (which is much slower than reading them in turn).
 - **A NAS that every computer sees.** A helper that sees the same file reads it from the NAS itself, and the main computer sends nothing. Mapped Windows drives travel as their UNC path (`\\nas\tiles\...`), which Windows helpers read directly; a Linux or macOS helper says where the share is mounted: `zeit worker --map "\\nas\tiles=/mnt/tiles"`. The helper copies the whole tile before processing it, which is much faster than GDAL reading it piece by piece over the network.
 - **Again.** A helper keeps the tiles it received (20 GB by default, `--cache-gb`), so a second run with other options does not send them again.
+- **The results** go back the same way: a helper that sees the output folder too (on a NAS) writes them straight into it, otherwise it sends them to the main computer. They are small next to the tiles.
 
 ### What limits the speed: the network
 
@@ -101,16 +102,32 @@ A full Landsat tile, 54.7 million pixels × 41 years, takes about **98 s** of La
 | Tile | Size | Sent in | Helpers the main computer's cable keeps busy* |
 | :--- | :---: | :---: | :---: |
 | float32, no compression | 9.0 GB | ~80 s | ~1 |
-| int16, no compression | 4.5 GB | ~40 s | ~2 |
-| int16, ZSTD compression | ~1.5–2.5 GB | ~15–25 s | ~4–6 |
-| the same over Wi-Fi | ~1.5–2.5 GB | ~40–80 s | ~1–2 |
+| float32, as Zeit sends it (lossless ZSTD) | ~6.3 GB | ~57 s | ~1.7 |
+| int16 (NBR × 10000), no compression | 4.5 GB | ~40 s | ~2.5 |
+| int16 (NBR × 10000), ZSTD compression | ~2.9 GB | ~26 s | ~4 |
+| the same over Wi-Fi | ~2.9 GB | ~60–100 s | ~1–2 |
 
-\* As fast as that desktop: the time to process a tile divided by the time to send it. Slower helpers take longer per tile, so more of them fit. The compressed sizes depend on the data.
+\* As fast as that desktop: the time to process a tile divided by the time to send it. Slower helpers take longer per tile, so more of them fit. The compressed sizes were measured on the NBR of that tile (215/067): ZSTD with the floating-point predictor makes float32 1.43× smaller, int16 with ZSTD is 3.1× smaller than float32. Other data compresses differently.
 
-So the format of the tiles matters more than the number of helpers. An index scaled by 10000 as int16 (as Earth Engine exports NBR) with ZSTD compression is a fraction of a float32 stack; the conversion costs four decimal places, so it is your call, not Zeit's. A NAS changes where the bottleneck is (its own network link and disks) but not the arithmetic. The run warns when the tiles are float32 without compression, and when the helpers spend more than a quarter of their time waiting for tiles: then more helpers will not make it faster.
+So the format of the tiles matters more than the number of helpers. An index scaled by 10000 as int16 (as Earth Engine exports NBR) with ZSTD compression is a fraction of a float32 stack; the conversion costs four decimal places, so it is your call, not Zeit's. A NAS changes where the bottleneck is (its own network link and disks) but not the arithmetic. A tile stored without compression is sent as a lossless ZSTD copy (made at ~300 MB/s with two threads, faster than a 1 Gbit/s link carries it; `compress_transfers=False` turns it off). The run warns when the tiles are float32 without compression, and when the helpers spend more than a quarter of their time waiting for tiles: then more helpers will not make it faster.
 
-!!! note "Tiles downloaded from the internet"
-    Building the tiles from STAC or Earth Engine on each helper only pays off when the helpers have independent internet links. In the same office they share one link (a Landsat tile from STAC is ~41 GB of scenes), and Earth Engine limits concurrent requests per project, not per computer.
+### Tiles each computer downloads for itself
+
+The tiles do not have to exist yet. Given as recipes, each computer downloads or builds the tiles it processes, into its own cache, and nothing passes through the main computer:
+
+```python
+zeit.run_tiles("landtrendr", zeit.tile_urls(["https://data.example.org/nbr/215_067.tif", ...]), "lt_out/",
+               helpers=True)                                               # files on a web server or a bucket
+
+tiles = zeit.stac_tiles(["21LYG", "21LZG"], index="NBR", bands=["nir08", "swir22"],
+                        start_year=1985, end_year=2024)                    # annual composites from STAC
+tiles = zeit.gee_tiles(["215/067", "216/067"], start_year=1985, end_year=2024)   # medoids from Earth Engine
+zeit.run_tiles("landtrendr", tiles, "lt_out/", helpers=True)
+```
+
+From the terminal, a text file of URLs (one per line) works as the input: `zeit landtrendr urls.txt lt_out/ --helpers`. The composites are written as int16 (the index × 10000) unless `dtype="float32"`.
+
+This only pays off when the computers have **independent internet links** (another building, a colleague's home over a VPN, cloud machines near the data). In the same office they share one link: a Landsat tile built from STAC is ~41 GB of scenes, so the link, not the number of computers, sets the pace. Earth Engine limits concurrent requests per project, not per computer. The run warns when a helper is on the main computer's network.
 
 ### When the helpers do not appear
 

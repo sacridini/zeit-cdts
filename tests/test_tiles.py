@@ -153,6 +153,10 @@ def test_the_cli_runs_tiles(tiles, tmp_path):
 def run_with_helper(tiles, out, cache, **coordinator):
     _group.ensure_secret()
     plan = _tasks.make_plan("mann-kendall", tiles, out, {})
+    return run_plan_with_helper(plan, cache, **coordinator)
+
+
+def run_plan_with_helper(plan, cache, **coordinator):
     lines = []
     coord = _coordinator.Coordinator(plan, local=False, helpers=True, port=0, discovery=False, host="127.0.0.1",
                                      out=lines.append, **coordinator).start()
@@ -176,6 +180,7 @@ def test_a_helper_processes_every_tile(tiles, tmp_path, monkeypatch, seen_by_hel
     assert result.ok and sorted(result.done) == ["tile_0", "tile_1"]
     assert len(remote) == 1 and remote[0].done == 2 and remote[0].name in result.machines
     assert remote[0].via == {"shared" if seen_by_helper else "network": 2}
+    assert remote[0].placed == (2 if seen_by_helper else 0)     # results written straight into the folder
     for stem in reference.done:
         np.testing.assert_array_equal(read(tmp_path / "out" / stem / "mann_kendall.tif"),
                                       read(tmp_path / "here" / stem / "mann_kendall.tif"))
@@ -295,3 +300,106 @@ def test_the_last_tile_stays_here_when_the_helper_is_still_busy(tmp_path):
     assert coord._next(helper)[0] == "task"            # the first tile: the helper is busy for ~51 s
     assert coord._next(helper)[0] == "wait"            # ~102 s there, 100 s here: it stays here
     assert coord._next(coord.local_machine)[0] == "task"
+
+
+# ---------------------------------------------------------------------------- transfers and recipes
+
+def test_an_uncompressed_tile_travels_compressed(tmp_path, monkeypatch):
+    monkeypatch.setattr(_tasks, "network_path", lambda path: "/nowhere/" + path.name)
+    folder = tmp_path / "raw"
+    folder.mkdir()
+    write_tile(tmp_path / "packed.tif", 3, 40, 30)
+    cube = zeit.load_raster(tmp_path / "packed.tif")
+    zeit.save_raster(cube, folder / "raw.tif", compress=None)
+    assert not _tasks.is_compressed(folder / "raw.tif")
+    reference = zeit.run_tiles("mann_kendall", folder, tmp_path / "here", verbose=False)
+    result, remote, lines, _ = run_with_helper(folder, tmp_path / "out", tmp_path / "cache")
+    assert result.ok and remote[0].via == {"network": 1}
+    assert any("compressed for the network" in line for line in lines)
+    np.testing.assert_array_equal(read(tmp_path / "out" / "raw" / "mann_kendall.tif"),
+                                  read(tmp_path / "here" / "raw" / "mann_kendall.tif"))
+    received = next((tmp_path / "cache").glob("*.tif"))
+    assert _tasks.is_compressed(received) and received.stat().st_size < (folder / "raw.tif").stat().st_size
+    xr.testing.assert_equal(zeit.load_raster(received).rename(None),         # values, dates, grid
+                            zeit.load_raster(folder / "raw.tif").rename(None))
+
+
+@pytest.fixture
+def web(tiles):
+    """The tiles on a web server."""
+    import functools
+    from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+
+    class Quiet(SimpleHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(Quiet, directory=str(tiles)))
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield f"http://127.0.0.1:{server.server_address[1]}"
+    server.shutdown()
+    server.server_close()
+
+
+def test_tiles_from_urls_are_fetched_by_whoever_processes_them(tiles, web, tmp_path):
+    sources = zeit.tile_urls([f"{web}/tile_0.tif", f"{web}/tile_1.tif"])
+    assert [name for name, _ in sources] == ["tile_0", "tile_1"]
+    reference = zeit.run_tiles("mann_kendall", tiles, tmp_path / "files", verbose=False)
+
+    here = zeit.run_tiles("mann_kendall", sources, tmp_path / "here", verbose=False)
+    assert sorted(here.done) == ["tile_0", "tile_1"]
+    _group.ensure_secret()
+    plan = _tasks.make_plan("mann-kendall", sources, tmp_path / "out", {})
+    result, remote, lines, _ = run_plan_with_helper(plan, tmp_path / "cache")
+    assert result.ok and remote[0].via == {"built": 2}
+    assert any("shares its internet link" in line for line in lines)        # a helper on this network
+    for stem in reference.done:
+        expected = read(tmp_path / "files" / stem / "mann_kendall.tif")
+        np.testing.assert_array_equal(read(tmp_path / "here" / stem / "mann_kendall.tif"), expected)
+        np.testing.assert_array_equal(read(tmp_path / "out" / stem / "mann_kendall.tif"), expected)
+
+    again = zeit.run_tiles("mann_kendall", sources, tmp_path / "out", verbose=False)
+    assert sorted(again.skipped) == ["tile_0", "tile_1"]
+    other = zeit.tile_urls({"tile_0": f"{web}/tile_1.tif"})                 # another source, same name
+    with pytest.raises(FileExistsError):
+        zeit.run_tiles("mann_kendall", other, tmp_path / "out", verbose=False)
+
+
+def test_a_tile_that_does_not_build_is_reported(web, tmp_path):
+    sources = zeit.tile_urls({"missing": f"{web}/missing.tif"})
+    result = zeit.run_tiles("mann_kendall", sources, tmp_path / "out", verbose=False)
+    assert list(result.failed) == ["missing"] and "could not build" in result.failed["missing"]
+
+
+def test_recipes_are_data_a_helper_checks():
+    from zeit._tiles import _sources
+
+    for bad in ({"kind": "raster", "url": "file:///etc/passwd"}, {"kind": "raster", "url": "C:/secret.tif"},
+                {"kind": "python", "code": "print(1)"},
+                {"kind": "raster", "url": "https://example.org/a.tif", "extra": 1}):
+        with pytest.raises(ValueError):
+            _sources.check_recipe(bad)
+    stac = zeit.stac_tiles(["23KPQ"], bands=["nir08", "swir22"], index="NBR", start_year=2000, end_year=2002)
+    (name, recipe), = list(stac)
+    assert name == "23KPQ" and recipe["kind"] == "stac_annual" and len(recipe["bbox"]) == 4
+    assert recipe["dtype"] == "int16" and recipe["scale"] == 10000.0
+    assert recipe["options"]["epsg"] == 32723                      # 23KPQ: its own UTM zone, south
+    with pytest.raises(ValueError):
+        _sources.check_recipe({**recipe, "options": {**recipe["options"], "access_token": "x"}})
+    with pytest.raises(TypeError, match="no option"):
+        zeit.stac_tiles(["23KPQ"], bands=["nir08"], vector_path="x.gpkg")
+    with pytest.raises(ValueError, match="bands"):
+        zeit.stac_tiles(["23KPQ"])
+    gee = zeit.gee_tiles(["217/076", (-43.5, -23.0, -43.0, -22.5)], start_year=1990, end_year=2000)
+    assert [name for name, _ in gee] == ["217_076", "tile_1"]
+    assert dict(gee)["217_076"]["roi"] == "217/076"
+
+
+def test_an_index_is_written_compact():
+    from zeit._tiles import _sources
+
+    nbr = xr.DataArray(np.array([[0.51234, -0.2], [np.nan, 1.0]], dtype="float32"), dims=("y", "x"))
+    data, nodata = _sources._compact(nbr, 10000.0, "int16")
+    assert data.dtype == np.int16 and nodata == -32768
+    assert data.values.tolist() == [[5123, -2000], [-32768, 10000]]
