@@ -1504,7 +1504,7 @@ vista, de referência ou de ano não volta ao kernel, e a similaridade segue o m
 local, e o pan/zoom é o jeito de escolher a área no viewer) e sem a vista de uma dimensão
 como banda (`zeit.plot(emb, band="A07")` já faz isso).
 
-## Fase 18: muitos tiles em vários computadores da rede — 18a **Feito** (1.5.0), 18b e 18c **Feito** (a lançar)
+## Fase 18: muitos tiles em vários computadores da rede — **Feito** (1.6.0)
 
 Pedida em 2026-10-14, a partir do que foi feito no Terraflux. Hoje o paralelismo entre
 máquinas passa pelo Dask (`dask scheduler`, `dask worker`, regra no firewall, versões
@@ -1647,11 +1647,11 @@ O worker mede o próprio download e o principal avisa quando os links são o mes
 
 - **18a:** fila, `zeit worker`, `--helpers`/`--no-local`/`--local-cores`, `zeit.run_tiles`,
   descoberta, pareamento, checagem de versão, retomada e medições. Sem dependência nova além
-  da `cryptography` para o TLS. — **Feito** (1.5.0)
+  da `cryptography` para o TLS. — **Feito** (1.6.0; a 1.5.0 ficou só no git, sem publicar)
 - **18b:** formato compacto como padrão sugerido: int16 com ZSTD e predictor no
-  `save_raster` e nos downloads, e a recompressão no envio. — **Feito** (a lançar)
+  `save_raster` e nos downloads, e a recompressão no envio. — **Feito** (1.6.0)
 - **18c:** ajudantes que baixam os próprios dados (STAC, GEE), para links independentes.
-  — **Feito** (a lançar)
+  — **Feito** (1.6.0)
 
 ### 18a: o que foi feito
 
