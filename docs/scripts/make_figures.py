@@ -18,7 +18,17 @@ Two kinds of inputs are used:
   band per year) over a ~50 x 50 km area of Rondonia, Brazil, exported
   from LT-GEE (https://github.com/eMapR/LT-GEE) on Google Earth Engine. Point the
   ``ZEIT_DOCS_RONDONIA`` environment variable at that GeoTIFF; the
-  real-data figures are skipped when it is not set.
+  real-data figures are skipped when it is not set. The same stack gives the
+  layers of the home page (``hero_stack``) and the real sample of the accuracy
+  tutorial.
+* **Embeddings** (the embeddings tutorial) of AlphaEarth and TESSERA over a
+  5 x 5 km box of that scene are downloaded once (about 2 GB, a minute or two)
+  into ``build/docs_embeddings/``, or the folder ``ZEIT_DOCS_EMBEDDINGS`` points
+  at. Their comparison with LandTrendr also needs ``ZEIT_DOCS_RONDONIA``.
+* The **accuracy** figures use the numerical example of Olofsson et al. (2014),
+  from ``tests/data/accuracy_sits.json``.
+
+The benchmark charts are inline SVGs made by ``make_benchmark_charts.py``.
 
 Charts are written as palette PNGs, image-like maps as WebP.
 
@@ -257,24 +267,75 @@ def fig_landtrendr_maps(d):
     save(fig, "landtrendr_maps", photo=True)
 
 
-def fig_hero(d):
-    """Single-panel year-of-loss map for the home page."""
-    s, y, valid, ev = d["stack"], d["years"], d["valid"], d["events"]
-    # extract_events' "yod" is the vertex year where the loss segment starts,
-    # i.e. the last year before the drop: +1 gives the first year it shows.
+HERO_YEARS = [1990, 2000, 2010, 2024]
+
+
+def fig_hero_stack(d):
+    """Home page: a stack of yearly NDVI images of one place, the LandTrendr map on top, and
+    the time series of one pixel through the stack (an inline SVG the page styles)."""
+    from PIL import Image
+    s, y, v, valid, ev = d["stack"], d["years"], d["vertices"], d["valid"], d["events"]
+    _, (r, c) = _pick_pixels(d)[0]
+    h = 120
+    r0, c0 = min(max(r - h, 0), s.shape[1] - 2 * h), min(max(c - h + 30, 0), s.shape[2] - 2 * h)
+    sl = (slice(r0, r0 + 2 * h), slice(c0, c0 + 2 * h))
+    out = OUT / "hero"
+    out.mkdir(parents=True, exist_ok=True)
+
+    def write(rgb, name):
+        img = Image.fromarray((np.clip(rgb, 0, 1) * 255).astype(np.uint8)[..., :3])
+        img = img.resize((img.width * 2, img.height * 2), Image.NEAREST)
+        img.save(out / f"{name}.webp", quality=86, method=6)
+
+    for yr in HERO_YEARS:
+        a = s[yr - y[0]][sl] / 10000
+        rgb = GREENS(np.clip((a - 0.2) / 0.7, 0, 1))
+        rgb[~valid[sl]] = (0.93, 0.93, 0.91, 1)
+        write(rgb, f"ndvi_{yr}")
     yod = ev["yod"].astype(float) + 1
     keep = valid & (ev["yod"] > y[0]) & (ev["dsnr"] >= 3)
-    yod = np.where(_mmu(keep, 11), yod, np.nan)
-    r0, c0, n = 250, 380, 1000
-    fig, ax = plt.subplots(figsize=(7.2, 7.6))
-    ax.imshow(_masked(s[-1] / 10000, valid)[r0:r0 + n, c0:c0 + n], cmap="Greys",
-              vmin=-0.5, vmax=3.0, interpolation="nearest")
-    im = ax.imshow(yod[r0:r0 + n, c0:c0 + n], cmap=YEARS, vmin=1986, vmax=y[-1],
-                   interpolation="nearest")
-    map_axes(ax)
-    colorbar(fig, im, ax, "Year of the largest vegetation loss (LandTrendr)",
-             ticks=[1990, 2000, 2010, 2020])
-    save(fig, "hero_loss_year", photo=True)
+    yod = np.where(_mmu(keep, 11), yod, np.nan)[sl]
+    grey = plt.get_cmap("Greys")(np.clip((s[-1][sl] / 10000 + 0.5) / 3.5, 0, 1))
+    col = YEARS(np.clip((yod - 1986) / (y[-1] - 1986), 0, 1))
+    rgb = np.where(np.isfinite(yod)[..., None], col, grey)
+    write(rgb, "loss_year")
+    px, py = (c - c0 + 0.5) / (2 * h) * 100, (r - r0 + 0.5) / (2 * h) * 100
+    print(f"  pixel at left {px:.1f}%, top {py:.1f}%; loss year {int(ev['yod'][r, c]) + 1}")
+
+    # the pixel's series, as an inline SVG snippet
+    vy, vv, fit = fitted_trajectory(v, r, c, y)
+    obs = s[:, r, c] / 10000
+    W, H, L, R, T, B = 340, 150, 30, 10, 12, 24
+
+    def X(t):
+        return L + (t - 1984) / (2025 - 1984) * (W - L - R)
+
+    def Y(val):
+        return T + (1.0 - val) / (1.0 - 0.1) * (H - T - B)
+
+    loss = int(ev["yod"][r, c]) + 1
+    parts = [f'<svg class="zh-chart" viewBox="0 0 {W} {H}" role="img" aria-label="NDVI of the marked pixel, '
+             f'1985 to 2024, with the LandTrendr fit: forest until {loss - 1}, cleared in {loss}" '
+             'xmlns="http://www.w3.org/2000/svg">']
+    for val in (0.2, 0.5, 0.8):
+        parts.append(f'<line class="zh-grid" x1="{L}" x2="{W - R}" y1="{Y(val):.1f}" y2="{Y(val):.1f}"/>')
+        parts.append(f'<text class="zh-tick" x="{L - 5}" y="{Y(val) + 3.5:.1f}" text-anchor="end">{val:.1f}</text>')
+    for t in (1990, 2000, 2010, 2020):
+        parts.append(f'<text class="zh-tick" x="{X(t):.1f}" y="{H - 6}" text-anchor="middle">{t}</text>')
+    parts.append(f'<line class="zh-event" x1="{X(loss - 0.5):.1f}" x2="{X(loss - 0.5):.1f}" y1="{T}" '
+                 f'y2="{H - B}"/>')
+    parts.append(f'<text class="zh-label" x="{X(loss - 0.5) + 5:.1f}" y="{T + 9}">cleared in {loss}</text>')
+    for t, o in zip(y, obs):
+        if o > 0:
+            parts.append(f'<circle class="zh-obs" cx="{X(t):.1f}" cy="{Y(o):.1f}" r="2.6"/>')
+    path = " ".join(f"{'M' if i == 0 else 'L'}{X(t):.1f},{Y(f / 10000):.1f}" for i, (t, f) in
+                    enumerate(zip(vy, vv)))
+    parts.append(f'<path class="zh-fit" d="{path}"/>')
+    for t, f in zip(vy, vv):
+        parts.append(f'<circle class="zh-vertex" cx="{X(t):.1f}" cy="{Y(f / 10000):.1f}" r="3.6"/>')
+    parts.append("</svg>")
+    (out / "pixel_chart.svg").write_text("\n".join(parts) + "\n", encoding="utf-8")
+    print(f"  wrote {out.relative_to(OUT.parents[2])} (layers and pixel_chart.svg)")
 
 
 def _pick_pixels(d):
@@ -919,8 +980,402 @@ def fig_tempcnn():
 
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Accuracy & Area: Olofsson et al. (2014)'s example and a real stratified sample
+# ---------------------------------------------------------------------------
+OLOFSSON_NAMES = ["Deforestation", "Forest gain", "Stable forest", "Stable non-forest"]
+SEQ_BLUE = LinearSegmentedColormap.from_list("seq", ["#f4f8fd", "#cfe0f5", "#86b2e8", "#2a78d6", "#123f7a"])
+
+
+def _olofsson():
+    """The map and the 640 labelled points of Olofsson et al. (2014), section 5, as in
+    tests/test_accuracy.py: a 2500 x 4000 map of 30 m pixels and the paper's error matrix."""
+    import json
+    import xarray as xr
+    from rasterio.transform import from_origin
+    fixture = Path(__file__).resolve().parents[2] / "tests" / "data" / "accuracy_sits.json"
+    case = json.loads(fixture.read_text(encoding="utf-8"))["olofsson2014"]
+    names, matrix = case["labels"], np.array(case["matrix"])
+    ny, nx = 2500, 4000
+    values = np.repeat(np.arange(1, 5, dtype=np.uint8), case["area"]).reshape(ny, nx)
+    m = xr.DataArray(values, dims=("y", "x"),
+                     coords={"y": 9000000 - 15 - 30 * np.arange(ny), "x": 500000 + 15 + 30 * np.arange(nx)},
+                     attrs={"flag_values": [1, 2, 3, 4], "flag_meanings": " ".join(names)})
+    m = m.rio.write_crs(32722).rio.write_transform(from_origin(500000, 9000000, 30, 30))
+    design = zeit.sampling_design(m, alloc={n: int(matrix[i].sum()) for i, n in enumerate(names)})
+    pts = zeit.stratified_sample(m, design=design, seed=1)
+    pts = pts.sort_values(["stratum", "row", "col"]).reset_index(drop=True)
+    pts["ref"] = np.concatenate([np.repeat(names, matrix[i]) for i in range(4)])
+    return m, pts, names
+
+
+def fig_accuracy_sample(d):
+    """Steps 1-2 on real data: a map of loss events and the stratified sample drawn on it."""
+    import xarray as xr
+    from rasterio.transform import from_origin
+    s, y, valid, ev = d["stack"], d["years"], d["valid"], d["events"]
+    r0, c0, n = 500, 700, 700
+    keep = valid & (ev["yod"] >= 2015) & (ev["dsnr"] >= 3)     # loss in the last ten years
+    change = _mmu(keep, 11)[r0:r0 + n, c0:c0 + n]
+    ok = valid[r0:r0 + n, c0:c0 + n]
+    codes = np.where(ok, change.astype(np.uint8) + 1, 0).astype(np.uint8)
+    m = xr.DataArray(codes, dims=("y", "x"),
+                     coords={"y": -np.arange(n) * 30.0 - 15, "x": np.arange(n) * 30.0 + 15},
+                     attrs={"flag_values": [1, 2], "flag_meanings": "no_change change"})
+    m = m.rio.write_crs(32720).rio.write_transform(from_origin(0, 0, 30, 30)).rio.write_nodata(0)
+    ua = {"change": 0.7, "no_change": 0.95}
+    design = zeit.sampling_design(m, expected_ua=ua, std_error=0.015)
+    prop = zeit.sampling_design(m, expected_ua=ua, std_error=0.015, min_per_stratum=0).n.to_numpy()
+    pts = zeit.stratified_sample(m, design=design, seed=3)
+    print("  design:", design[["name", "weight", "n"]].to_dict("records"))
+
+    fig, (ax, bx) = plt.subplots(1, 2, figsize=(13.5, 6.2),
+                                 gridspec_kw={"width_ratios": [1, 0.8], "wspace": 0.16})
+    base = _masked(s[-1, r0:r0 + n, c0:c0 + n] / 10000, ok)
+    ax.imshow(base, cmap="Greys", vmin=-0.6, vmax=2.6, interpolation="nearest")
+    ax.imshow(np.where(change & ok, 1.0, np.nan), cmap=ListedColormap(["#e0603f"]), alpha=0.8,
+              interpolation="nearest")
+    for code, color, label in [(1, BLUE, "No change"), (2, INK, "Change")]:
+        p = pts[pts.stratum == code]
+        ax.scatter(p.col, p.row, s=34, color=color, edgecolor="white", linewidth=1.2, zorder=3,
+                   label=f"{label} stratum: {len(p)} points")
+    map_axes(ax, "Loss since 2015 mapped by LandTrendr (orange), and the sample")
+    ax.legend(loc="upper left", bbox_to_anchor=(0, -0.01), ncol=2, borderaxespad=0, handletextpad=0.2)
+
+    w = design.weight.to_numpy()
+    total = int(design.n.sum())
+    names = ["No change", "Change"]
+    yy = np.arange(2)
+    bx.barh(yy - 0.2, w * 100, height=0.36, color="#d6d4cc", label="Share of the map's area")
+    bx.barh(yy + 0.2, design.n / total * 100, height=0.36, color=BLUE, label="Share of the sample")
+    for i in range(2):
+        ha = design.pixels.iloc[i] * 0.09
+        bx.text(w[i] * 100 + 1.5, i - 0.2, f"{w[i] * 100:.1f}%  ·  {ha:,.0f} ha", va="center",
+                fontsize=9.5, color=INK2)
+        bx.text(design.n.iloc[i] / total * 100 + 1.5, i + 0.2,
+                f"{int(design.n.iloc[i])} points  (proportional: {int(prop[i])})", va="center",
+                fontsize=9.5, color=INK)
+    bx.set_yticks(yy, names)
+    bx.set_xlim(0, 150)
+    bx.set_xticks([0, 25, 50, 75, 100], ["0%", "25%", "50%", "75%", "100%"])
+    bx.grid(axis="y", visible=False)
+    bx.invert_yaxis()
+    bx.set_title(f"Where the {total} points go")
+    bx.legend(loc="upper left", bbox_to_anchor=(0, -0.08), ncol=1, borderaxespad=0)
+    bx.set_box_aspect(1.0)
+    save(fig, "accuracy_sample", photo=True)
+
+
+def fig_accuracy_matrix():
+    """The error matrix of Olofsson et al. (2014): sample counts and estimated area proportions."""
+    m, pts, names = _olofsson()
+    acc = zeit.accuracy(m, pts)
+    counts = acc.counts.to_numpy()
+    prop = acc.confusion.to_numpy() * 100
+    fig, axes = plt.subplots(1, 2, figsize=(13.5, 5.4), gridspec_kw={"wspace": 0.3})
+    short = ["Deforest.", "Gain", "Forest", "Non-forest"]
+    panels = [(counts, "Sample counts $n_{ij}$", "{:.0f}", 60.0),
+              (prop, r"Estimated share of the area $\hat p_{ij}$ (%)", "{:.2f}", 8.0)]
+    for ax, (mat, title, fmt, vmax) in zip(axes, panels):
+        ax.imshow(np.minimum(mat, vmax), cmap=SEQ_BLUE, vmin=0, vmax=vmax * 1.08)
+        for i in range(4):
+            for j in range(4):
+                v = mat[i, j]
+                dark = min(v, vmax) > vmax * 0.5
+                ax.text(j, i, fmt.format(v), ha="center", va="center", fontsize=10.5,
+                        color="white" if dark else INK, fontweight="semibold" if i == j else "normal")
+        ax.set_xticks(range(4), short)
+        ax.set_yticks(range(4), short)
+        ax.set_xlabel("Reference class", color=INK2, labelpad=8)
+        ax.set_ylabel("Map class", color=INK2)
+        ax.xaxis.set_label_position("top")
+        ax.xaxis.tick_top()
+        ax.grid(False)
+        for sp in ax.spines.values():
+            sp.set_visible(False)
+        ax.set_title(title, pad=44)
+    n_i = counts.sum(axis=1)
+    ax = axes[0]
+    for i in range(4):
+        ax.text(3.62, i, f"{n_i[i]}", va="center", fontsize=9.5, color=INK2)
+    ax.text(3.62, -0.72, "$n_i$", va="center", fontsize=10, color=MUTED)
+    ax.set_xlim(-0.5, 4.1)
+    ax = axes[1]
+    for i, c in enumerate(acc.users.index):
+        ax.text(3.62, i, f"UA {acc.users.estimate[c]:.2f}", va="center", fontsize=9.5, color=INK2)
+        ax.text(i, 3.85, f"PA {acc.producers.estimate[c]:.2f}", ha="center", va="center", fontsize=9.5,
+                color=INK2)
+    ax.text(3.62, 3.85, f"OA {acc.overall.estimate:.3f}", va="center", fontsize=9.5, color=INK,
+            fontweight="semibold")
+    ax.set_xlim(-0.5, 4.5)
+    ax.set_ylim(4.15, -0.5)
+    axes[0].set_ylim(4.15, -0.5)
+    save(fig, "accuracy_matrix")
+
+
+def fig_accuracy_area():
+    """Mapped area versus the error-adjusted estimate and its 95% interval, per class."""
+    from matplotlib.ticker import MaxNLocator
+    m, pts, names = _olofsson()
+    acc = zeit.accuracy(m, pts)
+    a = acc.area / 1000
+    fig, axes = plt.subplots(1, 4, figsize=(13.5, 2.9), gridspec_kw={"wspace": 0.3})
+    for ax, c, label in zip(axes, a.index, OLOFSSON_NAMES):
+        row = a.loc[c]
+        ax.plot([row.ci_low, row.ci_high], [0, 0], color=BLUE, linewidth=7, alpha=0.22,
+                solid_capstyle="round")
+        ax.scatter([row.estimate], [0], s=70, color=BLUE, edgecolor="white", linewidth=1.5, zorder=3,
+                   label="Error-adjusted estimate, 95% CI")
+        ax.scatter([row.mapped], [0], s=60, marker="D", facecolor="white", edgecolor=ORANGE, linewidth=2,
+                   zorder=4, label="Mapped (pixel count)")
+        lo, hi = min(row.ci_low, row.mapped), max(row.ci_high, row.mapped)
+        ax.set_xlim(lo - 0.2 * (hi - lo), hi + 0.2 * (hi - lo))
+        ax.set_ylim(-1, 1.2)
+        ax.set_yticks([])
+        ax.spines["left"].set_visible(False)
+        ax.grid(axis="y", visible=False)
+        ax.set_title(label)
+        ax.text(row.estimate, 0.38, f"{row.estimate:,.1f} ± {row.ci:,.1f}", ha="center", fontsize=9.5,
+                color=INK)
+        ax.text(row.mapped, -0.6, f"{row.mapped:,.1f}", ha="center", fontsize=9.5, color=INK2)
+        ax.set_xlabel("thousand ha", fontsize=9)
+        ax.xaxis.set_major_locator(MaxNLocator(4))
+    axes[0].legend(loc="lower left", bbox_to_anchor=(0, 1.22), ncol=2, borderaxespad=0)
+    save(fig, "accuracy_area")
+
+
+def fig_accuracy_sample_size():
+    """Sample size versus the target standard error of the overall accuracy (eq. 13)."""
+    from matplotlib.ticker import FixedLocator, FuncFormatter, NullLocator
+    m, _, names = _olofsson()
+    paper = dict(zip(names, [0.7, 0.6, 0.9, 0.95]))
+    ses = np.linspace(0.005, 0.03, 60)
+    fig, ax = plt.subplots(figsize=(9.0, 3.9))
+    for ua, color, label in [(paper, BLUE, "Expected user's accuracies of the paper: 0.7, 0.6, 0.9, 0.95"),
+                             (0.75, ORANGE, "0.75 for every stratum (the default)")]:
+        n = [zeit.sampling_design(m, expected_ua=ua, std_error=s, min_per_stratum=0).attrs["n"] for s in ses]
+        ax.plot(ses, n, color=color, label=label)
+    n01 = zeit.sampling_design(m, expected_ua=paper, std_error=0.01, min_per_stratum=0).attrs["n"]
+    ax.scatter([0.01], [n01], s=60, color=BLUE, edgecolor="white", linewidth=1.5, zorder=4)
+    ax.annotate(f"{n01} points for a standard error of 0.01", (0.01, n01), xytext=(12, 6),
+                textcoords="offset points", fontsize=9.5, color=INK)
+    ax.set_yscale("log")
+    ax.yaxis.set_major_locator(FixedLocator([100, 200, 500, 1000, 2000, 5000]))
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:,.0f}"))
+    ax.yaxis.set_minor_locator(NullLocator())
+    ax.set_xlabel("Target standard error of the overall accuracy (std_error)")
+    ax.set_ylabel("Sample size n")
+    ax.set_title("Halving the standard error takes about four times the points")
+    ax.legend(loc="upper right")
+    save(fig, "accuracy_sample_size")
+
+
+# ---------------------------------------------------------------------------
+# Embeddings: AlphaEarth and TESSERA over a 5 x 5 km box of the Rondonia scene
+# ---------------------------------------------------------------------------
+# The box sits inside the LT-GEE NDVI stack, where it has the most loss since 2016, so the
+# embeddings can be compared with LandTrendr. The cubes are downloaded once (about 100 s);
+# point ZEIT_DOCS_EMBEDDINGS at a folder to keep them (alphaearth.nc, tessera.nc).
+EMB_BOX = (-63.136, -10.133, -63.086, -10.083)
+EMB_THRESHOLD = {"alphaearth": 0.2, "tessera": 0.3}
+EMB_NAMES = {"alphaearth": "AlphaEarth (64 dims)", "tessera": "TESSERA (128 dims)"}
+_EMB = {}
+
+
+def embeddings():
+    if _EMB:
+        return _EMB
+    import xarray as xr
+    folder = Path(os.environ.get("ZEIT_DOCS_EMBEDDINGS", OUT.parents[2] / "build" / "docs_embeddings"))
+    folder.mkdir(parents=True, exist_ok=True)
+    for name in ("alphaearth", "tessera"):
+        path = folder / f"{name}.nc"
+        if not path.exists():
+            emb = zeit.load_embeddings(EMB_BOX, source=name, years=range(2017, 2026), chunks=None)
+            emb.attrs = {k: v if isinstance(v, (int, float, str)) else str(v) for k, v in emb.attrs.items()}
+            emb.to_netcdf(path)
+        ds = xr.open_dataset(path)
+        da = ds["embeddings"].load()
+        da.attrs.update(ds.attrs)
+        _EMB[name] = da.rio.write_crs("EPSG:32720")
+    return _EMB
+
+
+def _lt_on_embedding_grid(like):
+    """LandTrendr's year of greatest NDVI loss on the embeddings' 10 m grid (nearest)."""
+    from rasterio.enums import Resampling
+    path = os.environ.get("ZEIT_DOCS_RONDONIA")
+    ndvi = zeit.load_raster(path, start_year=1985)
+    x0, y0, x1, y1 = EMB_BOX
+    ndvi = ndvi.rio.clip_box(x0 - 0.01, y0 - 0.01, x1 + 0.01, y1 + 0.01).load()
+    ndvi = ndvi.where(ndvi != 0)
+    ev = zeit.extract_events(zeit.landtrendr(ndvi), min_magnitude=2000)
+    yod = ev.yod.where(ev.dsnr >= 3, 0).astype(np.float32).rio.write_nodata(np.nan, encoded=False)
+    return yod.rio.reproject_match(like, resampling=Resampling.nearest)
+
+
+def fig_embeddings_pca():
+    """The first three principal components as RGB, the same fit for every year."""
+    from zeit._embedding_tools import pca_rgb
+    cubes = embeddings()
+    years = [2018, 2021, 2025]          # TESSERA has no 2017 embedding for most of this box
+    fig, axes = plt.subplots(2, 3, figsize=(13.5, 9.3), gridspec_kw={"wspace": 0.04, "hspace": 0.1})
+    for row, (name, emb) in zip(axes, cubes.items()):
+        rgb = pca_rgb(emb).values
+        for ax, yr in zip(row, years):
+            img = np.moveaxis(rgb[yr - 2017], 0, -1)
+            img = np.where(np.isfinite(img), img, 1.0)
+            ax.imshow(img, interpolation="nearest")
+            map_axes(ax, f"{EMB_NAMES[name].split(' (')[0]}, {yr}")
+    save(fig, "embeddings_pca", photo=True)
+
+
+def _forest_points(cubes, n=25, seed=RNG_SEED):
+    """n pixels that stayed forest through 2017-2024 in the NDVI stack and moved little in
+    the embeddings: the 'samples' a user would click."""
+    import geopandas as gpd
+    aef = cubes["alphaearth"]
+    path = os.environ.get("ZEIT_DOCS_RONDONIA")
+    from rasterio.enums import Resampling
+    ndvi = zeit.load_raster(path, start_year=1985)
+    x0, y0, x1, y1 = EMB_BOX
+    ndvi = ndvi.rio.clip_box(x0 - 0.01, y0 - 0.01, x1 + 0.01, y1 + 0.01).load()
+    low = ndvi.sel(time=slice("2010", "2024")).min("time").astype(np.float32)
+    low = low.rio.reproject_match(aef.isel(time=0, band=0), resampling=Resampling.nearest).values
+    still = zeit.embedding_change(aef).distance.max("time").values < 0.08
+    rr, cc = np.nonzero((low > 8000) & still)
+    pick = np.random.default_rng(seed).choice(len(rr), n, replace=False)
+    xs, ys = aef.x.values[cc[pick]], aef.y.values[rr[pick]]
+    return gpd.GeoDataFrame(geometry=gpd.points_from_xy(xs, ys), crs=aef.rio.crs), rr[pick], cc[pick]
+
+
+def fig_embeddings_similarity(d=None):
+    """Cosine similarity to the mean embedding of 25 forest samples, in 2018 and 2025."""
+    cubes = embeddings()
+    aef = cubes["alphaearth"]
+    pts, rr, cc = _forest_points(cubes)
+    sim = zeit.similarity(aef, pts, year=2018)
+    fig = plt.figure(figsize=(13.5, 4.9))
+    gs = fig.add_gridspec(1, 3, width_ratios=[1, 1, 1.2], wspace=0.2)
+    cmap = LinearSegmentedColormap.from_list("sim", ["#f4f1e4", "#c9dfa4", "#7fb069", "#3a7d44", "#1b4d2b"])
+    for i, yr in enumerate([2018, 2025]):
+        ax = fig.add_subplot(gs[i])
+        im = ax.imshow(sim.sel(time=str(yr)).squeeze().values, cmap=cmap, vmin=0.2, vmax=1.0,
+                       interpolation="nearest")
+        if yr == 2018:
+            ax.scatter(cc, rr, s=36, facecolor="none", edgecolor=ORANGE, linewidth=1.8, label="The 25 samples")
+            ax.legend(loc="upper left", bbox_to_anchor=(0, -0.01), borderaxespad=0)
+        map_axes(ax, f"Similarity to the forest samples, {yr}")
+    cb = fig.colorbar(im, ax=fig.axes[:2], orientation="horizontal", fraction=0.05, pad=0.1, aspect=40)
+    cb.outline.set_visible(False)
+    cb.ax.tick_params(labelsize=9, colors=MUTED, labelcolor=INK2, length=0)
+    cb.set_label("Cosine similarity (AlphaEarth)", color=INK2, fontsize=9.5)
+    ax = fig.add_subplot(gs[2])
+    lo = float(np.floor(np.nanmin(sim.values) * 20) / 20)
+    bins = np.linspace(lo, 1.0, int(round((1 - lo) * 100)) + 1)
+    for yr, color in [(2018, BLUE), (2025, ORANGE)]:
+        v = sim.sel(time=str(yr)).values.ravel()
+        h, _ = np.histogram(v[np.isfinite(v)], bins=bins)
+        ax.stairs(h / h.sum() * 100, bins, color=color, linewidth=2, label=str(yr))
+        print(f"  {yr}: share >= 0.8: {(v >= 0.8).mean():.1%}")
+    ax.set_xlabel("Cosine similarity to the forest samples (AlphaEarth)")
+    ax.set_ylabel("% of the box")
+    ax.set_title("The forest peak shrinks as it is cleared")
+    ax.legend(loc="upper center")
+    ax.set_box_aspect(0.9)
+    save(fig, "embeddings_similarity", photo=True)
+
+
+def fig_embeddings_change(d=None):
+    """Year of the largest change: AlphaEarth, TESSERA and LandTrendr on NDVI, same grid."""
+    cubes = embeddings()
+    like = cubes["alphaearth"].isel(time=0, band=0)
+    maps = {}
+    for name, emb in cubes.items():
+        ev = zeit.extract_events(zeit.embedding_change(emb), min_magnitude=EMB_THRESHOLD[name])
+        maps[name] = ev.yod.where(ev.yod > 0).values
+    lt = _lt_on_embedding_grid(like).values
+    maps["landtrendr"] = np.where((lt >= 2016) & (lt <= 2024), lt, np.nan)
+    titles = {"alphaearth": "AlphaEarth: 1 − cos > 0.2", "tessera": "TESSERA: 1 − cos > 0.3",
+              "landtrendr": "LandTrendr on Landsat NDVI"}
+    cmap = LinearSegmentedColormap.from_list("yrs", ["#fbe3a1", "#f5a45d", "#e0603f", "#a8325e", "#5b1f6b",
+                                                     "#231942"], N=9)
+    fig, axes = plt.subplots(1, 3, figsize=(13.5, 5.3), gridspec_kw={"wspace": 0.04})
+    base = cubes["alphaearth"].isel(time=0)
+    for ax, (name, yod) in zip(axes, maps.items()):
+        ax.imshow(np.ones(like.shape), cmap="Greys", vmin=0, vmax=12)
+        im = ax.imshow(yod + 1, cmap=cmap, vmin=2016.5, vmax=2025.5, interpolation="nearest")
+        map_axes(ax, titles[name])
+    cb = colorbar(fig, im, axes.tolist(), "First year that shows the change", ticks=list(range(2017, 2026)))
+    cb.ax.set_xticklabels([str(y) for y in range(2017, 2026)])
+    a, t, l = (np.isfinite(maps[k]) for k in ("alphaearth", "tessera", "landtrendr"))
+    print(f"  pixels: aef {a.sum()}, tessera {t.sum()}, lt {l.sum()}; "
+          f"aef&lt {(a & l).sum()} within1 {((np.abs(maps['alphaearth'] - maps['landtrendr']) <= 1) & a & l).sum()}; "
+          f"tes&lt {(t & l).sum()} within1 {((np.abs(maps['tessera'] - maps['landtrendr']) <= 1) & t & l).sum()}; "
+          f"aef&tes {(a & t).sum()} within1 {((np.abs(maps['alphaearth'] - maps['tessera']) <= 1) & a & t).sum()}")
+    save(fig, "embeddings_change", photo=True)
+
+
+def fig_embeddings_distance():
+    """How far pixels move in a year: the distribution, and one clearing."""
+    cubes = embeddings()
+    fig, (ax, bx) = plt.subplots(1, 2, figsize=(13.5, 4.0), gridspec_kw={"wspace": 0.22})
+    bins = np.logspace(np.log10(0.005), np.log10(1.2), 70)
+    changes = {}
+    for (name, emb), color in zip(cubes.items(), [BLUE, ORANGE]):
+        ch = zeit.embedding_change(emb)
+        changes[name] = ch
+        d = ch.distance.values.ravel()
+        d = d[np.isfinite(d)]
+        h, _ = np.histogram(d, bins=bins)
+        ax.stairs(h / h.sum() * 100, bins, color=color, linewidth=2, label=EMB_NAMES[name].split(" (")[0])
+        med = np.median(d)
+        ax.axvline(EMB_THRESHOLD[name], color=color, linewidth=1.2, linestyle=(0, (4, 3)))
+        ax.text(EMB_THRESHOLD[name] * 1.06, ax.get_ylim()[1] * 0.0 + (5.2 if name == "alphaearth" else 4.4),
+                f"threshold {EMB_THRESHOLD[name]}", fontsize=9, color=INK2)
+        print(f"  {name}: median {med:.3f}, share above threshold {(d > EMB_THRESHOLD[name]).mean():.3%}")
+    ax.set_xscale("log")
+    ax.set_xticks([0.01, 0.03, 0.1, 0.3, 1], ["0.01", "0.03", "0.1", "0.3", "1"])
+    ax.set_xlabel("Distance to the year before (1 − cos)")
+    ax.set_ylabel("% of pixel-years")
+    ax.set_title("Most pixels barely move; each product has its own scale")
+    ax.legend(loc="upper left")
+    # one pixel cleared in the middle of the record
+    a = changes["alphaearth"].distance.values
+    t = changes["tessera"].distance.values
+    score = np.nan_to_num(a[3]) * 4 + np.nan_to_num(t[3]) - np.nan_to_num(np.delete(a, 3, 0)).max(0) * 4
+    r, c = np.unravel_index(np.argmax(np.where(np.isfinite(t).all(0), score, -9)), score.shape)
+    years = np.arange(2018, 2026)
+    for d, color, name in [(a, BLUE, "AlphaEarth"), (t, ORANGE, "TESSERA")]:
+        bx.plot(years, d[:, r, c], color=color, marker="o", markersize=5, label=name)
+    bx.set_xlabel("Year (distance to the year before)")
+    bx.set_ylabel("1 − cos")
+    bx.set_title("One pixel cleared between 2020 and 2021")
+    year_axis(bx, 1)
+    bx.legend(loc="upper right")
+    save(fig, "embeddings_distance")
+
+
+def fig_embeddings_som():
+    """Unsupervised: six SOM clusters of the 2025 embeddings, next to their colours."""
+    from zeit._embedding_tools import pca_rgb
+    aef = embeddings()["alphaearth"]
+    year = aef.sel(time="2025").squeeze("time", drop=True)
+    clusters = zeit.som(year, x=2, y=3, sample=20_000, seed=0) if "seed" in zeit.som.__code__.co_varnames \
+        else zeit.som(year, x=2, y=3, sample=20_000)
+    lab = np.asarray(clusters.label.values, dtype=float)
+    rgb = np.moveaxis(pca_rgb(aef).sel(time="2025").squeeze().values, 0, -1)
+    fig, (ax, bx) = plt.subplots(1, 2, figsize=(11.5, 5.9), gridspec_kw={"wspace": 0.04})
+    ax.imshow(rgb, interpolation="nearest")
+    map_axes(ax, "AlphaEarth 2025, three principal components")
+    cmap = ListedColormap(["#2a78d6", "#eb6834", "#1baf7a", "#4a3aa7", "#e8b422", "#8a8780"])
+    bx.imshow(lab, cmap=cmap, vmin=-0.5, vmax=5.5, interpolation="nearest")
+    map_axes(bx, "zeit.som: six clusters, no labels")
+    save(fig, "embeddings_som", photo=True)
+
+
 FIGURES = {
-    "hero_loss_year": (fig_hero, True),
+    "hero_stack": (fig_hero_stack, True),
     "landtrendr_maps": (fig_landtrendr_maps, True),
     "landtrendr_pixels": (fig_landtrendr_pixels, True),
     "concept_pixel_time_series": (fig_pixel_time_series, True),
@@ -937,6 +1392,15 @@ FIGURES = {
     "twdtw_matching": (fig_twdtw, False),
     "smoothing": (fig_smoothing, False),
     "tempcnn_training": (fig_tempcnn, False),
+    "accuracy_sample": (fig_accuracy_sample, True),
+    "accuracy_matrix": (fig_accuracy_matrix, False),
+    "accuracy_area": (fig_accuracy_area, False),
+    "accuracy_sample_size": (fig_accuracy_sample_size, False),
+    "embeddings_pca": (fig_embeddings_pca, False),
+    "embeddings_similarity": (fig_embeddings_similarity, True),
+    "embeddings_change": (fig_embeddings_change, True),
+    "embeddings_distance": (fig_embeddings_distance, False),
+    "embeddings_som": (fig_embeddings_som, False),
 }
 
 # ---------------------------------------------------------------------------

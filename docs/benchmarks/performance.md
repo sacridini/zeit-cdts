@@ -9,14 +9,11 @@ This page documents the **computational performance** of `zeit` across single-co
 Single-core execution evaluates algorithmic efficiency without the confounding factor of multi-threading. Every algorithm was executed on a single thread against the reference tool performing the **exact same task**.
 
 <div class="bm-chart-card">
-  <div class="bm-legend">
-    <span class="bm-legend-item"><i class="bm-legend-swatch" style="background:var(--bm-zeit);"></i> Zeit faster</span>
-    <span class="bm-legend-item"><i class="bm-legend-swatch" style="background:var(--bm-ref);"></i> Original tool faster</span>
-  </div>
-  <img src="../../assets/benchmarks_singlecore.svg" alt="Single-Core Speedup" class="benchmark-chart" />
-  <p class="bm-kpi-sub" style="margin-top: 10px;">
-    Log-scale comparison (1 thread). The dashed line at 1× represents the break-even baseline. LandTrendr (168×) and CCDC (84×) isolate in-interpreter algorithm execution time (interpreter startup and compilation excluded). Hover over bars for exact speedups.
-  </p>
+<p class="bm-chart-title">Single-core speedup over the reference tool</p>
+<p class="bm-chart-sub">Log scale; the dark line at 1× is break-even. LandTrendr (168×) and CCDC (84×) time the algorithm inside the interpreter (interpreter start-up and compilation excluded). The fidelity column is explained in the <a href="../#speed-and-fidelity-at-a-glance">overview</a>. Hover over a row for the exact numbers.</p>
+<div class="bm-chart-scroll">
+--8<-- "docs/assets/charts/speedup_overview.svg"
+</div>
 </div>
 
 ### Single-Core Benchmark Data
@@ -62,6 +59,16 @@ A common benchmarking pitfall is looking only at relative gain (T₁ / T_multi).
 
 The table below lines up **absolute wall-clock times** to show who finishes first when both sides utilize all available CPU cores:
 
+<div class="bm-chart-card">
+<div class="bm-chart-legend">
+<span><i class="dot" style="background:var(--bm-zeit)"></i>Zeit, 20 threads</span>
+<span><i class="dot" style="background:var(--bm-ref)"></i>Reference, all workers</span>
+</div>
+<div class="bm-chart-scroll">
+--8<-- "docs/assets/charts/finish_first.svg"
+</div>
+</div>
+
 | Algorithm | Workload Scale | Reference Parallel Framework | Zeit (1 Thread) | Zeit (20 Threads) | Zeit Gain | Reference (1 Thread) | Reference (Multi-Worker) | Reference Gain | **Who Finishes First (Multi-Core)** |
 |:---|:---|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | **LandTrendr** | **54.7M px** × 41 yrs | — (GDL has no native parallel) | 904.77 s | **98.44 s** | **9.19×** | — | — | — | **Zeit finishes tile in 1.6 min** |
@@ -91,13 +98,17 @@ A central design goal of Zeit is eliminating cloud lock-in for regional and cont
 - **Environment:** Intel Core i5-13600K (desktop PC, 20 threads, 64 GB RAM).
 - **Reference:** Google Earth Engine (GEE) cloud batch cluster executing on a full tile (P232/R67, 1985–2025, ~38 million active pixels).
 
-```mermaid
-xychart-beta
-    title "Active Compute Throughput (Pixels per Second - Higher is Better)"
-    x-axis ["GEE Cloud Cluster", "Zeit Single-Thread (1T)", "Zeit Multi-Thread (20T)"]
-    y-axis "Pixels / Second" 0 --> 600000
-    bar [27213, 60492, 556007]
-```
+<div class="bm-chart-card">
+<div class="bm-chart-legend">
+<span><i style="background:var(--bm-zeit)"></i>Zeit, 20 threads</span>
+<span><i style="background:var(--bm-gpu-lo)"></i>Zeit, 1 thread</span>
+<span><i style="background:var(--bm-ref)"></i>Google Earth Engine</span>
+<span><i style="background:var(--bm-grid)"></i>Waiting in Earth Engine's queue</span>
+</div>
+<div class="bm-chart-scroll">
+--8<-- "docs/assets/charts/gee_tile.svg"
+</div>
+</div>
 
 ### Full Landsat Tile Comparison
 

@@ -55,6 +55,33 @@ To verify that Zeit can serve as a drop-in, scientifically reliable replacement 
 
 ---
 
+## Speed and Fidelity at a Glance
+
+Every port is held to two standards at once: it must give the reference tool's answer, and it must give it faster. The chart lines both up for each algorithm. Hover over (or tab to) a row for the exact numbers; the full matrix follows below.
+
+<div class="bm-chart-card">
+<p class="bm-chart-title">Single-core speedup over the reference tool, and how closely Zeit reproduces it</p>
+<p class="bm-chart-sub">Same task, one thread on each side. Log scale: each grid line is ten times the one before. A light extension shows the range over several workloads.</p>
+<div class="bm-chart-legend">
+<span><i style="background:var(--bm-zeit)"></i>Zeit faster</span>
+<span><i style="background:var(--bm-zeit);opacity:.3"></i>Range across workloads</span>
+<span><i style="background:var(--bm-ref)"></i>Zeit slower</span>
+</div>
+<div class="bm-chart-legend">
+<span><i class="pill" style="background:var(--zeit-teal)"></i>Identical output</span>
+<span><i class="pill" style="background:var(--zeit-teal-soft);box-shadow:inset 0 0 0 1px var(--zeit-teal)"></i>Equal within 1e-7</span>
+<span><i class="pill" style="background:var(--bm-grid)"></i>Close: same method, small numerical differences</span>
+<span><i class="pill" style="box-shadow:inset 0 0 0 1px var(--bm-refline)"></i>Analog: no reference with the same architecture</span>
+</div>
+<div class="bm-chart-scroll">
+--8<-- "docs/assets/charts/speedup_overview.svg"
+</div>
+</div>
+
+Ten of the fourteen ports return the reference tool's own output, bit for bit or to floating-point rounding, and thirteen are faster on a single core before any parallelism (U-TAE only by 8%). The three "close" ports fit curves or search for breaks with numerical optimisers, where tiny differences in the starting point or in the stopping rule move a date by a few days ([Fidelity](fidelity.md) has the details). U-TAE runs on the same PyTorch backend as its reference, so the two tie; the Siamese detector has no reference with the same architecture.
+
+---
+
 ## Comparison Matrix at a Glance
 
 The table below summarizes the scope of our validation suite. Each comparison reflects reproducible benchmarks logged in the Zeit testing repository.
@@ -128,6 +155,34 @@ The prevailing assumption in remote sensing has been that massive spatial workfl
 - **Zeit processing 54,731,482 pixels (41 years)** on a single desktop PC completed in **98.44 seconds** (556,007 pixels/sec) using OpenMP.
 - **Google Earth Engine's distributed cluster** executed active server compute on ~38M pixels in **1,396 seconds** (27,213 pixels/sec), with an additional **5.08 hours of cloud queue latency**.
 - Zeit delivered **20.4× higher compute throughput** than GEE's server cluster, with zero queue overhead and zero network egress costs.
+
+<div class="bm-chart-card">
+<p class="bm-chart-title">LandTrendr on a full Landsat tile: a desktop PC against Google Earth Engine</p>
+<p class="bm-chart-sub">54.7 million pixels × 41 years on an Intel Core i5-13600K; about 38 million active pixels on Earth Engine's batch workers. Top: throughput while computing. Bottom: the time from submitting the job to having the result.</p>
+<div class="bm-chart-legend">
+<span><i style="background:var(--bm-zeit)"></i>Zeit, 20 threads</span>
+<span><i style="background:var(--bm-gpu-lo)"></i>Zeit, 1 thread</span>
+<span><i style="background:var(--bm-ref)"></i>Google Earth Engine</span>
+<span><i style="background:var(--bm-grid)"></i>Waiting in Earth Engine's queue</span>
+</div>
+<div class="bm-chart-scroll">
+--8<-- "docs/assets/charts/gee_tile.svg"
+</div>
+</div>
+
+When both sides use every core, the gap stays wide for the statistical tools, whose reference implementations pay for each worker with an interpreter, and closes for the deep-learning models, which run on the same tensor libraries:
+
+<div class="bm-chart-card">
+<p class="bm-chart-title">Who finishes first with every core</p>
+<p class="bm-chart-sub">Wall-clock time of Zeit with 20 OpenMP threads and of the reference with its own parallel framework (19 R or Python workers, or intra-op threads for the neural networks). Each row is its own workload; log scale.</p>
+<div class="bm-chart-legend">
+<span><i class="dot" style="background:var(--bm-zeit)"></i>Zeit, 20 threads</span>
+<span><i class="dot" style="background:var(--bm-ref)"></i>Reference, all workers</span>
+</div>
+<div class="bm-chart-scroll">
+--8<-- "docs/assets/charts/finish_first.svg"
+</div>
+</div>
 
 ### 3. Phenology: Start-of-Season is Robust; Senescence is Ambiguous
 

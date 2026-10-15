@@ -30,12 +30,24 @@ pip install zeit-cdts
 
 </div>
 
-<figure class="zeit-hero__figure" markdown>
-  ![Map of the year of forest loss in Rondônia, Brazil, detected by LandTrendr](assets/figures/hero_loss_year.webp)
-  <figcaption>40 years of Landsat NDVI (1985–2024) over Rondônia, Brazil. Each colored pixel shows the year of its largest abrupt vegetation loss found by <a href="tutorials/landtrendr/">LandTrendr</a>: a drop of at least 0.2 NDVI, clearly above the pixel's noise. The map shows one event per pixel, not every loss since 1985, and gray is not always intact forest: clearings where NDVI fell slowly or stayed high as pasture are often left out. The run covered 2.8 million pixels and took about 5 seconds on a desktop CPU. <em>Data: annual Landsat NDVI composites exported from <a href="https://github.com/eMapR/LT-GEE">LT-GEE</a> on Google Earth Engine.</em></figcaption>
-</figure>
+<div class="zeit-stack" style="--px-x:37.7%; --px-y:50.2%" role="img" aria-label="Four yearly NDVI images of the same place in Rondônia (1990, 2000, 2010, 2024) stacked in time, with the LandTrendr map of the year of loss on top, and the NDVI time series of one pixel through the stack">
+<div class="zeit-stack__scene">
+<div class="zeit-stack__layer" style="--i:0"><img src="assets/figures/hero/ndvi_1990.webp" alt="" width="480" height="480"><span class="zeit-stack__tag">1990</span><i class="zeit-stack__px"></i></div>
+<div class="zeit-stack__layer" style="--i:1"><img src="assets/figures/hero/ndvi_2000.webp" alt="" width="480" height="480"><span class="zeit-stack__tag">2000</span><i class="zeit-stack__px"></i></div>
+<div class="zeit-stack__layer" style="--i:2"><img src="assets/figures/hero/ndvi_2010.webp" alt="" width="480" height="480"><span class="zeit-stack__tag">2010</span><i class="zeit-stack__px"></i></div>
+<div class="zeit-stack__layer" style="--i:3"><img src="assets/figures/hero/ndvi_2024.webp" alt="" width="480" height="480"><span class="zeit-stack__tag">2024</span><i class="zeit-stack__px"></i></div>
+<div class="zeit-stack__layer zeit-stack__layer--result" style="--i:4"><img src="assets/figures/hero/loss_year.webp" alt="" width="480" height="480"><span class="zeit-stack__tag">Year of loss</span><i class="zeit-stack__px"></i></div>
+</div>
+<div class="zeit-stack__card">
+<div class="zeit-stack__card-head"><span class="zeit-stack__dot"></span>One pixel, 40 years of Landsat NDVI</div>
+--8<-- "docs/assets/figures/hero/pixel_chart.svg"
+<div class="zeit-stack__card-foot"><span><i class="k-obs"></i>observed</span><span><i class="k-fit"></i>LandTrendr fit</span></div>
+</div>
+</div>
 
 </div>
+
+<p class="zeit-hero__note"><strong>The stack:</strong> 40 years of Landsat NDVI over Rondônia, Brazil, one image per year. Zeit reads each pixel through the stack as a time series and finds when it changed; the map on top is LandTrendr's year of the largest loss, for 2.8 million pixels in about 5 seconds on a desktop CPU. <em>Data: annual Landsat NDVI composites exported from <a href="https://github.com/eMapR/LT-GEE">LT-GEE</a>.</em></p>
 
 ## What is Zeit?
 
