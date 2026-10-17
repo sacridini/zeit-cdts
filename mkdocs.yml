@@ -157,9 +157,10 @@ nav:
           - tutorials/ai.md
           - TempCNN: tutorials/tempcnn.md
           - LTAE & LightTAE: tutorials/ltae.md
+          - Presto: tutorials/presto.md
           - UTAE: tutorials/utae.md
           - Siamese Change Detector: tutorials/siamese.md
-          - GeoFoundationViT: tutorials/geo_foundation_vit.md
+          - Prithvi: tutorials/prithvi.md
       - Scaling Up:
           - Parallel & Cloud Processing: tutorials/parallel-cloud-processing.md
   - API Reference:

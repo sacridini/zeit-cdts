@@ -13,16 +13,18 @@
 |---|---|---|---|---|
 | **LTAE & LightTAE** | Per-pixel time series classification | `(Batch, Time, Bands)` | [LTAE & LightTAE](ltae.md) | `sits_lighttae()` (R) |
 | **TempCNN** | Per-pixel time series classification | `(Batch, Bands, Time)` | [TempCNN](tempcnn.md) | `sits_tempcnn()` (R) |
+| **Presto** | Pretrained per-pixel model: classification from few samples, embeddings | `(Batch, Time, Bands)`, the cube's units | [Presto](presto.md) | Official [nasaharvest/presto](https://github.com/nasaharvest/presto) encoder, same weights |
 | **UTAE** | Spatio-temporal segmentation (whole-patch class map) | `(Batch, Time, Bands, H, W)` | [UTAE](utae.md) | Official [VSainteuf/utae-paps](https://github.com/VSainteuf/utae-paps) reference (bit-for-bit exact) |
-| **Siamese Change Detector** | Bi-temporal change detection (two dates) | Two `(Batch, Bands, H, W)` images | [Siamese Change Detector](siamese.md) | Independent implementation (not a line-for-line port) |
-| **GeoFoundationViT** | Transfer learning from pretrained geospatial foundation models | Backbone-dependent | [GeoFoundationViT](geo_foundation_vit.md) | Inherits correctness from the loaded backbone |
+| **Siamese Change Detector** | Bi-temporal change detection (two dates) | Two `(Batch, Bands, H, W)` images | [Siamese Change Detector](siamese.md) | FC-Siam-diff, same outputs as the authors' code with the same weights |
+| **Prithvi** | Segmentation from the pretrained Prithvi-EO-2.0 foundation model | `(Batch, Bands, Time, H, W)`, the six HLS bands | [Prithvi](prithvi.md) | Official `prithvi_mae.py` encoder, same weights |
 
 **Choosing a model:**
 
 - Have a long, well-sampled per-pixel time series and want the best accuracy? Try [LightTAE](ltae.md) first, and [TempCNN](tempcnn.md) as a faster/simpler baseline.
+- Few labelled samples, gappy series or several sensors (Sentinel-1 and -2)? Fine-tune the pretrained [Presto](presto.md).
 - Need a class map over a spatial patch, not just individual pixels? Use [UTAE](utae.md).
 - Have exactly two dates and want a change map between them? Use the [Siamese Change Detector](siamese.md).
-- Have very little labeled data for your task? Consider [GeoFoundationViT](geo_foundation_vit.md) to transfer-learn from a large pretrained backbone.
+- Have very few labelled windows of HLS-like data? Fine-tune the pretrained [Prithvi](prithvi.md) foundation model.
 
 ## From a cube to a map
 
@@ -39,7 +41,7 @@ samples = ai.samples(cube, "samples.gpkg", label="class")
 samples                                          # SampleSet(2140 pixels: 1712 train, 428 val; 23 dates x 4 bands; ...)
 ```
 
-The samples are points or polygons with a class column, in any CRS. For the pixel models (`TempCNN`, `LightTAE`) each sample is one pixel's series, `(time, band)`, and a polygon gives every pixel it covers. For the patch models (`UTAE`, `SiameseChangeDetector`, `GeoFoundationViT`) pass `patch=` a size in pixels: each sample is the window around a point or a polygon (large polygons are tiled by windows), with every labelled pixel in it. Patch models learn best from polygons: a window around a point has a single labelled pixel.
+The samples are points or polygons with a class column, in any CRS. For the pixel models (`TempCNN`, `LightTAE`, `Presto`) each sample is one pixel's series, `(time, band)`, and a polygon gives every pixel it covers. For the patch models (`UTAE`, `SiameseChangeDetector`, `Prithvi`) pass `patch=` a size in pixels: each sample is the window around a point or a polygon (large polygons are tiled by windows), with every labelled pixel in it. Patch models learn best from polygons: a window around a point has a single labelled pixel.
 
 Two things happen here that are easy to get wrong by hand:
 
@@ -70,10 +72,10 @@ ai.save(model, "tempcnn_2022.pt")                 # with what predict checks
 
 | Model | `samples(..., patch=)` | Dates when predicting |
 | :--- | :--- | :--- |
-| `TempCNN`, `LightTAE` | `None` (pixels) | as many as in training |
+| `TempCNN`, `LightTAE`, `Presto` | `None` (pixels) | as many as in training |
 | `UTAE` | a multiple of 8 (default U-Net) | any |
-| `SiameseChangeDetector` | even; the data is a pair `(before, after)` | a pair |
-| `GeoFoundationViT` | 224 for Prithvi (6 bands) | as in training |
+| `SiameseChangeDetector` | 16 or more; the data is a pair `(before, after)` | a pair |
+| `Prithvi` | a multiple of 16 (224 as pretrained), the six HLS bands | as in training |
 
 For change detection with the Siamese model, the data is a pair of images and the classes are e.g. `change` and `same`:
 
@@ -134,7 +136,8 @@ Each architecture has its own tutorial, on how it works, when to use it, its arg
 - [UTAE](utae.md)
 - [TempCNN](tempcnn.md)
 - [Siamese Change Detector](siamese.md)
-- [GeoFoundationViT](geo_foundation_vit.md)
+- [Presto](presto.md)
+- [Prithvi](prithvi.md)
 
 ---
 

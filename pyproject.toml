@@ -31,8 +31,6 @@ dependencies = [
     "stackstac",
     "geopandas",
     "torch",
-    "einops",
-    "transformers",
     "planetary-computer",
     "earthengine-api",
     "requests",

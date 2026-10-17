@@ -17,6 +17,7 @@
 | Which land-cover types exist here, with no labels at all? | [SOM](../tutorials/som.md) | Any cube |
 | Can I work with fields and patches instead of pixels? | [SNIC](../tutorials/snic.md) | Any cube |
 | I have many labelled samples and want the best classifier. | [TempCNN / LightTAE](../tutorials/ai.md) | Labelled time series |
+| I have few labelled samples, gaps or several sensors. | [Presto](../tutorials/presto.md) (pretrained) | Monthly composites, up to 24 |
 | I have two dates and labelled change masks. | [Siamese Change Detector](../tutorials/siamese.md) | Image pairs + masks |
 
 ## A quick decision guide
@@ -35,7 +36,7 @@ flowchart TD
     B -->|"Whole history"| BL["BFAST Lite / BFAST"]
     B -->|"New observations only"| BM["BFAST Monitor"]
 
-    L -->|"A few examples per class"| TW["TWDTW"]
+    L -->|"A few examples per class"| TW["TWDTW / Presto"]
     L -->|"Many labelled samples"| DL["TempCNN / LightTAE / U-TAE"]
     L -->|"None"| SO["SOM clustering"]
 ```

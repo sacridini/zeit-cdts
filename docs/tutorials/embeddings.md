@@ -207,6 +207,10 @@ On this box, with the thresholds above:
 
 The maps also differ, and for reasons worth knowing. LandTrendr was asked for losses of NDVI only; the embeddings find any change, so changes inside fields (the dark block on the right of TESSERA's map is a field in every year, and changed in 2025) show up in them and not in LandTrendr. LandTrendr works on 30 m Landsat pixels, so its map is grainier, and its record starts in 1985: its losses of 2017 (light yellow) happened between the 2016 and 2017 images, before the first embedding, so the embeddings cannot see them. And TESSERA, at 0.3, flags more pixels than AlphaEarth at 0.2, among them small edges and field margins: a higher threshold, or `min_dsnr`, makes it stricter.
 
+## Embeddings of your own cube
+
+TESSERA and AlphaEarth are made once a year, for the years they cover. [`zeit.ai.presto_embeddings`](presto.md#embeddings-of-a-cube) makes embeddings from a cube you have, of any period of up to 24 dates (monthly composites of Sentinel-2 and/or Sentinel-1, ERA5, SRTM), with the pretrained Presto encoder: 128 dimensions per pixel, tagged as Presto's, and everything on this page takes them as it takes TESSERA's.
+
 ## Earth Engine, local copies, versions
 
 - AlphaEarth comes by default from its open copy on Source Cooperative: free, no account, no quota. `backend="gee"` reads it from the `GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL` collection of Earth Engine instead (start a session with `zeit.gee.auth.initialize_gee()`), which counts against the account's quota; each year is downloaded once into `cache_dir`.

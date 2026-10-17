@@ -59,7 +59,7 @@
 
     ---
 
-    TempCNN, LightTAE, U-TAE, Siamese and foundation models; datasets and losses.
+    TempCNN, LightTAE, Presto, U-TAE, Siamese and foundation models; datasets and losses.
 
 -   :material-grid:{ .lg .middle } **[Xarray Accessor](xarray.md)**
 
@@ -141,9 +141,10 @@
 | [`ai.samples`](ai.md#samples), [`ai.train`](ai.md#train), [`ai.predict`](ai.md#predict) | From a cube and labelled samples to a map with a deep learning model |
 | [`ai.save`](ai.md#save), [`ai.load`](ai.md#load) | Keep a trained model with what prediction checks |
 | [`TempCNN`](ai.md#tempcnn), [`LightTAE`](ai.md#lighttae), [`LTAE`](ai.md#ltae) | Pixel time-series classifiers |
+| [`Presto`](ai.md#presto), [`presto_embeddings`](ai.md#presto_embeddings) | Pretrained pixel model; embeddings of a cube |
 | [`UTAE`](ai.md#utae) | Spatio-temporal patch segmentation |
 | [`SiameseChangeDetector`](ai.md#siamesechangedetector) | Two-date change detection |
-| [`GeoFoundationViT`](ai.md#geofoundationvit) | Foundation-model fine-tuning |
+| [`Prithvi`](ai.md#prithvi) | Prithvi-EO-2.0 foundation model, fine-tuned to a class per pixel |
 | [`STACCubeDataset`](ai.md#staccubedataset) | Windows that cover a lazy cube, for a loop of your own |
 | [`FocalLoss`](ai.md#focalloss), [`TverskyLoss`](ai.md#tverskyloss), [`ContrastiveSiameseLoss`](ai.md#contrastivesiameseloss) | Losses for imbalanced data |
 | **Many tiles & helpers** | |

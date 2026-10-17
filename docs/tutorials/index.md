@@ -89,9 +89,10 @@ PyTorch models for classification and change detection, weight-compatible with t
 | Overview | Available models, data loading, loss functions | [Deep Learning](ai.md) |
 | TempCNN | Pixel time-series classification (convolutional) | [TempCNN](tempcnn.md) |
 | LTAE / LightTAE | Pixel time-series classification (attention) | [LTAE & LightTAE](ltae.md) |
+| Presto | Pretrained pixel time-series model: few samples, gaps, embeddings of a cube | [Presto](presto.md) |
 | U-TAE | Segmentation of whole image patches over time | [UTAE](utae.md) |
 | Siamese | Change detection between two dates | [Siamese Change Detector](siamese.md) |
-| GeoFoundationViT | Fine-tuning pretrained foundation models | [GeoFoundationViT](geo_foundation_vit.md) |
+| Prithvi | Fine-tuning the Prithvi-EO-2.0 foundation model | [Prithvi](prithvi.md) |
 
 ## Getting and preparing data
 

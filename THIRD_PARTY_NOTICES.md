@@ -21,6 +21,8 @@ compiled `zeit._core` extension as a whole is distributed under the terms of
 | `src/mann_kendall.cpp` | [pymannkendall](https://github.com/mmhs013/pymannkendall), Hussain & Mahmud (2019) | MIT |
 | `src/phenology*.cpp` (methodology) | R package [phenofit](https://github.com/eco-hydro/phenofit), Kong et al. (2022) | GPL-2.0 |
 | `zeit/ai/utae.py` (U-TAE, L-TAE) | [VSainteuf/utae-paps](https://github.com/VSainteuf/utae-paps), Garnot & Landrieu (2021) | MIT |
+| `zeit/ai/presto.py` (Presto encoder; its pretrained weights are downloaded, not bundled) | [nasaharvest/presto](https://github.com/nasaharvest/presto), Tseng et al. (2023) | MIT |
+| `zeit/ai/prithvi.py` (Prithvi-EO-2.0 encoder; its pretrained weights are downloaded, not bundled) | `prithvi_mae.py` of [ibm-nasa-geospatial/Prithvi-EO-2.0](https://huggingface.co/ibm-nasa-geospatial), Szwarcman et al. (2024), IBM Corp. | Apache-2.0 |
 | `zeit/ai/tempcnn.py` (architecture) | R package [sits](https://github.com/e-sensing/sits), `sits_tempcnn()` | GPL-2.0 |
 | `zeit/segmentation.py` (seed grids) | R package [snic](https://github.com/rolfsimoes/snic), `snic_grid()` | GPL-2.0 |
 | `src/warp.cpp` (resampling kernels of `load_raster(..., like=)`) | [GDAL](https://gdal.org) 3.12, `alg/gdalwarpkernel.cpp`, Warmerdam, Rouault et al. (via landschaft, same author as Zeit) | MIT |
@@ -56,6 +58,7 @@ The following copyright notices apply to the MIT-licensed code listed above:
 - Copyright (c) 2018 Global Environmental Remote Sensing Lab (GERSL/CCDC)
 - Copyright (c) 2019 Md. Manjurul Hussain Shourov (pymannkendall)
 - Copyright (c) 2021 VSainteuf (utae-paps)
+- Copyright (c) 2024 Presto Authors (nasaharvest/presto)
 
 > Permission is hereby granted, free of charge, to any person obtaining a copy
 > of this software and associated documentation files (the "Software"), to deal

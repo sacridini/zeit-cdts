@@ -45,8 +45,7 @@ try:
 except ImportError:
     pass
 
-# Loaded on first use, so that `import zeit` stays fast: zeit.ai pulls in torch and
-# transformers, the STAC cube builders pystac-client and stackstac, the classifiers sklearn.
+# Loaded on first use, so that `import zeit` stays fast: zeit.ai pulls in torch, the STAC cube builders pystac-client and stackstac, the classifiers sklearn.
 _LAZY = {
     "build_time_series": ".cube",
     "build_annual_composites": ".cube",

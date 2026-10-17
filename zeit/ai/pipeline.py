@@ -9,6 +9,7 @@ classes, the normalization, the patch size) travels with the model in ``zeit_met
 """
 
 import copy
+import inspect
 import threading
 import warnings
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
@@ -130,7 +131,8 @@ class SampleSet(Dataset):
 
     def __getitem__(self, i: int) -> Dict[str, torch.Tensor]:
         k = self.indices[i]
-        return {"x": torch.from_numpy(_normalize(self.X[k], self._low, self._range, patch=self.patch is not None)),
+        return {"x": torch.from_numpy(_normalize(self.X[k], self._low, self._range, patch=self.patch is not None,
+                                                 raw=self.meta.get("raw", False))),
                 "y": torch.as_tensor(self.y[k], dtype=torch.long),
                 "positions": self._positions}
 
@@ -157,9 +159,12 @@ class SampleSet(Dataset):
                 f"classes {self.classes})")
 
 
-def _normalize(x: np.ndarray, low: np.ndarray, rng: np.ndarray, patch: bool) -> np.ndarray:
+def _normalize(x: np.ndarray, low: np.ndarray, rng: np.ndarray, patch: bool, raw: bool = False) -> np.ndarray:
     """(x - q02) / (q98 - q02) per band (the band axis is 1 of (time, band[, y, x]) and
-    -1 of (n, time, band)), missing values as 0."""
+    -1 of (n, time, band)), missing values as 0; ``raw``: the values as they are, NaN where
+    missing (for a model with a normalization of its own, as Presto)."""
+    if raw:
+        return x.astype(np.float32, copy=False)
     shape = (1, -1, 1, 1) if patch else (1, -1)
     out = (x - low.reshape(shape)) / rng.reshape(shape)
     return np.nan_to_num(out, nan=0.0).astype(np.float32, copy=False)
@@ -192,9 +197,9 @@ def samples(
         The column holding the class.
     patch
         ``None`` (default): one sample per pixel, ``(time, band)``, for the pixel models
-        (``TempCNN``, ``LightTAE``); a polygon gives every pixel it covers. A size in
+        (``TempCNN``, ``LightTAE``, ``Presto``); a polygon gives every pixel it covers. A size in
         pixels: a ``(time, band, patch, patch)`` window around each sample for the patch
-        models (``UTAE``, ``SiameseChangeDetector``, ``GeoFoundationViT``), with every
+        models (``UTAE``, ``SiameseChangeDetector``, ``Prithvi``), with every
         labelled pixel in it (points and polygons rasterized) and ``-1`` elsewhere.
     split
         Share of the samples kept for validation (``0``: none).
@@ -274,6 +279,7 @@ def samples(
         raise ValueError("no sample has data")
 
     is_val = _split(rows, cols, split, split_by, block_size, seed)
+    latlon = _center_latlon(cube, rows, cols)
     train_values = X[~is_val] if (~is_val).any() else X
     by_band = np.moveaxis(train_values, 2, 0).reshape(train_values.shape[2], -1)
     low = np.nanquantile(by_band, 0.02, axis=1) if np.isfinite(by_band).any() else np.zeros(len(by_band))
@@ -289,8 +295,22 @@ def samples(
         "patch": None if patch is None else int(patch),
         "label": label,
         "embedding": embedding_meta(data),
+        "latlon": latlon,
     }
     return SampleSet(X, y, is_val, meta)
+
+
+def _center_latlon(cube: xr.DataArray, rows: np.ndarray, cols: np.ndarray) -> Optional[List[float]]:
+    """Latitude and longitude (degrees) of the centre of the samples, or None without a CRS."""
+    if cube.rio.crs is None or not len(rows):
+        return None
+    from rasterio.warp import transform
+
+    lon, lat = transform(cube.rio.crs, "EPSG:4326", cube.x.values[cols].tolist(), cube.y.values[rows].tolist())
+    lat, lon = np.radians(lat), np.radians(lon)
+    # the mean on the sphere (longitudes across the antimeridian average right)
+    x, y, z = (np.cos(lat) * np.cos(lon)).mean(), (np.cos(lat) * np.sin(lon)).mean(), np.sin(lat).mean()
+    return [float(np.degrees(np.arctan2(z, np.hypot(x, y)))), float(np.degrees(np.arctan2(y, x)))]
 
 
 def _rasterize(geometries, ids: np.ndarray, transform, shape) -> np.ndarray:
@@ -390,14 +410,16 @@ def _split(rows: np.ndarray, cols: np.ndarray, split: float, split_by: str, bloc
 class _Spec:
     """How zeit builds a model from the samples and calls it."""
 
-    def __init__(self, kind: str, build: Callable[[Dict[str, Any]], Dict[str, Any]],
+    def __init__(self, kind: str, build: Callable[[Dict[str, Any], Dict[str, Any]], Dict[str, Any]],
                  forward: Callable[[nn.Module, torch.Tensor, torch.Tensor], torch.Tensor],
-                 fixed_times: bool, check: Optional[Callable[[Dict[str, Any], nn.Module], None]] = None):
+                 fixed_times: bool, check: Optional[Callable[[Dict[str, Any], nn.Module], None]] = None,
+                 raw: bool = False):
         self.kind = kind            # "pixel" or "patch"
-        self.build = build          # meta -> the keyword arguments zeit fills in
+        self.build = build          # (meta, the user's arguments) -> the keyword arguments zeit fills in
         self.forward = forward      # (model, x, positions) -> logits
         self.fixed_times = fixed_times
         self.check = check
+        self.raw = raw              # the model takes the values as they are (normalization of its own)
 
 
 def _specs() -> Dict[str, _Spec]:
@@ -413,33 +435,65 @@ def _specs() -> Dict[str, _Spec]:
     def siamese_check(meta, model):
         if len(meta["positions"]) != 2:
             raise ValueError("SiameseChangeDetector takes a pair of images: samples of (before, after)")
-        if meta["patch"] % 2:
-            raise ValueError(f"SiameseChangeDetector halves the patch once: use an even patch, got {meta['patch']}")
+        if meta["patch"] < 16:
+            raise ValueError(f"SiameseChangeDetector halves the patch four times: use a patch of 16 or more, "
+                             f"got {meta['patch']}")
 
+    def high(meta):
+        return [lo + r for lo, r in zip(meta["norm_low"], meta["norm_range"])]
+
+    def presto_build(meta, given):
+        from .presto import settings
+
+        out = settings(meta["bands"], meta["times"], meta["norm_low"], high(meta), given.get("band_map"))
+        if meta.get("latlon"):
+            out["latlon"] = list(meta["latlon"])
+        return {**out, "num_classes": n(meta, "classes")}
+
+    def prithvi_build(meta, given):
+        from .prithvi import match_bands
+
+        found = match_bands(meta["bands"], given.get("band_map"))
+        out = {"bands": list(meta["bands"]), "n_dates": n(meta, "times"), "num_classes": n(meta, "classes"),
+               # reflectance from 0 to 1, or already times 10,000
+               "reflectance_scale": 1e4 if max(high(meta)[i] for i in found.values()) <= 2.0 else 1.0}
+        if meta.get("times"):
+            out["dates"] = list(meta["times"])
+        if meta.get("latlon"):
+            out["latlon"] = list(meta["latlon"])
+        return out
+
+    def prithvi_check(meta, model):
+        if meta["patch"] % model.patch:
+            raise ValueError(f"Prithvi {model.variant} cuts the window in tokens of {model.patch} pixels: use a "
+                             f"patch that is a multiple of {model.patch}, got {meta['patch']}")
+
+    prithvi = _Spec("patch", prithvi_build, lambda model, x, pos: model(x.permute(0, 2, 1, 3, 4)),
+                    fixed_times=True, check=prithvi_check, raw=True)
     return {
+        "Presto": _Spec("pixel", presto_build, lambda model, x, pos: model(x), fixed_times=True, raw=True),
         "TempCNN": _Spec(
-            "pixel", lambda m: {"in_channels": n(m, "bands"), "n_times": n(m, "times"), "num_classes": n(m, "classes")},
+            "pixel", lambda m, k: {"in_channels": n(m, "bands"), "n_times": n(m, "times"), "num_classes": n(m, "classes")},
             lambda model, x, pos: model(x.permute(0, 2, 1)), fixed_times=True),
         "LightTAE": _Spec(
-            "pixel", lambda m: {"n_bands": n(m, "bands"), "day_offsets": list(m["positions"]),
+            "pixel", lambda m, k: {"n_bands": n(m, "bands"), "day_offsets": list(m["positions"]),
                                 "n_labels": n(m, "classes")},
             lambda model, x, pos: model(x), fixed_times=True),
         "UTAE": _Spec(
-            "patch", lambda m: {"input_dim": n(m, "bands"), "out_conv": [32, n(m, "classes")]},
+            "patch", lambda m, k: {"input_dim": n(m, "bands"), "out_conv": [32, n(m, "classes")]},
             lambda model, x, pos: model(x, batch_positions=pos), fixed_times=False, check=utae_check),
         "SiameseChangeDetector": _Spec(
-            "patch", lambda m: {"in_channels": n(m, "bands"), "num_classes": n(m, "classes")},
+            "patch", lambda m, k: {"in_channels": n(m, "bands"), "num_classes": n(m, "classes")},
             lambda model, x, pos: model(x[:, 0], x[:, 1]), fixed_times=True, check=siamese_check),
-        "GeoFoundationViT": _Spec(
-            "patch", lambda m: {"num_classes": n(m, "classes")},
-            lambda model, x, pos: model(x.permute(0, 2, 1, 3, 4)), fixed_times=True),
+        "Prithvi": prithvi,
+        "GeoFoundationViT": prithvi,   # its name before 1.7
     }
 
 
 def _model_class(name: str):
-    from . import foundation, siamese, tempcnn, utae
+    from . import presto, prithvi, siamese, tempcnn, utae
 
-    for module in (tempcnn, utae, siamese, foundation):
+    for module in (tempcnn, utae, siamese, presto, prithvi):
         if hasattr(module, name):
             return getattr(module, name)
     raise ValueError(f"unknown zeit.ai model {name!r}")
@@ -511,8 +565,8 @@ def train(
     Parameters
     ----------
     model
-        A model class (``TempCNN``, ``LightTAE``, ``UTAE``, ``SiameseChangeDetector``,
-        ``GeoFoundationViT``), built with the number of bands, dates and classes of the
+        A model class (``TempCNN``, ``LightTAE``, ``Presto``, ``UTAE``, ``SiameseChangeDetector``,
+        ``Prithvi``), built with the number of bands, dates and classes of the
         samples (and ``model_kwargs``), or an instance already built.
     samples
         From ``zeit.ai.samples``: pixels for the pixel models, patches for the others.
@@ -559,7 +613,7 @@ def train(
         batch_size = 64 if spec.kind == "pixel" else 8
     torch.manual_seed(seed)
     if isinstance(model, type):
-        kwargs = {**spec.build(meta), **model_kwargs}
+        kwargs = {**spec.build(meta, model_kwargs), **model_kwargs}
         model = model(**kwargs)
     else:
         if model_kwargs:
@@ -567,6 +621,10 @@ def train(
         kwargs = None
     if spec.check is not None:
         spec.check(meta, model)
+    if spec.raw:
+        nb = len(meta["bands"])
+        meta.update(norm_low=[0.0] * nb, norm_range=[1.0] * nb, raw=True)
+        samples = SampleSet(samples.X, samples.y, samples.is_val, meta, samples.indices)
     dev = _device(device)
     model = model.to(dev)
     criterion = _loss(loss)
@@ -660,9 +718,10 @@ def predict(
     data
         The cube to classify, as in ``zeit.ai.samples`` (or a pair of images for the
         Siamese detector). Its bands are taken by name and normalized as the training
-        samples were. ``TempCNN``, ``LightTAE`` and the Siamese and ViT models need as
-        many dates as they were trained on; ``UTAE`` takes any dates (its positions come
-        from them). A lazy cube stays lazy, computed block by block.
+        samples were (``Presto`` takes them as they are). ``TempCNN``, ``LightTAE``,
+        ``Presto`` and the Siamese and ViT models need as many dates as they were trained
+        on; ``UTAE`` takes any dates (its positions come from them). A lazy cube stays
+        lazy, computed block by block.
     batch_size
         Pixels (or windows) through the model at a time.
     overlap
@@ -706,7 +765,7 @@ def predict(
     low = np.asarray(meta["norm_low"], dtype=np.float32)
     rng = np.asarray(meta["norm_range"], dtype=np.float32)
     k = len(meta["classes"])
-    run = _Runner(model, spec, positions, low, rng, k, batch_size, dev)
+    run = _Runner(model, spec, positions, low, rng, k, batch_size, dev, meta.get("raw", False))
 
     arr = cube.data
     lazy = hasattr(arr, "dask")
@@ -744,8 +803,8 @@ def _bands(cube: xr.DataArray, bands: Sequence[str]) -> xr.DataArray:
 class _Runner:
     """The model on numpy blocks: normalization, batches, softmax."""
 
-    def __init__(self, model, spec, positions, low, rng, k, batch_size, dev):
-        self.model, self.spec, self.positions = model, spec, positions
+    def __init__(self, model, spec, positions, low, rng, k, batch_size, dev, raw=False):
+        self.model, self.spec, self.positions, self.raw = model, spec, positions, raw
         self.low, self.rng, self.k, self.batch_size, self.dev = low, rng, k, batch_size, dev
 
     @torch.no_grad()
@@ -766,7 +825,7 @@ class _Runner:
         out = np.zeros((self.k + 1, h * w), dtype=np.float32)
         out[1:] = np.nan
         if has.any():
-            probs = self._probs(_normalize(series[has], self.low, self.rng, patch=False))
+            probs = self._probs(_normalize(series[has], self.low, self.rng, patch=False, raw=self.raw))
             out[0, has] = probs.argmax(axis=1) + 1
             out[1:, has] = probs.T
         return out.reshape(self.k + 1, h, w)
@@ -786,7 +845,7 @@ class _Runner:
         for i in range(0, len(windows), self.batch_size):
             chunk = windows[i:i + self.batch_size]
             x = np.stack([self._cut(region, wr - r_off, wc - c_off, p) for wr, wc in chunk])
-            probs = self._probs(_normalize(x, self.low, self.rng, patch=True))
+            probs = self._probs(_normalize(x, self.low, self.rng, patch=True, raw=self.raw))
             for (wr, wc), pr in zip(chunk, probs):
                 ys, ye = max(wr, r0), min(wr + p, r1)
                 xs, xe = max(wc, c0), min(wc + p, c1)
@@ -912,8 +971,18 @@ def load(path: Any, model: Optional[nn.Module] = None, device: str = "cpu") -> n
     if model is None:
         if meta.get("model_kwargs") is None:
             raise ValueError("this model was trained from an instance; pass one like it as model=")
-        model = _model_class(meta["model"])(**meta["model_kwargs"])
-    model.load_state_dict(saved["state_dict"])
+        cls = _model_class(meta["model"])
+        kwargs = dict(meta["model_kwargs"])
+        if "pretrained" in inspect.signature(cls).parameters:
+            kwargs["pretrained"] = False   # the trained weights are in the file: no download
+        model = cls(**kwargs)
+        try:
+            model.load_state_dict(saved["state_dict"])
+        except RuntimeError as e:
+            raise ValueError(f"the weights in {path} do not fit zeit's {meta['model']}: they were saved by "
+                             f"a version of zeit whose {meta['model']} was another network; train it again") from e
+    else:
+        model.load_state_dict(saved["state_dict"])
     model.zeit_meta_ = meta
     model.zeit_history_ = saved.get("history", [])
     return model.to(device).eval()

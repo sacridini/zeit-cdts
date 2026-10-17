@@ -18,10 +18,10 @@ ai.save(model, "tempcnn.pt")                                    # ai.load("tempc
 
 | Model | Samples | Dates when predicting |
 | :--- | :--- | :--- |
-| `TempCNN`, `LightTAE` | pixels (`patch=None`) | as many as in training (e.g. the same composites in another year) |
+| `TempCNN`, `LightTAE`, `Presto` | pixels (`patch=None`) | as many as in training (e.g. the same composites in another year) |
 | `UTAE` | patches, a multiple of `2 ** (stages - 1)` pixels (8 by default) | any: the positions come from the cube's dates |
-| `SiameseChangeDetector` | patches of a pair of images `(before, after)`, even size | a pair |
-| `GeoFoundationViT` | patches (Prithvi: 6 bands, 224 pixels) | as in training |
+| `SiameseChangeDetector` | patches of a pair of images `(before, after)`, 16 or more | a pair |
+| `Prithvi` | patches of the six HLS bands, a multiple of 16 pixels (224 as pretrained) | as in training |
 
 ### `samples` { .api }
 
@@ -90,7 +90,7 @@ Trains a model on a `SampleSet` with Adam, keeping the weights of the epoch with
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `model` | class or `nn.Module` | required | `TempCNN`, `LightTAE`, `UTAE`, `SiameseChangeDetector` or `GeoFoundationViT`: a class is built with the samples' bands, dates and classes (and `model_kwargs`); an instance is trained as it is. |
+| `model` | class or `nn.Module` | required | `TempCNN`, `LightTAE`, `Presto`, `UTAE`, `SiameseChangeDetector` or `Prithvi`: a class is built with the samples' bands, dates and classes (and `model_kwargs`); an instance is trained as it is. |
 | `samples` | `SampleSet` | required | From `samples`: pixels or patches, as the model takes. |
 | `epochs` | `int` | `50` | At most this many passes over the training samples. |
 | `batch_size` | `int` | `None` | Samples per step: 64 pixels or 8 patches (a patch holds many labelled pixels, and smaller batches leave more steps per epoch). |
@@ -301,6 +301,73 @@ The L-TAE temporal attention block on its own, to build custom models. Input `(b
 
 </div>
 
+### `Presto` { .api .cls }
+
+<!-- sig: zeit.ai.Presto -->
+```python
+class zeit.ai.Presto(
+    bands, months, num_classes=2, latlon=None, band_map=None,
+    reflectance_scale=1.0, s1_linear=False, pretrained=True,
+)
+```
+
+Presto (Tseng et al., 2023), a transformer pretrained on single pixels' series of Sentinel-1, Sentinel-2, ERA5 and SRTM, ported from the authors' code; with their weights it gives their encodings. Takes the series `(batch, dates, bands)` in the cube's units, NaN where missing, and normalizes them as Presto does; `forward` gives class logits `(batch, num_classes)`, `embed` the 128-dimension encodings. `zeit.ai.train` fills in the bands, months, units and position from the samples. Tutorial: [Presto](../tutorials/presto.md).
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `bands` | `list of str` | required | The cube's bands, in order, matched to Presto's inputs by name (`blue`, `nir`, `B8A`, `swir1`, `VV`, `t2m`, `dem`...). |
+| `months` | `list of int` | required | Calendar month (1-12) of each date; up to 24 dates. |
+| `num_classes` | `int` | `2` | Classes of the classifier. |
+| `latlon` | `tuple` | `None` | Latitude and longitude (degrees) given to the pixels when `forward`/`embed` get none of their own. |
+| `band_map` | `dict` | `None` | `{Presto input: band}` for bands whose names are not recognized. |
+| `reflectance_scale` | `float` | `1.0` | Factor bringing Sentinel-2 to Presto's 0-10000 (`1e4` for reflectance from 0 to 1). |
+| `s1_linear` | `bool` | `False` | The Sentinel-1 bands hold linear backscatter (converted to dB). |
+| `pretrained` | `bool` | `True` | Start from the authors' weights, downloaded once (3 MB, checked by SHA-256; `ZEIT_WEIGHTS` names a folder with a local copy). |
+
+</div>
+
+```python
+from zeit.ai import Presto
+
+model = Presto(["blue", "green", "red", "nir", "swir1", "swir2"], months=range(1, 13), num_classes=4,
+               latlon=(-10.5, -55.2), reflectance_scale=1e4)
+logits = model(x)            # x: (batch, 12, 6), NaN where missing -> (batch, 4)
+encodings = model.embed(x)   # (batch, 128)
+```
+
+### `presto_embeddings` { .api }
+
+<!-- sig: zeit.ai.presto_embeddings -->
+```python
+zeit.ai.presto_embeddings(
+    data, model=None, band_map=None, batch_size=8192, device="auto",
+    nodata="auto", chunks=None,
+)
+```
+
+Presto's encoding of every pixel of a cube, as an embedding cube `(1, 128, y, x)` (bands `A00`-`A127`, tagged `embedding_source="presto"`), for `similarity`, `som`, `train_classifier`, `zeit.plot` and the rest of zeit's embedding tools. Each pixel gets its own latitude and longitude. Tutorial: [Presto](../tutorials/presto.md#embeddings-of-a-cube).
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `data` | `DataArray` or path | required | A `(time, band, y, x)` cube of up to 24 dates with Sentinel-2 and/or Sentinel-1, ERA5, SRTM bands, with its dates and CRS. |
+| `model` | `Presto` | `None` | A (fine-tuned) `Presto` whose encoder to use; by default the pretrained one, set for the cube's bands, dates and units. |
+| `band_map` | `dict` | `None` | `{Presto input: band}` for bands whose names are not recognized. |
+| `batch_size` | `int` | `8192` | Pixels per step. |
+| `device` | `str` | `"auto"` | `"auto"` (the GPU if there is one), `"cpu"`, `"cuda"`... |
+| `nodata` | any | `"auto"` | Value marking a missing observation. |
+| `chunks` | any | `None` | A raster path: read lazily with these chunks. A lazy cube stays lazy. |
+
+</div>
+
+```python
+emb = zeit.ai.presto_embeddings(cube)            # cube: 12 monthly composites
+zeit.similarity(emb, "reference_fields.gpkg")
+```
+
 ## Patch segmentation
 
 ### `UTAE` { .api .cls }
@@ -355,10 +422,12 @@ scores = model(x, batch_positions=days)   # (2, 10, 128, 128)
 
 <!-- sig: zeit.ai.SiameseChangeDetector -->
 ```python
-class zeit.ai.SiameseChangeDetector(in_channels, num_classes=2)
+class zeit.ai.SiameseChangeDetector(
+    in_channels, num_classes=2, dropout=0.2,
+)
 ```
 
-Two-date change detection with a shared (Siamese) convolutional encoder: both images are encoded with the same weights, their feature difference is decoded to a per-pixel map. An independent implementation of the design of Daudt et al. (2018). Tutorial: [Siamese Change Detector](../tutorials/siamese.md).
+Two-date change detection: FC-Siam-diff of Daudt et al. (2018), a U-Net whose encoder, shared by both images, passes the absolute difference of their features at every scale to the decoder. Written from the paper, it gives the outputs of the authors' `SiamUnet_diff` with the same weights. Images of 16 pixels or more (it halves them four times). Tutorial: [Siamese Change Detector](../tutorials/siamese.md).
 
 <div class="params" markdown>
 
@@ -366,6 +435,7 @@ Two-date change detection with a shared (Siamese) convolutional encoder: both im
 | :--- | :--- | :--- | :--- |
 | `in_channels` | `int` | required | Bands per image. |
 | `num_classes` | `int` | `2` | Output classes (2 for change / no change). |
+| `dropout` | `float` | `0.2` | Rate of the dropout (`Dropout2d`) after every convolution, as in the paper. |
 
 </div>
 
@@ -378,25 +448,40 @@ logits = model(torch.randn(8, 4, 256, 256), torch.randn(8, 4, 256, 256))   # (8,
 
 ## Foundation models
 
-### `GeoFoundationViT` { .api .cls }
+### `Prithvi` { .api .cls }
 
-<!-- sig: zeit.ai.GeoFoundationViT -->
+<!-- sig: zeit.ai.Prithvi -->
 ```python
-class zeit.ai.GeoFoundationViT(
-    model_id="ibm-nasa-geospatial/Prithvi-100M", num_classes=2,
-)
 ```
 
-Loads a geospatial foundation model from the HuggingFace Hub (Prithvi-100M by default) and adds a 1 × 1 convolution head for segmentation. If the backbone cannot be loaded, it falls back to an untrained 3-D convolution and sets `model.has_hf = False`. Tutorial: [GeoFoundationViT](../tutorials/geo_foundation_vit.md).
+Prithvi-EO-2.0 (Szwarcman et al., 2024), the vision transformer NASA and IBM pretrained on HLS time series, ported from the authors' `prithvi_mae.py`: with their weights, its encoder gives their tokens. A decoder of zeit's brings the 16 × 16 tokens back to a class per pixel, with the pixels' own bands. Takes windows `(batch, bands, dates, H, W)` in the cube's units, NaN where missing, `H` and `W` multiples of 16 (14 for the 600M models); gives logits `(batch, num_classes, H, W)`; `encode` gives the encoder's tokens. `zeit.ai.train` fills in the bands, dates, units and place from the samples. Tutorial: [Prithvi](../tutorials/prithvi.md).
 
 <div class="params" markdown>
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `model_id` | `str` | `"ibm-nasa-geospatial/Prithvi-100M"` | HuggingFace model ID. |
-| `num_classes` | `int` | `2` | Output classes of the head. |
+| `bands` | `list of str` | required | The cube's bands, in order; the six HLS bands (`blue`, `green`, `red`, narrow `nir`, `swir1`, `swir2`) are found by name. |
+| `n_dates` | `int` | required | Dates of the windows (Prithvi was pretrained on 4; any number works). |
+| `num_classes` | `int` | `2` | Classes of the decoder. |
+| `variant` | `str` | `"100M-TL"` | `"tiny-TL"`, `"100M-TL"`, `"300M"`, `"300M-TL"`, `"600M"` or `"600M-TL"` (TL: the model also encodes the dates and the place). |
+| `dates` | `list` | `None` | The dates, for the TL models. |
+| `latlon` | `tuple` | `None` | Latitude and longitude (degrees) of the place, for the TL models. |
+| `band_map` | `dict` | `None` | `{Prithvi band: cube band}` for bands whose names are not recognized. |
+| `reflectance_scale` | `float` | `1.0` | Factor bringing the bands to reflectance times 10,000 (`1e4` for reflectance from 0 to 1). |
+| `freeze_encoder` | `bool` | `False` | Train the decoder only. |
+| `pretrained` | `bool` | `True` | Start from the authors' weights, downloaded once from Hugging Face (129 MB to 2.6 GB, checked by SHA-256; `ZEIT_WEIGHTS` names a folder with a local copy). |
 
 </div>
+
+```python
+from zeit.ai import Prithvi
+
+model = Prithvi(["blue", "green", "red", "nir", "swir1", "swir2"], n_dates=4, num_classes=3,
+                dates=["2023-03-01", "2023-06-01", "2023-09-01", "2023-12-01"], latlon=(-10.5, -55.2))
+logits = model(x)    # x: (batch, 6, 4, 224, 224) -> (batch, 3, 224, 224)
+```
+
+`GeoFoundationViT`, its name before zeit 1.7 (a wrapper of Prithvi-100M through `transformers`), builds a `Prithvi` with a deprecation warning; its `model_id` names a Prithvi-EO-2.0 repository.
 
 ## Losses
 

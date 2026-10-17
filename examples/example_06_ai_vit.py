@@ -1,12 +1,11 @@
 """
-Example 06: Geospatial Foundation Model (ViT), fine-tuned on a cube
+Example 06: Prithvi-EO-2.0, a geospatial foundation model, fine-tuned on a cube
 
-Builds a synthetic cube of 3 dates and the 6 bands Prithvi-100M takes (no data
-download needed), fine-tunes `GeoFoundationViT` on 224 x 224 windows with
-`zeit.ai.train` and maps the cube with `zeit.ai.predict`, then cleans the map with
-a majority filter. With network access the Prithvi-100M backbone is downloaded from
-Hugging Face (and training is slow on a CPU); without it, the model falls back to a
-small convolutional encoder, and the example still runs end to end.
+Builds a synthetic cube of 3 dates and the six HLS bands Prithvi takes (no image to
+download), fine-tunes `zeit.ai.Prithvi` on 224 x 224 windows with `zeit.ai.train` and
+maps the cube with `zeit.ai.predict`, then cleans the map with a majority filter. The
+weights of the smallest model, tiny-TL (129 MB), are downloaded once from Hugging Face;
+variant="100M-TL" (the default), "300M-TL" or "600M-TL" are larger and want a GPU.
 """
 import os
 
@@ -42,15 +41,15 @@ def build_scene(size=256, seed=6):
 
 
 def main():
-    print("Zeit Example 06: Geospatial Foundation Model (ViT), fine-tuned on a cube")
+    print("Zeit Example 06: Prithvi-EO-2.0, a geospatial foundation model, fine-tuned on a cube")
 
     print("\n[1/3] Building a synthetic 3-date, 6-band cube and two polygons...")
     cube, labels, water = build_scene()
 
-    print("\n[2/3] Fine-tuning GeoFoundationViT on 224 x 224 windows (zeit.ai.samples, train)...")
+    print("\n[2/3] Fine-tuning Prithvi on 224 x 224 windows (zeit.ai.samples, train)...")
     samples = ai.samples(cube, labels, label="class", patch=224, split=0)
     print(f"    {samples}")
-    model = ai.train(ai.GeoFoundationViT, samples, epochs=5, lr=1e-4)
+    model = ai.train(ai.Prithvi, samples, epochs=30, lr=1e-4, variant="tiny-TL")
 
     print("\n[3/3] Mapping the cube (zeit.ai.predict), a majority filter, and saving...")
     classes = ai.predict(model, cube)

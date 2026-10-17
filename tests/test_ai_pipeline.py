@@ -186,20 +186,31 @@ def test_siamese_change_detection():
     truth[8:20, 6:22] = True
     found = np.array(model.zeit_meta_["classes"])[out.label.values - 1] == "change"
     assert (found == truth).mean() > 0.95
+    with pytest.raises(ValueError, match="16 or more"):
+        ai.train(ai.SiameseChangeDetector, ai.samples(pair, labels, patch=12, split=0), epochs=1, device="cpu")
 
 
-def test_vit_offline(monkeypatch, data):
-    from zeit.ai import foundation
-
-    def offline(*args, **kwargs):
-        raise OSError("no network in tests")
-
-    monkeypatch.setattr(foundation.AutoModel, "from_pretrained", offline)
-    cube, truth, pts = data
-    six = xr.concat([cube] * 3, dim="band").assign_coords(band=list("abcdef")).isel(time=slice(0, 3))
-    s = ai.samples(six, pts.iloc[:20], patch=16, split=0)
-    model = ai.train(ai.GeoFoundationViT, s, epochs=1, device="cpu")
-    assert ai.predict(model, six, device="cpu").label.shape == (H, W)
+def test_siamese_both_dates_at_once_is_each_date_alone():
+    torch.manual_seed(0)
+    model = ai.SiameseChangeDetector(3, num_classes=3)
+    for m in model.modules():   # batch normalization that is not the identity
+        if isinstance(m, torch.nn.BatchNorm2d):
+            m.running_mean.uniform_(-0.5, 0.5)
+            m.running_var.uniform_(0.5, 2.0)
+    model.eval()
+    x0, x1 = torch.randn(2, 3, 20, 37), torch.randn(2, 3, 20, 37)   # odd sizes: the decoder pads them back
+    with torch.no_grad():
+        out = model(x0, x1)
+        # what the encoder gives each date alone, and the decoder by hand
+        f0, f1 = model.forward_once(x0), model.forward_once(x1)
+        x = f1[-1]
+        for up, stage, a, b in zip(model.up, model.decoder, reversed(f0[:-1]), reversed(f1[:-1])):
+            x = up(x)
+            x = torch.nn.functional.pad(x, (0, a.shape[3] - x.shape[3], 0, a.shape[2] - x.shape[2]), mode="replicate")
+            x = stage(torch.cat([x, (a - b).abs()], 1))
+        alone = model.classifier(x)
+    assert out.shape == (2, 3, 20, 37)
+    torch.testing.assert_close(out, alone)
 
 
 def test_save_and_load(tmp_path, data, tempcnn):

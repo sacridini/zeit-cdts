@@ -99,7 +99,7 @@ Unlike macOS, Windows (MSVC) and Linux (GCC) ship with native OpenMP support, so
 
 ## GPU Acceleration for `zeit.ai`
 
-The deep learning models in `zeit.ai` (`UTAE`, `LTAE`/`LightTAE`, `TempCNN`, `Siamese Change Detector`, `GeoFoundationViT`) are plain PyTorch `nn.Module`s and run on whatever device you move them to — none of them hard-code CUDA.
+The deep learning models in `zeit.ai` (`UTAE`, `LTAE`/`LightTAE`, `TempCNN`, `Presto`, `Siamese Change Detector`, `Prithvi`) are plain PyTorch `nn.Module`s and run on whatever device you move them to — none of them hard-code CUDA.
 
 *   **NVIDIA GPUs (Linux/Windows):** the standard `pip install zeit-cdts` installs a `torch` build with CUDA support where available. Use `torch.device("cuda")` as usual.
 *   **Apple Silicon (any M-series chip):** PyTorch's Metal (`mps`) backend gives you native GPU acceleration on macOS — no CUDA or extra install needed, since it ships in the same `torch` package:

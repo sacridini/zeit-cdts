@@ -26,7 +26,7 @@ IDENTITY = ("embedding_source", "embedding_version", "embedding_variant")
 #: GDAL metadata tag where save_raster stores them (with the rest of the embedding_* attributes).
 TAG = "ZEIT_EMBEDDING"
 SOURCES = ("tessera", "alphaearth")
-_NAMES = {"tessera": "TESSERA", "alphaearth": "AlphaEarth"}
+_NAMES = {"tessera": "TESSERA", "alphaearth": "AlphaEarth", "presto": "Presto"}
 _RES = 10.0  # metres: the cells of both products
 _DEG = 111319.49079327357  # metres per degree at the equator
 
