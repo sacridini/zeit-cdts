@@ -1748,8 +1748,56 @@ O worker mede o próprio download e o principal avisa quando os links são o mes
   colocados direto na pasta (no teste "pelo NAS"). STAC e GEE de verdade não entram nos testes
   (rede e credenciais): só as receitas.
 
+## Fase 19: os modelos de `zeit.ai` contra os originais, e dois pré-treinados — **Feito** (1.7.0)
+
+Pedida em 2026-10-17: o Siamese era o único modelo com cara de errado (mais lento que o
+"original" e comparado só a um análogo, o DTW do `sits`). Depois, das tendências de deep
+learning em séries de satélite, ficou o que tem código e pesos abertos para validar como o
+resto do zeit, roda em CPU e no Windows e resolve algo novo: o Presto agora, o Prithvi-EO-2.0
+no lugar do wrapper do `transformers`. Mamba (kernels só CUDA/Linux, e o L-TAE já é linear no
+tempo), Clay, DOFA, AnySat e difusão (pixels gerados que viram quebras falsas) ficaram de fora.
+
+### O que foi feito
+
+- **Siamese = FC-Siam-diff** (Daudt et al. 2018), escrito do artigo; o código dos autores não
+  tem licença, então roda só no harness. Mesmos pesos, mesma saída (5,6e-16 em float64, tamanhos
+  ímpares inclusive); as convoluções transpostas de passo 1 do decoder viraram convoluções com o
+  kernel invertido. As duas datas passam juntas pelo encoder: na predição dá o mesmo, no treino o
+  batch norm vê as duas datas juntas, e treina igual (F1 0,979 contra 0,971 em cinco sementes; a
+  hipótese de que o BN por data ajudava não se confirmou em seis sementes determinísticas). A
+  rede antiga (uma redução, sem skip connections, 64 canais na resolução cheia) era 2-3,4× mais
+  lenta que a dos autores e teve uma semente com F1 0,64. Janela de 16 ou mais (não "par").
+- **`zeit.ai.Presto`** e **`zeit.ai.presto_embeddings`** (Tseng et al. 2023, MIT): encoder portado
+  com os nomes dos pesos dos autores; lê as bandas do cubo nas unidades dele (refletância 0-1 ou
+  0-10000, dB ou linear, detectados das amostras), NaN onde falta, e normaliza como o Presto.
+  Encodings iguais aos dos autores até 1,2e-6 (zero em 3 de 5 casos). `presto_embeddings` dá um
+  cubo de embeddings como o do TESSERA (`embedding_source="presto"`; um encoder ajustado é outro
+  espaço, com o hash dos pesos), cada pixel com a própria lat/lon.
+- **`zeit.ai.Prithvi`** (Prithvi-EO-2.0, Apache-2.0): as seis variantes publicadas, encoder portado
+  do `prithvi_mae.py` sem `transformers` nem `timm`; tokens iguais aos dos autores até 7,9e-7 do
+  maior valor em todas, com e sem datas e lugar, 1-4 datas, janelas de 112 (posições
+  interpoladas). O decoder até a classe por pixel é do zeit, e precisou de um ramo na resolução
+  do pixel: só dos tokens de 16 × 16, a borda de um lago ficava presa à grade e dependia da
+  posição na janela (67-84% num teste fácil; com o ramo, 100%). `GeoFoundationViT` virou um
+  alias com aviso; o antigo caía calado numa convolução sem treino quando o código remoto do
+  Prithvi-100M quebrava, o que já acontecia sempre.
+- **Pipeline:** `_Spec.raw` para os modelos que normalizam sozinhos (as amostras vão com NaN);
+  `samples` guarda a lat/lon do centro das amostras; `build` recebe os argumentos do usuário
+  (o `band_map` vale na detecção das unidades); `load` não baixa pesos de novo.
+- **Pesos** (`zeit/ai/_weights.py`): revisão fixa de onde os autores publicam, SHA-256 conferido
+  uma vez, cache em `~/.cache/zeit/weights`, `ZEIT_WEIGHTS` com uma pasta de cópias para usar
+  offline.
+- **Dependências:** saíram `transformers` e `einops` (nenhum era mais importado).
+- **Harness** (`cdts_vs_originals/scripts/compare_siamese_daudt.py`, `compare_presto.py`,
+  `compare_prithvi.py`): o código oficial de cada um rodando lado a lado, com stubs do Earth
+  Engine para o pacote do Presto.
+
 ## Para depois
 
+- Fase 19: `zeit.ai.predict` com fp16 na GPU (2,4× no Siamese, medido) vale para todos os
+  modelos de patch; a lat/lon por pixel no `predict` do Presto (hoje: a do centro das amostras);
+  TSViT se aparecer demanda; STARFM/ESTARFM para fusão MODIS + Landsat/Sentinel, no lugar de
+  difusão.
 - `zeit.plot`: medir de verdade o caso de notebook remoto (JupyterHub, Colab), que ficou
   como estimativa no 7a.
 - `zeit.harmonize` com as outras etapas do HLS que dependem só da geometria: a normalização
