@@ -1,22 +1,22 @@
-<svg class="zc" viewBox="0 0 720 662" role="img" aria-label="Single-core speedup of Zeit over each reference tool, with the fidelity of each port" xmlns="http://www.w3.org/2000/svg">
+<svg class="zc" viewBox="0 0 720 704" role="img" aria-label="Single-core speedup of Zeit over each reference tool, with the fidelity of each port" xmlns="http://www.w3.org/2000/svg">
 <text class="zc-head" x="0" y="20">Algorithm · reference</text>
 <text class="zc-head" x="170" y="20">Fidelity</text>
 <text class="zc-head" x="272" y="20">Speedup, one core (log scale)</text>
-<line class="zc-grid" x1="310.2" x2="310.2" y1="44" y2="648"/>
+<line class="zc-grid" x1="310.2" x2="310.2" y1="44" y2="690"/>
 <text class="zc-tick" x="310.2" y="38" text-anchor="middle">1×</text>
-<line class="zc-grid" x1="436.9" x2="436.9" y1="44" y2="648"/>
+<line class="zc-grid" x1="436.9" x2="436.9" y1="44" y2="690"/>
 <text class="zc-tick" x="436.9" y="38" text-anchor="middle">10×</text>
-<line class="zc-grid" x1="563.7" x2="563.7" y1="44" y2="648"/>
+<line class="zc-grid" x1="563.7" x2="563.7" y1="44" y2="690"/>
 <text class="zc-tick" x="563.7" y="38" text-anchor="middle">100×</text>
-<line class="zc-grid zc-grid--minor" x1="348.3" x2="348.3" y1="44" y2="648"/>
-<line class="zc-grid zc-grid--minor" x1="370.6" x2="370.6" y1="44" y2="648"/>
-<line class="zc-grid zc-grid--minor" x1="398.8" x2="398.8" y1="44" y2="648"/>
-<line class="zc-grid zc-grid--minor" x1="475.1" x2="475.1" y1="44" y2="648"/>
-<line class="zc-grid zc-grid--minor" x1="497.4" x2="497.4" y1="44" y2="648"/>
-<line class="zc-grid zc-grid--minor" x1="525.5" x2="525.5" y1="44" y2="648"/>
-<line class="zc-grid zc-grid--minor" x1="601.8" x2="601.8" y1="44" y2="648"/>
-<line class="zc-grid zc-grid--minor" x1="624.2" x2="624.2" y1="44" y2="648"/>
-<line class="zc-base" x1="310.2" x2="310.2" y1="44" y2="648"/>
+<line class="zc-grid zc-grid--minor" x1="348.3" x2="348.3" y1="44" y2="690"/>
+<line class="zc-grid zc-grid--minor" x1="370.6" x2="370.6" y1="44" y2="690"/>
+<line class="zc-grid zc-grid--minor" x1="398.8" x2="398.8" y1="44" y2="690"/>
+<line class="zc-grid zc-grid--minor" x1="475.1" x2="475.1" y1="44" y2="690"/>
+<line class="zc-grid zc-grid--minor" x1="497.4" x2="497.4" y1="44" y2="690"/>
+<line class="zc-grid zc-grid--minor" x1="525.5" x2="525.5" y1="44" y2="690"/>
+<line class="zc-grid zc-grid--minor" x1="601.8" x2="601.8" y1="44" y2="690"/>
+<line class="zc-grid zc-grid--minor" x1="624.2" x2="624.2" y1="44" y2="690"/>
+<line class="zc-base" x1="310.2" x2="310.2" y1="44" y2="690"/>
 <g class="zc-row" data-tip="Phenology vs R phenofit: 244× faster on one core. Fidelity: Close, Start of season within 3.7 days (MAE), 99.1% within 15 days." tabindex="0">
 <rect class="zc-hit" x="0" y="56" width="720" height="42"/>
 <text class="zc-name" x="0" y="74.0">Phenology</text>
@@ -117,20 +117,29 @@
 <rect class="zc-bar zc-bar--zeit" x="310.2" y="531.0" width="32.4" height="16" rx="4"/>
 <text class="zc-val" x="386.1" y="543.0">1.8×–3.5×</text>
 </g>
-<g class="zc-row" data-tip="U-TAE vs Official utae-paps: 1.08× faster on one core. Fidelity: Identical, Max absolute difference 0.0." tabindex="0">
+<g class="zc-row" data-tip="Presto vs Official nasaharvest/presto: 1.17× faster on one core. Fidelity: ≤ 1e-7, Encodings within 1.2e-6 (identical in 3 of 5 cases)." tabindex="0">
 <rect class="zc-hit" x="0" y="560" width="720" height="42"/>
-<text class="zc-name" x="0" y="578.0">U-TAE</text>
-<text class="zc-sub" x="0" y="594.0">Official utae-paps</text>
-<g class="zc-pill zc-pill--same"><rect x="170" y="570.0" width="80" height="22" rx="11"/><text x="210" y="585.0" text-anchor="middle">Identical</text></g>
-<rect class="zc-bar zc-bar--zeit" x="310.2" y="573.0" width="4.2" height="16" rx="4"/>
-<text class="zc-val" x="321.4" y="585.0">1.08×</text>
+<text class="zc-name" x="0" y="578.0">Presto</text>
+<text class="zc-sub" x="0" y="594.0">Official nasaharvest/presto</text>
+<g class="zc-pill zc-pill--float"><rect x="170" y="570.0" width="80" height="22" rx="11"/><text x="210" y="585.0" text-anchor="middle">≤ 1e-7</text></g>
+<rect class="zc-bar zc-bar--zeit" x="310.2" y="573.0" width="8.6" height="16" rx="4"/>
+<text class="zc-val" x="325.8" y="585.0">1.17×</text>
 </g>
-<g class="zc-row" data-tip="Siamese CNN vs Conceptual analog: 0.85× slower on one core. Fidelity: Analog, 100% accuracy on the respective change tasks." tabindex="0">
+<g class="zc-row" data-tip="U-TAE vs Official utae-paps: 1.08× faster on one core. Fidelity: Identical, Max absolute difference 0.0." tabindex="0">
 <rect class="zc-hit" x="0" y="602" width="720" height="42"/>
-<text class="zc-name" x="0" y="620.0">Siamese CNN</text>
-<text class="zc-sub" x="0" y="636.0">Conceptual analog</text>
-<g class="zc-pill zc-pill--analog"><rect x="170" y="612.0" width="80" height="22" rx="11"/><text x="210" y="627.0" text-anchor="middle">Analog</text></g>
-<rect class="zc-bar zc-bar--ref" x="301.2" y="615.0" width="8.9" height="16" rx="4"/>
-<text class="zc-val" x="317.2" y="627.0">0.85×</text>
+<text class="zc-name" x="0" y="620.0">U-TAE</text>
+<text class="zc-sub" x="0" y="636.0">Official utae-paps</text>
+<g class="zc-pill zc-pill--same"><rect x="170" y="612.0" width="80" height="22" rx="11"/><text x="210" y="627.0" text-anchor="middle">Identical</text></g>
+<rect class="zc-bar zc-bar--zeit" x="310.2" y="615.0" width="4.2" height="16" rx="4"/>
+<text class="zc-val" x="321.4" y="627.0">1.08×</text>
+</g>
+<g class="zc-row" data-tip="Siamese CNN vs Official FC-Siam-diff (Daudt et al.): 1.07×–1.16× faster on one core. Fidelity: ≤ 1e-7, Same outputs with the same weights (5.6e-16 in float64)." tabindex="0">
+<rect class="zc-hit" x="0" y="644" width="720" height="42"/>
+<text class="zc-name" x="0" y="662.0">Siamese CNN</text>
+<text class="zc-sub" x="0" y="678.0">Official FC-Siam-diff (Daudt et al.)</text>
+<g class="zc-pill zc-pill--float"><rect x="170" y="654.0" width="80" height="22" rx="11"/><text x="210" y="669.0" text-anchor="middle">≤ 1e-7</text></g>
+<rect class="zc-bar zc-bar--range" x="310.2" y="657.0" width="8.2" height="16" rx="4"/>
+<rect class="zc-bar zc-bar--zeit" x="310.2" y="657.0" width="3.7" height="16" rx="4"/>
+<text class="zc-val" x="325.3" y="669.0">1.07×–1.16×</text>
 </g>
 </svg>

@@ -71,14 +71,13 @@ Every port is held to two standards at once: it must give the reference tool's a
 <span><i class="pill" style="background:var(--zeit-teal)"></i>Identical output</span>
 <span><i class="pill" style="background:var(--zeit-teal-soft);box-shadow:inset 0 0 0 1px var(--zeit-teal)"></i>Equal within 1e-7</span>
 <span><i class="pill" style="background:var(--bm-grid)"></i>Close: same method, small numerical differences</span>
-<span><i class="pill" style="box-shadow:inset 0 0 0 1px var(--bm-refline)"></i>Analog: no reference with the same architecture</span>
 </div>
 <div class="bm-chart-scroll">
 --8<-- "docs/assets/charts/speedup_overview.svg"
 </div>
 </div>
 
-Ten of the fourteen ports return the reference tool's own output, bit for bit or to floating-point rounding, and thirteen are faster on a single core before any parallelism (U-TAE only by 8%). The three "close" ports fit curves or search for breaks with numerical optimisers, where tiny differences in the starting point or in the stopping rule move a date by a few days ([Fidelity](fidelity.md) has the details). U-TAE runs on the same PyTorch backend as its reference, so the two tie; the Siamese detector has no reference with the same architecture.
+Thirteen of the sixteen ports return the reference tool's own output, bit for bit or to floating-point rounding, and the fifteen measured on a single core are all faster before any parallelism (U-TAE by 8%, the Siamese detector by 7–16%, Presto by 17%). The three "close" ports fit curves or search for breaks with numerical optimisers, where tiny differences in the starting point or in the stopping rule move a date by a few days ([Fidelity](fidelity.md) has the details). The deep-learning ports run the same PyTorch operations as their references, so they gain little; Prithvi, measured on 14 threads and on the GPU, ties with its reference.
 
 ---
 
@@ -101,13 +100,12 @@ The table below summarizes the scope of our validation suite. Each comparison re
 | **BFAST (Classic)** | Verbesselt *et al.* (2010) `bfast` | R (`bfast::bfast`) | 40 scenarios (trend/season breaks) | **87.5%** break count match (100% pos. match) | **4.3×** | <span class="bm-pill bm-pill--compared">compared</span> |
 | **BFAST Lite** | Jan Hackman *et al.* `bfast` | R (`bfast::bfastlite`) | 40 scenarios (single/multi breaks) | **100%** break count match (80% exact index) | **2.5×** | <span class="bm-pill bm-pill--compared">compared</span> |
 | **Official U-TAE** | Garnot & Landrieu (2021) `utae-paps` | Python (official PyTorch repo) | Regular and padded sequence paths | **max abs diff = 0.0** (exact numerical match) | **1.08×** | <span class="bm-pill bm-pill--compared">compared</span> |
-| **Siamese CNN** | Bi-temporal change detection | Conceptual analog (R `sits` DTW) | 80 bi-temporal synthetic patches | **100%** accuracy on respective change tasks | **0.85×** | <span class="bm-pill bm-pill--partial">partial</span> |
-| **Foundation ViT** | `ibm-nasa-geospatial/Prithvi-100M` | HuggingFace `transformers` | HuggingFace Hub remote backbone | Wrapper fallback consistent (**Conv3d** valid) | — | <span class="bm-pill bm-pill--notcomp">not_comparable</span> |
+| **Siamese CNN (FC-Siam-diff)** | Daudt *et al.* (2018) `fully_convolutional_change_detection` | Python (official PyTorch code) | 40 same-weight cases (odd sizes too) + 5 training seeds | **max abs diff = 5.6e-16** (float64); trained F1 0.979 vs 0.971 | **1.07×–1.16×** | <span class="bm-pill bm-pill--compared">compared</span> |
+| **Presto** | Tseng *et al.* (2023) `nasaharvest/presto` | Python (official PyTorch code) | 2,560 pixel series in 5 cases (clouds, missing sensors, 3–24 dates) | **max abs diff = 1.2e-6** (identical in 3 of 5 cases) | **1.17×** | <span class="bm-pill bm-pill--compared">compared</span> |
+| **Prithvi-EO-2.0** | Szwarcman *et al.* (2024) `prithvi_mae.py` | Python (PyTorch + `timm`) | All six models (tiny-TL to 600M-TL), 5 cases each (dates and place, 1–4 dates, 112–224 px) | **max relative diff = 7.9e-7** (encoder tokens) | ≈1× (14 threads) | <span class="bm-pill bm-pill--compared">compared</span> |
 
 !!! note "Status Definitions"
     - **`compared`**: Exact numerical or statistical benchmark against the official reference tool or canonical implementation.
-    - **`partial`**: Conceptual analog where no direct equivalent architecture exists in reference libraries (e.g., bi-temporal CNN vs 1D series DTW).
-    - **`not_comparable`**: Upstream reference package dependency failure preventing direct backbone execution (wrapper fallback path validated).
 
 ---
 

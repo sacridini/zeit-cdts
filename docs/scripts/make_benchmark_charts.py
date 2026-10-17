@@ -40,8 +40,10 @@ SINGLE_CORE = [
     ("BFAST", "R bfast::bfast", (4.3, None), "close", "87.5% same break count, 100% same positions"),
     ("BFAST Lite", "R bfast::bfastlite", (2.5, None), "close", "100% same break count, 80% same index"),
     ("SNIC", "C reference (snic.c)", (1.8, 3.5), "same", "Bitwise-identical segment labels"),
+    ("Presto", "Official nasaharvest/presto", (1.17, None), "float", "Encodings within 1.2e-6 (identical in 3 of 5 cases)"),
     ("U-TAE", "Official utae-paps", (1.08, None), "same", "Max absolute difference 0.0"),
-    ("Siamese CNN", "Conceptual analog", (0.85, None), "analog", "100% accuracy on the respective change tasks"),
+    ("Siamese CNN", "Official FC-Siam-diff (Daudt et al.)", (1.07, 1.16), "float",
+     "Same outputs with the same weights (5.6e-16 in float64)"),
 ]
 
 # name, workload, Zeit 20 threads (ms), reference multi-worker (ms), reference framework
