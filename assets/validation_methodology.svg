@@ -1,0 +1,176 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 380" class="validation-methodology-svg" role="img" aria-label="Validation Methodology Framework">
+  <defs>
+    <style>
+      .card-bg { fill: #f8fafc; stroke: #cbd5e1; stroke-width: 1.5; }
+      .card-hdr { fill: #0f766e; }
+      .hdr-text { font-family: system-ui, -apple-system, sans-serif; font-size: 12px; font-weight: 700; fill: #ffffff; text-anchor: middle; }
+      .scope-text { font-family: system-ui, -apple-system, sans-serif; font-size: 10.5px; font-weight: 700; fill: #0d9488; text-anchor: middle; }
+      .step-box { fill: #ffffff; stroke: #e2e8f0; stroke-width: 1.2; }
+      .step-title { font-family: system-ui, -apple-system, sans-serif; font-size: 11px; font-weight: 700; fill: #1e293b; text-anchor: middle; }
+      .step-desc { font-family: system-ui, -apple-system, sans-serif; font-size: 9.5px; fill: #64748b; text-anchor: middle; }
+      .arrow { stroke: #94a3b8; stroke-width: 1.5; fill: none; marker-end: url(#arrowhead); }
+      .outcome-box { fill: #f0fdf4; stroke: #86efac; stroke-width: 1.5; }
+      .outcome-lbl { font-family: system-ui, -apple-system, sans-serif; font-size: 9px; font-weight: 700; fill: #15803d; text-anchor: middle; text-transform: uppercase; letter-spacing: 0.5px; }
+      .outcome-val { font-family: monospace; font-size: 10.5px; font-weight: 700; fill: #166534; text-anchor: middle; }
+
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-md-color-scheme="default"]) {
+          .card-bg { fill: #1e293b; stroke: #334155; }
+          .card-hdr { fill: #115e59; }
+          .scope-text { fill: #2dd4bf; }
+          .step-box { fill: #0f172a; stroke: #334155; }
+          .step-title { fill: #f1f5f9; }
+          .step-desc { fill: #94a3b8; }
+          .arrow { stroke: #64748b; }
+          .outcome-box { fill: #064e3b; stroke: #059669; }
+          .outcome-lbl { fill: #86efac; }
+          .outcome-val { fill: #bbf7d0; }
+        }
+      }
+    </style>
+    <marker id="arrowhead" markerWidth="6" markerHeight="6" refX="4" refY="3" orient="auto">
+      <polygon points="0 0, 6 3, 0 6" fill="#94a3b8" />
+    </marker>
+  </defs>
+
+  <!-- CARD 1: Ground-Truth Injection -->
+  <g transform="translate(18, 15)">
+    <rect class="card-bg" x="0" y="0" width="220" height="350" rx="8" />
+    <path class="card-hdr" d="M0,8 A8,8 0 0,1 8,0 L212,0 A8,8 0 0,1 220,8 L220,38 L0,38 Z" />
+    <text class="hdr-text" x="110" y="24">1. Ground-Truth Injection</text>
+    <text class="scope-text" x="110" y="55">BFAST Suite • TWDTW</text>
+
+    <!-- Step 1 -->
+    <rect class="step-box" x="10" y="68" width="200" height="50" rx="6" />
+    <text class="step-title" x="110" y="88">Synthetic Trajectories</text>
+    <text class="step-desc" x="110" y="104">Parameterized mathematical signals</text>
+
+    <!-- Arrow 1-2 -->
+    <line class="arrow" x1="110" y1="120" x2="110" y2="134" />
+
+    <!-- Step 2 -->
+    <rect class="step-box" x="10" y="137" width="200" height="50" rx="6" />
+    <text class="step-title" x="110" y="157">Injected Disturbances</text>
+    <text class="step-desc" x="110" y="173">Known break dates, slopes &amp; NaN gaps</text>
+
+    <!-- Arrow 2-3 -->
+    <line class="arrow" x1="110" y1="189" x2="110" y2="203" />
+
+    <!-- Step 3 -->
+    <rect class="step-box" x="10" y="206" width="200" height="50" rx="6" />
+    <text class="step-title" x="110" y="226">Metric Sensitivity Sweep</text>
+    <text class="step-desc" x="110" y="242">Noise variance &amp; magnitude stress-test</text>
+
+    <!-- Outcome -->
+    <rect class="outcome-box" x="10" y="272" width="200" height="66" rx="6" />
+    <text class="outcome-lbl" x="110" y="291">Primary Validation Metric</text>
+    <text class="outcome-val" x="110" y="309">100% Break Match (BFAST)</text>
+    <text class="outcome-val" x="110" y="325">100% Classification (TWDTW)</text>
+  </g>
+
+  <!-- CARD 2: Source-Level Port Parity -->
+  <g transform="translate(254, 15)">
+    <rect class="card-bg" x="0" y="0" width="220" height="350" rx="8" />
+    <path class="card-hdr" d="M0,8 A8,8 0 0,1 8,0 L212,0 A8,8 0 0,1 220,8 L220,38 L0,38 Z" />
+    <text class="hdr-text" x="110" y="24">2. Source-Level Port Parity</text>
+    <text class="scope-text" x="110" y="55">LandTrendr • CCDC • SNIC • SOM</text>
+
+    <!-- Step 1 -->
+    <rect class="step-box" x="10" y="68" width="200" height="50" rx="6" />
+    <text class="step-title" x="110" y="88">Original Author Source</text>
+    <text class="step-desc" x="110" y="104">Canonical IDL, MATLAB &amp; C code</text>
+
+    <!-- Arrow 1-2 -->
+    <line class="arrow" x1="110" y1="120" x2="110" y2="134" />
+
+    <!-- Step 2 -->
+    <rect class="step-box" x="10" y="137" width="200" height="50" rx="6" />
+    <text class="step-title" x="110" y="157">GDL, Octave &amp; C Harness</text>
+    <text class="step-desc" x="110" y="173">Direct execution of original routines</text>
+
+    <!-- Arrow 2-3 -->
+    <line class="arrow" x1="110" y1="189" x2="110" y2="203" />
+
+    <!-- Step 3 -->
+    <rect class="step-box" x="10" y="206" width="200" height="50" rx="6" />
+    <text class="step-title" x="110" y="226">Line-by-Line C++ Rewrite</text>
+    <text class="step-desc" x="110" y="242">Preserves numerical ties &amp; shims</text>
+
+    <!-- Outcome -->
+    <rect class="outcome-box" x="10" y="272" width="200" height="66" rx="6" />
+    <text class="outcome-lbl" x="110" y="289">Primary Validation Metric</text>
+    <text class="outcome-val" x="110" y="303" style="font-size: 9.5px;">100% Vertex Years (LT: 330/330)</text>
+    <text class="outcome-val" x="110" y="317" style="font-size: 9.5px;">100% Models Matched (CCDC: 350/350)</text>
+    <text class="outcome-val" x="110" y="331" style="font-size: 9.5px;">100% Exact Labels (SNIC C Parity)</text>
+  </g>
+
+  <!-- CARD 3: State-Dict Weight Porting -->
+  <g transform="translate(490, 15)">
+    <rect class="card-bg" x="0" y="0" width="220" height="350" rx="8" />
+    <path class="card-hdr" d="M0,8 A8,8 0 0,1 8,0 L212,0 A8,8 0 0,1 220,8 L220,38 L0,38 Z" />
+    <text class="hdr-text" x="110" y="24">3. State-Dict Weight Porting</text>
+    <text class="scope-text" x="110" y="55">TempCNN • LightTAE • U-TAE</text>
+
+    <!-- Step 1 -->
+    <rect class="step-box" x="10" y="68" width="200" height="50" rx="6" />
+    <text class="step-title" x="110" y="88">Seeded Weight Export</text>
+    <text class="step-desc" x="110" y="104">Export LibTorch tensor parameters</text>
+
+    <!-- Arrow 1-2 -->
+    <line class="arrow" x1="110" y1="120" x2="110" y2="134" />
+
+    <!-- Step 2 -->
+    <rect class="step-box" x="10" y="137" width="200" height="50" rx="6" />
+    <text class="step-title" x="110" y="157">Direct PyTorch Loading</text>
+    <text class="step-desc" x="110" y="173">1:1 state_dict mapping into zeit.ai</text>
+
+    <!-- Arrow 2-3 -->
+    <line class="arrow" x1="110" y1="189" x2="110" y2="203" />
+
+    <!-- Step 3 -->
+    <rect class="step-box" x="10" y="206" width="200" height="50" rx="6" />
+    <text class="step-title" x="110" y="226">Identical Input Feed</text>
+    <text class="step-desc" x="110" y="242">Forward pass on identical batch tensors</text>
+
+    <!-- Outcome -->
+    <rect class="outcome-box" x="10" y="272" width="200" height="66" rx="6" />
+    <text class="outcome-lbl" x="110" y="291">Primary Validation Metric</text>
+    <text class="outcome-val" x="110" y="309">Max Diff = 5.59e-9 (TempCNN)</text>
+    <text class="outcome-val" x="110" y="325">Max Diff = 0.0 (Official U-TAE)</text>
+  </g>
+
+  <!-- CARD 4: Real Multi-Decadal Stacks -->
+  <g transform="translate(726, 15)">
+    <rect class="card-bg" x="0" y="0" width="220" height="350" rx="8" />
+    <path class="card-hdr" d="M0,8 A8,8 0 0,1 8,0 L212,0 A8,8 0 0,1 220,8 L220,38 L0,38 Z" />
+    <text class="hdr-text" x="110" y="24">4. Real Multi-Decadal Stacks</text>
+    <text class="scope-text" x="110" y="55">Phenology (Beck, Elmore, Gu)</text>
+
+    <!-- Step 1 -->
+    <rect class="step-box" x="10" y="68" width="200" height="50" rx="6" />
+    <text class="step-title" x="110" y="88">25-Year Raster Stacks</text>
+    <text class="step-desc" x="110" y="104">Landsat/MODIS EVI (638 px × 25 yrs)</text>
+
+    <!-- Arrow 1-2 -->
+    <line class="arrow" x1="110" y1="120" x2="110" y2="134" />
+
+    <!-- Step 2 -->
+    <rect class="step-box" x="10" y="137" width="200" height="50" rx="6" />
+    <text class="step-title" x="110" y="157">Long-Format Join</text>
+    <text class="step-desc" x="110" y="173">178k+ rows paired vs R phenofit</text>
+
+    <!-- Arrow 2-3 -->
+    <line class="arrow" x1="110" y1="189" x2="110" y2="203" />
+
+    <!-- Step 3 -->
+    <rect class="step-box" x="10" y="206" width="200" height="50" rx="6" />
+    <text class="step-title" x="110" y="226">Phenometric Breakdown</text>
+    <text class="step-desc" x="110" y="242">Decoupling spring SOS &amp; autumn EOS</text>
+
+    <!-- Outcome -->
+    <rect class="outcome-box" x="10" y="272" width="200" height="66" rx="6" />
+    <text class="outcome-lbl" x="110" y="291">Primary Validation Metric</text>
+    <text class="outcome-val" x="110" y="309">SOS MAE = 3.7 - 5.3 Days</text>
+    <text class="outcome-val" x="110" y="325">99.12% Agreement &lt;= 15 Days</text>
+  </g>
+</svg>
