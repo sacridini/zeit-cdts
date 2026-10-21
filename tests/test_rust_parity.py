@@ -518,3 +518,125 @@ def test_landtrendr_fit_to_vertices():
         vys = rng.choice(LT_YEARS, rng.integers(0, 7), replace=False).tolist()
         assert_same_bits(np.array(_core.landtrendr.fit_to_vertices(LT_YEARS.tolist(), y.tolist(), vys, 0.9)),
                          np.array(_rust.landtrendr.fit_to_vertices(LT_YEARS.tolist(), y.tolist(), vys, 0.9)))
+
+
+# ----------------------------------------------------------------- Phenology
+def _ph_series(seed, n_pixels=150, years=3, step=16):
+    """Double-logistic seasons with noise and cloud dips, and the edge cases:
+    gaps, nodata, empty, flat, low-amplitude and infinite rows."""
+    rng = np.random.default_rng(seed)
+    n = years * (368 // step)
+    t = 1.0 + step * np.arange(n, dtype=float)
+    doy = (t - 1) % 365.25
+    shape = (n_pixels, 1)
+    base, amp = rng.uniform(0.1, 0.3, shape), rng.uniform(0.2, 0.6, shape)
+    sos, eos = rng.uniform(80, 160, shape), rng.uniform(230, 320, shape)
+    rsp, rau = rng.uniform(0.04, 0.15, shape), rng.uniform(0.03, 0.12, shape)
+    v = base + amp * (1 / (1 + np.exp(-rsp * (doy - sos))) - 1 / (1 + np.exp(-rau * (doy - eos))))
+    v += rng.normal(0, 0.03, v.shape)
+    cloud = rng.random(v.shape) < 0.1
+    v[cloud] -= rng.uniform(0.05, 0.3, cloud.sum())
+    v[1::11, rng.integers(0, n, 3)] = np.nan       # gaps
+    v[2::13, rng.integers(0, n, 2)] = -9999.0      # nodata, fitted as a value
+    v[3::17] = np.nan                              # empty
+    v[4::19] = 0.4                                 # flat
+    v[5::23] *= 0.1                                # below min_pixel_amplitude
+    v[6::29, n // 2] = np.inf
+    return v, t
+
+
+def _ph_weights(seed, shape):
+    rng = np.random.default_rng(seed)
+    w = rng.uniform(0, 1, shape)
+    w[rng.random(shape) < 0.1] = 0.0
+    w[rng.random(shape) < 0.05] = np.nan           # taken as 1
+    w[rng.random(shape) < 0.05] = 1.7              # clamped to 1
+    return w
+
+
+def _ph_both(values, dates, curve, **kw):
+    a = _core.phenology.fit_phenology_batch(values, dates, curve, **kw)
+    b = _rust.phenology.fit_phenology_batch(values, dates, curve, **kw)
+    assert_same_bits(a, b)
+    return a
+
+
+@pytest.mark.parametrize("curve", range(7))
+def test_phenology_curves(curve):
+    v, t = _ph_series(curve)
+    a = _ph_both(v, t, curve, max_seasons=3, n_jobs=-1)
+    assert np.isfinite(a).sum() > 0.5 * a.size
+    w = _ph_weights(curve, v.shape)
+    _ph_both(v, t, curve, max_seasons=3, n_jobs=1, weights_array=w)
+
+
+PH_SETTINGS = [
+    dict(apply_whittaker=False, apply_hants=True),
+    dict(apply_whittaker=False, apply_hants=True, hants_frequencies=0, hants_threshold=0.05),
+    dict(apply_whittaker=False, apply_hants=True, hants_frequencies=2, hants_threshold=0.2),
+    dict(apply_whittaker=False),                   # the raw series: NaN within seasons
+    dict(whittaker_lambda=0.0),
+    dict(whittaker_lambda=1000.0),
+    dict(min_season_length=150, min_amplitude=0.15),
+    dict(season_retry=False, rtrough_max=0.3, r_min_filter=0.1),
+    dict(rtrough_max=0.9, min_pixel_amplitude=0.0),
+    dict(max_seasons=0),
+    dict(max_seasons=1),
+    dict(max_seasons=6),
+]
+
+
+@pytest.mark.parametrize("setting", range(len(PH_SETTINGS)))
+@pytest.mark.parametrize("curve", [0, 2, 5])
+def test_phenology_settings(setting, curve):
+    v, t = _ph_series(100 + setting, n_pixels=80)
+    kw = dict(max_seasons=3, n_jobs=-1) | PH_SETTINGS[setting]
+    _ph_both(v, t, curve, **kw)
+    _ph_both(v, t, curve, weights_array=_ph_weights(setting, v.shape), **kw)
+
+
+@pytest.mark.parametrize("step,years", [(8, 2), (1, 1), (1, 3), (30, 6)])
+def test_phenology_cadences(step, years):
+    v, t = _ph_series(7, n_pixels=40, years=years, step=step)
+    _ph_both(v, t, 1, max_seasons=4)
+    if len(t) <= 400:   # HANTS's X^T X: deeper, Eigen's blocks follow the machine's L1 cache
+        _ph_both(v, t, 6, max_seasons=4, apply_whittaker=False, apply_hants=True)
+
+
+def test_phenology_short_series_and_errors():
+    for n in (0, 1, 2, 3):
+        v = np.linspace(0.2, 0.6, 5 * n).reshape(5, n) if n else np.zeros((5, 0))
+        _ph_both(v, np.arange(n, dtype=float), 0, max_seasons=2)
+    v, t = _ph_series(3, n_pixels=20)
+    _ph_both(v, t, 9, max_seasons=2)   # no such curve: no season fitted
+    assert_same_bits(_core.phenology.fit_phenology_batch(v, t, _core.phenology.CurveType.ZHANG),   # the enums as ints
+                     _rust.phenology.fit_phenology_batch(v, t, _rust.phenology.CurveType.ZHANG))
+    for f in (_core.phenology.fit_phenology_batch, _rust.phenology.fit_phenology_batch):
+        for args in ((v[0], t, 0), (v, t[:, None], 0), (v, t[:-1], 0)):
+            with pytest.raises(RuntimeError):
+                f(*args)
+        with pytest.raises(RuntimeError):
+            f(v, t, 0, weights_array=np.ones((2, 2)))
+    assert ({k: int(x) for k, x in _core.phenology.CurveType.__members__.items()}
+            == {k: int(x) for k, x in _rust.phenology.CurveType.__members__.items()})
+    assert ({k: int(x) for k, x in _core.phenology.ExtractionMethod.__members__.items()}
+            == {k: int(x) for k, x in _rust.phenology.ExtractionMethod.__members__.items()})
+    assert int(_core.phenology.GU) == int(_rust.phenology.GU) == 2
+
+
+def test_phenology_split_seasons():
+    v, t = _ph_series(11, n_pixels=300)
+    kw_sets = [dict(), dict(min_season_length=120, min_amplitude=0.1), dict(rtrough_max=0.3, retry_on_empty=False),
+               dict(r_min_filter=0.2, rtrough_max=0.8)]
+    for y in v[:, :]:
+        if not np.isfinite(y).any():
+            continue
+        y = np.where(np.isfinite(y), y, 0.0)
+        for kw in kw_sets:
+            for dates in (None, t.tolist()):
+                a = _core.phenology.debug_split_seasons(y.tolist(), dates, **kw)
+                b = _rust.phenology.debug_split_seasons(y.tolist(), dates, **kw)
+                assert a == b
+    for f in (_core.phenology.debug_split_seasons, _rust.phenology.debug_split_seasons):
+        with pytest.raises(RuntimeError):
+            f([0.1, 0.5, 0.2], [1.0, 2.0])

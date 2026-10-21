@@ -18,6 +18,7 @@ mod bfastmonitor;
 mod coded;
 mod landtrendr;
 mod mannkendall;
+mod phenology;
 mod sma;
 mod smooth;
 mod snic;
@@ -52,5 +53,6 @@ fn _rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
     add_submodule(m, &som::module(m.py())?)?;
     add_submodule(m, &utils::module(m.py())?)?;
     add_submodule(m, &landtrendr::module(m.py())?)?;
+    add_submodule(m, &phenology::module(m.py())?)?;
     Ok(())
 }

@@ -466,8 +466,10 @@ def phenology(data: Any, *, curve: Union[str, int] = "beck", method: Union[str, 
     from ._embeddings import refuse
 
     refuse(data, "zeit.phenology")
-    from ._core.phenology import CurveType, ExtractionMethod
+    from ._backend import core
     from ._phenology import run_phenology_dask
+
+    CurveType, ExtractionMethod = core.phenology.CurveType, core.phenology.ExtractionMethod
 
     cube, pixel = _series_cube(data, dates=dates, band=band, chunks=chunks, nodata=nodata)
     times = pd.DatetimeIndex(cube.time.values)

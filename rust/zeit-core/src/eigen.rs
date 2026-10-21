@@ -11,7 +11,9 @@
 //! the lanes, then adds the remaining coefficient one at a time.
 
 pub mod ldlt;
+pub mod lm;
 pub mod qr;
+pub mod sparse;
 
 /// Doubles per packet in the C++ build (SSE2, NEON).
 pub const PACKET: usize = 2;
@@ -198,6 +200,181 @@ pub fn sum_zip<A: Copy, B: Copy>(a: &[A], b: &[B], f: impl Fn(A, B) -> f64) -> f
         res += f(x, y);
     }
     res
+}
+
+/// `std::min(a, b)`: `b` if `b < a`, else `a` (so `a` when either is NaN).
+#[inline(always)]
+pub fn std_min(a: f64, b: f64) -> f64 {
+    if b < a {
+        b
+    } else {
+        a
+    }
+}
+
+/// `std::max(a, b)`: `b` if `a < b`, else `a` (so `a` when either is NaN).
+#[inline(always)]
+pub fn std_max(a: f64, b: f64) -> f64 {
+    if a < b {
+        b
+    } else {
+        a
+    }
+}
+
+/// Eigen's pmin of a lane of the accumulator `a` and of a new value `b`. SSE2:
+/// `_mm_min_pd(b, a)`, `a` kept on ties and NaN, as std::min. NEON: vminq_f64,
+/// NaN when either is, -0 below +0.
+#[inline(always)]
+pub fn pmin(a: f64, b: f64) -> f64 {
+    #[cfg(target_arch = "aarch64")]
+    {
+        if a.is_nan() || b.is_nan() {
+            f64::NAN
+        } else if a == b {
+            if a.is_sign_negative() {
+                a
+            } else {
+                b
+            }
+        } else if a < b {
+            a
+        } else {
+            b
+        }
+    }
+    #[cfg(not(target_arch = "aarch64"))]
+    {
+        if b < a {
+            b
+        } else {
+            a
+        }
+    }
+}
+
+/// Eigen's pmax, as `pmin`: SSE2 `_mm_max_pd(b, a)`, NEON vmaxq_f64.
+#[inline(always)]
+pub fn pmax(a: f64, b: f64) -> f64 {
+    #[cfg(target_arch = "aarch64")]
+    {
+        if a.is_nan() || b.is_nan() {
+            f64::NAN
+        } else if a == b {
+            if a.is_sign_negative() {
+                b
+            } else {
+                a
+            }
+        } else if a < b {
+            b
+        } else {
+            a
+        }
+    }
+    #[cfg(not(target_arch = "aarch64"))]
+    {
+        if b > a {
+            b
+        } else {
+            a
+        }
+    }
+}
+
+/// predux_min of the two lanes: SSE2 `_mm_min_sd(a0, a1)` (`a1` on ties and
+/// NaN), NEON vpminq_f64.
+#[inline(always)]
+fn predux_min(a0: f64, a1: f64) -> f64 {
+    #[cfg(target_arch = "aarch64")]
+    {
+        pmin(a0, a1)
+    }
+    #[cfg(not(target_arch = "aarch64"))]
+    {
+        if a0 < a1 {
+            a0
+        } else {
+            a1
+        }
+    }
+}
+
+/// predux_max of the two lanes: SSE2 `_mm_max_sd(a0, a1)`, NEON vpmaxq_f64.
+#[inline(always)]
+fn predux_max(a0: f64, a1: f64) -> f64 {
+    #[cfg(target_arch = "aarch64")]
+    {
+        pmax(a0, a1)
+    }
+    #[cfg(not(target_arch = "aarch64"))]
+    {
+        if a0 > a1 {
+            a0
+        } else {
+            a1
+        }
+    }
+}
+
+/// Eigen's reduction of `n` > 0 coefficients in the order of `sum_by`: `pop`
+/// on the packet lanes, `fin` on the two lanes, `sop` on the rest.
+#[inline]
+fn redux(
+    n: usize,
+    c: impl Fn(usize) -> f64,
+    pop: impl Fn(f64, f64) -> f64,
+    fin: impl Fn(f64, f64) -> f64,
+    sop: impl Fn(f64, f64) -> f64,
+) -> f64 {
+    let aligned = n / PACKET * PACKET;
+    if aligned == 0 {
+        return c(0);
+    }
+    let aligned2 = n / (2 * PACKET) * (2 * PACKET);
+    let mut r0 = [c(0), c(1)];
+    if aligned > PACKET {
+        let mut r1 = [c(2), c(3)];
+        let mut i = 2 * PACKET;
+        while i < aligned2 {
+            r0 = [pop(r0[0], c(i)), pop(r0[1], c(i + 1))];
+            r1 = [pop(r1[0], c(i + 2)), pop(r1[1], c(i + 3))];
+            i += 2 * PACKET;
+        }
+        r0 = [pop(r0[0], r1[0]), pop(r0[1], r1[1])];
+        if aligned > aligned2 {
+            r0 = [pop(r0[0], c(aligned2)), pop(r0[1], c(aligned2 + 1))];
+        }
+    }
+    let mut res = fin(r0[0], r0[1]);
+    for i in aligned..n {
+        res = sop(res, c(i));
+    }
+    res
+}
+
+/// `minCoeff()` of a vector expression of `n` > 0 coefficients.
+#[inline]
+pub fn min_by(n: usize, c: impl Fn(usize) -> f64) -> f64 {
+    redux(n, c, pmin, predux_min, std_min)
+}
+
+/// `maxCoeff()` of a vector expression of `n` > 0 coefficients.
+#[inline]
+pub fn max_by(n: usize, c: impl Fn(usize) -> f64) -> f64 {
+    redux(n, c, pmax, predux_max, std_max)
+}
+
+/// `minCoeff()` of a vector.
+#[inline]
+pub fn min_coeff(v: &[f64]) -> f64 {
+    min_by(v.len(), |i| v[i])
+}
+
+/// `maxCoeff()` of a vector.
+#[inline]
+pub fn max_coeff(v: &[f64]) -> f64 {
+    max_by(v.len(), |i| v[i])
 }
 
 /// `(a - b).squaredNorm()`.
