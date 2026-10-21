@@ -290,14 +290,13 @@ pub fn train_online(
             let eta = decay_learning_rate(s.lr_decay, s.learning_rate, t, max_iter);
             let sig = decay_sigma(s.sigma_decay, s.sigma, t, max_iter);
             grid.neighborhood(s.neighborhood, bmu, sig, &mut h, &mut ax, &mut ay);
-            for k in 0..k_n {
-                let gk = h[k] * eta;
+            for (wk, &hk) in weights.chunks_exact_mut(d_n).zip(&h[..k_n]) {
+                let gk = hk * eta;
                 if gk == 0.0 {
                     continue; // w += 0 * (x - w) leaves w unchanged
                 }
-                let wk = &mut weights[k * d_n..(k + 1) * d_n];
-                for d in 0..d_n {
-                    wk[d] += gk * (xs[d] - wk[d]);
+                for (w, &x) in wk.iter_mut().zip(xs) {
+                    *w += gk * (x - *w);
                 }
             }
         }
@@ -475,19 +474,22 @@ impl BatchState<'_> {
         let nk = den_b.len();
         let mut acc = vec![0.0; nk * d_n];
         let mut acc_den = [0.0; NEURON_BLOCK];
-        for i in 0..self.n {
-            let xs = &self.data[i * d_n..(i + 1) * d_n];
-            let c = bmu[i];
-            for j in 0..nk {
-                let g = gt[(k0 + j) * k_n + c];
+        // the block's rows of gt, so that a sample reads them at its winner
+        let gt_b = &gt[k0 * k_n..(k0 + nk) * k_n];
+        for (xs, &c) in self.data.chunks_exact(d_n).zip(&bmu[..self.n]) {
+            for ((a, den), g_row) in acc
+                .chunks_exact_mut(d_n)
+                .zip(&mut acc_den[..nk])
+                .zip(gt_b.chunks_exact(k_n))
+            {
+                let g = g_row[c];
                 if g == 0.0 {
                     continue; // adds exact zeros
                 }
-                let a = &mut acc[j * d_n..(j + 1) * d_n];
-                for d in 0..d_n {
-                    a[d] += g * xs[d];
+                for (a, &x) in a.iter_mut().zip(xs) {
+                    *a += g * x;
                 }
-                acc_den[j] += g;
+                *den += g;
             }
         }
         num_b.copy_from_slice(&acc);
@@ -498,15 +500,17 @@ impl BatchState<'_> {
     fn update(&self, it: usize, weights: &mut [f64], num: &[f64], den: &[f64]) {
         let (lr, _) = self.decays(it);
         let d_n = self.d_n;
-        for k in 0..self.k_n {
-            if !(den[k] > 0.0) {
+        for ((wk, nk), &dk) in weights
+            .chunks_exact_mut(d_n)
+            .zip(num.chunks_exact(d_n))
+            .zip(&den[..self.k_n])
+        {
+            if !(dk > 0.0) {
                 continue;
             }
-            let wk = &mut weights[k * d_n..(k + 1) * d_n];
-            let nk = &num[k * d_n..(k + 1) * d_n];
-            for d in 0..d_n {
-                let new_w = nk[d] / den[k];
-                wk[d] = (1.0 - lr) * wk[d] + lr * new_w;
+            for (w, &nv) in wk.iter_mut().zip(nk) {
+                let new_w = nv / dk;
+                *w = (1.0 - lr) * *w + lr * new_w;
             }
         }
     }
