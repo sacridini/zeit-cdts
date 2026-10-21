@@ -13,9 +13,9 @@
 //! their own) instead of GDAL's unified one.
 
 use crate::parallel;
-use rayon::prelude::*;
 use std::cell::RefCell;
 use std::ffi::{c_int, c_void};
+use std::mem::MaybeUninit;
 
 mod kernels;
 mod loops;
@@ -141,7 +141,7 @@ impl Coords<'_> {
                 return;
             }
         };
-        let t = rayon::current_thread_index().unwrap_or(0);
+        let t = parallel::thread_index();
         let arg = self.transformer_args[t % self.transformer_args.len()];
         assert!(y.len() == n && ok.len() >= n);
         Z.with(|z| {
@@ -303,6 +303,15 @@ pub struct Spec {
 /// threads. With a transformer, `coords.transformer_args` holds one argument
 /// per thread at least.
 pub fn warp<T: Raster>(src: &[T], dst: &mut [T], coords: &Coords, sp: &Spec, threads: usize) {
+    // SAFETY: MaybeUninit<T> has T's layout, and warp_uninit writes only Ts.
+    let dst = unsafe { std::slice::from_raw_parts_mut(dst.as_mut_ptr() as *mut MaybeUninit<T>, dst.len()) };
+    warp_uninit(src, dst, coords, sp, threads);
+}
+
+/// `warp` into memory that holds no value yet (a new array, which C++
+/// leaves uninitialized too): every cell of dst is written, its rows first
+/// filled with dst_nodata by the thread that computes them.
+pub fn warp_uninit<T: Raster>(src: &[T], dst: &mut [MaybeUninit<T>], coords: &Coords, sp: &Spec, threads: usize) {
     let plane = sp.win_h as usize * sp.win_w as usize;
     let dst_plane = sp.dst_h as usize * sp.dst_w as usize;
     let bands = sp.bands as usize;
@@ -337,24 +346,21 @@ pub fn warp<T: Raster>(src: &[T], dst: &mut [T], coords: &Coords, sp: &Spec, thr
                 *v = u8::from(any);
             }
         };
-        if threads == 1 {
-            fill(0, &mut valid);
-        } else {
-            let chunk = plane.div_ceil(threads).max(1);
-            parallel::pool(threads).install(|| {
-                valid
-                    .par_chunks_mut(chunk)
-                    .enumerate()
-                    .for_each(|(c, out)| fill(c * chunk, out));
-            });
-        }
+        // OpenMP's schedule(static): a block of cells a thread.
+        let chunk = plane.div_ceil(threads).max(1);
+        let shared = parallel::Shared::new(&mut valid);
+        parallel::region(threads, |t| {
+            let (a, b) = ((t * chunk).min(plane), ((t + 1) * chunk).min(plane));
+            // SAFETY: the threads' blocks are disjoint.
+            fill(a, unsafe { shared.slice_mut(a..b) });
+        });
     }
     if !valid.is_empty() {
         s.valid = Some(&valid);
     }
 
     let d = loops::Dst {
-        data: dst.as_mut_ptr(),
+        data: dst.as_mut_ptr() as *mut T,
         len: dst.len(),
         plane: dst_plane,
         bands: sp.bands,
@@ -477,26 +483,36 @@ pub fn lattice_checks(
             bbox.fill(f64::NAN);
         }
     };
-    if threads <= 1 {
-        for (c, (((e, b), o), bx)) in err
+    // OpenMP's schedule(static): a block of cells a thread.
+    let threads = threads.max(1);
+    let chunk = cells.div_ceil(threads).max(1);
+    let (err, bad, outside, bbox) = (
+        parallel::Shared::new(err),
+        parallel::Shared::new(bad),
+        parallel::Shared::new(outside),
+        parallel::Shared::new(bbox),
+    );
+    parallel::region(threads, |t| {
+        let (a, b) = ((t * chunk).min(cells), ((t + 1) * chunk).min(cells));
+        // SAFETY: the threads' blocks are disjoint.
+        let (err, bad, outside, bbox) = unsafe {
+            (
+                err.slice_mut(a..b),
+                bad.slice_mut(a..b),
+                outside.slice_mut(a..b),
+                bbox.slice_mut(4 * a..4 * b),
+            )
+        };
+        for (c, (((e, bd), o), bx)) in err
             .iter_mut()
             .zip(bad.iter_mut())
             .zip(outside.iter_mut())
             .zip(bbox.chunks_mut(4))
             .enumerate()
         {
-            check(c, e, b, o, bx);
+            check(a + c, e, bd, o, bx);
         }
-    } else {
-        parallel::pool(threads).install(|| {
-            err.par_iter_mut()
-                .zip(bad.par_iter_mut())
-                .zip(outside.par_iter_mut())
-                .zip(bbox.par_chunks_mut(4))
-                .enumerate()
-                .for_each(|(c, (((e, b), o), bx))| check(c, e, b, o, bx));
-        });
-    }
+    });
 }
 
 #[cfg(test)]

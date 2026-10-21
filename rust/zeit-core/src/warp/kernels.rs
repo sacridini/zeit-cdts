@@ -55,6 +55,25 @@ impl<T: Raster> Src<'_, T> {
                 }
             }
     }
+    /// valid_cell(band, k, v), k unchecked.
+    ///
+    /// # Safety
+    /// k < plane (a cell `held` by the window).
+    #[inline(always)]
+    pub unsafe fn valid_cell_unchecked(&self, band: usize, k: usize, v: T) -> bool {
+        !self.masked
+            || match self.valid {
+                Some(m) => {
+                    debug_assert!(k < m.len());
+                    // SAFETY: the mask has a value for every cell of the plane.
+                    unsafe { *m.get_unchecked(k) != 0 }
+                }
+                None => {
+                    debug_assert_eq!(band, 0);
+                    !self.nodata.test(v)
+                }
+            }
+    }
     /// GDAL's density of a cell: 1 when valid, else 0.
     #[inline(always)]
     pub fn ok(&self, r: i32, c: i32) -> bool {
@@ -265,16 +284,40 @@ pub fn bilinear4<T: Raster>(
     if isy + 1 < s.h && isx + 1 < s.w && s.held(isy, isx) && s.held(isy + 1, isx + 1) {
         let k00 = s.at(isy, isx);
         let k10 = k00 + s.ww as usize;
-        let d = &s.data[band * s.plane..];
-        let (top, bottom) = (&d[k00..k00 + 2], &d[k10..k10 + 2]);
-        let cells = [(k00, top[0]), (k00 + 1, top[1]), (k10, bottom[0]), (k10 + 1, bottom[1])];
+        let d = &s.data[band * s.plane..(band + 1) * s.plane];
+        // (isy, isx) and (isy + 1, isx + 1) are in the window: the four cells
+        // are in its plane, d.
+        debug_assert!(k10 + 1 < d.len());
+        // SAFETY: in the plane (above).
+        let cells = unsafe {
+            [
+                (k00, *d.get_unchecked(k00)),
+                (k00 + 1, *d.get_unchecked(k00 + 1)),
+                (k10, *d.get_unchecked(k10)),
+                (k10 + 1, *d.get_unchecked(k10 + 1)),
+            ]
+        };
+        // Without branches on the cells' validity (unpredictable with scattered
+        // NoData): an invalid cell adds +0, its value left out. The sums start at
+        // +0 and the weights are >= +0, so they are never -0, and adding +0
+        // leaves them as GDAL's, which skips the cell.
         for (q, &(k, v)) in cells.iter().enumerate() {
-            if !s.valid_cell(band, k, v) {
+            // SAFETY: in the plane (above).
+            let ok = unsafe { s.valid_cell_unchecked(band, k, v) };
+            if T::SMALL {
+                if !ok {
+                    continue;
+                }
+                acc_divisor += m[q];
+                acc_real += v.to_f64() * m[q];
+                acc_density += 1.0 * m[q];
                 continue;
             }
-            acc_divisor += m[q];
-            acc_real += v.to_f64() * m[q];
-            acc_density += 1.0 * m[q];
+            let mq = if ok { m[q] } else { 0.0 };
+            let vq = if ok { v.to_f64() } else { 0.0 };
+            acc_divisor += mq;
+            acc_real += vq * mq;
+            acc_density += 1.0 * mq;
         }
     } else {
         for (q, &mq) in m.iter().enumerate() {
@@ -379,6 +422,7 @@ pub fn cubic4<T: Raster>(s: &Src<T>, band: usize, src_x: f64, src_y: f64, densit
 }
 
 /// GWKResample (bilinear and cubic when downsampling, cubic spline).
+#[inline(always)]
 #[allow(clippy::too_many_arguments)]
 pub fn resample<T: Raster, const M: i32>(
     s: &Src<T>,
@@ -390,6 +434,9 @@ pub fn resample<T: Raster, const M: i32>(
     density: &mut f64,
     real: &mut f64,
 ) -> bool {
+    // A copy of its own: the stores to the weights would otherwise have the
+    // loops read its fields again.
+    let s = &{ *s };
     let masked = s.masked;
     let (mut acc_real, mut acc_density, mut acc_weight) = (0.0, 0.0, 0.0);
     let isx = ifloor(src_x - 0.5);
@@ -562,6 +609,8 @@ pub fn lanczos<T: Raster>(
     density: &mut f64,
     real: &mut f64,
 ) -> bool {
+    // A copy of its own, as in resample.
+    let s = &{ *s };
     let masked = s.masked;
     let (mut acc_real, mut acc_density, mut acc_weight) = (0.0, 0.0, 0.0);
     let isx = ifloor(src_x - 0.5);
