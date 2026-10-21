@@ -5,3 +5,6 @@ include src/*.hpp
 include third_party/eigen/Eigen/*
 recursive-include third_party/eigen *
 include zeit/_plot/*.js zeit/_plot/*.css
+include rust/Cargo.toml rust/Cargo.lock
+recursive-include rust/zeit-core *.rs Cargo.toml
+recursive-include rust/zeit-py *.rs Cargo.toml

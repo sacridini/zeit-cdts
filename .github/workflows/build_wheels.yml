@@ -34,7 +34,12 @@ jobs:
           # inteira, num Python por sistema (os outros sÃ£o testados a partir do cÃ³digo
           # no workflow Tests). O musllinux fica de fora: o torch nÃ£o tem wheels para ele.
           CIBW_TEST_EXTRAS: "dev"
-          CIBW_TEST_COMMAND: "pytest {project}/tests -q -p no:cacheprovider"
+          # O núcleo Rust (zeit._rust) é opcional no setup.py: um wheel construído sem ele
+          # passaria na suíte com o núcleo C++. O import garante que ele está lá.
+          CIBW_TEST_COMMAND: "python -c \"import zeit._rust\" && pytest {project}/tests -q -p no:cacheprovider"
+          # Os contêineres manylinux e musllinux não têm Rust; as máquinas Windows e macOS têm.
+          CIBW_BEFORE_ALL_LINUX: "curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal"
+          CIBW_ENVIRONMENT_LINUX: 'PATH="$HOME/.cargo/bin:$PATH"'
           CIBW_TEST_SKIP: "cp39-* cp310-* cp311-* cp313-* cp314-* *musllinux*"
           # No contÃªiner manylinux, o torch sÃ³ de CPU (o do PyPI traz gigabytes de CUDA).
           CIBW_BEFORE_TEST_LINUX: "pip install torch --index-url https://download.pytorch.org/whl/cpu"

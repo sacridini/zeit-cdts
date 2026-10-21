@@ -1,0 +1,10 @@
+[package]
+name = "zeit-core"
+description = "The algorithms of zeit (change detection and time series of Earth observation data), without Python"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+rayon = "1"

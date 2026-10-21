@@ -3,6 +3,7 @@ from setuptools import setup, Extension, find_packages
 from setuptools.command.build_ext import build_ext
 import sys
 import setuptools
+from setuptools_rust import Binding, RustExtension
 
 class get_pybind_include(object):
     """Helper class to determine the pybind11 include path"""
@@ -90,13 +91,23 @@ class BuildExt(build_ext):
 
         build_ext.build_extensions(self)
 
+# The Rust core (rust/, see RUST_MIGRATION.md), beside the C++ one while the
+# algorithms move over one by one. Optional for now: without a Rust toolchain
+# the package builds with the C++ core alone, which zeit/_backend.py falls back to.
+rust_extensions = [
+    # debug=False: setuptools-rust otherwise makes in-place builds (build_ext --inplace)
+    # debug builds, ten times slower.
+    RustExtension('zeit._rust', path='rust/zeit-py/Cargo.toml', binding=Binding.PyO3, optional=True, debug=False),
+]
+
 setup(
     name='zeit-cdts',
     version='1.7.0',
     packages=find_packages(include=['zeit', 'zeit.*']),
     package_data={'zeit._plot': ['*.js', '*.css']},
     ext_modules=ext_modules,
-    setup_requires=['pybind11>=2.10.0'],
+    rust_extensions=rust_extensions,
+    setup_requires=['pybind11>=2.10.0', 'setuptools-rust>=1.9'],
     cmdclass={'build_ext': BuildExt},
     zip_safe=False,
 )

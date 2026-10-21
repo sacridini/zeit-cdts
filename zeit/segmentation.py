@@ -16,7 +16,7 @@ from typing import Optional, Tuple, Union
 
 import numpy as np
 
-from . import _core
+from ._backend import core as _core
 
 _GRIDS = ("rectangular", "diamond", "hexagonal", "random")
 

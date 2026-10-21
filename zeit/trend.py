@@ -2,7 +2,10 @@ import numpy as np
 import dask.array as da
 from typing import Optional
 
-from zeit._core.mannkendall import fit_mann_kendall_batch, MKMethod
+from zeit._backend import core as _core
+
+fit_mann_kendall_batch = _core.mannkendall.fit_mann_kendall_batch
+MKMethod = _core.mannkendall.MKMethod
 
 # trend, h, p, z, tau, s, var_s, slope, intercept
 N_MK_METRICS = 9

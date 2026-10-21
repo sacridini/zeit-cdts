@@ -1,6 +1,6 @@
 import numpy as np
 from typing import List, Dict, Any, Union, Tuple, Optional
-from . import _core
+from ._backend import core as _core
 
 def run_twdtw(
     ts_values: Union[np.ndarray, List[float]], 

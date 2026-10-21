@@ -35,3 +35,6 @@ site/
 scratch/
 tmp/
 examples/data/
+
+# Rust build output
+rust/target/

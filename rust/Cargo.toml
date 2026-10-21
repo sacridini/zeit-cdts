@@ -1,0 +1,19 @@
+# The Rust core of zeit, replacing src/ (C++) module by module; see RUST_MIGRATION.md.
+#
+#   zeit-core  the algorithms, plain Rust (no Python): `cargo test` runs them alone
+#   zeit-py    the Python bindings, built by setup.py (setuptools-rust) as zeit._rust
+[workspace]
+members = ["zeit-core", "zeit-py"]
+resolver = "2"
+
+[workspace.package]
+version = "1.7.0"
+edition = "2021"
+license = "GPL-2.0-or-later"
+
+[profile.release]
+# One codegen unit and LTO let zeit-core's kernels inline into the bindings.
+# No change to floating point: Rust never fuses a * b + c into an FMA unless
+# asked (the C++ build passes -ffp-contract=off for the same reason).
+codegen-units = 1
+lto = "fat"

@@ -1,0 +1,16 @@
+[package]
+name = "zeit-py"
+description = "Python bindings of zeit-core: the zeit._rust extension module"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+name = "_rust"
+crate-type = ["cdylib"]
+
+[dependencies]
+zeit-core = { path = "../zeit-core" }
+pyo3 = "0.30"
+numpy = "0.30"
