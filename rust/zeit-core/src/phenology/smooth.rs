@@ -4,6 +4,7 @@
 // The loops index the series as the C++'s do.
 #![allow(clippy::needless_range_loop)]
 
+use crate::cmath::sin_cos;
 use crate::eigen::ldlt::{xtx, Ldlt};
 use crate::eigen::qr::{mat_t_vec, mat_vec, Mat, Order};
 use crate::eigen::sparse::{Csc, SimplicialLlt};
@@ -222,8 +223,9 @@ pub fn hants(y: &[f64], t: &[f64], num_frequencies: i32, threshold: f64, initial
         x.set(i, 0, 1.0);
         for j in 1..=nf {
             let angle = 2.0 * pi * j as f64 * t[i] / 365.25;
-            x.set(i, 2 * j - 1, angle.sin());
-            x.set(i, 2 * j, angle.cos());
+            let (s, c) = sin_cos(angle);
+            x.set(i, 2 * j - 1, s);
+            x.set(i, 2 * j, c);
         }
     }
 

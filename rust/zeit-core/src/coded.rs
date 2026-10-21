@@ -4,6 +4,7 @@
 //! (Eigen's column-major QR included), so the same bits. See coded.h for the
 //! method and the layout of the output.
 
+use crate::cmath::sin_cos;
 use crate::eigen::qr::{ColPivQr, Mat, Order};
 use crate::parallel;
 
@@ -75,11 +76,8 @@ pub struct Dates<'a> {
 
 impl<'a> Dates<'a> {
     pub fn new(t: &'a [f64]) -> Dates<'a> {
-        Dates {
-            t,
-            sin: t.iter().map(|&tt| (2.0 * PI * tt).sin()).collect(),
-            cos: t.iter().map(|&tt| (2.0 * PI * tt).cos()).collect(),
-        }
+        let (sin, cos) = t.iter().map(|&tt| sin_cos(2.0 * PI * tt)).unzip();
+        Dates { t, sin, cos }
     }
 }
 

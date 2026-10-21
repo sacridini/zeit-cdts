@@ -16,7 +16,7 @@
 // indices are 1-based like the original's (i, i_start, i_break, ...).
 #![allow(clippy::needless_range_loop, clippy::too_many_arguments)]
 
-use crate::cmath::lgamma;
+use crate::cmath::{lgamma, sin_cos};
 use crate::eigen::qr::{Mat, Order};
 use crate::parallel;
 use crate::robustfit::{median_of, robust_fit};
@@ -204,16 +204,10 @@ fn chi2inv(p: f64, df: i32) -> f64 {
 
 /// 1, t, cos(wt), sin(wt), cos(2wt), sin(2wt), cos(3wt), sin(3wt).
 fn terms(t: f64) -> [f64; 8] {
-    [
-        1.0,
-        t,
-        (W * t).cos(),
-        (W * t).sin(),
-        (2.0 * W * t).cos(),
-        (2.0 * W * t).sin(),
-        (3.0 * W * t).cos(),
-        (3.0 * W * t).sin(),
-    ]
+    let (s1, c1) = sin_cos(W * t);
+    let (s2, c2) = sin_cos(2.0 * W * t);
+    let (s3, c3) = sin_cos(3.0 * W * t);
+    [1.0, t, c1, s1, c2, s2, c3, s3]
 }
 
 #[inline]
@@ -706,8 +700,8 @@ fn auto_tmask(s: &Series, c: &Ctx, rows: &[usize], yr: f64, var1: f64, var2: f64
         match j {
             0 => s.terms[r][2],
             1 => s.terms[r][3],
-            2 => ((W / yr) * s.sdate[r]).cos(),
-            _ => ((W / yr) * s.sdate[r]).sin(),
+            2 => sin_cos((W / yr) * s.sdate[r]).1,
+            _ => sin_cos((W / yr) * s.sdate[r]).0,
         }
     });
     let y1: Vec<f64> = rows.iter().map(|&r| s.line[r * nb + c.b1]).collect();
@@ -719,7 +713,7 @@ fn auto_tmask(s: &Series, c: &Ctx, rows: &[usize], yr: f64, var1: f64, var2: f64
             // cos(t * W) and sin(t * W) are the terms' cos(W * t) and sin(W * t)
             let (cw, sw) = (s.terms[r][2], s.terms[r][3]);
             let ty = s.sdate[r] * W / yr;
-            let (cy, sy) = (ty.cos(), ty.sin());
+            let (sy, cy) = sin_cos(ty);
             let p1 = c1[0] + c1[1] * cw + c1[2] * sw + c1[3] * cy + c1[4] * sy;
             let p2 = c2[0] + c2[1] * cw + c2[2] * sw + c2[3] * cy + c2[4] * sy;
             (y1[i] - p1).abs() > T_CONST * var1 || (y2[i] - p2).abs() > T_CONST * var2

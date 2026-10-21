@@ -5,6 +5,7 @@
 //! residual is above `cloud_threshold` (cloud) or whose SWIR residual is below
 //! `-shadow_threshold` (shadow), in reflectance (values / scale), is flagged.
 
+use crate::cmath::sin_cos;
 use crate::parallel;
 use crate::robustfit::robustfit_bisquare;
 
@@ -25,8 +26,7 @@ pub fn tmask_pixel(
     if green.len() != n || swir.len() != n {
         return Err("tmask_pixel: days, green and swir must have the same length");
     }
-    let cos: Vec<f64> = days.iter().map(|&d| (W * d).cos()).collect();
-    let sin: Vec<f64> = days.iter().map(|&d| (W * d).sin()).collect();
+    let (sin, cos): (Vec<f64>, Vec<f64>) = days.iter().map(|&d| sin_cos(W * d)).unzip();
     Ok(screen(
         days,
         &cos,
@@ -99,8 +99,7 @@ pub fn tmask_batch(
     assert!(green.len() == pixels * t && swir.len() == pixels * t);
     let mut out = vec![0u8; pixels * t];
     // cos(w d) and sin(w d) of every date, once for all the pixels
-    let cos_all: Vec<f64> = days.iter().map(|&d| (W * d).cos()).collect();
-    let sin_all: Vec<f64> = days.iter().map(|&d| (W * d).sin()).collect();
+    let (sin_all, cos_all): (Vec<f64>, Vec<f64>) = days.iter().map(|&d| sin_cos(W * d)).unzip();
     parallel::for_each_row(&mut out, t, n_jobs, Vec::new, |idx: &mut Vec<usize>, p, row| {
         let (gp, sp) = (&green[p * t..(p + 1) * t], &swir[p * t..(p + 1) * t]);
         idx.clear();

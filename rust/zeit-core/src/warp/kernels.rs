@@ -3,6 +3,7 @@
 
 use super::raster::{cvt_i32, ifloor, NoDataTest, Raster};
 use super::{BILINEAR, CUBIC, CUBICSPLINE, LANCZOS};
+use crate::cmath::sin_cos;
 use std::f64::consts::PI;
 
 /// The source cells given: a window of the whole source, and GDAL's unified
@@ -535,8 +536,7 @@ fn lanczos_weights(
     if scale < 1.0 {
         let mut x = (lo as f64 - delta) * scale;
         let pi_x_over3 = PI / 3.0 * x;
-        let mut cos_over3 = pi_x_over3.cos();
-        let mut sin_over3 = pi_x_over3.sin();
+        let (mut sin_over3, mut cos_over3) = sin_cos(pi_x_over3);
         let mut sin = (3.0 - 4.0 * sin_over3 * sin_over3) * sin_over3;
         let mut cos = (4.0 * cos_over3 * cos_over3 - 3.0) * cos_over3;
         let w = &mut w[at(lo)..];
