@@ -10,6 +10,7 @@
 pub mod bfast;
 pub mod bfast_lite;
 pub mod bfast_monitor;
+pub mod ccdc;
 pub mod cmath;
 pub mod coded;
 pub mod eigen;

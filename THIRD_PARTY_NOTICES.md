@@ -6,8 +6,8 @@ option) any later version (`GPL-2.0-or-later`, see `LICENSE`).
 Several algorithms in Zeit are ports of, or are derived from, the software
 listed below. Their licenses are all compatible with distributing Zeit under
 the GPL. Because the CCDC lasso solver is derived from GPL-2.0-only code, the
-compiled `zeit._core` extension as a whole is distributed under the terms of
-**GPL version 2**.
+compiled `zeit._core` and `zeit._rust` extensions as a whole are distributed
+under the terms of **GPL version 2**.
 
 ## Ported or derived code
 
@@ -15,6 +15,7 @@ compiled `zeit._core` extension as a whole is distributed under the terms of
 | :--- | :--- | :--- |
 | `src/ccdc.cpp` (CCDC) | [GERSL/CCDC](https://github.com/GERSL/CCDC), Zhu & Woodcock (2014), MATLAB | MIT |
 | `src/ccdc.cpp`, `glmnet_lasso()` | GLMnet Fortran (Friedman, Hastie & Tibshirani), as bundled with GERSL/CCDC | GPL-2.0-only |
+| `rust/zeit-core/src/ccdc.rs` (the Rust port of `src/ccdc.cpp`, its lasso included) | GERSL/CCDC (MIT) and its bundled GLMnet Fortran | MIT, GPL-2.0-only |
 | `src/bfast.cpp`, `src/bfast_monitor.cpp`, `src/bfast_lite.cpp` | R package [bfast](https://github.com/bfast2/bfast), Verbesselt et al. | GPL-2.0-or-later |
 | `src/bfast*.cpp` (efp/MOSUM process, critical values, breakpoints) | R package [strucchangeRcpp](https://github.com/bfast2/strucchangeRcpp), Zeileis et al. | GPL-2.0 or GPL-3.0 |
 | `src/stl_decompose.cpp` | R `stats::stl()` (`src/library/stats/src/stl.c`), R Core Team | GPL-2.0 or GPL-3.0 |
