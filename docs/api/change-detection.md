@@ -20,7 +20,7 @@ zeit.landtrendr(
 )
 ```
 
-Segments annual time series with LandTrendr (Kennedy et al. 2010), every pixel in parallel in C++ / OpenMP. One function for every input: it reads what `data` is and returns the same `xarray.Dataset` of vertices, georeferenced when the input is. All parameters but `data` are keyword-only. It replaces `run_landtrendr`, `run_landtrendr_array`, `run_landtrendr_image` and `DataArray.zeit.run_landtrendr`; the accessor form is now [`DataArray.zeit.landtrendr`](xarray.md#landtrendr).
+Segments annual time series with LandTrendr (Kennedy et al. 2010), every pixel in parallel in the Rust core. One function for every input: it reads what `data` is and returns the same `xarray.Dataset` of vertices, georeferenced when the input is. All parameters but `data` are keyword-only. It replaces `run_landtrendr`, `run_landtrendr_array`, `run_landtrendr_image` and `DataArray.zeit.run_landtrendr`; the accessor form is now [`DataArray.zeit.landtrendr`](xarray.md#landtrendr).
 
 `data` can be:
 
@@ -251,7 +251,7 @@ zeit.ccdc(
 )
 ```
 
-Continuous Change Detection and Classification (Zhu & Woodcock 2014): fits a harmonic model to every stable period of each pixel's multi-band series and dates the breaks between them, every pixel in parallel in C++ / OpenMP. The engine is a port of the original MATLAB code, validated segment for segment against it. One function for every input: it reads what `data` is and returns the same `xarray.Dataset` of segments, georeferenced when the input is. All parameters but `data` are keyword-only. It replaces `zeit.ccdc.run_ccdc`, `run_ccdc_array`, `run_ccdc_image` and `DataArray.zeit.run_ccdc`; the accessor form is now [`DataArray.zeit.ccdc`](xarray.md#ccdc).
+Continuous Change Detection and Classification (Zhu & Woodcock 2014): fits a harmonic model to every stable period of each pixel's multi-band series and dates the breaks between them, every pixel in parallel in the Rust core. The engine is a port of the original MATLAB code, validated segment for segment against it. One function for every input: it reads what `data` is and returns the same `xarray.Dataset` of segments, georeferenced when the input is. All parameters but `data` are keyword-only. It replaces `zeit.ccdc.run_ccdc`, `run_ccdc_array`, `run_ccdc_image` and `DataArray.zeit.run_ccdc`; the accessor form is now [`DataArray.zeit.ccdc`](xarray.md#ccdc).
 
 `data` can be:
 
@@ -373,7 +373,7 @@ zeit.coded(
 )
 ```
 
-Continuous Degradation Detection (CODED; Bullock, Woodcock & Olofsson 2020): forest degradation (a disturbance after which the land is still forest: selective logging, understory fire) and deforestation (after which it is not) from the NDFI of every Landsat observation. Per pixel, in C++: the fractions and NDFI of every observation (`unmix`, clouds masked by their fraction); a model of the NDFI (a constant and an annual harmonic) over a training period, with its RMSE; monitoring after it, where `consec` observations in a row more than `thresh` RMSEs below the model are a change; after each change, a new model of the next `min_years`, which is the land cover after it. Forest or not comes from the models: a random forest on their coefficients trained on land cover points, as in CODED, or else the model's mean NDFI against `forest_ndfi`. Also exported as `zeit.coded`; CLI: `zeit coded`. Tutorial: [Forest Degradation (CODED)](../tutorials/coded.md).
+Continuous Degradation Detection (CODED; Bullock, Woodcock & Olofsson 2020): forest degradation (a disturbance after which the land is still forest: selective logging, understory fire) and deforestation (after which it is not) from the NDFI of every Landsat observation. Per pixel, in Rust: the fractions and NDFI of every observation (`unmix`, clouds masked by their fraction); a model of the NDFI (a constant and an annual harmonic) over a training period, with its RMSE; monitoring after it, where `consec` observations in a row more than `thresh` RMSEs below the model are a change; after each change, a new model of the next `min_years`, which is the land cover after it. Forest or not comes from the models: a random forest on their coefficients trained on land cover points, as in CODED, or else the model's mean NDFI against `forest_ndfi`. Also exported as `zeit.coded`; CLI: `zeit coded`. Tutorial: [Forest Degradation (CODED)](../tutorials/coded.md).
 
 <div class="params" markdown>
 
@@ -434,7 +434,7 @@ zeit.bfast_monitor(
 )
 ```
 
-Near-real-time disturbance monitoring (`bfastmonitor`, Verbesselt et al. 2012): fits a linear trend plus `order` harmonics on the history before `monitor_start`, then flags the first observation after it where the OLS-MOSUM process crosses its boundary (`type="OLS-MOSUM"`, `history="all"`). Every pixel runs in parallel in C++ / OpenMP.
+Near-real-time disturbance monitoring (`bfastmonitor`, Verbesselt et al. 2012): fits a linear trend plus `order` harmonics on the history before `monitor_start`, then flags the first observation after it where the OLS-MOSUM process crosses its boundary (`type="OLS-MOSUM"`, `history="all"`). Every pixel runs in parallel in the Rust core.
 
 `data` can be (the same for [`bfast_lite`](#bfast_lite), [`bfast`](#bfast), [`mann_kendall`](time-series.md#mann_kendall) and [`phenology`](time-series.md#phenology)):
 

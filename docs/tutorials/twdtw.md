@@ -24,7 +24,7 @@ $$
 
 Small seasonal shifts are cheap; implausible ones (matching a January peak to a July peak) cost up to one unit more per pair. With `cycle="year"` (the default) $\Delta t$ is measured between days of the year, around the year, so a pattern built from one year matches the same season of any other year, and 31 December is a day away from 1 January. Each pattern may match any stretch of a pixel's series, which can be longer than the pattern (several seasons, several years).
 
-`zeit.twdtw` computes the distance of the R package [twdtw](https://cran.r-project.org/package=twdtw) (Maus et al.), checked against it to 1e-12, in C++ with OpenMP across pixels and a two-row dynamic program that stays in the CPU cache. Dates a pixel has no value for (clouds, NoData) are left out of its series.
+`zeit.twdtw` computes the distance of the R package [twdtw](https://cran.r-project.org/package=twdtw) (Maus et al.), checked against it to 1e-12, in Rust, every pixel in parallel, and a two-row dynamic program that stays in the CPU cache. Dates a pixel has no value for (clouds, NoData) are left out of its series.
 
 ## Step by step
 

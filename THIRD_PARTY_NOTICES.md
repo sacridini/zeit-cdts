@@ -6,30 +6,31 @@ option) any later version (`GPL-2.0-or-later`, see `LICENSE`).
 Several algorithms in Zeit are ports of, or are derived from, the software
 listed below. Their licenses are all compatible with distributing Zeit under
 the GPL. Because the CCDC lasso solver is derived from GPL-2.0-only code, the
-compiled `zeit._core` and `zeit._rust` extensions as a whole are distributed
-under the terms of **GPL version 2**.
+compiled `zeit._core` extension (the Rust core, `rust/`) as a whole is
+distributed under the terms of **GPL version 2**.
 
 ## Ported or derived code
 
 | Zeit component | Derived from | License |
 | :--- | :--- | :--- |
-| `src/ccdc.cpp` (CCDC) | [GERSL/CCDC](https://github.com/GERSL/CCDC), Zhu & Woodcock (2014), MATLAB | MIT |
-| `src/ccdc.cpp`, `glmnet_lasso()` | GLMnet Fortran (Friedman, Hastie & Tibshirani), as bundled with GERSL/CCDC | GPL-2.0-only |
-| `rust/zeit-core/src/ccdc.rs` (the Rust port of `src/ccdc.cpp`, its lasso included) | GERSL/CCDC (MIT) and its bundled GLMnet Fortran | MIT, GPL-2.0-only |
-| `src/bfast.cpp`, `src/bfast_monitor.cpp`, `src/bfast_lite.cpp` | R package [bfast](https://github.com/bfast2/bfast), Verbesselt et al. | GPL-2.0-or-later |
-| `src/bfast*.cpp` (efp/MOSUM process, critical values, breakpoints) | R package [strucchangeRcpp](https://github.com/bfast2/strucchangeRcpp), Zeileis et al. | GPL-2.0 or GPL-3.0 |
-| `src/stl_decompose.cpp` | R `stats::stl()` (`src/library/stats/src/stl.c`), R Core Team | GPL-2.0 or GPL-3.0 |
-| `src/mann_kendall.cpp` | [pymannkendall](https://github.com/mmhs013/pymannkendall), Hussain & Mahmud (2019) | MIT |
-| `src/phenology*.cpp` (methodology) | R package [phenofit](https://github.com/eco-hydro/phenofit), Kong et al. (2022) | GPL-2.0 |
+| `rust/zeit-core/src/ccdc.rs` (CCDC), `rust/zeit-core/src/robustfit.rs` | [GERSL/CCDC](https://github.com/GERSL/CCDC), Zhu & Woodcock (2014), MATLAB | MIT |
+| `rust/zeit-core/src/ccdc.rs`, the lasso solver | GLMnet Fortran (Friedman, Hastie & Tibshirani), as bundled with GERSL/CCDC | GPL-2.0-only |
+| `rust/zeit-core/src/bfast.rs`, `bfast_monitor.rs`, `bfast_lite.rs` | R package [bfast](https://github.com/bfast2/bfast), Verbesselt et al. | GPL-2.0-or-later |
+| `rust/zeit-core/src/bfast*.rs` (efp/MOSUM process, critical values, breakpoints) | R package [strucchangeRcpp](https://github.com/bfast2/strucchangeRcpp), Zeileis et al. | GPL-2.0 or GPL-3.0 |
+| `rust/zeit-core/src/stl.rs` | R `stats::stl()` (`src/library/stats/src/stl.c`), R Core Team | GPL-2.0 or GPL-3.0 |
+| `rust/zeit-core/src/mann_kendall.rs` | [pymannkendall](https://github.com/mmhs013/pymannkendall), Hussain & Mahmud (2019) | MIT |
+| `rust/zeit-core/src/phenology.rs`, `phenology/` (methodology) | R package [phenofit](https://github.com/eco-hydro/phenofit), Kong et al. (2022) | GPL-2.0 |
+| `rust/zeit-core/src/eigen.rs`, `eigen/` (QR, LDLT, matrix products, sparse Cholesky with AMD ordering, Levenberg-Marquardt), ported operation by operation so the results are those of zeit 1.x | [Eigen](https://eigen.tuxfamily.org) 3.4 | MPL-2.0 |
+| `rust/zeit-core/src/eigen/lm.rs` (Levenberg-Marquardt, from Eigen's `unsupported/NonLinearOptimization`) | MINPACK, University of Chicago | MINPACK license (see below) |
 | `zeit/ai/utae.py` (U-TAE, L-TAE) | [VSainteuf/utae-paps](https://github.com/VSainteuf/utae-paps), Garnot & Landrieu (2021) | MIT |
 | `zeit/ai/presto.py` (Presto encoder; its pretrained weights are downloaded, not bundled) | [nasaharvest/presto](https://github.com/nasaharvest/presto), Tseng et al. (2023) | MIT |
 | `zeit/ai/prithvi.py` (Prithvi-EO-2.0 encoder; its pretrained weights are downloaded, not bundled) | `prithvi_mae.py` of [ibm-nasa-geospatial/Prithvi-EO-2.0](https://huggingface.co/ibm-nasa-geospatial), Szwarcman et al. (2024), IBM Corp. | Apache-2.0 |
 | `zeit/ai/tempcnn.py` (architecture) | R package [sits](https://github.com/e-sensing/sits), `sits_tempcnn()` | GPL-2.0 |
 | `zeit/segmentation.py` (seed grids) | R package [snic](https://github.com/rolfsimoes/snic), `snic_grid()` | GPL-2.0 |
-| `src/warp.cpp` (resampling kernels of `load_raster(..., like=)`) | [GDAL](https://gdal.org) 3.12, `alg/gdalwarpkernel.cpp`, Warmerdam, Rouault et al. (via landschaft, same author as Zeit) | MIT |
-| `src/landtrendr.cpp` (LandTrendr) | [KennedyResearch/LandTrendr-2012](https://github.com/KennedyResearch/LandTrendr-2012), Kennedy et al. (2010), IDL | no license published — see below |
+| `rust/zeit-core/src/warp.rs`, `warp/` (resampling kernels of `load_raster(..., like=)`) | [GDAL](https://gdal.org) 3.12, `alg/gdalwarpkernel.cpp`, Warmerdam, Rouault et al. (via landschaft, same author as Zeit) | MIT |
+| `rust/zeit-core/src/landtrendr.rs` (LandTrendr) | [KennedyResearch/LandTrendr-2012](https://github.com/KennedyResearch/LandTrendr-2012), Kennedy et al. (2010), IDL | no license published — see below |
 
-SNIC (`src/snic.cpp`) is implemented from the paper (Achanta & Süsstrunk,
+SNIC (`rust/zeit-core/src/snic.rs`) is implemented from the paper (Achanta & Süsstrunk,
 CVPR 2017). The authors' reference code is not included; the test suite only
 stores outputs of it (`tests/data/snic_reference_parity.npz`) to check that
 Zeit gives the same labels.
@@ -40,22 +41,92 @@ sought. Until then, the LandTrendr port's redistribution terms are unresolved.
 
 ## Bundled or linked libraries
 
+The Rust crates compiled into `zeit._core` (from `rust/Cargo.lock`; crates
+used only to build it are left out):
+
 | Library | Use | License |
 | :--- | :--- | :--- |
-| [Eigen](https://eigen.tuxfamily.org) (`third_party/eigen`) | linear algebra, compiled in | MPL-2.0 (see `third_party/eigen/COPYING.*`) |
-| Eigen `unsupported/NonLinearOptimization` | phenology curve fitting, compiled in | MINPACK license (see below) |
-| [pybind11](https://github.com/pybind/pybind11) | Python bindings, compiled in | BSD-3-Clause |
+| [PyO3](https://github.com/PyO3/pyo3) (`pyo3`, `pyo3-ffi`) | Python bindings | MIT OR Apache-2.0 |
+| [rust-numpy](https://github.com/PyO3/rust-numpy) (`numpy`) | NumPy arrays in the bindings | BSD-2-Clause (see below) |
+| [ndarray](https://github.com/rust-ndarray/ndarray), `matrixmultiply`, `rawpointer`, `num-traits`, `num-complex`, `num-integer` | array views (through rust-numpy) | MIT OR Apache-2.0 |
+| [rayon](https://github.com/rayon-rs/rayon) (`rayon`, `rayon-core`, `crossbeam-*`, `either`) | threads | MIT OR Apache-2.0 |
+| [mimalloc](https://github.com/purpleprotocol/mimalloc_rust) (`mimalloc`, `libmimalloc-sys`, with Microsoft's [mimalloc](https://github.com/microsoft/mimalloc) C library) | memory allocator | MIT |
+| `libc`, `once_cell`, `portable-atomic`, `portable-atomic-util`, `rustc-hash` | support | MIT OR Apache-2.0 |
+
+The parts of Eigen ported to Rust (above) are covered by the Mozilla Public
+License 2.0 (<https://mozilla.org/MPL/2.0/>), which allows distributing them
+as part of a GPL work.
 
 This product includes software developed by the University of Chicago, as
 Operator of Argonne National Laboratory (MINPACK, via Eigen's
-NonLinearOptimization module; full notice in
-`third_party/eigen/COPYING.MINPACK`).
+NonLinearOptimization module, ported to Rust in
+`rust/zeit-core/src/eigen/lm.rs`). The MINPACK copyright notice:
+
+> Minpack Copyright Notice (1999) University of Chicago. All rights reserved
+>
+> Redistribution and use in source and binary forms, with or without
+> modification, are permitted provided that the following conditions are met:
+>
+> 1. Redistributions of source code must retain the above copyright notice,
+>    this list of conditions and the following disclaimer.
+> 2. Redistributions in binary form must reproduce the above copyright notice,
+>    this list of conditions and the following disclaimer in the documentation
+>    and/or other materials provided with the distribution.
+> 3. The end-user documentation included with the redistribution, if any, must
+>    include the following acknowledgment: "This product includes software
+>    developed by the University of Chicago, as Operator of Argonne National
+>    Laboratory." Alternately, this acknowledgment may appear in the software
+>    itself, if and wherever such third-party acknowledgments normally appear.
+> 4. WARRANTY DISCLAIMER. THE SOFTWARE IS SUPPLIED "AS IS" WITHOUT WARRANTY OF
+>    ANY KIND. THE COPYRIGHT HOLDER, THE UNITED STATES, THE UNITED STATES
+>    DEPARTMENT OF ENERGY, AND THEIR EMPLOYEES: (1) DISCLAIM ANY WARRANTIES,
+>    EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO ANY IMPLIED WARRANTIES OF
+>    MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE OR
+>    NON-INFRINGEMENT, (2) DO NOT ASSUME ANY LEGAL LIABILITY OR RESPONSIBILITY
+>    FOR THE ACCURACY, COMPLETENESS, OR USEFULNESS OF THE SOFTWARE, (3) DO NOT
+>    REPRESENT THAT USE OF THE SOFTWARE WOULD NOT INFRINGE PRIVATELY OWNED
+>    RIGHTS, (4) DO NOT WARRANT THAT THE SOFTWARE WILL FUNCTION UNINTERRUPTED,
+>    THAT IT IS ERROR-FREE OR THAT ANY ERRORS WILL BE CORRECTED.
+> 5. LIMITATION OF LIABILITY. IN NO EVENT WILL THE COPYRIGHT HOLDER, THE UNITED
+>    STATES, THE UNITED STATES DEPARTMENT OF ENERGY, OR THEIR EMPLOYEES: BE
+>    LIABLE FOR ANY INDIRECT, INCIDENTAL, CONSEQUENTIAL, SPECIAL OR PUNITIVE
+>    DAMAGES OF ANY KIND OR NATURE, INCLUDING BUT NOT LIMITED TO LOSS OF
+>    PROFITS OR LOSS OF DATA, FOR ANY REASON WHATSOEVER, WHETHER SUCH LIABILITY
+>    IS ASSERTED ON THE BASIS OF CONTRACT, TORT (INCLUDING NEGLIGENCE OR STRICT
+>    LIABILITY), OR OTHERWISE, EVEN IF ANY OF SAID PARTIES HAS BEEN WARNED OF
+>    THE POSSIBILITY OF SUCH LOSS OR DAMAGES.
+
+## BSD-2-Clause notice (rust-numpy)
+
+> Copyright (c) 2017, Toshiki Teramura
+> All rights reserved.
+>
+> Redistribution and use in source and binary forms, with or without
+> modification, are permitted provided that the following conditions are met:
+>
+> * Redistributions of source code must retain the above copyright notice, this
+>   list of conditions and the following disclaimer.
+> * Redistributions in binary form must reproduce the above copyright notice,
+>   this list of conditions and the following disclaimer in the documentation
+>   and/or other materials provided with the distribution.
+>
+> THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+> AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+> IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+> DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+> FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+> DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+> SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+> CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+> OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+> OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ## MIT License notices
 
 The following copyright notices apply to the MIT-licensed code listed above:
 
 - Copyright (c) 2003, Frank Warmerdam; Copyright (c) 2008-2013, Even Rouault (GDAL, `gdalwarpkernel.cpp`)
+- Copyright (c) 2018-2025 Microsoft Corporation, Daan Leijen (mimalloc); Copyright 2019 Octavian Oncescu (mimalloc crates)
 - Copyright (c) 2018 Global Environmental Remote Sensing Lab (GERSL/CCDC)
 - Copyright (c) 2019 Md. Manjurul Hussain Shourov (pymannkendall)
 - Copyright (c) 2021 VSainteuf (utae-paps)

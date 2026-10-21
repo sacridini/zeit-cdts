@@ -15,7 +15,7 @@ zeit.mann_kendall(
 )
 ```
 
-Mann-Kendall trend test and Theil-Sen slope for every pixel, a C++ port of `pymannkendall`. One function for every input, like [`bfast_monitor`](change-detection.md#bfast_monitor): it reads what `data` is and returns an `xarray.Dataset` with one variable per metric, georeferenced when the input is. All parameters but `data` are keyword-only. It replaces `zeit.trend.run_mann_kendall_dask`, `run_mann_kendall_image` and `DataArray.zeit.run_mann_kendall`; the accessor form is now [`DataArray.zeit.mann_kendall`](xarray.md#mann_kendall). Tutorial: [Trend Analysis](../tutorials/mann_kendall.md).
+Mann-Kendall trend test and Theil-Sen slope for every pixel, a Rust port of `pymannkendall`. One function for every input, like [`bfast_monitor`](change-detection.md#bfast_monitor): it reads what `data` is and returns an `xarray.Dataset` with one variable per metric, georeferenced when the input is. All parameters but `data` are keyword-only. It replaces `zeit.trend.run_mann_kendall_dask`, `run_mann_kendall_image` and `DataArray.zeit.run_mann_kendall`; the accessor form is now [`DataArray.zeit.mann_kendall`](xarray.md#mann_kendall). Tutorial: [Trend Analysis](../tutorials/mann_kendall.md).
 
 `data` is any input of the [BFAST family](change-detection.md#bfast_monitor): a raster `load_raster` reads, a `(time, y, x)` cube (a dask cube stays lazy), a `(time, band, y, x)` cube or `Dataset` with `band=`, a numpy array or one pixel's series. No dates are needed: the test runs on the order of the observations, so the slope is per **time step** (one value per year gives a slope per year).
 
@@ -79,7 +79,7 @@ zeit.phenology(
 )
 ```
 
-Land surface phenology, following the methodology of R `phenofit`: smooths each pixel's series (Whittaker or HANTS), splits it into seasons, fits a curve to each season and extracts 19 transition metrics plus the fit's R² and RMSE, every pixel in parallel in C++ / OpenMP. One function for every input, like [`bfast_monitor`](change-detection.md#bfast_monitor) (the same `data` table), with dates at any spacing. It replaces `zeit.phenology.run_phenology_dask` and `DataArray.zeit.run_phenology`; the accessor form is now [`DataArray.zeit.phenology`](xarray.md#phenology), and the engine module is internal (`zeit._phenology`). Tutorial: [Phenology](../tutorials/phenology.md).
+Land surface phenology, following the methodology of R `phenofit`: smooths each pixel's series (Whittaker or HANTS), splits it into seasons, fits a curve to each season and extracts 19 transition metrics plus the fit's R² and RMSE, every pixel in parallel in the Rust core. One function for every input, like [`bfast_monitor`](change-detection.md#bfast_monitor) (the same `data` table), with dates at any spacing. It replaces `zeit.phenology.run_phenology_dask` and `DataArray.zeit.run_phenology`; the accessor form is now [`DataArray.zeit.phenology`](xarray.md#phenology), and the engine module is internal (`zeit._phenology`). Tutorial: [Phenology](../tutorials/phenology.md).
 
 The day numbering of the core (days since January 1st of the first year) and the first year are computed from the dates, so no day-of-year array is needed.
 
@@ -371,7 +371,7 @@ class zeit.ai.SOM(
 )
 ```
 
-The engine of [`zeit.som`](#som), for samples you arrange yourself: a self-organizing map in C++ (online and batch, OpenMP), an operation-by-operation port of Python [`minisom`](https://github.com/JustGlowing/minisom) 2.3: with the same `random_seed` and arguments the trained codebook is bit-for-bit identical to `MiniSom.train` (`algorithm="online"`) or `MiniSom.train_batch_offline` (`algorithm="batch"`), 30–190 times faster. Tutorial: [Clustering](../tutorials/som.md).
+The engine of [`zeit.som`](#som), for samples you arrange yourself: a self-organizing map in Rust (online and batch, the batch one multi-threaded), an operation-by-operation port of Python [`minisom`](https://github.com/JustGlowing/minisom) 2.3: with the same `random_seed` and arguments the trained codebook is bit-for-bit identical to `MiniSom.train` (`algorithm="online"`) or `MiniSom.train_batch_offline` (`algorithm="batch"`), 30–190 times faster. Tutorial: [Clustering](../tutorials/som.md).
 
 <div class="params" markdown>
 
@@ -404,6 +404,6 @@ from zeit.ai import SOM
 
 som = SOM(x=10, y=10, input_len=X.shape[1], sigma=1.5)
 som.random_weights_init(X)
-som.train(X, num_iters=20, algorithm="batch")    # 20 passes, OpenMP-parallel
+som.train(X, num_iters=20, algorithm="batch")    # 20 passes, multi-threaded
 clusters = som.predict(X)
 ```

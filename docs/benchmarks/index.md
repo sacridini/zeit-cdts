@@ -1,6 +1,6 @@
 # Benchmarks & Validation Suite
 
-Welcome to the **Zeit Fidelity & Performance Validation Suite**. This section provides a comprehensive empirical evaluation of the algorithms implemented in Zeit, assessing both **scientific fidelity** (how faithfully Zeit reproduces the original tools and published papers it ports) and **computational performance** (single-core speedup and multi-core CPU scaling via OpenMP).
+Welcome to the **Zeit Fidelity & Performance Validation Suite**. This section provides a comprehensive empirical evaluation of the algorithms implemented in Zeit, assessing both **scientific fidelity** (how faithfully Zeit reproduces the original tools and published papers it ports) and **computational performance** (single-core speedup and multi-core CPU scaling).
 
 ---
 
@@ -14,14 +14,14 @@ Earth Observation (EO) time-series analysis has historically suffered from fragm
 - **Deep learning models** for satellite time-series (TempCNN, LightTAE, U-TAE) were scattered between R `sits` and standalone PyTorch repositories.
 - Researchers have frequently relied on cloud platforms like **Google Earth Engine (GEE)**, trading off local control, customization, and queue times for scalability.
 
-**Zeit** was engineered to unify these algorithms into a modern, cloud-native architecture written in **high-performance C++** (via `Eigen3`, SIMD, and OpenMP) and **PyTorch** (`zeit.ai`), exposed through Python, Dask, and Xarray.
+**Zeit** was engineered to unify these algorithms into a modern, cloud-native architecture written in a **high-performance compiled core** (C++ with `Eigen3` and OpenMP up to 1.7, **Rust** from 2.0) and **PyTorch** (`zeit.ai`), exposed through Python, Dask, and Xarray. The timings in this section were taken with the C++ core; the Rust core gives the same results and is faster on most workloads (see [Performance](performance.md)).
 
 ### The Validation Mandate
 
 To verify that Zeit can serve as a drop-in, scientifically reliable replacement for these reference implementations, we subjected Zeit to a rigorous battery of **13 benchmark comparisons** (plus one bonus architectural verification). Every algorithm was evaluated against the **authentic reference tool** across millions of observations, testing:
 
 1. **Numerical and Statistical Fidelity:** Do Zeit outputs match the reference tools down to floating-point tolerance, identical breakpoint positions, and matching model categories?
-2. **Execution Efficiency:** How much faster is Zeit on a single core, how effectively does OpenMP scale across 20 threads, and how does local desktop processing compare against distributed cloud platforms like Google Earth Engine?
+2. **Execution Efficiency:** How much faster is Zeit on a single core, how effectively does it scale across 20 threads, and how does local desktop processing compare against distributed cloud platforms like Google Earth Engine?
 
 ---
 

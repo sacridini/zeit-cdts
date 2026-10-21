@@ -1,6 +1,6 @@
 # Xarray Accessor
 
-<p class="lead"><code>import zeit</code> registers a <code>.zeit</code> accessor on every <code>xarray.DataArray</code> (and, to save or show results, on every <code>xarray.Dataset</code>). Its methods run the C++ algorithms over Dask chunks, so they work on cubes larger than memory and on clusters. On a dask-backed cube the algorithms are lazy: call <code>.compute()</code>, or write the result with <code>save_raster</code> or <code>to_zarr_optimized</code>. An in-memory cube gives an in-memory result.</p>
+<p class="lead"><code>import zeit</code> registers a <code>.zeit</code> accessor on every <code>xarray.DataArray</code> (and, to save or show results, on every <code>xarray.Dataset</code>). Its methods run the compiled (Rust) algorithms over Dask chunks, so they work on cubes larger than memory and on clusters. On a dask-backed cube the algorithms are lazy: call <code>.compute()</code>, or write the result with <code>save_raster</code> or <code>to_zarr_optimized</code>. An in-memory cube gives an in-memory result.</p>
 
 !!! warning "Chunk in space, never in time"
     Each pixel needs its whole history, so keep `time` (and `band`, for CCDC) in a single chunk: `cube.chunk({"time": -1, "y": 512, "x": 512})`. See [Parallel & Cloud Processing](../tutorials/parallel-cloud-processing.md).

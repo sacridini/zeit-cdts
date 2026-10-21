@@ -26,7 +26,7 @@ zeit.run_tiles(
 )
 ```
 
-Runs a command of the [zeit command line](../cli.md) on every tile, writing `<output_dir>/<tile name>/` with the command's outputs. Each tile runs in its own process, on this computer or on a helper, with all the cores it was given (the algorithms' OpenMP threads). The largest tiles go first.
+Runs a command of the [zeit command line](../cli.md) on every tile, writing `<output_dir>/<tile name>/` with the command's outputs. Each tile runs in its own process, on this computer or on a helper, with all the cores it was given (the algorithms' threads). The largest tiles go first.
 
 - **Resumable.** A finished tile is moved into place in one step, with a record of the options. Running the same call again skips the tiles already done, so an interrupted run continues where it stopped; other options for the same output folder raise an error rather than mixing results.
 - **Helpers pull.** Each helper asks for a tile when it has room and fetches the next one while it processes the current one, so fast and slow machines balance by themselves. It reads a tile straight from shared storage (a NAS) when it sees the same file there, otherwise this computer sends it (compressed, when the file is not); tiles it already has from an earlier run are not sent again.

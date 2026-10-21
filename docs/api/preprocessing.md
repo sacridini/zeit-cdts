@@ -76,7 +76,7 @@ zeit.tmask(
 )
 ```
 
-Flags clouds and cloud shadows the QA band missed, from each pixel's time series (Tmask, Zhu & Woodcock 2014): a robust harmonic model (MATLAB's `robustfit` with Tukey's bisquare, as CCDC's own Tmask, in C++, every pixel in parallel) is fitted to the green and SWIR bands of every pixel, and observations more than 0.04 (reflectance) above it in green (clouds) or below it in SWIR (shadows) are flagged. One function for a `(time, band, y, x)` cube in memory or dask, or anything [`load_raster`](data.md#load_raster) reads; the dates come from its `time` coordinate. It replaces `apply_tmask_stack` and `run_tmask_pixel` (the per-pixel engine, still in `zeit._tmask`).
+Flags clouds and cloud shadows the QA band missed, from each pixel's time series (Tmask, Zhu & Woodcock 2014): a robust harmonic model (MATLAB's `robustfit` with Tukey's bisquare, as CCDC's own Tmask, in Rust, every pixel in parallel) is fitted to the green and SWIR bands of every pixel, and observations more than 0.04 (reflectance) above it in green (clouds) or below it in SWIR (shadows) are flagged. One function for a `(time, band, y, x)` cube in memory or dask, or anything [`load_raster`](data.md#load_raster) reads; the dates come from its `time` coordinate. It replaces `apply_tmask_stack` and `run_tmask_pixel` (the per-pixel engine, still in `zeit._tmask`).
 
 <div class="params" markdown>
 
@@ -113,7 +113,7 @@ zeit.unmix(
 )
 ```
 
-The fraction of each endmember (pure material) in every pixel and date: a 30 m Landsat pixel of forest after selective logging is part canopy (green vegetation), part dead wood and litter (non-photosynthetic vegetation), part soil and part shade, and the fractions show the damage that the reflectance hides. The unmixing is fully constrained least squares (non-negative fractions that add up to one; Heinz & Chang 2001), in C++, every pixel and date in parallel. Also exported as `zeit.unmix`.
+The fraction of each endmember (pure material) in every pixel and date: a 30 m Landsat pixel of forest after selective logging is part canopy (green vegetation), part dead wood and litter (non-photosynthetic vegetation), part soil and part shade, and the fractions show the damage that the reflectance hides. The unmixing is fully constrained least squares (non-negative fractions that add up to one; Heinz & Chang 2001), in Rust, every pixel and date in parallel. Also exported as `zeit.unmix`.
 
 <div class="params" markdown>
 

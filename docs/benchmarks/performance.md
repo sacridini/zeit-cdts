@@ -1,6 +1,30 @@
 # Performance & Parallel CPU Scaling
 
-This page documents the **computational performance** of `zeit` across single-core CPU execution, multi-core CPU scaling (OpenMP), and distributed cloud comparison (Google Earth Engine), measured on an **Intel Core i5-13600K** workstation (20 logical threads).
+This page documents the **computational performance** of `zeit` across single-core CPU execution, multi-core CPU scaling, and distributed cloud comparison (Google Earth Engine), measured on an **Intel Core i5-13600K** workstation (20 logical threads).
+
+!!! note "Measured with the C++ core of zeit 1.x; from 2.0 the core is Rust"
+    The timings on this page were taken with zeit 1.x, whose compiled core was C++ (Eigen and OpenMP). From 2.0 the core is Rust: it gives the same results bit for bit (every module was checked against the C++ one on Windows, Linux and macOS before the C++ was removed), and it is faster on most workloads. Rust time over C++ time, on the same i5-13600K (Windows; `benchmarks/bench_core.py`):
+
+    | Module | 1 thread | All threads |
+    |:---|:---:|:---:|
+    | TWDTW | 0.13 | 0.30 |
+    | SMA (unmixing) | 0.26 | 0.16 |
+    | BFAST (classic) | 0.27 | 0.12 |
+    | CODED | 0.32 | 0.32 |
+    | CCDC | 0.33 | 0.28 |
+    | BFAST Lite | 0.47 | 0.46 |
+    | Mann-Kendall | 0.48 | 0.48 |
+    | Phenology | 0.59 | 0.49 |
+    | Medoid | – | 0.61 |
+    | SOM (batch) | 0.70 | 0.80 |
+    | LandTrendr | 0.73 | 0.61 |
+    | Tmask | 0.75 | 0.73 |
+    | BFAST Monitor | 0.79 | 0.76 |
+    | Warp (bilinear, lanczos, average) | 0.84–0.89 | 0.77–0.93 |
+    | SNIC | 0.86 | 0.81 |
+    | Whittaker | 0.91 | 0.73 |
+
+    On Linux, where the C++ was built by GCC, and on macOS (Apple Silicon), most modules are faster in Rust too; in the last measurements of the migration on GitHub's runners a few (warp, BFAST Monitor, Whittaker, SOM) were level with the C++ or slower by up to about a fifth. The speedups over the reference tools below are therefore those of 1.x, about the same or larger in 2.0. Details in `RUST_MIGRATION.md`.
 
 ---
 
@@ -38,7 +62,7 @@ Single-core execution evaluates algorithmic efficiency without the confounding f
 
 ## Multi-Core CPU Scaling (OpenMP)
 
-Zeit implements parallel execution at the C++ core level via **OpenMP** (`n_jobs=-1`), avoiding Python Global Interpreter Lock (GIL) contention and inter-process communication (IPC) overhead.
+Zeit implements parallel execution in its compiled core (`n_jobs=-1`; OpenMP in the C++ core these numbers were measured with, the core's own threads in Rust), avoiding Python Global Interpreter Lock (GIL) contention and inter-process communication (IPC) overhead.
 
 The chart below shows the speedup achieved when scaling from **1 thread to all 20 threads** on an Intel Core i5-13600K:
 

@@ -76,9 +76,9 @@ The segment means can go straight to any classifier (TempCNN, LTAE, TWDTW, rando
 
 ## Large images: tiles and parallelism
 
-SNIC is inherently sequential — each step depends on the previous pop — so a single image is segmented on one core. The C++ core is still 1.5–4× faster than the reference C code on one thread (more so with more features) (pixel-major feature layout for contiguous, vectorised Eigen distance computations; float32 input used without a float64 copy), and OpenMP parallelises the data reordering.
+SNIC is inherently sequential — each step depends on the previous pop — so a single image is segmented on one core. The compiled core was already 1.5–4× faster than the reference C code on one thread in C++ (more so with more features: pixel-major feature layout for contiguous, vectorised distance computations; float32 input used without a float64 copy), and the Rust core of 2.0 takes 0.7–0.9 of that time; the data reordering runs on several threads.
 
-For large scenes, use `tile_size`: the image is split into tiles that are segmented **independently and in parallel** (OpenMP), each seed belonging to the tile that contains it — the same block-wise strategy `sits_segment()` uses. Segments never cross tile edges, and labels remain the global seed index, so the output is identical for any `n_jobs`.
+For large scenes, use `tile_size`: the image is split into tiles that are segmented **independently and in parallel**, each seed belonging to the tile that contains it — the same block-wise strategy `sits_segment()` uses. Segments never cross tile edges, and labels remain the global seed index, so the output is identical for any `n_jobs`.
 
 ```python
 seg = zeit.snic(cube, spacing=10, compactness=0.5, tile_size=512, n_jobs=-1)

@@ -14,7 +14,7 @@
 pip install zeit-cdts
 ```
 
-Wheels are published for Windows, macOS and Linux, so no C++ compiler is needed. See [Installation](installation.md) for GPU support, Docker, and building from source.
+Wheels are published for Windows, macOS and Linux, so no compiler is needed. See [Installation](installation.md) for GPU support, Docker, and building from source.
 
 ## 2. Make a tiny image time series
 
@@ -57,7 +57,7 @@ print(stack.shape)   # (35, 120, 120) -> (time, rows, cols)
 lt = zeit.landtrendr(stack, years=years)
 ```
 
-That one call fits all 14,400 pixels in parallel, in C++. A numpy array has no dates, so `years` gives the year of each layer. By default (`direction="loss"`) LandTrendr looks for **drops** in the index, i.e. vegetation loss on NDVI. Use `direction="gain"` for indices where disturbance makes the value go up.
+That one call fits all 14,400 pixels in parallel, in Rust. A numpy array has no dates, so `years` gives the year of each layer. By default (`direction="loss"`) LandTrendr looks for **drops** in the index, i.e. vegetation loss on NDVI. Use `direction="gain"` for indices where disturbance makes the value go up.
 
 `lt` is an `xarray.Dataset`: the year and fitted value of each vertex (`vertex_year`, `vertex_value`), their number (`n_vertices`) and how well each fit follows its data (`rmse`).
 
