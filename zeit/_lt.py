@@ -321,7 +321,7 @@ def _segment_block(block: np.ndarray, years: np.ndarray, sentinels: list, params
     if fitted:
         out[2 * max_vertices + 2:base] = _fit_from_vertices(vy, vv, counts, years)
     if n_bands > 1:
-        from . import _core
+        from ._backend import core as _core
 
         pixels = rows * cols
         vertex_years = np.ascontiguousarray(vy.reshape(max_vertices, pixels).T, dtype=np.int32)
