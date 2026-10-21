@@ -518,3 +518,158 @@ def test_landtrendr_fit_to_vertices():
         vys = rng.choice(LT_YEARS, rng.integers(0, 7), replace=False).tolist()
         assert_same_bits(np.array(_core.landtrendr.fit_to_vertices(LT_YEARS.tolist(), y.tolist(), vys, 0.9)),
                          np.array(_rust.landtrendr.fit_to_vertices(LT_YEARS.tolist(), y.tolist(), vys, 0.9)))
+
+
+# ----------------------------------------------------------------------- CCDC
+def _ccdc_stack(seed, n_pixels, n_bands=6, years=14, step=16):
+    """Landsat-like stacks ([pixels, bands, time] reflectance x 10000, Fmask QA):
+    stable, abrupt breaks (one or two), gradual change, outliers that Tmask must
+    catch, clouds, shadows, water, snow-covered and cloud-covered pixels (the
+    original's two fallback branches), short and sparse series, out-of-range
+    and saturated values, and dates without an observation."""
+    rng = np.random.default_rng(seed)
+    dates = np.arange(730120, 730120 + int(years * 365.25), step, dtype=np.int32)
+    dates = np.sort(dates + rng.integers(-3, 4, dates.size)).astype(np.int32)
+    t = dates.astype(float) + 366
+    w = 2 * np.pi / 365.25
+    T = dates.size
+    v = np.empty((n_pixels, n_bands, T))
+    qa = np.zeros((n_pixels, T), dtype=np.int32)
+    base = np.array([400, 700, 600, 2500, 1800, 1000, 2800][:n_bands], dtype=float)
+    for k in range(n_pixels):
+        kind = k % 12
+        amp = rng.uniform(50, 600, n_bands)
+        ph = rng.uniform(0, 2 * np.pi, n_bands)
+        y = (base[:, None] * rng.uniform(0.6, 1.4) + amp[:, None] * np.sin(w * t[None] + ph[:, None])
+             + 0.3 * amp[:, None] * np.cos(2 * w * t[None] + ph[:, None])
+             + rng.normal(0, rng.uniform(10, 80), (n_bands, T)))
+        if kind in (1, 2, 9):                                     # abrupt breaks
+            for _ in range(1 if kind != 2 else 2):
+                at = rng.integers(T // 5, 4 * T // 5)
+                y[:, at:] += rng.uniform(-1, 1, (n_bands, 1)) * rng.uniform(300, 2500)
+        if kind == 3:                                             # gradual change
+            y += rng.uniform(-0.15, 0.15, (n_bands, 1)) * (t - t[0])[None]
+        q = np.where(rng.random(T) < rng.uniform(0.05, 0.4), 4, 0)
+        q[rng.random(T) < 0.05] = 2
+        q[rng.random(T) < 0.03] = 1
+        q[rng.random(T) < 0.03] = 3
+        y[:4, q == 4] += rng.uniform(1500, 5000)                  # flagged clouds
+        y[3:, q == 2] *= 0.4                                      # flagged shadows
+        miss = rng.random(T) < 0.05                               # undetected clouds and shadows
+        y[:3, miss] += rng.uniform(800, 3000)
+        miss = rng.random(T) < 0.03
+        y[4:6, miss] *= 0.3
+        if kind == 4:                                             # mostly snow
+            q = np.where(rng.random(T) < 0.85, 3, q)
+            y[:3, q == 3] = rng.uniform(4000, 9000)
+        if kind == 5:                                             # mostly cloud
+            q = np.where(rng.random(T) < 0.85, 4, q)
+        if kind == 6:                                             # short series
+            q[rng.integers(14, 40):] = 255
+        if kind == 7:                                             # few clear observations
+            q = np.where(rng.random(T) < 0.7, 4, q)
+        if kind == 8:                                             # out of range and saturated
+            y[:, rng.random(T) < 0.05] = -50
+            y[1, rng.random(T) < 0.05] = 16000
+        if kind == 10:                                            # half of the dates missing
+            q[rng.random(T) < 0.55] = 255
+        if kind == 11:                                            # integer values
+            y = np.round(y)
+        if n_bands == 7:                                          # brightness temperature, deg C x 100
+            y[6] = 1500 + 1200 * np.sin(w * t + rng.uniform(0, 6)) + rng.normal(0, 100, T)
+            y[6, q == 4] -= 2500
+            if kind == 8:
+                y[6, rng.random(T) < 0.05] = -9500
+        v[k], qa[k] = y, q
+    gone = rng.random((n_pixels, T)) < 0.04                       # no observation (batch)
+    v[np.repeat(gone[:, None], n_bands, axis=1)] = np.nan
+    v[::37] = np.nan                                              # empty pixels
+    v[1::41] = 0.0
+    return dates, v, qa
+
+
+def _ccdc_params(mod, **kw):
+    p = mod.ccdc.CCDCParams()
+    for k, val in kw.items():
+        setattr(p, k, val)
+    return p
+
+
+CCDC_SETTINGS = [
+    (6, dict()),
+    (6, dict(num_c=4)),
+    (6, dict(num_c=6, conseq_anom=4)),
+    (6, dict(conseq_anom=8, chi2_prob_threshold=0.95, tmax_cg_prob_threshold=0.9999)),
+    (6, dict(detection_bands=[2, 3, 4], tmask_bands=[0, 5])),
+    (6, dict(detection_bands=[3], num_c=5, valid_min=-100.0, valid_max=12000.0)),
+    (7, dict(thermal_band=6, detection_bands=[1, 2, 3, 4, 5], tmask_bands=[1, 4])),
+    (7, dict(thermal_band=6, detection_bands=[0, 1, 2, 3, 4, 5, 6], num_c=6, thermal_min=-5000.0)),
+    (7, dict()),
+    (5, dict(conseq_anom=3)),
+]
+
+
+def _segments_array(segs):
+    rows = [[s.t_start, s.t_end, s.t_break, s.change_prob, s.category, s.num_obs]
+            + list(s.rmse) + list(s.magnitude) + [c for band in s.coefs for c in band] for s in segs]
+    return np.array(rows, dtype=float) if rows else np.zeros((0, 0))
+
+
+@pytest.mark.parametrize("setting", range(len(CCDC_SETTINGS)))
+def test_ccdc_batch(setting):
+    n_bands, kw = CCDC_SETTINGS[setting]
+    dates, v, qa = _ccdc_stack(setting, 240, n_bands, years=[14, 9, 20, 6][setting % 4], step=[16, 8][setting % 2])
+    v = v.reshape(12, 20, n_bands, -1)
+    qa = qa.reshape(12, 20, -1)
+    for return_coefs in (True, False):
+        for n_jobs in (1, -1):
+            a = _core.ccdc.fit_ccdc_batch(v, qa, dates, _ccdc_params(_core, **kw), 6, return_coefs, n_jobs)
+            b = _rust.ccdc.fit_ccdc_batch(v, qa, dates, _ccdc_params(_rust, **kw), 6, return_coefs, n_jobs)
+            for x, y in zip(a, b):
+                assert_same_bits(x, y)
+    a = _core.ccdc.fit_ccdc_batch(v, qa, dates, _ccdc_params(_core, **kw), 2, True, -1)
+    b = _rust.ccdc.fit_ccdc_batch(v, qa, dates, _ccdc_params(_rust, **kw), 2, True, -1)
+    for x, y in zip(a, b):
+        assert_same_bits(x, y)
+
+
+@pytest.mark.parametrize("setting", [0, 2, 3, 6, 9])
+def test_ccdc_single(setting):
+    n_bands, kw = CCDC_SETTINGS[setting]
+    dates, v, qa = _ccdc_stack(100 + setting, 72, n_bands)
+    rng = np.random.default_rng(setting)
+    for k in range(v.shape[0]):
+        order = rng.permutation(dates.size) if k % 3 == 0 else np.arange(dates.size)   # unsorted dates
+        d, x, q = dates[order].copy(), v[k][:, order], qa[k][order]
+        if k % 5 == 0:
+            d[5] = d[6]                                           # a repeated date
+        x = np.nan_to_num(x, nan=-1.0)
+        a = _core.ccdc.fit_ccdc(d.tolist(), x.tolist(), q.tolist(), _ccdc_params(_core, **kw))
+        b = _rust.ccdc.fit_ccdc(d.tolist(), x.tolist(), q.tolist(), _ccdc_params(_rust, **kw))
+        assert_same_bits(_segments_array(a), _segments_array(b))
+
+
+def test_ccdc_api():
+    pc, pr = _core.ccdc.CCDCParams(), _rust.ccdc.CCDCParams()
+    for name in ("min_obs", "conseq_anom", "chi2_prob_threshold", "tmax_cg_prob_threshold", "detection_bands",
+                 "num_c", "tmask_bands", "thermal_band", "valid_min", "valid_max", "thermal_min", "thermal_max"):
+        assert getattr(pc, name) == getattr(pr, name)
+    pr.detection_bands = [1, 2]
+    assert pr.detection_bands == [1, 2]
+    s = _rust.ccdc.CCDCSegment()
+    s.coefs, s.t_break = [[1.0] * 8], 5
+    assert (s.coefs, s.t_break, s.rmse, s.change_prob) == ([[1.0] * 8], 5, [], 0.0)
+    dates, v, qa = _ccdc_stack(3, 2)
+    x = np.nan_to_num(v[0], nan=1.0).tolist()
+    assert _rust.ccdc.fit_ccdc([], x, []) == _core.ccdc.fit_ccdc([], x, []) == []
+    for mod in (_core, _rust):
+        for p, msg in [(dict(tmask_bands=[1]), "exactly 2"), (dict(detection_bands=[6]), "detection band"),
+                       (dict(tmask_bands=[1, -1]), "tmask band")]:
+            with pytest.raises(ValueError, match=msg):
+                mod.ccdc.fit_ccdc(dates.tolist(), x, qa[0].tolist(), _ccdc_params(mod, **p))
+            with pytest.raises(ValueError, match=msg):
+                mod.ccdc.fit_ccdc_batch(v.reshape(1, 2, 6, -1), qa.reshape(1, 2, -1), dates, _ccdc_params(mod, **p))
+        with pytest.raises(ValueError, match="same length"):
+            mod.ccdc.fit_ccdc(dates.tolist(), x, qa[0, 1:].tolist())
+        with pytest.raises(ValueError, match="one value per date"):
+            mod.ccdc.fit_ccdc(dates.tolist(), [x[0][1:]] + x[1:], qa[0].tolist())

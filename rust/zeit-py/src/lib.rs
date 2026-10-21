@@ -15,6 +15,7 @@ mod arrays;
 mod bfast;
 mod bfastlite;
 mod bfastmonitor;
+mod ccdc;
 mod coded;
 mod landtrendr;
 mod mannkendall;
@@ -52,5 +53,6 @@ fn _rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
     add_submodule(m, &som::module(m.py())?)?;
     add_submodule(m, &utils::module(m.py())?)?;
     add_submodule(m, &landtrendr::module(m.py())?)?;
+    add_submodule(m, &ccdc::module(m.py())?)?;
     Ok(())
 }

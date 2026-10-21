@@ -1,6 +1,6 @@
 import numpy as np
 from typing import List, Dict, Any, Union, Optional
-from . import _core
+from ._backend import core as _core
 
 # The original CCDC parameterises time as MATLAB datenum, which is the Python
 # ordinal day + 366; the harmonic coefficients refer to that time axis.
