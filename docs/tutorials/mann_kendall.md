@@ -115,7 +115,7 @@ From the shell: [`zeit mann-kendall`](../cli.md#6-mann-kendall-trend-test-mann-k
 - **Mask what cannot trend.** Water and bare ground produce meaningless tests. Mask them first.
 
 ??? info "Validation"
-    The implementation is a C++ port of `pymannkendall` and matches it field for field on hundreds of synthetic series, for every variant. See [Algorithm Fidelity](../benchmarks/fidelity.md).
+    The implementation is a Rust port of `pymannkendall` and matches it field for field on hundreds of synthetic series, for every variant. See [Algorithm Fidelity](../benchmarks/fidelity.md).
 
 ## References
 

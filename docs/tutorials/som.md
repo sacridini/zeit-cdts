@@ -18,10 +18,10 @@
 
 A SOM is a grid of **neurons**, each holding a prototype vector with as many values as your features. Training repeatedly finds, for each sample, its closest neuron (its *best-matching unit*, BMU) and moves that neuron **and its grid neighbours** toward the sample. The neighbourhood and the learning rate shrink as training goes on. The result is a set of prototypes that covers the data and is topologically ordered: neighbours on the grid are similar.
 
-Zeit implements both forms of the algorithm in C++:
+Zeit implements both forms of the algorithm in Rust:
 
 - **Online SOM** (Kohonen, 1990): one sample at a time, sequential by definition.
-- **Batch SOM** (Kohonen, 2013): every prototype is updated from all samples at once in each pass, parallelised with OpenMP. It is much faster on large satellite data sets.
+- **Batch SOM** (Kohonen, 2013): every prototype is updated from all samples at once in each pass, on several threads. It is much faster on large satellite data sets.
 
 Its engine, `zeit.ai.SOM`, is an **operation-by-operation port of Python [`minisom`](https://github.com/JustGlowing/minisom)**. Given the same seed and arguments it draws the same initial weights and sample order and applies the same arithmetic, so the trained codebook is **bit-for-bit identical** to `MiniSom`, 30–190 times faster. See [Algorithm Fidelity](../benchmarks/fidelity.md#6-self-organizing-maps-som).
 

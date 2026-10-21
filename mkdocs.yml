@@ -1,5 +1,5 @@
 site_name: Zeit
-site_description: Change detection and time-series analysis for satellite imagery, in Python. Fast C++ ports of LandTrendr, CCDC, BFAST and more, from a single pixel to a Dask cluster.
+site_description: Change detection and time-series analysis for satellite imagery, in Python. Fast Rust ports of LandTrendr, CCDC, BFAST and more, from a single pixel to a Dask cluster.
 site_url: https://sacridini.github.io/zeit-cdts/
 repo_url: https://github.com/sacridini/zeit-cdts
 repo_name: sacridini/zeit-cdts

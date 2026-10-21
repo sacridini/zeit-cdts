@@ -9,7 +9,7 @@ To start contributing to the Zeit codebase, you will need to set up a local deve
 ### Prerequisites
 
 * Python 3.9+
-* A C++ Compiler (GCC, Clang, or MSVC) for the core engine.
+* A Rust toolchain (stable, from [rustup](https://rustup.rs)) for the compiled core.
 
 ### Setup Instructions
 
@@ -23,7 +23,9 @@ To start contributing to the Zeit codebase, you will need to set up a local deve
    ```bash
    pip install -e .[dev]
    ```
-   *Note: Any changes made to the C++ source files (`src/*.cpp`) will require you to re-run the `pip install -e .` command to trigger a recompilation.*
+   *Note: changes to the Rust code (`rust/`) need a rebuild of the compiled core: `python setup.py build_rust --inplace --release` (or `pip install -e .` again).*
+
+The compiled core is two Rust crates in `rust/`: `zeit-core` holds the algorithms, `zeit-py` their Python bindings (PyO3), built as `zeit._core`.
 
 ## Testing
 
@@ -33,6 +35,14 @@ To run the tests with coverage reporting, execute:
 
 ```bash
 pytest --cov=zeit tests/
+```
+
+The Rust core has unit tests of its own, and is checked with clippy and rustfmt:
+
+```bash
+cargo test --manifest-path rust/Cargo.toml -p zeit-core --release
+cargo clippy --manifest-path rust/Cargo.toml --release --all-targets -- -D warnings
+cargo fmt --manifest-path rust/Cargo.toml --all --check
 ```
 
 ## Building the docs locally

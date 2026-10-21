@@ -14,7 +14,7 @@ hide:
 
 <h1>Find <span>when</span> and <span>where</span> the landscape changed.</h1>
 
-<p class="lead">Zeit is an ultra-fast Python library for analysing satellite image time series. Reference algorithms such as LandTrendr, CCDC and BFAST are re-engineered in parallel C++ and validated against their original implementations. Use them to detect deforestation, fires, regrowth, crop cycles and long-term trends. Full scenes run on a laptop using every core, and the same code scales out in parallel to your own cluster or the cloud with Dask.</p>
+<p class="lead">Zeit is an ultra-fast Python library for analysing satellite image time series. Reference algorithms such as LandTrendr, CCDC and BFAST are re-engineered in parallel Rust and validated against their original implementations. Use them to detect deforestation, fires, regrowth, crop cycles and long-term trends. Full scenes run on a laptop using every core, and the same code scales out in parallel to your own cluster or the cloud with Dask.</p>
 
 [Get started](getting-started/quickstart.md){ .md-button .md-button--primary }
 [See what it can do](#what-you-can-do-with-zeit){ .md-button }
@@ -203,7 +203,7 @@ The same analysis in three styles. Pick the one that fits your data:
 
 <div class="stats" markdown>
 <div><span class="n">100%</span><span class="l">vertex-for-vertex agreement with the original LandTrendr IDL code, and model-for-model with CCDC MATLAB</span></div>
-<div><span class="n">168×</span><span class="l">faster than the reference LandTrendr on one core, with more from OpenMP threads</span></div>
+<div><span class="n">168×</span><span class="l">faster than the reference LandTrendr on one core, with more from its threads</span></div>
 <div><span class="n">20×</span><span class="l">higher throughput than Google Earth Engine on a full Landsat tile, with no queue</span></div>
 <div><span class="n">0</span><span class="l">compilers needed. Pre-built wheels for Windows, macOS and Linux</span></div>
 </div>
@@ -222,7 +222,7 @@ The same analysis in three styles. Pick the one that fits your data:
 
     ---
 
-    The per-pixel work runs in C++ (Eigen + OpenMP), outside the Python GIL. A laptop can process scenes that used to need a cloud platform.
+    The per-pixel work runs in Rust, on every core and outside the Python GIL. A laptop can process scenes that used to need a cloud platform.
 
     [:octicons-arrow-right-24: Performance](benchmarks/performance.md)
 

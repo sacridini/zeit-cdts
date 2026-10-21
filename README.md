@@ -14,7 +14,7 @@
 
 **Zeit** is a high-performance Python package for Earth Observation (EO) data cube processing and time series analysis. It bridges the gap between modern cloud-native data formats (STAC, Xarray, Dask) and state-of-the-art pixel-based trajectory algorithms (TWDTW, CCDC, LandTrendr). 
 
-Built with highly optimized C++ extensions (OpenMP and Eigen SIMD) bound to Python via `pybind11`, Zeit is designed to handle massive multi-spectral satellite image time series efficiently while keeping memory footprints strictly bounded.
+Built on a compiled core written in Rust (parallel across all cores, outside the Python GIL) and bound to Python via PyO3, Zeit is designed to handle massive multi-spectral satellite image time series efficiently while keeping memory footprints strictly bounded.
 
 ---
 
@@ -24,8 +24,8 @@ Built with highly optimized C++ extensions (OpenMP and Eigen SIMD) bound to Pyth
 - **Semantic Cloud Masking:** Automated extraction and translation of Quality Assessment (QA) bands for Landsat and Sentinel-2 directly inside the query pipeline, plus a temporal **Tmask** harmonic baseline model to catch clouds/shadows missed by the native QA mask.
 - **Landsat and Sentinel-2 in one series:** `build_time_series` reads NASA's HLS (Harmonized Landsat Sentinel-2) products as reflectance, both in one call with the bands named by role and the Fmask cloud mask; for Sentinel-2 L2A and Landsat Collection 2 cubes, `bandpass_adjust` applies HLS's bandpass step (each Sentinel-2 unit's lines, and optionally Roy et al. 2016 for Landsat 5/7).
 - **Temporal Regularization:** Mathematical composite generation (e.g., Medoid, Median) to align irregular satellite acquisitions into uniform time steps (crucial for Deep Learning and DTW).
-- **High-Performance C++ Algorithms:**
-  - **TWDTW** (Time-Weighted Dynamic Time Warping): Highly optimized with LB_Keogh lower bounding, early abandonment, Sakoe-Chiba constraints, and multivariate Eigen vectorization.
+- **High-Performance Rust Algorithms:**
+  - **TWDTW** (Time-Weighted Dynamic Time Warping): Highly optimized with LB_Keogh lower bounding, early abandonment, Sakoe-Chiba constraints, and multivariate vectorized distances.
   - **Batch SOM** (Self-Organizing Maps): Unsupervised multi-threaded clustering of massive spectral-temporal arrays.
   - **CCDC / COLD**: Continuous Change Detection and Classification via robust harmonic modeling.
   - **LandTrendr**: Trajectory-based disturbance and recovery detection.
@@ -48,20 +48,9 @@ Built with highly optimized C++ extensions (OpenMP and Eigen SIMD) bound to Pyth
 ```bash
 pip install zeit-cdts
 ```
-*(Note: Wheels are provided for Windows, Linux, and macOS. macOS runs in single-threaded mode by default due to Apple Clang lacking OpenMP).*
+*(Note: Wheels are provided for Windows, Linux, and macOS, multi-threaded on all three. Building from source needs a Rust toolchain; see [Installation](https://sacridini.github.io/zeit-cdts/getting-started/installation/).)*
 
 For `zeit.plot` (matplotlib and anywidget), install the `plot` extra: `pip install zeit-cdts[plot]`. The TESSERA and AlphaEarth embeddings need nothing extra (TESSERA's reader, `geotessera`, comes with zeit on Python 3.12+).
-
-**For macOS users who want C++ OpenMP multi-threading:**
-Apple's default Clang compiler disables OpenMP. To achieve maximum performance and enable multi-threading, you must install the `libomp` library and manually export the compilation flags *before* forcing a local compilation:
-
-```bash
-brew install libomp
-export CFLAGS="-I$(brew --prefix libomp)/include"
-export CXXFLAGS="-I$(brew --prefix libomp)/include"
-export LDFLAGS="-L$(brew --prefix libomp)/lib -lomp"
-pip install --no-binary zeit-cdts zeit-cdts
-```
 
 ---
 
@@ -143,7 +132,7 @@ cube_16d = regularize_time_series(cube, freq="16D", method="medoid")
 Continuous structural monitoring using robust breakpoint and harmonic regression models directly on xarray Datacubes (`zeit.landtrendr(cube)`, `zeit.ccdc(cube)`, or pandas-like accessors such as `cube.zeit.ccdc(...)`).
 
 ### LandTrendr (Trajectory-based Disturbance)
-Identify structural breakpoints in time-series (e.g., detecting exactly when deforestation occurred). One function, `zeit.landtrendr`, takes a raster file, an in-memory or Dask cube, a NumPy stack or a single pixel's series, and scales LandTrendr to massive datasets using C++ OpenMP and Dask.
+Identify structural breakpoints in time-series (e.g., detecting exactly when deforestation occurred). One function, `zeit.landtrendr`, takes a raster file, an in-memory or Dask cube, a NumPy stack or a single pixel's series, and scales LandTrendr to massive datasets using the multi-threaded Rust core and Dask.
 
 ```python
 import zeit
@@ -204,9 +193,9 @@ zeit.save_raster(land_cover, "output/land_cover")     # label.tif; class names i
 
 ## Phenology Extraction
 
-Extract 19 simultaneous phenological metrics (Gu, Zhang, Thresholds, Derivatives, LOS, POP) across massive datasets using optimized C++ curve-fitting models (Beck, Elmore, Gu, Zhang, Asymmetric Gaussian, Double Logistic) over Dask clusters.
+Extract 19 simultaneous phenological metrics (Gu, Zhang, Thresholds, Derivatives, LOS, POP) across massive datasets using optimized curve-fitting models (Beck, Elmore, Gu, Zhang, Asymmetric Gaussian, Double Logistic) over Dask clusters.
 
-> The smoothing, curve-fitting, and metric-extraction methodology is based on the R package [`phenofit`](https://github.com/eco-hydro/phenofit) (Kong *et al.*, 2022, *Methods in Ecology and Evolution*, [doi:10.1111/2041-210X.13870](https://doi.org/10.1111/2041-210X.13870)), reimplemented in C++/Eigen/OpenMP. See the [Phenology tutorial](https://sacridini.github.io/zeit-cdts/tutorials/phenology/#7-references) for the full reference list and a real-world walkthrough.
+> The smoothing, curve-fitting, and metric-extraction methodology is based on the R package [`phenofit`](https://github.com/eco-hydro/phenofit) (Kong *et al.*, 2022, *Methods in Ecology and Evolution*, [doi:10.1111/2041-210X.13870](https://doi.org/10.1111/2041-210X.13870)), reimplemented in Rust. See the [Phenology tutorial](https://sacridini.github.io/zeit-cdts/tutorials/phenology/#7-references) for the full reference list and a real-world walkthrough.
 
 ```python
 import zeit
@@ -228,7 +217,7 @@ pheno = zeit.phenology(
     min_season_length=90,           # Ignore noisy peaks shorter than 90 days
     min_amplitude=0.2,              # Ignore seasons with less than 0.2 NDVI growth
 
-    n_jobs=-1                       # C++ multithreading (leave cores for OS)
+    n_jobs=-1                       # threads of the compiled core (leave a core for the OS)
 )
 
 # An xarray.Dataset: 19 metrics + R2 + RMSE, each (season, y, x).
@@ -254,7 +243,7 @@ pheno = zeit.phenology(
 
 ## Trend Analysis (Mann-Kendall)
 
-Pixel-wise Mann-Kendall trend test + Theil-Sen slope, ported from [`pymannkendall`](https://github.com/mmhs013/pymannkendall) (Hussain & Mahmud, 2019) to a C++/OpenMP backend, with the same Dask distribution strategy as Phenology Extraction. Useful for "is there a statistically significant greening/browning trend at this pixel?" questions on multi-year composite stacks. See the [Mann-Kendall tutorial](https://sacridini.github.io/zeit-cdts/tutorials/mann_kendall/) for the full method comparison (autocorrelation-corrected variants, seasonal test) and a real-world walkthrough.
+Pixel-wise Mann-Kendall trend test + Theil-Sen slope, ported from [`pymannkendall`](https://github.com/mmhs013/pymannkendall) (Hussain & Mahmud, 2019) to a parallel Rust backend, with the same Dask distribution strategy as Phenology Extraction. Useful for "is there a statistically significant greening/browning trend at this pixel?" questions on multi-year composite stacks. See the [Mann-Kendall tutorial](https://sacridini.github.io/zeit-cdts/tutorials/mann_kendall/) for the full method comparison (autocorrelation-corrected variants, seasonal test) and a real-world walkthrough.
 
 ```python
 # annual_ndvi: (time, y, x) DataArray, one max-NDVI composite per year (or a GeoTIFF path)
@@ -272,7 +261,7 @@ zeit.save_raster(result, "output/mann_kendall")   # one GeoTIFF per metric
 
 ## Change Monitoring (BFAST Monitor)
 
-Pixel-wise near-real-time structural change monitoring, ported from the R package [`bfast`](https://github.com/bfast2/bfast) (Verbesselt *et al.*) to a C++/OpenMP backend, with the same Dask distribution strategy as Mann-Kendall. Unlike LandTrendr/CCDC (retrospective, whole-series segmentation), `bfastmonitor` fits a trend+harmonic model on a stable history period and asks "is a disturbance happening *right now*, in the most recent observations?" — verified bit-for-bit-scale accurate against R's `bfastmonitor()`. See the [BFAST Monitor tutorial](https://sacridini.github.io/zeit-cdts/tutorials/bfast_monitor/) for the full method background and scope (only `type="OLS-MOSUM"` + `history="all"` are ported so far).
+Pixel-wise near-real-time structural change monitoring, ported from the R package [`bfast`](https://github.com/bfast2/bfast) (Verbesselt *et al.*) to a parallel Rust backend, with the same Dask distribution strategy as Mann-Kendall. Unlike LandTrendr/CCDC (retrospective, whole-series segmentation), `bfastmonitor` fits a trend+harmonic model on a stable history period and asks "is a disturbance happening *right now*, in the most recent observations?" — verified bit-for-bit-scale accurate against R's `bfastmonitor()`. See the [BFAST Monitor tutorial](https://sacridini.github.io/zeit-cdts/tutorials/bfast_monitor/) for the full method background and scope (only `type="OLS-MOSUM"` + `history="all"` are ported so far).
 
 ```python
 # ndvi_16d: (time, y, x) DataArray of 16-day composites from 2010 (or a GeoTIFF path);
@@ -285,7 +274,7 @@ break_time = result.breakpoint  # fractional-year time of the first detected bre
 
 ## Change Detection (BFAST Lite)
 
-Pixel-wise, single-pass multiple-breakpoint detection, ported from the R package `bfast`'s `bfastlite()` and its `strucchangeRcpp` dependency's `breakpoints()` (the Bai & Perron optimal multiple-breakpoint dynamic program) to a C++/OpenMP backend. Unlike `bfastmonitor` above (single break, near-real-time), this retrospectively segments the *whole* series into the optimal number of pieces (via the LWZ model-selection criterion) — no STL decomposition needed. Verified exactly against R's `bfastlite()` across 6 scenarios (~3.1x faster single-threaded than R; `n_jobs=-1` adds a further ~5.5x on top of that by reserving one CPU core and parallelizing across the rest — a smaller gap than `bfastmonitor`'s, since this workload is genuinely CPU-bound dynamic programming on both sides, not dominated by R's per-call overhead). See the [BFAST Lite tutorial](https://sacridini.github.io/zeit-cdts/tutorials/bfast_lite/) for the full method background, scope, and validation details (including two real numerical bugs caught and fixed along the way).
+Pixel-wise, single-pass multiple-breakpoint detection, ported from the R package `bfast`'s `bfastlite()` and its `strucchangeRcpp` dependency's `breakpoints()` (the Bai & Perron optimal multiple-breakpoint dynamic program) to a parallel Rust backend. Unlike `bfastmonitor` above (single break, near-real-time), this retrospectively segments the *whole* series into the optimal number of pieces (via the LWZ model-selection criterion) — no STL decomposition needed. Verified exactly against R's `bfastlite()` across 6 scenarios (~3.1x faster single-threaded than R; `n_jobs=-1` adds a further ~5.5x on top of that by reserving one CPU core and parallelizing across the rest — a smaller gap than `bfastmonitor`'s, since this workload is genuinely CPU-bound dynamic programming on both sides, not dominated by R's per-call overhead). See the [BFAST Lite tutorial](https://sacridini.github.io/zeit-cdts/tutorials/bfast_lite/) for the full method background, scope, and validation details (including two real numerical bugs caught and fixed along the way).
 
 ```python
 # ndvi_16d: (time, y, x) DataArray of 16-day composites
@@ -297,7 +286,7 @@ first_break_idx = result.breakpoint_idx_1  # NaN where n_breaks == 0
 
 ## Time-Series Classification (TWDTW)
 
-Classify pixels by their likeness to a few reference series, one per class, with Time-Weighted Dynamic Time Warping. The distances are those of the R package twdtw (checked to 1e-12), computed in C++ with OpenMP; a pattern of one year matches the same season of any year, and cloudy dates are left out of each pixel's series.
+Classify pixels by their likeness to a few reference series, one per class, with Time-Weighted Dynamic Time Warping. The distances are those of the R package twdtw (checked to 1e-12), computed in Rust, every pixel in parallel; a pattern of one year matches the same season of any year, and cloudy dates are left out of each pixel's series.
 
 ```python
 import pandas as pd
@@ -317,7 +306,7 @@ zeit.plot(ndvi, fit=classes)                          # click a pixel: its serie
 
 ## Unsupervised Clustering (SOM)
 
-Unsupervised classification of whole trajectories: `zeit.som` trains a self-organizing map on a sample of the pixels and puts every pixel in its best-matching neuron. The engine is a C++ port of Python `minisom` (online and Batch SOM) that reproduces its results bit-for-bit, 30-190x faster.
+Unsupervised classification of whole trajectories: `zeit.som` trains a self-organizing map on a sample of the pixels and puts every pixel in its best-matching neuron. The engine is a Rust port of Python `minisom` (online and Batch SOM) that reproduces its results bit-for-bit, 30-190x faster.
 
 ```python
 ndvi = zeit.load_raster("LT_Stack_NDVI_Rondonia.tif")
@@ -421,10 +410,10 @@ Helpers pull tiles as they free up (fetching the next while processing one), rea
 
 ## Architecture & Threading Safety
 
-Zeit safely blends Python-based distributed workflows (Dask) with highly parallel C++ routines:
-- **OpenMP CPU Scaling**: All C++ algorithms expose the `n_jobs` parameter, and default to it (`n_jobs=-1`) in their Python entry points. `n_jobs=-1` reserves one CPU core (`std::max(1, max_threads - 1)`) so the host OS stays responsive during intensive workloads — standardized across every parallel algorithm (LandTrendr, CCDC, TWDTW, SOM, Phenology, Mann-Kendall, BFAST Monitor, BFAST Lite). Pass an explicit positive integer to use a specific thread count instead (e.g. all cores with no reservation, or fewer to leave more headroom).
+Zeit safely blends Python-based distributed workflows (Dask) with highly parallel Rust routines:
+- **Multi-core CPU Scaling**: All compiled algorithms expose the `n_jobs` parameter, and default to it (`n_jobs=-1`) in their Python entry points. `n_jobs=-1` reserves one CPU core (`max(1, cores - 1)`) so the host OS stays responsive during intensive workloads — standardized across every parallel algorithm (LandTrendr, CCDC, TWDTW, SOM, Phenology, Mann-Kendall, BFAST Monitor, BFAST Lite). Pass an explicit positive integer to use a specific thread count instead (e.g. all cores with no reservation, or fewer to leave more headroom).
 - **Memory Footprint**: Algorithms like TWDTW are strictly optimized via a 2-Row Dynamic Programming algorithm, restricting mathematical matrices to the CPU's L1 cache and avoiding heavy allocations.
-- **Cross-Platform Compatibility**: Uses safe `#ifdef _OPENMP` boundaries to gracefully fallback to single-threaded operations on macOS environments using Apple Clang (which lacks native `libomp`), allowing `pip install` to succeed universally.
+- **Cross-Platform Compatibility**: The same Rust core, multi-threaded, on Windows, Linux and macOS. Its threads are its own (rayon and teams kept between calls), so it needs no OpenMP runtime and does not clash with PyTorch's.
 
 ---
 

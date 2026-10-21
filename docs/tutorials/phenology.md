@@ -68,7 +68,7 @@ import zeit
 #    descriptions (pass dates= for a stack without them)
 evi = zeit.load_raster("MODIS_EVI_Series.tif")
 
-# 2. Smooth, fit and extract the metrics, every pixel in parallel (C++ / OpenMP)
+# 2. Smooth, fit and extract the metrics, every pixel in parallel (Rust)
 pheno = zeit.phenology(
     evi,
     curve="beck",               # Beck's double logistic
@@ -220,9 +220,8 @@ pheno_results = zeit.phenology(
 
 ## Performance
 
-The whole pipeline runs in C++ (Eigen and OpenMP) outside the Python GIL, with buffers allocated once per thread. On a real 25-year EVI raster it was 244 times faster than R `phenofit` on one core, with a mean start-of-season difference of 3.7 days. See [Benchmarks](../benchmarks/fidelity.md#4-phenology-extraction-vs-r-phenofit).
+The whole pipeline runs in Rust outside the Python GIL, every pixel in parallel. On a real 25-year EVI raster the C++ core of zeit 1.7 was 244 times faster than R `phenofit` on one core, with a mean start-of-season difference of 3.7 days. See [Benchmarks](../benchmarks/fidelity.md#4-phenology-extraction-vs-r-phenofit).
 
-On macOS, the pre-built wheels run single-threaded. See [Installation](../getting-started/installation.md#enabling-openmp-on-macos-apple-silicon-intel) to enable OpenMP.
 
 ## References
 

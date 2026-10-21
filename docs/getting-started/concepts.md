@@ -86,16 +86,16 @@ flowchart LR
 | **Dask cube** | Lazy cubes (STAC, Zarr), clusters, cloud storage | `zeit.landtrendr(cube)`, `cube.zeit.ccdc()`, `cube.zeit.bfast_lite()` |
 | **CLI** | Scripts, cron jobs and HPC schedulers, no Python needed | `zeit landtrendr ...`, `zeit ccdc ...`, `zeit bfast-monitor ...`, `zeit mann-kendall ...` |
 
-All run the same C++ code; only the way the data is read and the result is computed changes. A dask cube gives a lazy result, computed when you call `.compute()` or write it with `save_raster`; in-memory data gives an in-memory result.
+All run the same compiled (Rust) code; only the way the data is read and the result is computed changes. A dask cube gives a lazy result, computed when you call `.compute()` or write it with `save_raster`; in-memory data gives an in-memory result.
 
 Each function also has an accessor form, available on every xarray object once you `import zeit`: `cube.zeit.landtrendr()`, `cube.zeit.bfast_monitor("2022-01-01")`, … See the [Xarray accessor reference](../api/xarray.md) for the full list of methods.
 
 ## Parallelism
 
-- **`n_jobs`** controls C++ threads (OpenMP). The default `-1` uses all cores **but one**, so your machine stays responsive. `n_jobs=1` runs single-threaded, which is handy for debugging.
+- **`n_jobs`** controls the threads of the compiled core. The default `-1` uses all cores **but one**, so your machine stays responsive. `n_jobs=1` runs single-threaded, which is handy for debugging.
 - **Dask** splits a cube into spatial chunks and processes them in parallel, on one machine or a cluster. Always keep the **time axis in a single chunk** (`chunks={"time": -1, "y": 512, "x": 512}`), because each pixel needs its whole history.
 - When Dask already runs one task per core, set `n_jobs=1` inside each task to avoid oversubscribing the CPU.
-- On macOS, the pre-built wheels run the C++ core single-threaded. Dask parallelism still works. See [Installation](installation.md#enabling-openmp-on-macos-apple-silicon-intel) to enable OpenMP.
+- The pre-built wheels are multi-threaded on every system, macOS included.
 
 More in [Parallel & Cloud Processing](../tutorials/parallel-cloud-processing.md).
 

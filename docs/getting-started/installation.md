@@ -1,10 +1,10 @@
 # Installation
 
-<p class="lead">One command installs Zeit with pre-compiled wheels for Windows, macOS and Linux. Build from source only if you want to change the C++ core or enable multi-threading on macOS.</p>
+<p class="lead">One command installs Zeit with pre-compiled wheels for Windows, macOS and Linux. Build from source only if you want to change the Rust core.</p>
 
 ## Standard Installation
 
-The easiest way to install Zeit is via Python's package manager, `pip`. We provide pre-compiled binaries (wheels) for Windows, macOS, and Linux, supporting Python 3.9 and newer. Because we distribute pre-compiled binaries, **you do not need a C++ compiler** installed on your machine for the standard installation.
+The easiest way to install Zeit is via Python's package manager, `pip`. We provide pre-compiled binaries (wheels) for Windows, macOS, and Linux, supporting Python 3.9 and newer. Because we distribute pre-compiled binaries, **you do not need a compiler** (Rust or any other) installed on your machine for the standard installation. The wheels run the compiled core on all your cores on every system, macOS included.
 
 ```bash
 pip install zeit-cdts
@@ -13,7 +13,7 @@ pip install zeit-cdts
 This command automatically installs all required Python dependencies, including `xarray`, `dask`, `scikit-learn`, `rasterio`, `torch`, and `pystac-client`.
 
 !!! note "macOS: Apple Silicon vs. Intel"
-    Prebuilt wheels are published for whichever architecture GitHub Actions' `macos-latest` runner uses at build time, which is Apple Silicon (`arm64`) as of this writing. If `pip install zeit-cdts` on an Intel Mac reports no matching distribution, pip will fall back to building from source automatically — see [Installing from Source](#installing-from-source) below for the compiler prerequisites that requires.
+    Prebuilt wheels are published for whichever architecture GitHub Actions' `macos-latest` runner uses at build time, which is Apple Silicon (`arm64`) as of this writing. If `pip install zeit-cdts` on an Intel Mac reports no matching distribution, pip will fall back to building from source automatically — see [Installing from Source](#installing-from-source) below for the Rust toolchain that requires.
 
 ## Verifying the Installation
 
@@ -43,13 +43,17 @@ pip install zeit-cdts[dev]
 
 ## Installing from Source
 
-If you need to modify the C++ backend, use the latest unreleased features, or build the package on an unsupported architecture, you will need to install Zeit from the source.
+If you need to modify the Rust core, use the latest unreleased features, or build the package on an unsupported architecture, you will need to install Zeit from the source.
 
 ### Requirements
 
 *   Python 3.9+
-*   A C++ Compiler supporting C++17 (GCC, Clang, or MSVC)
-*   **macOS only:** the Xcode Command Line Tools provide the Clang compiler used to build the extension. Install them first if you haven't already:
+*   A Rust toolchain (stable), installed with [rustup](https://rustup.rs):
+    ```bash
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh   # Linux and macOS
+    ```
+    On Windows, run `rustup-init.exe` from [rustup.rs](https://rustup.rs); it also offers to install the Visual Studio build tools Rust links with.
+*   **macOS only:** the Xcode Command Line Tools, for the linker. Install them first if you haven't already:
     ```bash
     xcode-select --install
     ```
@@ -67,35 +71,13 @@ If you need to modify the C++ backend, use the latest unreleased features, or bu
    pip install -e .
    ```
 
-This process will invoke `pybind11` and your system's C++ compiler to build the core statistical engines (`src/main.cpp`, `src/landtrendr.cpp`, `src/ccdc.cpp`) and link them with the Eigen3 library.
+This builds the compiled core (`zeit._core`) from the Rust crates in `rust/` (`zeit-core`, the algorithms; `zeit-py`, their Python bindings) with `setuptools-rust`, in release mode. After changing the Rust code, rebuild it in place with:
 
-### Enabling OpenMP on macOS (Apple Silicon & Intel)
+```bash
+python setup.py build_rust --inplace --release
+```
 
-By default, the Apple Clang compiler does not include native support for OpenMP. As a result, when installing via standard Wheels or basic source installation, Zeit falls back to single-threaded mode for its C++ mathematical operations on macOS. (Note: Dask still parallelizes effectively at the chunk level).
-
-If you want the maximum possible performance out of the C++ core on macOS, you can enable OpenMP by installing it via Homebrew and compiling Zeit from source:
-
-1. Install the `libomp` library using Homebrew:
-   ```bash
-   brew install libomp
-   ```
-
-2. Point the compiler and linker at Homebrew's `libomp` — `setup.py`'s OpenMP detection compiles a test snippet against `<omp.h>`, which it won't find unless these are set, since Homebrew doesn't add `libomp` to the default include/lib search paths (it's keg-only):
-   ```bash
-   export CFLAGS="-I$(brew --prefix libomp)/include"
-   export CXXFLAGS="-I$(brew --prefix libomp)/include"
-   export LDFLAGS="-L$(brew --prefix libomp)/lib -lomp"
-   ```
-
-3. With those exported in the same shell, install Zeit from source. `setup.py` will now detect `libomp` and compile with OpenMP support:
-   ```bash
-   pip install --no-binary zeit-cdts zeit-cdts
-   # or, if cloning from GitHub: pip install -e .
-   ```
-
-### OpenMP on Windows and Linux
-
-Unlike macOS, Windows (MSVC) and Linux (GCC) ship with native OpenMP support, so no extra steps are needed — `setup.py` enables it automatically for both a standard `pip install zeit-cdts` (wheel) and a source install.
+The core is multi-threaded on every system, macOS included, with no extra library: it starts its own threads, so there is no OpenMP to install or enable.
 
 ## GPU Acceleration for `zeit.ai`
 

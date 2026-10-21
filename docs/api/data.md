@@ -354,7 +354,7 @@ Composites an irregular cube to a fixed time step (16-day, monthly, yearly) with
 | :--- | :--- | :--- | :--- |
 | `cube` | `DataArray` or path | required | Cube with a `time` dimension, `(time, y, x)` or `(time, band, y, x)`, or anything `load_raster` reads. |
 | `freq` | `str` | `"16D"` | pandas frequency: `"16D"`, `"1MS"`, `"1YS"`, … |
-| `method` | `str` | `"median"` | `"median"` (per band) or `"medoid"` (the real observation closest to the multi-band median, so a composite's bands come from one date; with one band, the observation closest to the median). Only observations with every band are candidates, and on a tie the earliest wins. The medoid runs in C++, every pixel in parallel: on 60 dates of 4 bands and 300 × 300 pixels, 0.15 s against 1.0 s for xarray. |
+| `method` | `str` | `"median"` | `"median"` (per band) or `"medoid"` (the real observation closest to the multi-band median, so a composite's bands come from one date; with one band, the observation closest to the median). Only observations with every band are candidates, and on a tie the earliest wins. The medoid runs in Rust, every pixel in parallel: on 60 dates of 4 bands and 300 × 300 pixels, 0.15 s against 1.0 s for xarray. |
 
 </div>
 
@@ -436,7 +436,7 @@ bool((landsat.x == s2.x).all())                                     # True: they
 ```
 
 - **Every date on its own.** Each date (and band) is resampled with its own NoData, as GDAL warping that date alone: a cloud in one date never leaks into the interpolation of another. (GDAL's warp of a multiband raster takes a cell as valid when *any* band is, so a cloudy cell of one date enters the bilinear or average of that date and spreads its NoData.)
-- **GDAL's resampling, faster.** The kernels are GDAL's (`gdalwarpkernel.cpp`, ported to C++ through landschaft), run in parallel; the source coordinates of the cells are computed once for every date. On a cube of 240 dates of 1000 × 1000 cells (UTM to EPSG:3035), nearest takes 0.5 s, bilinear 0.7 s and average 0.9 s, against 2.4 s, 22.6 s and 6.4 s for `rioxarray`'s `reproject_match`.
+- **GDAL's resampling, faster.** The kernels are GDAL's (`gdalwarpkernel.cpp`, ported to Rust from landschaft's C++ port), run in parallel; the source coordinates of the cells are computed once for every date. On a cube of 240 dates of 1000 × 1000 cells (UTM to EPSG:3035), nearest takes 0.5 s, bilinear 0.7 s and average 0.9 s, against 2.4 s, 22.6 s and 6.4 s for `rioxarray`'s `reproject_match`.
 - **The same values however it runs**: in memory, lazily (`chunks=`) or from a file, with any number of threads. A file is read only in the window the grid sees, and a lazy cube stays lazy.
 - **No warp when it is not needed**: a grid with the same CRS and cells, a whole number of cells apart, is only a crop (and padding with NoData) of the data.
 - Cells outside the data are NoData (NaN for floats; integer rasters keep their NoData value, or get the largest value of unsigned types and the smallest of signed ones).

@@ -21,7 +21,7 @@ For each pixel, Tmask fits a **robust harmonic regression**, $a_0 + c_1 t + a_1 
 - **Green**, where clouds are much brighter than the land below them;
 - **SWIR1**, where shadows are much darker than expected.
 
-An observation is flagged as cloud when its Green value is more than 0.04 (reflectance) **above** the seasonal model, and as shadow when its SWIR1 value is more than 0.04 **below** it. Everything else is kept as clear. The fits run in C++, every pixel in parallel: about 60 µs per pixel of 140 dates on one core, some 190 times faster than the scikit-learn Huber fit used before 0.43 (11 ms per pixel).
+An observation is flagged as cloud when its Green value is more than 0.04 (reflectance) **above** the seasonal model, and as shadow when its SWIR1 value is more than 0.04 **below** it. Everything else is kept as clear. The fits run in Rust, every pixel in parallel: about 60 µs per pixel (measured with the C++ core of zeit 1.7; the Rust one takes 0.75–0.98 of that time, depending on the system) of 140 dates on one core, some 190 times faster than the scikit-learn Huber fit used before 0.43 (11 ms per pixel).
 
 ## Step by step
 

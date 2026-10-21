@@ -3,7 +3,7 @@
 <p class="lead">The same Zeit code runs on one laptop core, on every core of a workstation, or on several machines. This page explains the levels of parallelism, how to spread a folder of tiles over the computers of a local network with one command on each, how to set up a Dask cluster for a single cube larger than one machine, and how to write results that many machines can produce at once.</p>
 
 <div class="glance" markdown>
-<div><span class="k">Level 1</span><span class="v">C++ threads (OpenMP) inside one process: <code>n_jobs</code></span></div>
+<div><span class="k">Level 1</span><span class="v">Threads of the compiled core inside one process: <code>n_jobs</code></span></div>
 <div><span class="k">Many tiles</span><span class="v">A folder of tiles here and on helpers: <code>--helpers</code>, <code>zeit worker</code></span></div>
 <div><span class="k">Level 2</span><span class="v">Dask chunks across processes and machines: the <code>.zeit</code> accessor</span></div>
 <div><span class="k">Storage</span><span class="v">Zarr for parallel writes, GeoTIFF for final products</span></div>
@@ -12,11 +12,11 @@
 
 ## Levels of parallelism
 
-**Threads within one machine.** Every algorithm's per-pixel loop runs in C++ with OpenMP. `n_jobs=-1` (the default) uses all cores but one, and needs nothing else: `zeit.landtrendr`, `zeit.ccdc` and friends are already parallel.
+**Threads within one machine.** Every algorithm's per-pixel loop runs in Rust, on several threads. `n_jobs=-1` (the default) uses all cores but one, and needs nothing else: `zeit.landtrendr`, `zeit.ccdc` and friends are already parallel.
 
 **Tiles across machines.** When the data already comes in tiles, each tile is a job of its own: `zeit landtrendr tiles/ out/ --helpers` runs them here and on the computers of the local network running `zeit worker`. See [Many tiles on several computers](#many-tiles-on-several-computers): it is the simplest way to use more machines.
 
-**Chunks across processes or machines.** For a single cube larger than memory, or one area split over more machines, wrap the data in a Dask-backed xarray cube and pass it to the algorithm (`zeit.landtrendr(cube)`, `zeit.mann_kendall(cube)`, …) or to its `.zeit` accessor form. Zeit maps the C++ code over spatial chunks, and Dask schedules those chunks on its workers.
+**Chunks across processes or machines.** For a single cube larger than memory, or one area split over more machines, wrap the data in a Dask-backed xarray cube and pass it to the algorithm (`zeit.landtrendr(cube)`, `zeit.mann_kendall(cube)`, …) or to its `.zeit` accessor form. Zeit maps the compiled code over spatial chunks, and Dask schedules those chunks on its workers.
 
 ```python
 import xarray as xr
@@ -223,7 +223,7 @@ loss = zeit.extract_events(lt, min_magnitude=2000)
 loss.to_zarr("gs://my-bucket/landtrendr_loss.zarr", mode="w")       # yod, magnitude, duration, ...
 ```
 
-`zeit.landtrendr` and `extract_events` return lazy `xarray.Dataset`s here: each `to_zarr` runs the C++ code on every chunk in parallel and streams the result to storage. Saving the vertices first means they are computed once, and other event maps (`event_type="gain"`, another `sort_by`) come from them without segmenting again. The dashboard (`client.dashboard_link`, port 8787 by default) shows progress, memory and CPU for every worker.
+`zeit.landtrendr` and `extract_events` return lazy `xarray.Dataset`s here: each `to_zarr` runs the compiled code on every chunk in parallel and streams the result to storage. Saving the vertices first means they are computed once, and other event maps (`event_type="gain"`, another `sort_by`) come from them without segmenting again. The dashboard (`client.dashboard_link`, port 8787 by default) shows progress, memory and CPU for every worker.
 
 ## Troubleshooting a Dask cluster
 
@@ -256,7 +256,7 @@ python -c "import sys, dask, distributed; print(sys.version, dask.__version__, d
 
 **Symptom:** `dask worker` starts and registers with the scheduler fine. But as soon as a real task imports `zeit` (e.g. the first `zeit.landtrendr()` call), the worker process vanishes and Dask's Nanny silently respawns it with a new port — forever. No Python traceback reaches the scheduler or client; calling `client.run(...)` against that worker just raises `CommClosedError: ... Stream is closed`.
 
-**Cause:** `zeit` depends on `torch`, and on macOS both `torch` and Zeit's own compiled C++ extension (`zeit._core`) link their own copy of the OpenMP runtime (`libomp`/`libiomp`). Loading both inside the same process aborts the whole process (`OMP: Error #15: Initializing libomp.dylib, but found libomp.dylib already initialized`) instead of raising a catchable Python exception — which is exactly what a Nanny-managed silent restart loop looks like from the outside.
+**Cause:** two copies of the OpenMP runtime (`libomp`/`libiomp`) in one process. Up to zeit 1.7, `torch` and Zeit's own compiled C++ extension (`zeit._core`) each linked one; from 2.0 Zeit's core is Rust and links none, so a second copy can only come from another package of the environment. Loading both inside the same process aborts the whole process (`OMP: Error #15: Initializing libomp.dylib, but found libomp.dylib already initialized`) instead of raising a catchable Python exception — which is exactly what a Nanny-managed silent restart loop looks like from the outside.
 
 **Fix:** set these two environment variables before launching the worker on macOS:
 

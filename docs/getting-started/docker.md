@@ -10,13 +10,13 @@ We provide two Dockerfiles, built the same way but on different base images:
 * **`Dockerfile.cpu`** — based on the slim, multi-arch `python:3.11-slim` image with a CPU-only PyTorch wheel, for machines without an NVIDIA GPU. Because it has no CUDA dependency, this one builds and runs **natively on Apple Silicon (arm64) Macs**, with no emulation.
 
 Both images include:
-* System dependencies for C++ compilation and GDAL.
+* A Rust toolchain to build Zeit's compiled core, and GDAL.
 * Python dependencies and the Zeit package installed in editable mode.
 * JupyterLab for interactive data science.
 
 ## Building and Running
 
-To build the C++ engines, install PyTorch, and launch a JupyterLab environment, you can use one of the two provided Compose files, depending on whether your host has an NVIDIA GPU.
+To build the Rust core, install PyTorch, and launch a JupyterLab environment, you can use one of the two provided Compose files, depending on whether your host has an NVIDIA GPU.
 
 ### GPU hosts (NVIDIA + Linux/Windows)
 
@@ -41,8 +41,8 @@ docker-compose -f docker-compose.cpu.yml up --build
 
 This builds a separate, CUDA-free image (`Dockerfile.cpu`) and runs it entirely on CPU. On Apple Silicon Macs it builds as a native `arm64` image — no `amd64` emulation, unlike running the default `Dockerfile` would require. `torch.cuda.is_available()` is `False` inside this container, since it has no GPU acceleration at all; it does not have access to the host's Metal/MPS GPU either, since Docker containers can't pass that through. For MPS acceleration on a Mac, use the native `pip install` path from the [installation guide](installation.md#gpu-acceleration-for-zeitai) instead of Docker.
 
-!!! tip "OpenMP works automatically here, on every Mac chip (M1–M6 and beyond)"
-    `setup.py`'s OpenMP detection branches on `sys.platform`, not CPU architecture. Native macOS installs hit the `darwin` branch, which needs Homebrew's `libomp` and the `CFLAGS`/`CXXFLAGS`/`LDFLAGS` exports from the [Installing from Source](installation.md#installing-from-source) guide. Inside `Dockerfile.cpu`, though, the compiler is the container's own GCC running on Linux — `sys.platform` is `linux`, so it takes the plain `-fopenmp` path that Linux and Windows already get for free, with no Homebrew workaround needed. This holds for any host chip, present or future, since it never depends on the host's compiler at all.
+!!! tip "Multi-threaded on every Mac chip"
+    Zeit's compiled core starts its own threads, with no OpenMP runtime, so it runs on all the container's cores whatever the host chip, as it does in a native macOS install.
 
 ### Accessing the container
 

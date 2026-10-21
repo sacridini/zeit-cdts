@@ -109,7 +109,7 @@ Each segment has its first and last date (`t_start`, `t_end`), the date of the b
 segments = zeit.ccdc(reflectance, qa=qa, max_segments=6)
 ```
 
-Every pixel runs in parallel in C++. The result is an `xarray.Dataset` on the grid and CRS of the cube.
+Every pixel runs in parallel in Rust. The result is an `xarray.Dataset` on the grid and CRS of the cube.
 
 ### 5. Read the output
 
