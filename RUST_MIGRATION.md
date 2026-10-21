@@ -103,7 +103,7 @@ mudou, exceto o TWDTW.
 | 4. SOM | `som` | feito |
 | 5. LandTrendr | `landtrendr` | feito |
 | 6. Fenologia | `phenology_*` | em andamento, bit a bit como os outros módulos (decisão de 2026-10-21): porta o LM, o `SimplicialLLT` com ordenação AMD e o `inverse()` do Eigen (~3 mil linhas), em vez de só concordar com o phenofit dentro da tolerância documentada |
-| 7. CCDC | `ccdc` (GLMnet float32) | em andamento |
+| 7. CCDC | `ccdc` (GLMnet float32) | feito |
 | 8. Warp | `warp` (callback do transformer do GDAL) | em andamento |
 
 **Ponto de decisão após a fase 1:** seguir só se os três módulos do piloto
@@ -209,6 +209,14 @@ carga de fundo, e os dois lados ficaram ~2× mais lentos que em outras mediçõe
 BFAST clássico (com o STL), SOM e LandTrendr também dão os mesmos bits que o
 C++. No i5-13600K, 1 thread: BFAST 0,27×, SOM em lote 0,76× (0,97× com 20
 threads), LandTrendr 0,70× (0,61× com todas).
+
+O CCDC (fase 7) também dá os mesmos bits: 0,33× com 1 thread e 0,27× com
+todas no i5-13600K (~0,4× em séries de 20 anos a cada 8 dias). Os termos
+harmônicos saem uma vez por lote e a matriz padronizada do lasso uma vez por
+ajuste, para todas as bandas. O solver lasso é GPL-2.0, então o `zeit._rust`,
+como o `zeit._core`, é distribuído sob GPL v2 (`THIRD_PARTY_NOTICES.md`). Onde
+o C++ não tem comportamento definido (`num_c < 1`, `conseq_anom < 1`, arrays
+de tamanho errado), o Rust levanta `ValueError` ou devolve zero segmentos.
 
 O CI roda a suíte inteira nos dois núcleos e mede C++ × Rust nos três
 sistemas (resumo do job Tests). No Linux o C++ é compilado pelo GCC, bem mais
