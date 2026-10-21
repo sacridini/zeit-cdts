@@ -22,13 +22,18 @@ fn weights_of<'py>(weights: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyArray3<
 }
 
 /// The data (N, D) of `d` features, at least one sample.
-fn data_of(data: &PyArrayLikeDyn<'_, f64, AllowTypeChange>, d: usize) -> PyResult<(Vec<f64>, usize)> {
+/// The (n_samples, input_len) data, checked, and n_samples; c_order then
+/// borrows it without a copy when it is already C-contiguous.
+fn data_of<'a>(
+    data: &'a PyArrayLikeDyn<'_, f64, AllowTypeChange>,
+    d: usize,
+) -> PyResult<(numpy::ndarray::ArrayViewD<'a, f64>, usize)> {
     let v = data.as_array();
     if v.ndim() != 2 || v.shape()[1] != d {
         return Err(PyValueError::new_err("data must have shape (n_samples, input_len)"));
     }
     let n = v.shape()[0];
-    Ok((c_order(&v).into_owned(), n))
+    Ok((v, n))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -75,7 +80,8 @@ fn train_online(
     let w = weights_of(weights)?;
     let grid = grid_of(&w, &xx, &yy)?;
     let d = w.shape()[2];
-    let (data, n) = data_of(&data, d)?;
+    let (view, n) = data_of(&data, d)?;
+    let data = c_order(&view);
     if n < 1 {
         return Err(PyValueError::new_err("data must contain at least one sample"));
     }
@@ -117,7 +123,8 @@ fn train_batch(
     let w = weights_of(weights)?;
     let grid = grid_of(&w, &xx, &yy)?;
     let d = w.shape()[2];
-    let (data, n) = data_of(&data, d)?;
+    let (view, n) = data_of(&data, d)?;
+    let data = c_order(&view);
     if n < 1 {
         return Err(PyValueError::new_err("data must contain at least one sample"));
     }
@@ -145,7 +152,8 @@ fn predict_bmus<'py>(
         return Err(PyValueError::new_err("weights must have shape (x, y, input_len)"));
     }
     let (k, d) = (w.shape()[0] * w.shape()[1], w.shape()[2]);
-    let (data, _) = data_of(&data, d)?;
+    let (view, _) = data_of(&data, d)?;
+    let data = c_order(&view);
     let wv = c_order(&w);
     let wv: &[f64] = &wv;
     let out = py.detach(|| som::predict_bmus(&data, d, wv, k, n_jobs));

@@ -516,13 +516,20 @@ impl BatchState<'_> {
 pub fn predict_bmus(data: &[f64], d_n: usize, weights: &[f64], k_n: usize, n_jobs: i32) -> Vec<i32> {
     let n = data.len().checked_div(d_n).unwrap_or(0);
     let mut out = vec![0i32; n];
-    parallel::for_each_row(
-        &mut out,
-        1,
-        n_jobs,
-        || vec![0.0; d_n],
-        |buf, i, o| o[0] = find_bmu(&data[i * d_n..(i + 1) * d_n], weights, k_n, buf) as i32,
-    );
+    // OpenMP's schedule(static), on a team kept between calls: a call takes a
+    // few milliseconds, and waking rayon's threads for it cost more than that.
+    let threads = parallel::threads(n_jobs).min(n.max(1));
+    let chunk = n.div_ceil(threads);
+    let shared = parallel::Shared::new(&mut out);
+    parallel::region(threads, |t| {
+        let (a, b) = ((t * chunk).min(n), ((t + 1) * chunk).min(n));
+        let mut buf = vec![0.0; d_n];
+        // SAFETY: the threads' blocks are disjoint.
+        let o = unsafe { shared.slice_mut(a..b) };
+        for (i, oi) in (a..b).zip(o.iter_mut()) {
+            *oi = find_bmu(&data[i * d_n..(i + 1) * d_n], weights, k_n, &mut buf) as i32;
+        }
+    });
     out
 }
 

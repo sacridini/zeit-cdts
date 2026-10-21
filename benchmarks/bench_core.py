@@ -85,6 +85,28 @@ def _(core, rng, n_jobs):
     return run
 
 
+@workload("som_predict", "som")
+def _(core, rng, n_jobs):
+    # the winners alone (the first phase of every batch iteration)
+    data = np.ascontiguousarray(rng.normal(size=(200000, 8)))
+    w = rng.normal(size=(10, 10, 8))
+    return lambda: core.som.predict_bmus(data, w, n_jobs=n_jobs)
+
+
+@workload("som_online", "som")
+def _(core, rng, n_jobs):
+    # sequential by nature: n_jobs is not used
+    data = np.ascontiguousarray(rng.normal(size=(20000, 8)))
+    w0 = rng.normal(size=(10, 10, 8))
+    xx, yy = np.meshgrid(np.arange(10.0), np.arange(10.0))
+    order = np.arange(20000, dtype=np.int64)
+
+    def run():
+        w = w0.copy()
+        core.som.train_online(w, data, order, 20000, False, 0.5, 1.0, 0, 0, 0, xx, yy)
+    return run
+
+
 @workload("phenology", "phenology")
 def _(core, rng, n_jobs):
     dates = np.arange(0, 365 * 3, 8, dtype=float)
@@ -284,7 +306,7 @@ def run(args):
             if b not in present:
                 print(f"{name:14s} (not in the {b} backend)")
         for label, n_jobs in threads.items():
-            if not present or (name == "medoid" and label == "1"):
+            if not present or (name == "medoid" and label == "1") or (name == "som_online" and label == "all"):
                 continue
             fns = {b: build(cores[b], np.random.default_rng(42), n_jobs) for b in present}
             if pinned:
