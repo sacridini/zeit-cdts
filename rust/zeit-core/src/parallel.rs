@@ -6,8 +6,10 @@
 
 use rayon::prelude::*;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 /// The number of threads `n_jobs` asks for.
 pub fn threads(n_jobs: i32) -> usize {
@@ -140,6 +142,174 @@ pub fn team<F: Fn(usize, &SpinBarrier) + Sync>(threads: usize, f: F) {
     pool(threads).broadcast(|ctx| f(ctx.index(), &barrier));
 }
 
+/// The threads of `region`: `threads - 1` workers kept for the life of the
+/// process, the caller being the team's thread 0.
+struct Team {
+    workers: usize,
+    /// The region running: its function, valid until every worker is done.
+    job: AtomicPtr<()>,
+    generation: AtomicUsize,
+    done: AtomicUsize,
+    panicked: AtomicBool,
+    sleepers: AtomicUsize,
+    lock: Mutex<()>,
+    wake: Condvar,
+    /// One region at a time.
+    busy: Mutex<()>,
+}
+
+thread_local! {
+    /// The index of the thread in the team of the region it runs, if any.
+    static TEAM_INDEX: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+}
+
+type Job<'a> = &'a (dyn Fn(usize) + Sync);
+
+impl Team {
+    /// How long the workers wait, spinning then yielding, for the next region
+    /// before they sleep: OpenMP's threads (GOMP_SPINCOUNT) wait in the same
+    /// way, so that calls one after the other find them awake.
+    const SPIN: Duration = Duration::from_micros(50);
+    const YIELD: Duration = Duration::from_millis(2);
+
+    fn start(threads: usize) -> Arc<Team> {
+        let team = Arc::new(Team {
+            workers: threads - 1,
+            job: AtomicPtr::new(std::ptr::null_mut()),
+            generation: AtomicUsize::new(0),
+            done: AtomicUsize::new(0),
+            panicked: AtomicBool::new(false),
+            sleepers: AtomicUsize::new(0),
+            lock: Mutex::new(()),
+            wake: Condvar::new(),
+            busy: Mutex::new(()),
+        });
+        for tid in 1..threads {
+            let team = team.clone();
+            std::thread::Builder::new()
+                .name(format!("zeit-team-{tid}"))
+                .spawn(move || team.work(tid))
+                .expect("could not start a thread");
+        }
+        team
+    }
+
+    fn work(&self, tid: usize) {
+        TEAM_INDEX.with(|t| t.set(Some(tid)));
+        let mut seen = 0;
+        loop {
+            seen = self.next_generation(seen);
+            // SAFETY: `region` stored a `&Job` that outlives the region, and
+            // waits for every worker before it returns.
+            let job = unsafe { *(self.job.load(Ordering::Acquire) as *const Job) };
+            if catch_unwind(AssertUnwindSafe(|| job(tid))).is_err() {
+                self.panicked.store(true, Ordering::Relaxed);
+            }
+            self.done.fetch_add(1, Ordering::Release);
+        }
+    }
+
+    /// Waits for a generation after `seen`: spins, yields, then sleeps.
+    fn next_generation(&self, seen: usize) -> usize {
+        let start = Instant::now();
+        let mut k = 0u32;
+        loop {
+            let g = self.generation.load(Ordering::Acquire);
+            if g != seen {
+                return g;
+            }
+            k = k.wrapping_add(1);
+            if k.is_multiple_of(64) {
+                let waited = start.elapsed();
+                if waited > Self::YIELD {
+                    break;
+                } else if waited > Self::SPIN {
+                    std::thread::yield_now();
+                    continue;
+                }
+            }
+            std::hint::spin_loop();
+        }
+        let mut guard = self.lock.lock().unwrap_or_else(|e| e.into_inner());
+        self.sleepers.fetch_add(1, Ordering::AcqRel);
+        while self.generation.load(Ordering::Acquire) == seen {
+            guard = self.wake.wait(guard).unwrap_or_else(|e| e.into_inner());
+        }
+        self.sleepers.fetch_sub(1, Ordering::AcqRel);
+        self.generation.load(Ordering::Acquire)
+    }
+
+    fn run(&self, f: Job) {
+        self.done.store(0, Ordering::Relaxed);
+        self.panicked.store(false, Ordering::Relaxed);
+        self.job.store(&f as *const Job as *mut (), Ordering::Release);
+        {
+            // under the lock, so that a worker about to sleep sees it or is woken
+            let _guard = self.lock.lock().unwrap_or_else(|e| e.into_inner());
+            self.generation.fetch_add(1, Ordering::Release);
+        }
+        if self.sleepers.load(Ordering::Acquire) > 0 {
+            self.wake.notify_all();
+        }
+        let mine = catch_unwind(AssertUnwindSafe(|| {
+            TEAM_INDEX.with(|t| t.set(Some(0)));
+            f(0);
+        }));
+        TEAM_INDEX.with(|t| t.set(None));
+        let mut k = 0u32;
+        while self.done.load(Ordering::Acquire) < self.workers {
+            k = k.wrapping_add(1);
+            if k < 1 << 12 {
+                std::hint::spin_loop();
+            } else {
+                std::thread::yield_now();
+            }
+        }
+        if let Err(e) = mine {
+            resume_unwind(e);
+        }
+        if self.panicked.load(Ordering::Relaxed) {
+            panic!("a thread of the team panicked");
+        }
+    }
+}
+
+/// `f(tid)` on each of `threads` threads, the calling one being 0 (OpenMP's
+/// parallel region). The threads are kept between calls and wait a little
+/// for the next region before they sleep, so short calls one after another do
+/// not pay for waking them; a rayon pool's threads fall asleep at once. When
+/// the team is busy (a region from another thread), rayon's pool runs it.
+pub fn region<F: Fn(usize) + Sync>(threads: usize, f: F) {
+    if threads <= 1 {
+        f(0);
+        return;
+    }
+    static TEAMS: OnceLock<Mutex<HashMap<usize, Arc<Team>>>> = OnceLock::new();
+    let team = TEAMS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .entry(threads)
+        .or_insert_with(|| Team::start(threads))
+        .clone();
+    let inside = TEAM_INDEX.with(|t| t.get()).is_some();
+    match team.busy.try_lock() {
+        Ok(_busy) if !inside => team.run(&f),
+        _ => {
+            pool(threads).broadcast(|ctx| f(ctx.index()));
+        }
+    };
+}
+
+/// The index of the calling thread in its `region` team, or in the rayon
+/// pool running it; 0 elsewhere.
+pub fn thread_index() -> usize {
+    TEAM_INDEX
+        .with(|t| t.get())
+        .or_else(rayon::current_thread_index)
+        .unwrap_or(0)
+}
+
 /// A slice that the threads of a team write in disjoint parts between
 /// barriers (OpenMP's shared arrays).
 #[derive(Clone, Copy)]
@@ -201,6 +371,51 @@ mod tests {
             for_each_row(&mut out, 3, n_jobs, || (), |_, i, row| row.fill(i));
             assert!(out.chunks(3).enumerate().all(|(i, r)| r.iter().all(|&v| v == i)));
         }
+    }
+
+    #[test]
+    fn a_region_runs_every_thread_once() {
+        for threads in [1, 2, 5] {
+            for _ in 0..200 {
+                let seen: Vec<AtomicUsize> = (0..threads).map(|_| AtomicUsize::new(0)).collect();
+                region(threads, |t| {
+                    assert_eq!(thread_index(), t);
+                    seen[t].fetch_add(1, Ordering::Relaxed);
+                });
+                assert!(seen.iter().all(|s| s.load(Ordering::Relaxed) == 1));
+            }
+        }
+    }
+
+    #[test]
+    fn regions_nest_and_run_side_by_side() {
+        let total = AtomicUsize::new(0);
+        std::thread::scope(|scope| {
+            for _ in 0..4 {
+                scope.spawn(|| {
+                    for _ in 0..50 {
+                        region(3, |_| {
+                            region(3, |_| {
+                                total.fetch_add(1, Ordering::Relaxed);
+                            })
+                        });
+                    }
+                });
+            }
+        });
+        assert_eq!(total.load(Ordering::Relaxed), 4 * 50 * 3 * 3);
+    }
+
+    #[test]
+    fn a_panic_in_a_region_reaches_the_caller() {
+        let r = std::panic::catch_unwind(|| region(4, |t| assert!(t != 2, "thread 2")));
+        assert!(r.is_err());
+        // the team is still usable
+        let n = AtomicUsize::new(0);
+        region(4, |_| {
+            n.fetch_add(1, Ordering::Relaxed);
+        });
+        assert_eq!(n.load(Ordering::Relaxed), 4);
     }
 
     #[test]

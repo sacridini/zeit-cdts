@@ -7,8 +7,9 @@ use super::raster::{cvt_i32, iceil, ifloor, Raster};
 use super::{Coords, Spec};
 use super::{AVERAGE, BILINEAR, CUBIC, CUBICSPLINE, LANCZOS, MAX, MED, MIN, MODE, NEAREST, Q1, Q3, RMS};
 use crate::parallel;
-use rayon::prelude::*;
+use std::mem::MaybeUninit;
 use std::ops::Range;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 const BAND_DENSITY_THRESHOLD: f64 = 0.0000000001;
 
@@ -51,13 +52,15 @@ impl<T: Raster> Dst<T> {
         unsafe { *self.ptr(band, at) = v }
     }
 
-    /// The cells of row jr without a value yet: NoData.
+    /// The cells of row jr without a value yet: NoData. The first write of
+    /// the row's cells, which may not hold a value before.
     fn clear_row(&self, fill: T, jr: usize, w: usize) {
         for b in 0..self.bands as usize {
             let k = b * self.plane + jr * w;
             assert!(k + w <= self.len);
             // SAFETY: in bounds, and the calling thread's row.
-            unsafe { std::slice::from_raw_parts_mut(self.data.add(k), w) }.fill(fill);
+            unsafe { std::slice::from_raw_parts_mut(self.data.add(k) as *mut MaybeUninit<T>, w) }
+                .fill(MaybeUninit::new(fill));
         }
     }
 
@@ -102,8 +105,8 @@ impl<T: Raster> Dst<T> {
 }
 
 /// `f(state, rows)` on chunks of `chunk` consecutive rows of `0..n`, on
-/// `threads` threads, with one `state` from `init` per task (OpenMP's
-/// `schedule(dynamic, chunk)` with per-thread buffers).
+/// `threads` threads, with one `state` from `init` per thread: OpenMP's
+/// `parallel` with per-thread buffers and `for schedule(dynamic, chunk)`.
 fn rows<S, I, F>(n: usize, chunk: usize, threads: usize, init: I, f: F)
 where
     I: Fn() -> S + Sync + Send,
@@ -117,10 +120,17 @@ where
         f(&mut state, 0..n);
         return;
     }
-    parallel::pool(threads).install(|| {
-        (0..n.div_ceil(chunk))
-            .into_par_iter()
-            .for_each_init(&init, |state, c| f(state, c * chunk..n.min((c + 1) * chunk)));
+    let next = AtomicUsize::new(0);
+    parallel::region(threads, |_| {
+        let mut state = None;
+        loop {
+            let start = next.fetch_add(chunk, Ordering::Relaxed);
+            if start >= n {
+                break;
+            }
+            let state = state.get_or_insert_with(&init);
+            f(state, start..n.min(start + chunk));
+        }
     });
 }
 
@@ -183,48 +193,38 @@ fn adjust_on_edge<T: Raster>(s: &Src<T>, coords: &Coords, isx: &mut i32, isy: &m
     false
 }
 
-/// The source and destination of band b, and the band's index in them: with
-/// per_band (ps, pd: one source and destination of a band each), every band is
-/// tested and written on its own.
-#[inline(always)]
-fn band<'s, 'a, T>(
-    s: &'s Src<'a, T>,
-    d: &'s Dst<T>,
-    ps: Option<&'s [Src<'a, T>]>,
-    pd: Option<&'s [Dst<T>]>,
-    b: usize,
-) -> (&'s Src<'a, T>, &'s Dst<T>, usize) {
-    match (ps, pd) {
-        (Some(ps), Some(pd)) => (&ps[b], &pd[b], 0),
-        _ => (s, d, b),
-    }
-}
-
 /// GWKNearest / GWKRealCase: the methods that sample at cell centres, one
-/// loop per method.
+/// loop per method, and per_band (PB: ps, pd, one source and destination of a
+/// band each) or not.
 #[allow(clippy::too_many_arguments)]
-fn warp_points_loop<T: Raster, const M: i32>(
+fn warp_points_loop<T: Raster, const M: i32, const PB: bool>(
     s: &Src<T>,
     d: &Dst<T>,
-    ps: Option<&[Src<T>]>,
-    pd: Option<&[Dst<T>]>,
+    ps: &[Src<T>],
+    pd: &[Dst<T>],
     coords: &Coords,
     sp: &Spec,
     k: &Kernel,
     threads: usize,
 ) {
+    let bands = sp.bands as usize;
+    assert!(!PB || (ps.len() == bands && pd.len() == bands));
     let one_cell = s.w == 1 || s.h == 1;
     let on_edge = s.masked && corner_fails(s, coords);
     let w = sp.dst_w as usize;
     let fill = T::from_f64(d.nodata);
     let (sw, sh) = (s.w as f64, s.h as f64);
+    let (row0, col0) = (sp.dst_r0 as i64, sp.dst_c0 as i64);
+    let use4 = k.use4;
     let init = || (vec![0.0; w], vec![0.0; w], Work::new(k));
     rows(sp.dst_h as usize, 4, threads, init, |(x, y, wk), range| {
+        // Copies of their own: the stores to the destination, through a
+        // pointer, would otherwise have the loop read them again every time.
+        let (s, d, coords) = (*s, *d, *coords);
         for jr in range {
             d.clear_row(fill, jr, w);
-            coords.row(sp.dst_r0 as i64 + jr as i64, sp.dst_c0 as i64, x, y);
-            for ir in 0..w {
-                let (sx, sy) = (x[ir], y[ir]);
+            coords.row(row0 + jr as i64, col0, x, y);
+            for (ir, (&sx, &sy)) in x[..w].iter().zip(&y[..w]).enumerate() {
                 // GWKCheckAndComputeSrcOffsets
                 if !(sx >= 0.0) || !(sy >= 0.0) {
                     continue; // also NaN
@@ -243,20 +243,22 @@ fn warp_points_loop<T: Raster, const M: i32>(
                 if !s.held(isy, isx) {
                     continue; // never with a window computed right
                 }
-                if ps.is_none()
-                    && !s.valid_at(s.at(isy, isx))
-                    && !(on_edge && adjust_on_edge(s, coords, &mut isx, &mut isy))
-                {
+                if !PB && !s.valid_at(s.at(isy, isx)) && !(on_edge && adjust_on_edge(&s, &coords, &mut isx, &mut isy)) {
                     continue;
                 }
 
                 let at = jr * w + ir;
                 let k0 = s.at(isy, isx); // the source cell's index in the window, every band's
                 let mut found = false;
-                for b in 0..sp.bands as usize {
-                    let (sb, db, bi) = band(s, d, ps, pd, b);
+                for b in 0..bands {
+                    let (sb, db, bi) = if PB {
+                        // SAFETY: b < bands, the length of ps and pd (asserted above).
+                        unsafe { (ps.get_unchecked(b), pd.get_unchecked(b), 0) }
+                    } else {
+                        (&s, &d, b)
+                    };
                     let (mut bx, mut by) = (isx, isy);
-                    if ps.is_some() && !sb.valid_at(k0) && !(on_edge && adjust_on_edge(sb, coords, &mut bx, &mut by)) {
+                    if PB && !sb.valid_at(k0) && !(on_edge && adjust_on_edge(sb, &coords, &mut bx, &mut by)) {
                         continue;
                     }
                     let (mut dens, mut value) = (0.0, 0.0);
@@ -270,13 +272,13 @@ fn warp_points_loop<T: Raster, const M: i32>(
                         value = sb.data[kb].to_f64();
                         dens = 1.0;
                     } else if M == BILINEAR {
-                        if k.use4 {
+                        if use4 {
                             bilinear4(sb, bi, sx, sy, &mut dens, &mut value);
                         } else {
                             resample::<T, M>(sb, k, wk, bi, sx, sy, &mut dens, &mut value);
                         }
                     } else if M == CUBIC {
-                        if k.use4 {
+                        if use4 {
                             cubic4(sb, bi, sx, sy, &mut dens, &mut value);
                         } else {
                             resample::<T, M>(sb, k, wk, bi, sx, sy, &mut dens, &mut value);
@@ -292,12 +294,29 @@ fn warp_points_loop<T: Raster, const M: i32>(
                     found = true;
                     db.set(bi, at, dens, value);
                 }
-                if found && ps.is_none() {
+                if found && !PB {
                     d.avoid_multi(at);
                 }
             }
         }
     });
+}
+
+#[allow(clippy::too_many_arguments)]
+fn warp_points_method<T: Raster, const M: i32>(
+    s: &Src<T>,
+    d: &Dst<T>,
+    ps: Option<&[Src<T>]>,
+    pd: Option<&[Dst<T>]>,
+    coords: &Coords,
+    sp: &Spec,
+    k: &Kernel,
+    threads: usize,
+) {
+    match (ps, pd) {
+        (Some(ps), Some(pd)) => warp_points_loop::<T, M, true>(s, d, ps, pd, coords, sp, k, threads),
+        _ => warp_points_loop::<T, M, false>(s, d, &[], &[], coords, sp, k, threads),
+    }
 }
 
 pub fn warp_points<T: Raster>(
@@ -311,11 +330,11 @@ pub fn warp_points<T: Raster>(
 ) {
     let k = Kernel::new(sp.method, sp.xscale, sp.yscale);
     match sp.method {
-        NEAREST => warp_points_loop::<T, NEAREST>(s, d, ps, pd, coords, sp, &k, threads),
-        BILINEAR => warp_points_loop::<T, BILINEAR>(s, d, ps, pd, coords, sp, &k, threads),
-        CUBIC => warp_points_loop::<T, CUBIC>(s, d, ps, pd, coords, sp, &k, threads),
-        CUBICSPLINE => warp_points_loop::<T, CUBICSPLINE>(s, d, ps, pd, coords, sp, &k, threads),
-        _ => warp_points_loop::<T, LANCZOS>(s, d, ps, pd, coords, sp, &k, threads),
+        NEAREST => warp_points_method::<T, NEAREST>(s, d, ps, pd, coords, sp, &k, threads),
+        BILINEAR => warp_points_method::<T, BILINEAR>(s, d, ps, pd, coords, sp, &k, threads),
+        CUBIC => warp_points_method::<T, CUBIC>(s, d, ps, pd, coords, sp, &k, threads),
+        CUBICSPLINE => warp_points_method::<T, CUBICSPLINE>(s, d, ps, pd, coords, sp, &k, threads),
+        _ => warp_points_method::<T, LANCZOS>(s, d, ps, pd, coords, sp, &k, threads),
     }
 }
 
@@ -467,15 +486,18 @@ struct AreaWork<T> {
 
 /// GWKAverageOrModeThread and GWKModeRealType: the methods that take the
 /// source cells a destination cell covers (per_band: as warp_points_loop).
-fn warp_areas_loop<T: Raster, const M: i32>(
+fn warp_areas_loop<T: Raster, const M: i32, const PB: bool>(
     s: &Src<T>,
     d: &Dst<T>,
-    ps: Option<&[Src<T>]>,
-    pd: Option<&[Dst<T>]>,
+    ps: &[Src<T>],
+    pd: &[Dst<T>],
     coords: &Coords,
     sp: &Spec,
     threads: usize,
 ) {
+    let bands = sp.bands as usize;
+    assert!(!PB || (ps.len() == bands && pd.len() == bands));
+    let (row0, col0, xscale) = (sp.dst_r0 as i64, sp.dst_c0 as i64, sp.xscale);
     let x_margin = 2 * 1.max(cvt_i32((1.0 / sp.xscale).ceil()));
     let y_margin = 2 * 1.max(cvt_i32((1.0 / sp.yscale).ceil()));
     let quant: f32 = match M {
@@ -499,17 +521,19 @@ fn warp_areas_loop<T: Raster, const M: i32>(
         last: -2,
     };
     rows(sp.dst_h as usize, 8, threads, init, |wk, range| {
+        // Copies of their own, as in warp_points_loop.
+        let (s, d, coords) = (*s, *d, *coords);
         for jr in range {
             d.clear_row(fill, jr, w);
-            let j = sp.dst_r0 as i64 + jr as i64;
+            let j = row0 + jr as i64;
             if jr as i64 == wk.last + 1 {
                 // its upper corners: the lower ones of the row before
                 std::mem::swap(&mut wk.x0, &mut wk.x1);
                 std::mem::swap(&mut wk.y0, &mut wk.y1);
             } else {
-                coords.row(j, sp.dst_c0 as i64, &mut wk.x0, &mut wk.y0);
+                coords.row(j, col0, &mut wk.x0, &mut wk.y0);
             }
-            coords.row(j + 1, sp.dst_c0 as i64, &mut wk.x1, &mut wk.y1);
+            coords.row(j + 1, col0, &mut wk.x1, &mut wk.y1);
             wk.last = jr as i64;
             for ir in 0..w {
                 let Some(f) = footprint(
@@ -521,9 +545,9 @@ fn warp_areas_loop<T: Raster, const M: i32>(
                     s.h,
                     x_margin,
                     y_margin,
-                    sp.xscale,
-                    coords,
-                    sp.dst_c0 as i64 + ir as i64,
+                    xscale,
+                    &coords,
+                    col0 + ir as i64,
                     j,
                 ) else {
                     continue;
@@ -534,8 +558,13 @@ fn warp_areas_loop<T: Raster, const M: i32>(
                     && f.isy_min < f.isy_max
                     && s.held(f.isy_min, f.isx_min)
                     && s.held(f.isy_max - 1, f.isx_max - 1);
-                for b in 0..sp.bands as usize {
-                    let (sb, db, bi) = band(s, d, ps, pd, b);
+                for b in 0..bands {
+                    let (sb, db, bi) = if PB {
+                        // SAFETY: b < bands, the length of ps and pd (asserted above).
+                        unsafe { (ps.get_unchecked(b), pd.get_unchecked(b), 0) }
+                    } else {
+                        (&s, &d, b)
+                    };
                     let valid = |r: i32, c: i32| if held { sb.valid_at(sb.at(r, c)) } else { sb.ok(r, c) };
                     // the source column of footprint column c
                     let col = |c: i32| if f.wrap { c % s.w } else { c };
@@ -693,12 +722,27 @@ fn warp_areas_loop<T: Raster, const M: i32>(
                         }
                     }
                 }
-                if found && ps.is_none() {
+                if found && !PB {
                     d.avoid_multi(at);
                 }
             }
         }
     });
+}
+
+fn warp_areas_method<T: Raster, const M: i32>(
+    s: &Src<T>,
+    d: &Dst<T>,
+    ps: Option<&[Src<T>]>,
+    pd: Option<&[Dst<T>]>,
+    coords: &Coords,
+    sp: &Spec,
+    threads: usize,
+) {
+    match (ps, pd) {
+        (Some(ps), Some(pd)) => warp_areas_loop::<T, M, true>(s, d, ps, pd, coords, sp, threads),
+        _ => warp_areas_loop::<T, M, false>(s, d, &[], &[], coords, sp, threads),
+    }
 }
 
 pub fn warp_areas<T: Raster>(
@@ -711,13 +755,13 @@ pub fn warp_areas<T: Raster>(
     threads: usize,
 ) {
     match sp.method {
-        AVERAGE => warp_areas_loop::<T, AVERAGE>(s, d, ps, pd, coords, sp, threads),
-        RMS => warp_areas_loop::<T, RMS>(s, d, ps, pd, coords, sp, threads),
-        MODE => warp_areas_loop::<T, MODE>(s, d, ps, pd, coords, sp, threads),
-        MAX => warp_areas_loop::<T, MAX>(s, d, ps, pd, coords, sp, threads),
-        MIN => warp_areas_loop::<T, MIN>(s, d, ps, pd, coords, sp, threads),
-        MED => warp_areas_loop::<T, MED>(s, d, ps, pd, coords, sp, threads),
-        Q1 => warp_areas_loop::<T, Q1>(s, d, ps, pd, coords, sp, threads),
-        _ => warp_areas_loop::<T, Q3>(s, d, ps, pd, coords, sp, threads),
+        AVERAGE => warp_areas_method::<T, AVERAGE>(s, d, ps, pd, coords, sp, threads),
+        RMS => warp_areas_method::<T, RMS>(s, d, ps, pd, coords, sp, threads),
+        MODE => warp_areas_method::<T, MODE>(s, d, ps, pd, coords, sp, threads),
+        MAX => warp_areas_method::<T, MAX>(s, d, ps, pd, coords, sp, threads),
+        MIN => warp_areas_method::<T, MIN>(s, d, ps, pd, coords, sp, threads),
+        MED => warp_areas_method::<T, MED>(s, d, ps, pd, coords, sp, threads),
+        Q1 => warp_areas_method::<T, Q1>(s, d, ps, pd, coords, sp, threads),
+        _ => warp_areas_method::<T, Q3>(s, d, ps, pd, coords, sp, threads),
     }
 }

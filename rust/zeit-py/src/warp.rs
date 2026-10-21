@@ -178,8 +178,13 @@ fn run<'py, T: Raster + Element>(
     let ro = a.readonly();
     let data = ro.as_slice()?;
     let (bands, h, w) = (sp.bands as usize, sp.dst_h as usize, sp.dst_w as usize);
-    let mut out = vec![T::default(); bands * h * w];
-    py.detach(|| zw::warp(data, &mut out, coords, sp, threads));
+    let n = bands * h * w;
+    // Not zeroed first (one thread through the whole array): warp_uninit
+    // writes every cell, on the threads that compute them.
+    let mut out: Vec<T> = Vec::with_capacity(n);
+    py.detach(|| zw::warp_uninit(data, &mut out.spare_capacity_mut()[..n], coords, sp, threads));
+    // SAFETY: warp_uninit wrote the n cells.
+    unsafe { out.set_len(n) };
     let out: Bound<'py, PyArray3<T>> = PyArray1::from_vec(py, out).reshape([bands, h, w])?;
     Ok(Some(out.into_any()))
 }
