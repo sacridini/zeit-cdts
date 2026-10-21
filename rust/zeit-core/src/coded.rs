@@ -59,32 +59,49 @@ impl Model {
         self.n > 0
     }
 
-    fn predict(&self, t: f64) -> f64 {
-        self.c + self.a * (2.0 * PI * t).sin() + self.b * (2.0 * PI * t).cos()
+    /// The model at date `i`.
+    fn predict(&self, d: &Dates, i: usize) -> f64 {
+        self.c + self.a * d.sin[i] + self.b * d.cos[i]
+    }
+}
+
+/// The dates and their sin(2 pi t) and cos(2 pi t), computed once for all the
+/// pixels of a batch (the same values the C++ computes again in every fit).
+pub struct Dates<'a> {
+    t: &'a [f64],
+    sin: Vec<f64>,
+    cos: Vec<f64>,
+}
+
+impl<'a> Dates<'a> {
+    pub fn new(t: &'a [f64]) -> Dates<'a> {
+        Dates {
+            t,
+            sin: t.iter().map(|&tt| (2.0 * PI * tt).sin()).collect(),
+            cos: t.iter().map(|&tt| (2.0 * PI * tt).cos()).collect(),
+        }
     }
 }
 
 /// OLS of y = c + a sin(2 pi t) + b cos(2 pi t) on the observations `idx` (finite y).
-fn fit(t: &[f64], y: &[f64], idx: &[usize], min_obs: i32) -> Model {
+fn fit(d: &Dates, y: &[f64], idx: &[usize], min_obs: i32) -> Model {
     let use_: Vec<usize> = idx.iter().copied().filter(|&i| y[i].is_finite()).collect();
     if (use_.len() as i64) < min_obs.max(4) as i64 {
         return Model::NONE;
     }
-    let x = Mat::from_fn(use_.len(), 3, Order::Col, |r, j| {
-        let tt = t[use_[r]];
-        match j {
-            0 => 1.0,
-            1 => (2.0 * PI * tt).sin(),
-            _ => (2.0 * PI * tt).cos(),
-        }
-    });
+    let m = use_.len();
+    let mut data = Vec::with_capacity(3 * m);
+    data.extend(std::iter::repeat_n(1.0, m));
+    data.extend(use_.iter().map(|&i| d.sin[i]));
+    data.extend(use_.iter().map(|&i| d.cos[i]));
+    let x = Mat::from_data(m, 3, Order::Col, data);
     let yy: Vec<f64> = use_.iter().map(|&i| y[i]).collect();
-    let beta = ColPivQr::new(x.clone()).solve(&yy);
+    let beta = ColPivQr::new(x).solve(&yy);
     let mut sse = 0.0;
-    for (r, &yr) in yy.iter().enumerate() {
+    for (&i, &yr) in use_.iter().zip(&yy) {
         // X.row(r).dot(beta): the expression has the row's dynamic size (the
         // left operand's), so Eigen sums the three terms one after the other
-        let dot = x.get(r, 0) * beta[0] + x.get(r, 1) * beta[1] + x.get(r, 2) * beta[2];
+        let dot = 1.0 * beta[0] + d.sin[i] * beta[1] + d.cos[i] * beta[2];
         let res = yr - dot;
         sse += res * res;
     }
@@ -92,8 +109,8 @@ fn fit(t: &[f64], y: &[f64], idx: &[usize], min_obs: i32) -> Model {
         c: beta[0],
         a: beta[1],
         b: beta[2],
-        rmse: (sse / use_.len() as f64).sqrt(),
-        n: use_.len(),
+        rmse: (sse / m as f64).sqrt(),
+        n: m,
     }
 }
 
@@ -108,11 +125,11 @@ fn put_model(out: &mut [f64], m: &Model) {
 }
 
 /// The models of the features on the same observations as NDFI (its finite ones).
-fn put_features(out: &mut [f64], t: &[f64], ndfi: &[f64], features: &[f64], n_features: usize, idx: &[usize]) {
-    let n_time = t.len();
+fn put_features(out: &mut [f64], d: &Dates, ndfi: &[f64], features: &[f64], n_features: usize, idx: &[usize]) {
+    let n_time = d.t.len();
     let use_: Vec<usize> = idx.iter().copied().filter(|&i| ndfi[i].is_finite()).collect();
     for f in 0..n_features {
-        let m = fit(t, &features[f * n_time..(f + 1) * n_time], &use_, 1);
+        let m = fit(d, &features[f * n_time..(f + 1) * n_time], &use_, 1);
         put_model(&mut out[3 * f..], &m);
     }
 }
@@ -135,18 +152,19 @@ pub fn coded_pixel(
 ) -> Result<Vec<f64>, &'static str> {
     let size = coded_size(n_features as i64, p.max_events as i64).max(0) as usize;
     let mut out = vec![f64::NAN; size];
-    coded_into(t, ndfi, features, n_features, p, &mut out)?;
+    coded_into(&Dates::new(t), ndfi, features, n_features, p, &mut out)?;
     Ok(out)
 }
 
 fn coded_into(
-    t: &[f64],
+    d: &Dates,
     y: &[f64],
     feats: &[f64],
     n_features: usize,
     p: &Params,
     out: &mut [f64],
 ) -> Result<(), &'static str> {
+    let t = d.t;
     let n = t.len();
     if y.len() != n || feats.len() != n_features * n {
         return Err("coded: ndfi must have one value per date, features n_features per date");
@@ -160,7 +178,7 @@ fn coded_into(
 
     let train_end = p.train_start + p.train_years;
     let train = window(t, p.train_start, train_end);
-    let mut model = fit(t, y, &train, p.min_obs);
+    let mut model = fit(d, y, &train, p.min_obs);
     out[header - 1] = 0.0; // number of changes
     if !model.ok() {
         return Ok(());
@@ -168,7 +186,7 @@ fn coded_into(
     put_model(out, &model);
     out[3] = model.rmse;
     out[4] = model.n as f64;
-    put_features(&mut out[5..], t, y, feats, n_features, &train);
+    put_features(&mut out[5..], d, y, feats, n_features, &train);
 
     let (mut events, mut run) = (0i32, 0i32);
     let (mut first, mut last_before, mut previous_valid): (Option<usize>, Option<usize>, Option<usize>) =
@@ -186,7 +204,7 @@ fn coded_into(
             i += 1;
             continue;
         }
-        let res = y[i] - model.predict(t[i]);
+        let res = y[i] - model.predict(d, i);
         let z = res / if model.rmse < 1e-12 { 1e-12 } else { model.rmse };
         let beyond = if p.loss_only { z < -p.thresh } else { z.abs() > p.thresh };
         if !beyond {
@@ -219,13 +237,13 @@ fn coded_into(
         // the land cover after it: a new model on the next min_years
         let resume = t[f] + p.min_years;
         let after = window(t, t[f], resume);
-        let next = fit(t, y, &after, p.min_obs);
+        let next = fit(d, y, &after, p.min_obs);
         if !next.ok() {
             break;
         }
         put_model(&mut out[ev + 3..], &next);
         out[ev + 6] = next.rmse;
-        put_features(&mut out[ev + 7..], t, y, feats, n_features, &after);
+        put_features(&mut out[ev + 7..], d, y, feats, n_features, &after);
         model = next;
         run = 0;
         sum = 0.0;
@@ -257,6 +275,7 @@ pub fn coded_batch(
     let size = coded_size(n_features as i64, p.max_events as i64).max(0) as usize;
     let mut out = vec![0.0; pixels * size];
     let error = std::sync::Mutex::new(None);
+    let dates = Dates::new(t);
     parallel::for_each_row(
         &mut out,
         size,
@@ -265,7 +284,7 @@ pub fn coded_batch(
         |_, px, row| {
             let y = &ndfi[px * n_time..(px + 1) * n_time];
             let f = &features[px * n_features * n_time..(px + 1) * n_features * n_time];
-            if let Err(e) = coded_into(t, y, f, n_features, p, row) {
+            if let Err(e) = coded_into(&dates, y, f, n_features, p, row) {
                 *error.lock().unwrap_or_else(|e| e.into_inner()) = Some(e);
             }
         },

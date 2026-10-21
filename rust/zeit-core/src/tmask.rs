@@ -25,17 +25,44 @@ pub fn tmask_pixel(
     if green.len() != n || swir.len() != n {
         return Err("tmask_pixel: days, green and swir must have the same length");
     }
+    let cos: Vec<f64> = days.iter().map(|&d| (W * d).cos()).collect();
+    let sin: Vec<f64> = days.iter().map(|&d| (W * d).sin()).collect();
+    Ok(screen(
+        days,
+        &cos,
+        &sin,
+        green,
+        swir,
+        scale,
+        cloud_threshold,
+        shadow_threshold,
+    ))
+}
+
+/// tmask_pixel with cos(w d) and sin(w d) of the days given.
+#[allow(clippy::too_many_arguments)]
+fn screen(
+    days: &[f64],
+    cos: &[f64],
+    sin: &[f64],
+    green: &[f64],
+    swir: &[f64],
+    scale: f64,
+    cloud_threshold: f64,
+    shadow_threshold: f64,
+) -> Vec<u8> {
+    let n = days.len();
     let mut clear = vec![1u8; n];
     if n < 5 {
-        return Ok(clear);
+        return clear;
     }
     // Days from the first date: the fit is the same with any origin, and better conditioned.
     let t0 = days.iter().copied().fold(days[0], |m, d| if d < m { d } else { m });
     let mut x = vec![0.0; n * 3];
     for i in 0..n {
         x[3 * i] = days[i] - t0;
-        x[3 * i + 1] = (W * days[i]).cos();
-        x[3 * i + 2] = (W * days[i]).sin();
+        x[3 * i + 1] = cos[i];
+        x[3 * i + 2] = sin[i];
     }
     let g: Vec<f64> = green.iter().map(|v| v / scale).collect();
     let s: Vec<f64> = swir.iter().map(|v| v / scale).collect();
@@ -49,7 +76,7 @@ pub fn tmask_pixel(
             clear[i] = 0;
         }
     }
-    Ok(clear)
+    clear
 }
 
 /// Tmask of every pixel of `green` and `swir` (pixels x T, row-major): an
@@ -71,6 +98,9 @@ pub fn tmask_batch(
     let t = days.len();
     assert!(green.len() == pixels * t && swir.len() == pixels * t);
     let mut out = vec![0u8; pixels * t];
+    // cos(w d) and sin(w d) of every date, once for all the pixels
+    let cos_all: Vec<f64> = days.iter().map(|&d| (W * d).cos()).collect();
+    let sin_all: Vec<f64> = days.iter().map(|&d| (W * d).sin()).collect();
     parallel::for_each_row(&mut out, t, n_jobs, Vec::new, |idx: &mut Vec<usize>, p, row| {
         let (gp, sp) = (&green[p * t..(p + 1) * t], &swir[p * t..(p + 1) * t]);
         idx.clear();
@@ -81,10 +111,17 @@ pub fn tmask_batch(
             }
             return;
         }
-        let d: Vec<f64> = idx.iter().map(|&i| days[i]).collect();
-        let g: Vec<f64> = idx.iter().map(|&i| gp[i]).collect();
-        let s: Vec<f64> = idx.iter().map(|&i| sp[i]).collect();
-        let clear = tmask_pixel(&d, &g, &s, scale, cloud_threshold, shadow_threshold).expect("same lengths");
+        let pick = |v: &[f64]| idx.iter().map(|&i| v[i]).collect::<Vec<f64>>();
+        let clear = screen(
+            &pick(days),
+            &pick(&cos_all),
+            &pick(&sin_all),
+            &pick(gp),
+            &pick(sp),
+            scale,
+            cloud_threshold,
+            shadow_threshold,
+        );
         for (k, &i) in idx.iter().enumerate() {
             row[i] = clear[k];
         }

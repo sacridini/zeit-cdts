@@ -294,11 +294,16 @@ impl ColPivQr {
         let size = rows.min(cols);
         let packed = qr.packed_cols();
         let col_norm = |m: &Mat, j: usize, from: usize| {
-            sum(packed, rows - from, |i| {
-                let v = m.get(from + i, j);
-                v * v
-            })
-            .sqrt()
+            if packed {
+                let c = &m.data[j * rows + from..(j + 1) * rows];
+                sum_by(c.len(), |i| c[i] * c[i]).sqrt()
+            } else {
+                sum_seq(rows - from, |i| {
+                    let v = m.get(from + i, j);
+                    v * v
+                })
+                .sqrt()
+            }
         };
 
         let mut h_coeffs = vec![0.0; size];
@@ -489,8 +494,32 @@ fn apply_householder_left(m: &mut Mat, r: usize, c0: usize, ej: usize, tau: f64,
     if tau == 0.0 || cols == 0 {
         return;
     }
-    let packed = m.packed_cols();
     let n = rows - 1;
+    if m.order == Order::Col {
+        // the same operations on column slices
+        let ld = m.rows;
+        let ess: Vec<f64> = m.data[ej * ld + r + 1..(ej + 1) * ld].to_vec();
+        for jj in 0..cols {
+            let col = &m.data[(c0 + jj) * ld + r + 1..(c0 + jj + 1) * ld];
+            work[jj] = if cols == 1 {
+                0.0 + 1.0 * sum_by(n, |i| ess[i] * col[i])
+            } else {
+                0.0 + 1.0 * gemv_row(n, |i| col[i], |i| ess[i])
+            };
+        }
+        let te: Vec<f64> = ess.iter().map(|&e| tau * e).collect();
+        for jj in 0..cols {
+            let col = &mut m.data[(c0 + jj) * ld + r..(c0 + jj + 1) * ld];
+            work[jj] += col[0];
+            col[0] -= tau * work[jj];
+            let w = work[jj];
+            for (v, &t) in col[1..].iter_mut().zip(&te) {
+                *v -= w * t;
+            }
+        }
+        return;
+    }
+    let packed = m.packed_cols();
     // tmp = essential^T * bottom
     for jj in 0..cols {
         let j = c0 + jj;
@@ -532,6 +561,16 @@ fn apply_householder_left_vec(qr: &Mat, k: usize, tau: f64, c: &mut [f64]) {
         return;
     }
     let n = c.len() - 1;
+    if qr.order == Order::Col {
+        let e = &qr.data[k * qr.rows + k + 1..(k + 1) * qr.rows];
+        let mut tmp = 0.0 + 1.0 * sum_by(n, |i| e[i] * c[1 + i]);
+        tmp += c[0];
+        c[0] -= tau * tmp;
+        for (v, &ei) in c[1..].iter_mut().zip(e) {
+            *v -= tmp * (tau * ei);
+        }
+        return;
+    }
     let e = |i: usize| qr.get(k + 1 + i, k);
     let mut tmp = 0.0 + 1.0 * sum(qr.packed_cols(), n, |i| e(i) * c[1 + i]);
     tmp += c[0];
