@@ -185,7 +185,7 @@ def som(
     >>> clusters.prototypes.sel(neuron=1).plot()                  # a typical trajectory
     >>> zeit.plot(ndvi, fit=clusters)
     """
-    from . import _core
+    from ._backend import core as _core
     from ._classify_api import features
 
     cube = _feature_cube(data, nodata, chunks)

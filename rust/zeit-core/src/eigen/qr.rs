@@ -204,6 +204,40 @@ pub fn mat_vec_rows(a: &Mat, rows: usize, x: &[f64]) -> Vec<f64> {
     }
 }
 
+/// `y - A * x` assigned to a vector: Eigen rewrites it as `r = y; r -= A * x`,
+/// the product's accumulations taken off `y` with no 1 * c + 0 step.
+pub fn residual(a: &Mat, x: &[f64], y: &[f64]) -> Vec<f64> {
+    assert_eq!(x.len(), a.cols);
+    assert_eq!(y.len(), a.rows);
+    let rows = a.rows;
+    if rows == 1 {
+        return vec![y[0] - sum(a.packed_rows(), a.cols, |j| a.get(0, j) * x[j])];
+    }
+    match a.order {
+        Order::Row => (0..rows)
+            .map(|i| y[i] - gemv_row(a.cols, |j| a.get(i, j), |j| x[j]))
+            .collect(),
+        Order::Col => {
+            assert!(
+                a.cols < 128,
+                "the column-major kernel splits 128 columns or more in blocks"
+            );
+            let packed = rows / PACKET * PACKET;
+            let mut c = vec![0.0; rows];
+            for (j, &xj) in x.iter().enumerate() {
+                let col = &a.data[j * a.rows..j * a.rows + rows];
+                for i in 0..packed {
+                    c[i] = pmadd(col[i], xj, c[i]);
+                }
+                for i in packed..rows {
+                    c[i] += col[i] * xj;
+                }
+            }
+            y.iter().zip(&c).map(|(&yi, &ci)| yi - ci).collect()
+        }
+    }
+}
+
 /// `A.transpose() * r`.
 pub fn mat_t_vec(a: &Mat, r: &[f64]) -> Vec<f64> {
     assert_eq!(r.len(), a.rows);

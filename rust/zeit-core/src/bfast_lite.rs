@@ -43,7 +43,7 @@ impl Default for BflResult {
 /// Recursive residuals (Brown-Durbin-Evans) of the segment [seg_start, n) of
 /// x / y: cum_rss[t] is the RSS of the OLS fit on [seg_start, seg_start + k + t].
 /// The Gram matrix is refactorized (LDLT) at every step, as the C++ does.
-fn recursive_cum_rss(x: &Mat, y: &[f64], seg_start: usize, n: usize, k: usize) -> Vec<f64> {
+pub(crate) fn recursive_cum_rss(x: &Mat, y: &[f64], seg_start: usize, n: usize, k: usize) -> Vec<f64> {
     let len = n - seg_start;
     if len <= k {
         return Vec::new();

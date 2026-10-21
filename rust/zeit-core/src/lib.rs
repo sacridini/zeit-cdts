@@ -7,6 +7,7 @@
 // where `s <= 0.0` would pass it.
 #![allow(clippy::neg_cmp_op_on_partial_ord)]
 
+pub mod bfast;
 pub mod bfast_lite;
 pub mod bfast_monitor;
 pub mod cmath;
@@ -18,6 +19,7 @@ pub mod parallel;
 pub mod robustfit;
 pub mod sma;
 pub mod snic;
+pub mod som;
 pub mod stl;
 pub mod tmask;
 pub mod twdtw;

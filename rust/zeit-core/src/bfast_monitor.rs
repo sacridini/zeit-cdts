@@ -4,7 +4,7 @@
 //! LDLT and products included), so the same bits.
 
 use crate::eigen::ldlt::{xtx, Ldlt};
-use crate::eigen::qr::{mat_t_vec, mat_vec, sum_seq, Mat, Order};
+use crate::eigen::qr::{mat_t_vec, residual, sum_seq, Mat, Order};
 use crate::eigen::sum_by;
 use crate::parallel;
 use std::f64::consts::{E, PI};
@@ -191,13 +191,9 @@ fn monitor(
     let xh = design.gather(&hist);
     let yh: Vec<f64> = hist.iter().map(|&i| y[i]).collect();
     let beta = Ldlt::new(&xtx(&xh, n_hist)).solve(&mat_t_vec(&xh, &yh));
-    let fitted = mat_vec(&xh, &beta);
+    let resid = residual(&xh, &beta, &yh);
     let df = n_hist - p;
-    let sigma = (sum_by(n_hist, |r| {
-        let d = yh[r] - fitted[r];
-        d * d
-    }) / df as f64)
-        .sqrt();
+    let sigma = (sum_by(n_hist, |r| resid[r] * resid[r]) / df as f64).sqrt();
     res.sigma = sigma;
     if !(sigma > 0.0) || !sigma.is_finite() {
         return res;

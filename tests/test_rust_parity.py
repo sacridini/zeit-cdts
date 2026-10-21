@@ -375,3 +375,41 @@ def test_bfast_lite(freq, years, order):
     a, b = _core.bfastlite.bfast_lite(y, 2000.0, freq, order), _rust.bfastlite.bfast_lite(y, 2000.0, freq, order)
     for name in ("n_breaks", "rss", "lwz", "n_valid", "valid", "breakpoint_idx", "magnitude", "first_after_idx"):
         assert_same_bits(np.array(getattr(a, name), dtype=float), np.array(getattr(b, name), dtype=float))
+
+
+@pytest.mark.parametrize("freq,years,order", [(23, 6, 3), (12, 10, 2), (4, 12, 1), (12, 8, 3)])
+def test_bfast(freq, years, order):
+    v = _bfast_series(200 + freq + order, freq, years, 120)
+    for h in (0.15, 0.25):
+        for n_jobs in (1, -1):
+            args = (v, 2000.0, freq, order, h, 5, 5, 10, 0.05, 20, n_jobs)
+            assert_same_bits(_core.bfast.fit_bfast_batch(*args), _rust.bfast.fit_bfast_batch(*args))
+    y = list(v[5])
+    a, b = _core.bfast.bfast(y, 2000.0, freq, order), _rust.bfast.bfast(y, 2000.0, freq, order)
+    for name in ("n_trend_breaks", "n_season_breaks", "magnitude", "time", "n_iter", "n_valid", "valid",
+                 "trend_breakpoint_idx", "season_breakpoint_idx", "trend_magnitude", "trend_first_after_idx"):
+        assert_same_bits(np.array(getattr(a, name), dtype=float), np.array(getattr(b, name), dtype=float))
+
+
+# ------------------------------------------------------------------------ SOM
+@pytest.mark.parametrize("dim", [2, 5, 8, 13, 130])   # NumPy's pairwise sums: < 8, 8..128, > 128
+def test_som(dim):
+    rng = np.random.default_rng(dim)
+    data = rng.normal(size=(400, dim))
+    for x, y in ((5, 5), (3, 7)):
+        xx, yy = (np.ascontiguousarray(a) for a in np.meshgrid(np.arange(x, dtype=float), np.arange(y, dtype=float),
+                                                              indexing="ij"))
+        w0 = rng.normal(size=(x, y, dim))
+        order = rng.integers(0, 400, 200).astype(np.int64)
+        for neighborhood in range(4):
+            for decay in range(3):
+                schedule = (0.5, 1.2, decay, decay, neighborhood, xx, yy)
+                wa, wb = w0.copy(), w0.copy()
+                _core.som.train_batch(wa, data, 10, *schedule, n_jobs=-1)
+                _rust.som.train_batch(wb, data, 10, *schedule, n_jobs=-1)
+                assert_same_bits(wa, wb)
+                wa, wb = w0.copy(), w0.copy()
+                _core.som.train_online(wa, data, order, 200, False, *schedule)
+                _rust.som.train_online(wb, data, order, 200, False, *schedule)
+                assert_same_bits(wa, wb)
+                assert_same_bits(_core.som.predict_bmus(data, wa, -1), _rust.som.predict_bmus(data, wb, -1))

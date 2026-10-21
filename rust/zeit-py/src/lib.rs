@@ -12,6 +12,7 @@ use pyo3::types::PyModule;
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 mod arrays;
+mod bfast;
 mod bfastlite;
 mod bfastmonitor;
 mod coded;
@@ -19,6 +20,7 @@ mod mannkendall;
 mod sma;
 mod smooth;
 mod snic;
+mod som;
 mod tmask;
 mod twdtw;
 mod utils;
@@ -45,6 +47,8 @@ fn _rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
     add_submodule(m, &tmask::module(m.py())?)?;
     add_submodule(m, &bfastmonitor::module(m.py())?)?;
     add_submodule(m, &bfastlite::module(m.py())?)?;
+    add_submodule(m, &bfast::module(m.py())?)?;
+    add_submodule(m, &som::module(m.py())?)?;
     add_submodule(m, &utils::module(m.py())?)?;
     Ok(())
 }

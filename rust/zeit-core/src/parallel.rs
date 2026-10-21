@@ -6,7 +6,8 @@
 
 use rayon::prelude::*;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 
 /// The number of threads `n_jobs` asks for.
 pub fn threads(n_jobs: i32) -> usize {
@@ -70,6 +71,112 @@ where
                 .enumerate()
                 .for_each_init(&init, |state, (i, row)| f(state, i, row));
         });
+    }
+}
+
+/// A barrier that spins a little before sleeping, as OpenMP's: the phases of
+/// an iterative algorithm are often too short for threads to fall asleep and be
+/// woken between them, but spinning long starves the threads still working
+/// when there are more threads than free processors.
+pub struct SpinBarrier {
+    n: usize,
+    count: AtomicUsize,
+    generation: AtomicUsize,
+    sleepers: AtomicUsize,
+    lock: Mutex<()>,
+    wake: Condvar,
+}
+
+impl SpinBarrier {
+    /// Spins before sleeping (a few tens of microseconds).
+    const SPINS: u32 = 1 << 10;
+
+    pub fn new(n: usize) -> SpinBarrier {
+        SpinBarrier {
+            n,
+            count: AtomicUsize::new(0),
+            generation: AtomicUsize::new(0),
+            sleepers: AtomicUsize::new(0),
+            lock: Mutex::new(()),
+            wake: Condvar::new(),
+        }
+    }
+
+    /// Waits for the `n` threads; what each wrote before is seen by all after.
+    pub fn wait(&self) {
+        let generation = self.generation.load(Ordering::Acquire);
+        if self.count.fetch_add(1, Ordering::AcqRel) + 1 == self.n {
+            self.count.store(0, Ordering::Relaxed);
+            {
+                // under the lock, so that a thread about to sleep sees it or is woken
+                let _guard = self.lock.lock().unwrap_or_else(|e| e.into_inner());
+                self.generation.fetch_add(1, Ordering::Release);
+            }
+            if self.sleepers.load(Ordering::Acquire) > 0 {
+                self.wake.notify_all();
+            }
+            return;
+        }
+        for _ in 0..Self::SPINS {
+            if self.generation.load(Ordering::Acquire) != generation {
+                return;
+            }
+            std::hint::spin_loop();
+        }
+        let mut guard = self.lock.lock().unwrap_or_else(|e| e.into_inner());
+        self.sleepers.fetch_add(1, Ordering::AcqRel);
+        while self.generation.load(Ordering::Acquire) == generation {
+            guard = self.wake.wait(guard).unwrap_or_else(|e| e.into_inner());
+        }
+        self.sleepers.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+/// A team of threads for the whole of an iterative computation (OpenMP's
+/// parallel region): `f(tid, &barrier)` runs once on each of the `threads`
+/// threads of the pool, which stay up and meet at the barrier between phases.
+pub fn team<F: Fn(usize, &SpinBarrier) + Sync>(threads: usize, f: F) {
+    let barrier = SpinBarrier::new(threads);
+    pool(threads).broadcast(|ctx| f(ctx.index(), &barrier));
+}
+
+/// A slice that the threads of a team write in disjoint parts between
+/// barriers (OpenMP's shared arrays).
+#[derive(Clone, Copy)]
+pub struct Shared<T> {
+    ptr: *mut T,
+    len: usize,
+}
+
+// SAFETY: the users of a Shared write disjoint elements between barriers, and
+// read only what the barriers have published.
+unsafe impl<T: Send> Send for Shared<T> {}
+unsafe impl<T: Send> Sync for Shared<T> {}
+
+impl<T> Shared<T> {
+    pub fn new(slice: &mut [T]) -> Shared<T> {
+        Shared {
+            ptr: slice.as_mut_ptr(),
+            len: slice.len(),
+        }
+    }
+
+    /// The elements `range`, mutable.
+    ///
+    /// # Safety
+    /// No other thread reads or writes them until the next barrier.
+    #[allow(clippy::mut_from_ref)]
+    pub unsafe fn slice_mut(&self, range: std::ops::Range<usize>) -> &mut [T] {
+        assert!(range.start <= range.end && range.end <= self.len);
+        unsafe { std::slice::from_raw_parts_mut(self.ptr.add(range.start), range.end - range.start) }
+    }
+
+    /// All the elements, shared.
+    ///
+    /// # Safety
+    /// No thread writes them until the next barrier.
+    pub unsafe fn slice(&self) -> &[T] {
+        unsafe { std::slice::from_raw_parts(self.ptr, self.len) }
     }
 }
 
