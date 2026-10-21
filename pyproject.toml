@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=77", "wheel", "pybind11>=2.10.0", "setuptools-rust>=1.9"]
+requires = ["setuptools>=77", "wheel", "setuptools-rust>=1.9"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "zeit-cdts"
-version = "1.7.0"
+version = "2.0.0"
 description = "Change detection and time series analysis of Earth observation data cubes: LandTrendr, CCDC, BFAST, TWDTW, phenology, accuracy assessment, embeddings and deep learning"
 readme = "README.md"
 license = "GPL-2.0-or-later"
@@ -14,7 +14,7 @@ classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Science/Research",
     "Operating System :: OS Independent",
-    "Programming Language :: C++",
+    "Programming Language :: Rust",
     "Programming Language :: Python :: 3",
     "Topic :: Scientific/Engineering :: GIS",
     "Topic :: Scientific/Engineering :: Image Processing",

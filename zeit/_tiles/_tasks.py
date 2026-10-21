@@ -307,7 +307,7 @@ def subprocess_env(cores: int) -> Dict[str, str]:
     env["OMP_NUM_THREADS"] = str(cores)
     env["PYTHONUNBUFFERED"] = "1"
     if sys.platform == "darwin":
-        # torch and zeit's extension each bring an OpenMP runtime (see the parallel tutorial).
+        # torch and other extensions may each bring an OpenMP runtime (see the parallel tutorial).
         env["KMP_DUPLICATE_LIB_OK"] = "TRUE"
     return env
 

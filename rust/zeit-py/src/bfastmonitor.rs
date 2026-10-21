@@ -1,4 +1,4 @@
-//! zeit._rust.bfastmonitor: the bindings of zeit._core.bfastmonitor.
+//! zeit._core.bfastmonitor: the Python module.
 
 use numpy::{AllowTypeChange, PyArray1, PyArray2, PyArrayLike2, PyArrayMethods};
 use pyo3::exceptions::PyRuntimeError;
@@ -7,7 +7,7 @@ use zeit_core::bfast_monitor as bfm;
 
 use crate::arrays::c_order;
 
-#[pyclass(name = "BFMResult", module = "zeit._rust.bfastmonitor", get_all, set_all)]
+#[pyclass(name = "BFMResult", module = "zeit._core.bfastmonitor", get_all, set_all)]
 #[derive(Clone)]
 pub struct BFMResult {
     breakpoint: f64,

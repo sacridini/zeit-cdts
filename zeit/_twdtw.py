@@ -1,6 +1,6 @@
 import numpy as np
 from typing import List, Dict, Any, Union, Tuple, Optional
-from ._backend import core as _core
+from . import _core
 
 def run_twdtw(
     ts_values: Union[np.ndarray, List[float]], 
@@ -71,7 +71,7 @@ def run_twdtw_batch(
     n_jobs: int = -1
 ) -> np.ndarray:
     """
-    Run highly optimized TWDTW on a batch of pixels (3D or 4D array) using OpenMP.
+    Run highly optimized TWDTW on a batch of pixels (3D or 4D array) in parallel.
     """
     params = _core.twdtw.TWDTWParams()
     params.alpha = alpha
@@ -133,8 +133,8 @@ def classify_twdtw(
         pat_vals, pat_dates = patterns[class_name]
         
         # Calculate TWDTW for this class, using the current best_dist as the abort_threshold
-        # wait, abort_threshold per pixel needs to be passed, but the batch C++ takes a single float.
-        # Since we can't pass a 2D array of abort_thresholds easily without modifying C++ again,
+        # wait, abort_threshold per pixel needs to be passed, but the batch takes a single float.
+        # Since we can't pass a 2D array of abort_thresholds easily without changing the core,
         # we pass inf for now, or just the maximum of the current best_dist if we want to be safe, 
         # but max(best_dist) might be inf initially.
         # To truly use per-pixel early abandonment in batch, we'd need to pass a 2D array of thresholds.

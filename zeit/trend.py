@@ -2,7 +2,7 @@ import numpy as np
 import dask.array as da
 from typing import Optional
 
-from zeit._backend import core as _core
+from zeit import _core
 
 fit_mann_kendall_batch = _core.mannkendall.fit_mann_kendall_batch
 MKMethod = _core.mannkendall.MKMethod
@@ -31,7 +31,7 @@ def run_mann_kendall_dask(
     """
     Pixel-wise Mann-Kendall trend test + Theil-Sen slope across a Dask
     array's time axis. Ported from pymannkendall (Hussain & Mahmud, 2019,
-    JOSS, doi:10.21105/joss.01556) to C++/OpenMP for per-pixel throughput,
+    JOSS, doi:10.21105/joss.01556) to the compiled core for per-pixel throughput,
     with the same Dask map_blocks strategy as run_phenology_dask.
 
     Input array shape: (time, y, x).

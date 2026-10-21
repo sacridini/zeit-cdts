@@ -2,7 +2,7 @@ import numpy as np
 import dask.array as da
 from typing import Optional
 
-from zeit._backend import core as _core
+from zeit import _core
 
 fit_bfast_monitor_batch = _core.bfastmonitor.fit_bfast_monitor_batch
 fit_bfast_lite_batch = _core.bfastlite.fit_bfast_lite_batch
@@ -30,7 +30,7 @@ def run_bfast_monitor_dask(
     across a Dask array's time axis, ported from the R package `bfast`
     (Verbesselt et al., 2012, doi:10.1016/j.rse.2012.02.022) and its
     `strucchangeRcpp` dependency's OLS-MOSUM monitoring process (Chu,
-    Stinchcombe & White, 1996), to a C++/OpenMP backend for per-pixel
+    Stinchcombe & White, 1996), to the compiled core for per-pixel
     throughput, with the same Dask map_blocks strategy as
     run_mann_kendall_dask.
 
@@ -140,7 +140,7 @@ def run_bfast_lite_dask(
     `bfastlite()` and its `strucchangeRcpp` dependency's `breakpoints()` -
     the Bai & Perron (2003) optimal multiple-breakpoint dynamic program, via
     Brown-Durbin-Evans recursive residuals for an O(n^2) (rather than O(n^3))
-    segment-RSS table - to a C++/OpenMP backend, with the same Dask
+    segment-RSS table - to the compiled core, with the same Dask
     map_blocks strategy as run_bfast_monitor_dask.
 
     Unlike bfastmonitor (single break/no-break, near-real-time), bfastlite
@@ -238,7 +238,7 @@ def run_bfast_dask(
     across a Dask array's time axis, ported from the R package `bfast`'s
     `bfast()` (Verbesselt, Hyndman & Newnham, 2010, doi:10.1016/j.rse.2009.08.014;
     Verbesselt, Zeileis & Herold, 2012, doi:10.1016/j.rse.2011.09.024) to a
-    C++/OpenMP backend, with the same Dask map_blocks strategy as
+    compiled core, with the same Dask map_blocks strategy as
     run_bfast_lite_dask and run_bfast_monitor_dask.
 
     Unlike bfastlite (a single segmented trend+harmonic fit in one pass) and

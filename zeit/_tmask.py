@@ -1,4 +1,4 @@
-"""The Tmask engine (one pixel, and a numpy stack), in C++ (``_core.tmask``);
+"""The Tmask engine (one pixel, and a numpy stack), in Rust (``_core.tmask``);
 ``zeit.tmask`` is in ``_tmask_api``.
 
 Tmask (Zhu & Woodcock 2014): a robust fit of a0 + c1 t + a1 cos(wt) + b1 sin(wt) to the
@@ -9,7 +9,7 @@ was scikit-learn's HuberRegressor, about 190 times slower per core.
 """
 import numpy as np
 
-from ._backend import core as _core
+from . import _core
 
 
 def run_tmask_pixel(dates_julian: np.ndarray, green_band: np.ndarray, swir_band: np.ndarray,

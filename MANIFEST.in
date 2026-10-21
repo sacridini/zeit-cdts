@@ -1,10 +1,6 @@
 include LICENSE
 include THIRD_PARTY_NOTICES.md
-include src/*.h
-include src/*.hpp
-include third_party/eigen/Eigen/*
-recursive-include third_party/eigen *
 include zeit/_plot/*.js zeit/_plot/*.css
-include rust/Cargo.toml rust/Cargo.lock
+include rust/Cargo.toml rust/Cargo.lock rust/rustfmt.toml
 recursive-include rust/zeit-core *.rs Cargo.toml
 recursive-include rust/zeit-py *.rs Cargo.toml

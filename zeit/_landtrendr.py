@@ -1,6 +1,6 @@
 import numpy as np
 from typing import List, Dict, Union
-from ._backend import core as _core
+from . import _core
 
 def desawtooth(values: Union[np.ndarray, List[float]], stopat: float = 0.9) -> np.ndarray:
     """
@@ -63,7 +63,7 @@ def run_landtrendr(years: Union[np.ndarray, List[int]], values: Union[np.ndarray
     params.min_observations_needed = min_observations_needed
     params.modifier = modifier
 
-    # Ensure lists for C++ vector binding (or we could use pybind11::array in C++ directly for zero-copy)
+    # Lists, as the binding takes them
     years_list = years.tolist() if isinstance(years, np.ndarray) else list(years)
     values_list = values.tolist() if isinstance(values, np.ndarray) else list(values)
 

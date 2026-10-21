@@ -1,4 +1,4 @@
-//! zeit._rust.bfastlite: the bindings of zeit._core.bfastlite.
+//! zeit._core.bfastlite: the Python module.
 
 use numpy::{AllowTypeChange, PyArray1, PyArray2, PyArrayLike2, PyArrayMethods};
 use pyo3::prelude::*;
@@ -6,7 +6,7 @@ use zeit_core::bfast_lite as bfl;
 
 use crate::arrays::c_order;
 
-#[pyclass(name = "BFLResult", module = "zeit._rust.bfastlite", get_all, set_all)]
+#[pyclass(name = "BFLResult", module = "zeit._core.bfastlite", get_all, set_all)]
 #[derive(Clone)]
 pub struct BFLResult {
     n_breaks: f64,

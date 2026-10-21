@@ -1,4 +1,4 @@
-//! zeit._rust.smooth: the bindings of zeit._core.smooth.
+//! zeit._core.smooth: the Python module.
 
 use numpy::{AllowTypeChange, PyArray1, PyArray2, PyArrayLikeDyn, PyArrayMethods};
 use pyo3::exceptions::PyValueError;

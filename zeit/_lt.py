@@ -1,7 +1,7 @@
 """``zeit.landtrendr``: one LandTrendr for every kind of input.
 
 A single pixel's series, a numpy stack, a georeferenced cube (in memory or dask) or a
-raster on disk all go through the same C++ batch segmentation and come back as the same
+raster on disk all go through the same compiled batch segmentation and come back as the same
 ``xarray.Dataset`` of vertices.
 """
 
@@ -321,7 +321,7 @@ def _segment_block(block: np.ndarray, years: np.ndarray, sentinels: list, params
     if fitted:
         out[2 * max_vertices + 2:base] = _fit_from_vertices(vy, vv, counts, years)
     if n_bands > 1:
-        from ._backend import core as _core
+        from . import _core
 
         pixels = rows * cols
         vertex_years = np.ascontiguousarray(vy.reshape(max_vertices, pixels).T, dtype=np.int32)

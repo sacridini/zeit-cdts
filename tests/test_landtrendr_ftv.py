@@ -15,7 +15,7 @@ import xarray as xr
 from rasterio.transform import from_origin
 
 import zeit
-from zeit._backend import core as _core
+from zeit import _core
 
 YEARS = list(range(1990, 2016))
 

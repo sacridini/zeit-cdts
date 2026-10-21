@@ -20,24 +20,20 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: true # Importante caso a pasta third_party/eigen seja um subm√≥dulo do git
 
       - name: Build wheels
         uses: pypa/cibuildwheel@v4.2.1
         env:
           # Sem 32 bits (i686/win32), PyPy, os builds free-threaded (cp314t), que o m√≥dulo
-          # C++ n√£o declara suportar, e o Python 3.15 at√© o numba e o torch terem wheels
+          # n√£o declara suportar, e o Python 3.15 at√© o numba e o torch terem wheels
           # para ele; o cibuildwheel 4 j√° n√£o constr√≥i o Python 3.8.
           CIBW_SKIP: "pp* *i686 *win32 cp3??t-* cp315-*"
           # Cada wheel constru√≠do √© instalado num ambiente limpo e testado com a su√≠te
           # inteira, num Python por sistema (os outros s√£o testados a partir do c√≥digo
           # no workflow Tests). O musllinux fica de fora: o torch n√£o tem wheels para ele.
           CIBW_TEST_EXTRAS: "dev"
-          # O n˙cleo Rust (zeit._rust) È opcional no setup.py: um wheel construÌdo sem ele
-          # passaria na suÌte com o n˙cleo C++. O import garante que ele est· l·.
-          CIBW_TEST_COMMAND: "python -c \"import zeit._rust\" && pytest {project}/tests -q -p no:cacheprovider"
-          # Os contÍineres manylinux e musllinux n„o tÍm Rust; as m·quinas Windows e macOS tÍm.
+          CIBW_TEST_COMMAND: "python -c \"import zeit._core\" && pytest {project}/tests -q -p no:cacheprovider"
+          # Os cont√™ineres manylinux e musllinux n√£o t√™m Rust; as m√°quinas Windows e macOS t√™m.
           CIBW_BEFORE_ALL_LINUX: "curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal"
           CIBW_ENVIRONMENT_LINUX: 'PATH="$HOME/.cargo/bin:$PATH"'
           CIBW_TEST_SKIP: "cp39-* cp310-* cp311-* cp313-* cp314-* *musllinux*"
@@ -55,8 +51,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: true
 
       - name: Build sdist
         run: pipx run build --sdist

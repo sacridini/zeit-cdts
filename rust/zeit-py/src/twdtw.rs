@@ -1,4 +1,4 @@
-//! zeit._rust.twdtw: the bindings of zeit._core.twdtw.
+//! zeit._core.twdtw: the Python module.
 
 use numpy::{AllowTypeChange, IxDyn, PyArray1, PyArrayDyn, PyArrayLike1, PyArrayLikeDyn, PyArrayMethods};
 use pyo3::exceptions::PyValueError;
@@ -7,7 +7,7 @@ use zeit_core::twdtw::{self as tw, Params, Series, TimeWeight};
 
 use crate::arrays::c_order;
 
-#[pyclass(name = "TWDTWParams", module = "zeit._rust.twdtw", get_all, set_all)]
+#[pyclass(name = "TWDTWParams", module = "zeit._core.twdtw", get_all, set_all)]
 #[derive(Clone)]
 pub struct TWDTWParams {
     alpha: f64,
@@ -47,7 +47,7 @@ impl TWDTWParams {
     }
 }
 
-#[pyclass(name = "TWDTWResult", module = "zeit._rust.twdtw", get_all, set_all)]
+#[pyclass(name = "TWDTWResult", module = "zeit._core.twdtw", get_all, set_all)]
 pub struct TWDTWResult {
     distance: f64,
     path: Vec<(i32, i32)>,

@@ -1,7 +1,7 @@
 """The batch functions of the compiled core release the GIL while they compute.
 
 Each one runs in a thread while the main thread keeps a Python loop going: had
-the call held the GIL, the loop would stop for the whole call. They run on the core zeit/_backend.py chooses (ZEIT_BACKEND=rust for the Rust one).
+the call held the GIL, the loop would stop for the whole call.
 """
 import threading
 import time
@@ -9,7 +9,7 @@ import time
 import numpy as np
 import pytest
 
-from zeit._backend import core as _core
+from zeit import _core
 
 
 def _series(n, t, seed=0):

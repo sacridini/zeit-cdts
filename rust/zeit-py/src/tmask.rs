@@ -1,4 +1,4 @@
-//! zeit._rust.tmask: the bindings of zeit._core.tmask.
+//! zeit._core.tmask: the Python module.
 
 use numpy::{AllowTypeChange, PyArray1, PyArray2, PyArrayLikeDyn, PyArrayMethods};
 use pyo3::exceptions::PyValueError;

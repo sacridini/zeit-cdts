@@ -1,4 +1,4 @@
-//! zeit._rust.som: the bindings of zeit._core.som.
+//! zeit._core.som: the Python module.
 
 use numpy::{AllowTypeChange, PyArray1, PyArray3, PyArrayLikeDyn, PyArrayMethods, PyUntypedArrayMethods};
 use pyo3::exceptions::{PyIndexError, PyTypeError, PyValueError};

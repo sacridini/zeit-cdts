@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import scipy.linalg
 
-from zeit._backend import core as _core
+from zeit import _core
 from zeit._tmask import apply_tmask_stack, run_tmask_pixel
 
 W = 2 * np.pi / 365.25

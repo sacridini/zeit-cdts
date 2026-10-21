@@ -1,6 +1,6 @@
 import numpy as np
 from typing import List, Dict, Any, Union, Optional
-from ._backend import core as _core
+from . import _core
 
 # The original CCDC parameterises time as MATLAB datenum, which is the Python
 # ordinal day + 366; the harmonic coefficients refer to that time axis.
@@ -188,7 +188,7 @@ def run_ccdc_batch(dates: np.ndarray, values: np.ndarray, qa: np.ndarray, max_se
         qa (np.ndarray): 3D array of Fmask codes [Y, X, Time].
         max_segments (int): Maximum number of segments to return per pixel.
         return_coefs (bool): Whether to return harmonic coefficients.
-        n_jobs (int): Number of threads for OpenMP to use. Default -1 (all but one).
+        n_jobs (int): Number of threads. Default -1 (all but one).
         Other arguments: as in run_ccdc.
 
     Returns:

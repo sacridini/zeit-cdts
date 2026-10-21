@@ -1,4 +1,4 @@
-//! zeit._rust.phenology: the bindings of zeit._core.phenology.
+//! zeit._core.phenology: the Python module.
 
 use numpy::{AllowTypeChange, PyArray1, PyArray3, PyArrayLikeDyn, PyArrayMethods};
 use pyo3::exceptions::PyRuntimeError;
@@ -8,8 +8,8 @@ use zeit_core::phenology as ph;
 
 use crate::arrays::c_order;
 
-/// The curves, as zeit._core's CurveType.
-#[pyclass(name = "CurveType", eq, eq_int, module = "zeit._rust.phenology")]
+/// The curves.
+#[pyclass(name = "CurveType", eq, eq_int, module = "zeit._core.phenology")]
 #[derive(Clone, Copy, PartialEq)]
 #[allow(clippy::upper_case_acronyms)]
 enum CurveType {
@@ -22,9 +22,8 @@ enum CurveType {
     DL = 6,
 }
 
-/// The extraction methods, as zeit._core's ExtractionMethod (every metric
-/// family is computed either way).
-#[pyclass(name = "ExtractionMethod", eq, eq_int, module = "zeit._rust.phenology")]
+/// The extraction methods (every metric family is computed either way).
+#[pyclass(name = "ExtractionMethod", eq, eq_int, module = "zeit._core.phenology")]
 #[derive(Clone, Copy, PartialEq)]
 #[allow(clippy::upper_case_acronyms)]
 enum ExtractionMethod {

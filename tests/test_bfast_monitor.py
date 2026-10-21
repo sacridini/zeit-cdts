@@ -3,7 +3,7 @@ import xarray as xr
 import dask.array as da
 import pytest
 
-from zeit._backend import core
+from zeit import _core as core
 
 bfast_monitor, fit_bfast_monitor_batch = core.bfastmonitor.bfast_monitor, core.bfastmonitor.fit_bfast_monitor_batch
 from zeit._bfast import run_bfast_monitor_dask, N_BFM_METRICS, BFM_METRIC_NAMES

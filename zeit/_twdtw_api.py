@@ -5,7 +5,7 @@ it: each pattern is matched against any stretch of the series, the cost of a pai
 observations is their distance plus a logistic weight of the time elapsed between them,
 ``1 / (1 + exp(-steepness * (elapsed - midpoint)))``, and, with ``cycle="year"``, the
 elapsed time is measured between days of the year, around the year. A pixel's series, a
-cube in memory or dask or a raster on disk all go through the same C++ batch and come back
+cube in memory or dask or a raster on disk all go through the same compiled batch and come back
 as the same ``xarray.Dataset``.
 """
 
@@ -230,7 +230,7 @@ def _date_numbers(dates: pd.DatetimeIndex, cycle: Optional[str]) -> np.ndarray:
 
 
 def _engine_params(params: Dict[str, Any]):
-    from ._backend import core as _core
+    from . import _core
 
     p = _core.twdtw.TWDTWParams()
     p.alpha = 1.0
@@ -246,7 +246,7 @@ def _classify_block(values: np.ndarray, dates: np.ndarray, patterns: Sequence[Tu
                     params: Dict[str, Any], multiband: bool, n_jobs: int) -> np.ndarray:
     """One (time[, band], y, x) block -> (patterns + 2, y, x): every pattern's distance, the
     lowest one and its label (1-based; 0 for no value)."""
-    from ._backend import core as _core
+    from . import _core
 
     rows, cols = values.shape[-2:]
     k = len(patterns)
@@ -318,7 +318,7 @@ def match(result: xr.Dataset, series_values: np.ndarray, series_dates: pd.Dateti
     """The alignment of a pattern of a ``twdtw`` result with one series: (series index,
     pattern step) pairs, the series indices counting every date (missing ones included).
     ``band``: with multi-band patterns, align on that band only."""
-    from ._backend import core as _core
+    from . import _core
 
     values = result.pattern_value.isel(pattern=pattern).values
     times = pd.DatetimeIndex(result.pattern_time.isel(pattern=pattern).values)

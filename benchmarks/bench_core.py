@@ -1,13 +1,14 @@
-"""Timings of the compiled core, for either backend.
+"""Timings of the compiled core (zeit._core, in Rust).
 
 Every workload calls the core the way zeit's wrappers do, on deterministic
 synthetic data, with one thread and with all of them. The result is a JSON file
-that ``--compare`` puts side by side with another (C++ before and after a change,
-or C++ against Rust). Several backends are measured in turns in one process.
+that ``--compare`` puts side by side with another: before and after a change,
+or against the C++ core of zeit 1.x, whose timings are kept in
+benchmarks/results/ (the "cpp" backend of those files).
 
-    python benchmarks/bench_core.py --backend cpp --out benchmarks/results/cpp.json
-    python benchmarks/bench_core.py --backend cpp rust --only mann_kendall
-    python benchmarks/bench_core.py --compare benchmarks/results/old.json benchmarks/results/new.json:rust
+    python benchmarks/bench_core.py --out benchmarks/results/new.json
+    python benchmarks/bench_core.py --only mann_kendall
+    python benchmarks/bench_core.py --compare benchmarks/results/win-i5-13600k-rust.json:cpp benchmarks/results/new.json
 """
 import argparse
 import datetime
@@ -247,10 +248,8 @@ def _(core, rng, n_jobs):
 
 
 def load_backend(name):
-    if name == "cpp":
-        return importlib.import_module("zeit._core")
     if name == "rust":
-        return importlib.import_module("zeit._rust")
+        return importlib.import_module("zeit._core")
     raise SystemExit(f"unknown backend {name!r}")
 
 
@@ -365,8 +364,8 @@ def compare(a_spec, b_spec):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--backend", nargs="+", default=["cpp"], choices=["cpp", "rust"],
-                    help="one backend, or several measured in turns in the same process")
+    ap.add_argument("--backend", nargs="+", default=["rust"], choices=["rust"],
+                    help="the core measured (the name its timings take in the JSON file)")
     ap.add_argument("--only", nargs="*", help="workloads to run (default: all)")
     ap.add_argument("--min-time", type=float, default=1.0, help="seconds of repetitions per timing")
     ap.add_argument("--rounds", type=int, default=3, help="turns of the backends, with several")

@@ -1,7 +1,7 @@
 import warnings
 
 import numpy as np
-from ._backend import core as _core
+from . import _core
 
 _LR_DECAYS = {'asymptotic_decay': 0, 'inverse_decay_to_zero': 1, 'linear_decay_to_zero': 2}
 _SIGMA_DECAYS = {'asymptotic_decay': 0, 'inverse_decay_to_one': 1, 'linear_decay_to_one': 2}
@@ -11,7 +11,7 @@ _ALGORITHMS = ('online', 'batch')
 
 class SOM:
     """
-    Self-Organizing Map (SOM) accelerated by C++ and OpenMP.
+    Self-Organizing Map (SOM) accelerated by zeit's compiled core (Rust).
 
     The implementation reproduces Python ``minisom`` (MiniSom 2.3.x): with the
     same ``random_seed`` and arguments, the initial weights, sample ordering,
@@ -26,7 +26,7 @@ class SOM:
     - ``algorithm='batch'``: Batch SOM (Kohonen, 2013), equivalent to
       ``MiniSom.train_batch_offline``. ``num_iters`` is the number of passes
       over the whole dataset; the best-matching-unit search and the weight
-      accumulation run in parallel with OpenMP (``n_jobs``).
+      accumulation run in parallel (``n_jobs``).
     """
 
     Y_HEX_CONV_FACTOR = (3.0 / 2.0) / np.sqrt(3)
@@ -134,7 +134,7 @@ class SOM:
             ``batch``: number of passes over the whole dataset, as in
             ``MiniSom.train_batch_offline``.
         n_jobs : int
-            OpenMP threads for the batch algorithm (-1 = all cores but one).
+            Threads for the batch algorithm (-1 = all cores but one).
             The online update is sequential by definition and ignores it.
         algorithm : {'online', 'batch'}
         random_order : bool

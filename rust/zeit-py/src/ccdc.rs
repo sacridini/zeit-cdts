@@ -1,4 +1,4 @@
-//! zeit._rust.ccdc: the bindings of zeit._core.ccdc.
+//! zeit._core.ccdc: the Python module.
 
 use numpy::{AllowTypeChange, PyArray1, PyArray3, PyArrayLikeDyn, PyArrayMethods};
 use pyo3::exceptions::PyValueError;
@@ -8,7 +8,7 @@ use zeit_core::ccdc;
 
 use crate::arrays::c_order;
 
-#[pyclass(name = "CCDCParams", module = "zeit._rust.ccdc", get_all, set_all)]
+#[pyclass(name = "CCDCParams", module = "zeit._core.ccdc", get_all, set_all)]
 #[derive(Clone)]
 pub struct CCDCParams {
     min_obs: i32,
@@ -66,7 +66,7 @@ impl CCDCParams {
     }
 }
 
-#[pyclass(name = "CCDCSegment", module = "zeit._rust.ccdc", get_all, set_all)]
+#[pyclass(name = "CCDCSegment", module = "zeit._core.ccdc", get_all, set_all)]
 #[derive(Clone, Default)]
 pub struct CCDCSegment {
     t_start: i32,

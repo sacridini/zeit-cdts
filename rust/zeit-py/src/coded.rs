@@ -1,4 +1,4 @@
-//! zeit._rust.coded: the bindings of zeit._core.coded.
+//! zeit._core.coded: the Python module.
 
 use numpy::{AllowTypeChange, PyArray1, PyArray2, PyArrayLikeDyn, PyArrayMethods};
 use pyo3::exceptions::PyRuntimeError;
@@ -7,7 +7,7 @@ use zeit_core::coded;
 
 use crate::arrays::c_order;
 
-#[pyclass(name = "Params", module = "zeit._rust.coded", get_all, set_all)]
+#[pyclass(name = "Params", module = "zeit._core.coded", get_all, set_all)]
 #[derive(Clone)]
 pub struct Params {
     train_start: f64,

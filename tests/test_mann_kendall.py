@@ -3,7 +3,7 @@ import xarray as xr
 import dask.array as da
 import pytest
 
-from zeit._backend import core
+from zeit import _core as core
 fit_mann_kendall_batch = core.mannkendall.fit_mann_kendall_batch
 mk_test_single = core.mannkendall.mk_test_single
 MKMethod = core.mannkendall.MKMethod

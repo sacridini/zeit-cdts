@@ -2,7 +2,7 @@ import numpy as np
 import xarray as xr
 import dask.array as da
 from typing import Optional
-from ._backend import core as _core
+from . import _core
 
 fit_phenology_batch = _core.phenology.fit_phenology_batch
 
@@ -90,7 +90,7 @@ def run_phenology_dask(
 
             # `val` encodes a date as "days since `base_year`-01-01, 1-indexed"
             # (i.e. datetime(base_year, 1, 1) + timedelta(days=val - 1)), matching
-            # the C++ core's day numbering. Vectorized with numpy datetime64 instead
+            # the compiled core's day numbering. Vectorized with numpy datetime64 instead
             # of a pure-Python per-pixel loop, since this runs per Dask block and
             # scales with total pixel count across the whole (potentially global) cube.
             # Metrics 19 (R2) and 20 (RMSE) aren't dates - excluded here and

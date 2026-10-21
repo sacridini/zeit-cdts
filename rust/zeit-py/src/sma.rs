@@ -1,4 +1,4 @@
-//! zeit._rust.sma: the bindings of zeit._core.sma.
+//! zeit._core.sma: the Python module.
 
 use numpy::{AllowTypeChange, PyArray1, PyArray2, PyArrayLikeDyn, PyArrayMethods};
 use pyo3::exceptions::PyRuntimeError;

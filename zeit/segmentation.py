@@ -3,7 +3,7 @@
 SNIC (Simple Non-Iterative Clustering; Achanta & Susstrunk, CVPR 2017) grows
 every superpixel from a seed with one priority queue, joining at each step the
 unlabelled pixel closest (in feature + image space) to the running mean of the
-cluster that reached it. From the same seeds, the C++ core gives the same
+cluster that reached it. From the same seeds, the compiled core gives the same
 labels as the authors' reference implementation, pixel for pixel.
 
 For a time series every (time, band) pair is one feature, so two pixels are
@@ -16,7 +16,7 @@ from typing import Optional, Tuple, Union
 
 import numpy as np
 
-from ._backend import core as _core
+from . import _core
 
 _GRIDS = ("rectangular", "diamond", "hexagonal", "random")
 
@@ -145,9 +145,9 @@ def run_snic(
     tile_size: segment tiles of this many pixels (int or (rows, cols))
         independently and in parallel, like sits_segment() blocks. Segments
         never cross tile edges. None segments the whole image at once (SNIC
-        itself is a sequential algorithm; OpenMP is then only used to reorder
+        itself is a sequential algorithm; threads are then only used to reorder
         the data).
-    n_jobs: OpenMP threads (-1 = all but one).
+    n_jobs: threads (-1 = all but one).
     """
     arr = np.asarray(data)
     if arr.ndim < 2:

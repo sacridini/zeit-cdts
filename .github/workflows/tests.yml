@@ -51,27 +51,18 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e .[dev]
-          python -c "import zeit._rust"
+          python -c "import zeit._core"
 
       - name: Run pytest
         run: |
           pytest -v tests/
 
-      - name: Run pytest on the Rust core
-        # The modules already converted to Rust (RUST_MIGRATION.md) in place of
-        # the C++ ones: the whole suite must pass on either core.
-        env:
-          ZEIT_BACKEND: rust
-        run: |
-          pytest -v tests/
-
-      - name: Time the Rust core against the C++ one
-        # The modules already in Rust against their C++, in turns in one process,
-        # into the job summary. Informative only: shared runners are noisy.
+      - name: Time the core
+        # Each workload of benchmarks/bench_core.py, into the job summary.
+        # Informative only: shared runners are noisy.
         if: matrix.python-version == '3.12'
         continue-on-error: true
         shell: bash
         run: |
-          python benchmarks/bench_core.py --backend cpp rust --rounds 3 --min-time 0.5 --out bench.json
-          { echo '### C++ (A) and Rust (B) on ${{ matrix.os }}'; echo '```'
-            python benchmarks/bench_core.py --compare bench.json:cpp bench.json:rust; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          { echo '### zeit._core on ${{ matrix.os }}'; echo '```'
+            python benchmarks/bench_core.py --rounds 1 --min-time 0.5; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

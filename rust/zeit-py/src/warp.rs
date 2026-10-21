@@ -1,5 +1,5 @@
-//! zeit._rust.warp: the bindings of zeit._core.warp (src/warp_python.cpp):
-//! warp, coords and lattice_checks, with the same arguments and checks.
+//! zeit._core.warp: warp, coords and lattice_checks, the Python module of the
+//! warp kernel.
 
 use numpy::ndarray::Dimension;
 use numpy::{
@@ -31,7 +31,7 @@ fn threads_of(n_threads: i32) -> usize {
     }
 }
 
-/// The coordinate arguments, as the C++'s make_coords takes them.
+/// The coordinate arguments, as zeit/_warp.py passes them.
 struct CoordArgs<'py> {
     kind: i32,
     offset: f64,

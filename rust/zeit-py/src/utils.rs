@@ -1,4 +1,4 @@
-//! zeit._rust.utils: the bindings of zeit._core.utils.
+//! zeit._core.utils: the Python module.
 
 use numpy::{AllowTypeChange, PyArray1, PyArrayDyn, PyArrayLikeDyn, PyArrayMethods};
 use pyo3::exceptions::PyRuntimeError;

@@ -1,4 +1,4 @@
-//! zeit._rust.landtrendr: the bindings of zeit._core.landtrendr.
+//! zeit._core.landtrendr: the Python module.
 
 use numpy::{AllowTypeChange, PyArray1, PyArray2, PyArray3, PyArrayLike1, PyArrayLikeDyn, PyArrayMethods};
 use pyo3::exceptions::PyValueError;
@@ -8,7 +8,7 @@ use zeit_core::landtrendr as lt;
 
 use crate::arrays::c_order;
 
-#[pyclass(name = "LandTrendrParams", module = "zeit._rust.landtrendr", get_all, set_all)]
+#[pyclass(name = "LandTrendrParams", module = "zeit._core.landtrendr", get_all, set_all)]
 #[derive(Clone)]
 pub struct LandTrendrParams {
     max_segments: i32,
@@ -57,7 +57,7 @@ impl LandTrendrParams {
     }
 }
 
-#[pyclass(name = "Vertex", module = "zeit._rust.landtrendr", get_all, set_all)]
+#[pyclass(name = "Vertex", module = "zeit._core.landtrendr", get_all, set_all)]
 #[derive(Clone)]
 pub struct Vertex {
     year: i32,

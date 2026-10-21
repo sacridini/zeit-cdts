@@ -1,4 +1,4 @@
-//! zeit._rust.bfast: the bindings of zeit._core.bfast.
+//! zeit._core.bfast: the Python module.
 
 use numpy::{AllowTypeChange, PyArray1, PyArray2, PyArrayLike2, PyArrayMethods};
 use pyo3::prelude::*;
@@ -6,7 +6,7 @@ use zeit_core::bfast as bf;
 
 use crate::arrays::c_order;
 
-#[pyclass(name = "BFResult", module = "zeit._rust.bfast", get_all, set_all)]
+#[pyclass(name = "BFResult", module = "zeit._core.bfast", get_all, set_all)]
 #[derive(Clone)]
 pub struct BFResult {
     n_trend_breaks: f64,

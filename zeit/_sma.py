@@ -3,7 +3,7 @@ vegetation, soil, shade and cloud in each pixel, and the Normalized Difference F
 Souza et al. (2005), the index of forest degradation in the Amazon.
 
 The unmixing is fully constrained least squares (fractions non-negative and adding up to one,
-Heinz & Chang 2001) in C++, every pixel and date in parallel, lazily on dask cubes.
+Heinz & Chang 2001) in Rust, every pixel and date in parallel, lazily on dask cubes.
 """
 
 from typing import Any, Dict, List, Optional, Sequence, Union
@@ -167,7 +167,7 @@ def unmix(
     from ._embeddings import refuse
 
     refuse(data, "zeit.unmix")
-    from ._backend import core
+    from . import _core as core
     unmix_batch = core.sma.unmix_batch
 
     cube = _as_cube(data, chunks)
@@ -227,7 +227,7 @@ def ndfi_of(fractions: Any) -> Any:
 def ndfi_from_bands(arrays: Sequence[Any]) -> Any:
     """NDFI from Landsat reflectance (0-1) in blue, green, red, NIR, SWIR1, SWIR2 order, with
     the Souza et al. (2005) endmembers: NumPy arrays or DataArrays of the same shape."""
-    from ._backend import core
+    from . import _core as core
     unmix_batch = core.sma.unmix_batch
 
     table = endmember_table("souza2005")

@@ -112,7 +112,7 @@ def som(
     each band of each date, each map of a Dataset), so pixels share a neuron when their
     whole trajectories are alike. The SOM is trained on a random sample of the pixels,
     then every pixel goes to its best-matching neuron. The engine is a bit-for-bit port of
-    MiniSom (online and Batch SOM), in C++ with OpenMP.
+    MiniSom (online and Batch SOM), in zeit's compiled core (Rust), in parallel.
 
     Parameters
     ----------
@@ -185,7 +185,7 @@ def som(
     >>> clusters.prototypes.sel(neuron=1).plot()                  # a typical trajectory
     >>> zeit.plot(ndvi, fit=clusters)
     """
-    from ._backend import core as _core
+    from . import _core
     from ._classify_api import features
 
     cube = _feature_cube(data, nodata, chunks)

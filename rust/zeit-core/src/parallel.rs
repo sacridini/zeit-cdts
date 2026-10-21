@@ -1,5 +1,7 @@
-//! Threads, as OpenMP gave them to the C++ core: `n_jobs` > 0 threads, or all
-//! the processors but one for `n_jobs` <= 0.
+//! Threads, as OpenMP gave them to the C++ core of zeit 1.x: `n_jobs` > 0
+//! threads, or all the processors but one for `n_jobs` <= 0, where "all the
+//! processors" is OMP_NUM_THREADS when it is set (as omp_get_max_threads):
+//! zeit's tiles cap each tile process with it.
 //!
 //! One rayon pool per thread count, made on first use and kept: a pool costs
 //! tens of microseconds to start, too much for every call on small arrays.
@@ -11,20 +13,37 @@ use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+/// OpenMP's omp_get_max_threads: the first number of OMP_NUM_THREADS when it
+/// is a positive integer, else the processors. Read once, as OpenMP does.
+fn max_threads() -> usize {
+    static MAX: OnceLock<usize> = OnceLock::new();
+    *MAX.get_or_init(|| {
+        std::env::var("OMP_NUM_THREADS")
+            .ok()
+            .and_then(|v| omp_num_threads(&v))
+            .unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |n| n.get()))
+    })
+}
+
+/// The thread count of an OMP_NUM_THREADS value ("8", or "8,4" for nested
+/// levels, of which the first counts).
+fn omp_num_threads(v: &str) -> Option<usize> {
+    v.split(',').next()?.trim().parse::<usize>().ok().filter(|&n| n > 0)
+}
+
 /// The number of threads `n_jobs` asks for.
 pub fn threads(n_jobs: i32) -> usize {
     if n_jobs > 0 {
         n_jobs as usize
     } else {
-        let procs = std::thread::available_parallelism().map_or(1, |n| n.get());
-        procs.saturating_sub(1).max(1)
+        max_threads().saturating_sub(1).max(1)
     }
 }
 
 /// The `n_jobs` of every processor: the thread count of OpenMP's default
 /// team, which the C++ functions without an `n_jobs` used.
 pub fn all_processors() -> i32 {
-    std::thread::available_parallelism().map_or(1, |n| n.get() as i32)
+    max_threads() as i32
 }
 
 /// The pool of `threads` threads.
@@ -363,6 +382,15 @@ pub fn transpose<T: Copy>(values: &[T], rows: usize, cols: usize) -> Vec<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn omp_num_threads_values() {
+        assert_eq!(omp_num_threads("8"), Some(8));
+        assert_eq!(omp_num_threads(" 4 ,2"), Some(4));
+        assert_eq!(omp_num_threads("0"), None);
+        assert_eq!(omp_num_threads("x"), None);
+        assert_eq!(omp_num_threads(""), None);
+    }
 
     #[test]
     fn rows_see_their_index_with_any_threads() {

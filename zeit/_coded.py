@@ -2,7 +2,7 @@
 
 CODED monitors forests for degradation (a disturbance after which the land is still forest:
 selective logging, understory fire) and deforestation (after which it is not) with the NDFI of
-Souza et al. (2005). Per pixel (the engine is ``_core.coded``, in C++):
+Souza et al. (2005). Per pixel (the engine is ``_core.coded``, in Rust):
 
 1. the fractions of green vegetation, non-photosynthetic vegetation, soil, shade and cloud of
    every observation (``zeit.unmix``), cloudy ones masked, and their NDFI;
@@ -132,7 +132,7 @@ def coded(
     from ._embeddings import refuse
 
     refuse(data, "zeit.coded")
-    from ._backend import core
+    from . import _core as core
     Params, coded_batch, coded_size = core.coded.Params, core.coded.coded_batch, core.coded.coded_size
     from ._sma import unmix
 

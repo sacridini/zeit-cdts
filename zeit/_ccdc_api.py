@@ -1,7 +1,7 @@
 """``zeit.ccdc``: one CCDC for every kind of input.
 
 A pixel's multi-band series, a numpy stack, a georeferenced ``(time, band, y, x)`` cube
-(in memory or dask) or a raster on disk all go through the same C++ batch and come back
+(in memory or dask) or a raster on disk all go through the same compiled batch and come back
 as the same ``xarray.Dataset`` of segments.
 """
 

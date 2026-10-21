@@ -11,7 +11,7 @@ ganhar onde for possível.
    wheel), módulo a módulo, com testes diferenciais e benchmarks contra a linha
    de base da etapa A.
 3. **Etapa C: corte final**, removendo C++ e Eigen quando o último módulo
-   passar.
+   passar. Feita na 2.0.0.
 
 ## Retrato do ponto de partida (v1.7.0)
 
@@ -305,6 +305,8 @@ O que não dá para igualar, porque o C++ não tem resultado definido:
 
 ### Como trabalhar
 
+Durante a etapa B (até a 1.7.x, com os dois núcleos):
+
 ```bash
 python setup.py build_ext --inplace          # C++ e Rust (release)
 python setup.py build_rust --inplace          # só o Rust
@@ -314,12 +316,37 @@ ZEIT_BACKEND=rust python -m pytest tests/     # a suíte inteira no Rust
 python benchmarks/bench_core.py --backend cpp rust --only snic twdtw mann_kendall
 ```
 
-## Etapa C: corte final
+Desde a 2.0, só o Rust:
 
-- Remover `src/`, `third_party/eigen` e a dependência de pybind11.
-- Passar para maturin; wheels abi3 (confirmar compatibilidade do rust-numpy).
-- Habilitar `cp314t` (free-threaded) no CI.
-- Atualizar README, `docs/benchmarks/performance.md` e os classifiers.
+```bash
+python setup.py build_rust --inplace --release
+cargo test --manifest-path rust/Cargo.toml -p zeit-core --release
+python -m pytest tests/
+python benchmarks/bench_core.py --compare benchmarks/results/win-i5-13600k-rust.json:cpp new.json
+```
+
+## Etapa C: corte final (feita na 2.0.0)
+
+Decidida em 2026-10-21, com todos os módulos em Rust e as mesmas saídas do C++:
+
+- `src/`, `third_party/eigen` e a dependência de pybind11 saíram; o pacote
+  constrói só a extensão Rust, com o setuptools-rust (o mesmo `build_wheels.yml`
+  com cibuildwheel, que já gerava os wheels com Rust).
+- A extensão passou a se chamar `zeit._core`, o nome do núcleo C++: os wrappers
+  voltaram a importar `_core` direto, e `zeit/_backend.py` (a escolha por
+  `ZEIT_BACKEND`) saiu, com os testes diferenciais (`tests/test_rust_parity.py`),
+  que não têm mais contra o que comparar. As suítes de fidelidade contra o
+  código dos autores (MATLAB, R, IDL, MiniSom, phenofit) continuam.
+- `n_jobs <= 0` segue o `omp_get_max_threads` do OpenMP: o Rust lê
+  `OMP_NUM_THREADS` (os tiles limitam cada processo com ela).
+- `benchmarks/bench_core.py` mede só o núcleo; os tempos do C++ ficam nos JSON
+  de `benchmarks/results/` para `--compare`.
+- README, `docs/` (instalação, contribuição, desempenho, tutoriais),
+  Dockerfiles, `THIRD_PARTY_NOTICES.md` e classifiers atualizados.
+
+Ficaram para depois (não bloqueiam a 2.0): maturin e wheels abi3 (um wheel por
+sistema em vez de um por Python), e `cp314t` (free-threaded), que exige
+declarar o módulo como seguro sem o GIL no PyO3 e testar sob ele.
 
 ## Prós e contras (resumo)
 

@@ -1,4 +1,4 @@
-//! zeit._rust.mannkendall: the bindings of zeit._core.mannkendall.
+//! zeit._core.mannkendall: the Python module.
 
 use numpy::{AllowTypeChange, PyArray1, PyArray2, PyArrayLike2, PyArrayMethods};
 use pyo3::prelude::*;
@@ -6,8 +6,8 @@ use zeit_core::mann_kendall::{self as mk, Method};
 
 use crate::arrays::c_order;
 
-/// The test of `method`, as zeit._core's MKMethod.
-#[pyclass(name = "MKMethod", eq, eq_int, module = "zeit._rust.mannkendall")]
+/// The test of `method`.
+#[pyclass(name = "MKMethod", eq, eq_int, module = "zeit._core.mannkendall")]
 #[derive(Clone, Copy, PartialEq)]
 #[allow(clippy::upper_case_acronyms, non_camel_case_types)]
 enum MKMethod {

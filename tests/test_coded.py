@@ -6,7 +6,7 @@ import xarray as xr
 from scipy.optimize import nnls as scipy_nnls
 
 import zeit
-from zeit._backend import core
+from zeit import _core as core
 
 coded_core, sma = core.coded, core.sma
 from zeit._sma import endmember_table, ndfi_of

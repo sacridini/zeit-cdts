@@ -7,7 +7,7 @@ def run_landtrendr_array(years: "np.ndarray", raster_stack: "np.ndarray", max_se
                           vertex_count_overshoot: int = 3, min_observations_needed: int = 6,
                           no_data_value: float = 0.0, return_rmse: bool = False, modifier: float = 1.0):
     """
-    Apply LandTrendr across a 3D numpy array (time_steps, rows, cols) using C++ batch processing with OpenMP.
+    Apply LandTrendr across a 3D numpy array (time_steps, rows, cols) with the compiled core's batch, every pixel in parallel.
 
     If return_rmse is True, also returns a (rows, cols) array of each pixel's
     fit RMSE against every observation -- LT-GEE's per-pixel noise estimate,
@@ -31,10 +31,7 @@ def run_landtrendr_array(years: "np.ndarray", raster_stack: "np.ndarray", max_se
     # Transpose from (time, row, col) to (row, col, time) for batch function
     values = np.transpose(raster_stack, (1, 2, 0))
 
-    if n_jobs > 0:
-        _os.environ['OMP_NUM_THREADS'] = str(n_jobs)
-
-    # Run the C++ batch
+    # Run the batch
     vertices_array, counts_array, rmse_array = run_landtrendr_batch(
         years, values, max_segments, pval_threshold, no_data_value=no_data_value,
         recovery_threshold=recovery_threshold, prevent_fast_recovery=prevent_fast_recovery,
@@ -65,7 +62,7 @@ def run_landtrendr_array(years: "np.ndarray", raster_stack: "np.ndarray", max_se
 # ---------------------------------------------------------
 def run_ccdc_array(dates: "np.ndarray", raster_stack: "np.ndarray", qa_stack: "np.ndarray", max_segments: int = 6, n_jobs: int = -1, return_coefs: bool = True, conseq_anom: int = 6, **ccdc_kwargs) -> "np.ndarray":
     """
-    Apply CCDC across a 4D numpy array (bands, time, rows, cols) using C++ OpenMP batch processing.
+    Apply CCDC across a 4D numpy array (bands, time, rows, cols) with the compiled core's batch, every pixel in parallel.
 
     dates are Python ordinal days, raster_stack surface reflectance x 10000 and
     qa_stack (time, rows, cols) Fmask codes -- see zeit._ccdc.run_ccdc. Extra

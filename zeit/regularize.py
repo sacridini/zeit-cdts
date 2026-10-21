@@ -14,7 +14,7 @@ def regularize_time_series(cube: Any, freq: str = '16D', method: str = 'median')
     - method: ``'median'`` (per band, each band its own median) or ``'medoid'`` (the
       observation closest to the median across bands, so the bands of a composite come
       from one date; with a single band, the observation closest to the median). Only
-      observations with every band are candidates for the medoid. The medoid runs in C++,
+      observations with every band are candidates for the medoid. The medoid runs in the compiled core,
       every pixel in parallel.
 
     Missing values (NaN, and the cube's NoData) are left out. Periods without observations,
@@ -58,10 +58,10 @@ def regularize_time_series(cube: Any, freq: str = '16D', method: str = 'median')
 
 
 def _medoid(cube: xr.DataArray, freq: str) -> xr.DataArray:
-    """The medoid of each period by ``_core.utils.compute_medoid`` (C++, OpenMP over rows):
+    """The medoid of each period by ``_core.utils.compute_medoid`` (in parallel over rows):
     per pixel, the median of each band over the period's valid values, then the observation
     with every band whose distance to it is smallest (the first one on a tie); NaN without one."""
-    from ._backend import core as _core
+    from . import _core
 
     single = "band" not in cube.dims
     work = cube.expand_dims(band=["value"], axis=1) if single else cube

@@ -440,7 +440,7 @@ class _Lattice:
     the lattice of all."""
 
     def __init__(self, points: _Points, rows, cols, offset: float, tolerance: float, src_shape, n_threads: int):
-        from ._backend import core as _core
+        from . import _core
 
         checks = _core.warp.lattice_checks
         h, w = src_shape
@@ -593,7 +593,7 @@ class _Warp:
                 dense[2] if dense is not None else 0, address, args)
 
     def _call(self, src, origin, r0, c0, rh, cw, coords, handles, n_threads: int):
-        from ._backend import core as _core
+        from . import _core
 
         h, w = self.src_shape
         has_nodata = self.src_nodata is not None
@@ -610,7 +610,7 @@ class _Warp:
 
     def sample_coords(self, r0, c0, nr, nc, n_threads: int = 1) -> np.ndarray:
         """The source coordinates the kernel takes for samples rows r0.., columns c0..: (nr, nc, 2)."""
-        from ._backend import core as _core
+        from . import _core
 
         lat = self.lattice(r0, c0, nr - self.extra, nc - self.extra, n_threads) if self.kind == _LATTICE else None
         dense = (self.points.grid(np.arange(c0, c0 + nc), np.arange(r0, r0 + nr), self.offset, n_threads), r0, c0) \

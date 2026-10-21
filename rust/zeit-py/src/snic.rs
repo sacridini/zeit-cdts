@@ -1,4 +1,4 @@
-//! zeit._rust.snic: the bindings of zeit._core.snic.
+//! zeit._core.snic: the Python module.
 
 use numpy::{AllowTypeChange, PyArray1, PyArrayDyn, PyArrayLikeDyn, PyArrayMethods, PyUntypedArrayMethods};
 use pyo3::exceptions::PyValueError;

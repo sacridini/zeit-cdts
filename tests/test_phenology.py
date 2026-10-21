@@ -156,7 +156,7 @@ def test_xarray_accessor_phenology_no_annual(mock_fit):
 # 3. Per-season R2/RMSE goodness-of-fit metrics (mirrors phenofit's
 #    get_GOF()), now metrics 19 and 20 of fit_phenology_batch's output.
 
-from zeit._backend import core as _core
+from zeit import _core
 
 real_fit_phenology_batch = _core.phenology.fit_phenology_batch
 debug_split_seasons, CurveType = _core.phenology.debug_split_seasons, _core.phenology.CurveType

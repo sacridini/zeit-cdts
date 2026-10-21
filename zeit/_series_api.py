@@ -466,7 +466,7 @@ def phenology(data: Any, *, curve: Union[str, int] = "beck", method: Union[str, 
     from ._embeddings import refuse
 
     refuse(data, "zeit.phenology")
-    from ._backend import core
+    from . import _core as core
     from ._phenology import run_phenology_dask
 
     CurveType, ExtractionMethod = core.phenology.CurveType, core.phenology.ExtractionMethod
@@ -476,7 +476,7 @@ def phenology(data: Any, *, curve: Union[str, int] = "beck", method: Union[str, 
     base_year = int(times.year.min())
     n_years = int(times.year.max()) - base_year + 1
     seasons = int(max_seasons) if max_seasons is not None else n_years
-    # Days since January 1st of the first year, 1-based: the C++ core's day numbering.
+    # Days since January 1st of the first year, 1-based: the compiled core's day numbering.
     day_numbers = ((times - pd.Timestamp(base_year, 1, 1)).days + 1).to_numpy(dtype=np.float64)
 
     arr, lazy = _as_dask(cube)
