@@ -72,6 +72,6 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
-          python benchmarks/bench_core.py --backend cpp rust --rounds 3 --min-time 0.5 --out bench.json             --only mann_kendall twdtw snic whittaker medoid sma coded tmask
+          python benchmarks/bench_core.py --backend cpp rust --rounds 3 --min-time 0.5 --out bench.json
           { echo '### C++ (A) and Rust (B) on ${{ matrix.os }}'; echo '```'
             python benchmarks/bench_core.py --compare bench.json:cpp bench.json:rust; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
