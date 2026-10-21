@@ -406,6 +406,24 @@ impl ColPivQr {
         self.nonzero_pivots
     }
 
+    /// `matrixQR()`: R above the diagonal, the Householder vectors below.
+    pub fn matrix_qr(&self) -> &Mat {
+        &self.qr
+    }
+
+    /// `colsPermutation().indices()`.
+    pub fn perm(&self) -> &[usize] {
+        &self.perm
+    }
+
+    /// `c.applyOnTheLeft(householderQ().adjoint())`: Q^T c, every reflector.
+    pub fn apply_qt(&self, c: &mut [f64]) {
+        assert_eq!(c.len(), self.qr.rows);
+        for k in 0..self.h_coeffs.len() {
+            apply_householder_left_vec(&self.qr, k, self.h_coeffs[k], &mut c[k..]);
+        }
+    }
+
     /// The least-squares solution of A x = b (`solve`).
     pub fn solve(&self, b: &[f64]) -> Vec<f64> {
         let (rows, cols) = (self.qr.rows, self.qr.cols);
@@ -626,7 +644,7 @@ const PANEL: usize = 8;
 
 /// The upper-triangular solve of the top-left `n` x `n` block of `m` in place
 /// on `rhs` (`triangularView<Upper>().solveInPlace`), by panels of 8 rows.
-fn solve_upper(m: &Mat, n: usize, rhs: &mut [f64]) {
+pub(super) fn solve_upper(m: &Mat, n: usize, rhs: &mut [f64]) {
     match m.order {
         Order::Col => {
             let mut pi = n;

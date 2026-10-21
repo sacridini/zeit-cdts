@@ -19,6 +19,7 @@ mod ccdc;
 mod coded;
 mod landtrendr;
 mod mannkendall;
+mod phenology;
 mod sma;
 mod smooth;
 mod snic;
@@ -56,5 +57,6 @@ fn _rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
     add_submodule(m, &landtrendr::module(m.py())?)?;
     add_submodule(m, &ccdc::module(m.py())?)?;
     add_submodule(m, &warp::module(m.py())?)?;
+    add_submodule(m, &phenology::module(m.py())?)?;
     Ok(())
 }

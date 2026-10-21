@@ -18,6 +18,7 @@ pub mod landtrendr;
 pub mod mann_kendall;
 pub mod medoid;
 pub mod parallel;
+pub mod phenology;
 pub mod robustfit;
 pub mod sma;
 pub mod snic;
