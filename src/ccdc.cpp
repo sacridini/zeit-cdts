@@ -875,52 +875,55 @@ pybind11::tuple fit_ccdc_batch(
     std::fill(seg_ptr, seg_ptr + (static_cast<size_t>(num_pixels) * max_segments * params_per_segment), 0.0);
     std::fill(counts_ptr, counts_ptr + num_pixels, 0);
 
-    #ifdef _OPENMP
-    int num_threads = n_jobs > 0 ? n_jobs : std::max(1, omp_get_num_procs() - 1);
-    #pragma omp parallel for schedule(dynamic) num_threads(num_threads)
-    #endif
-    for (int p = 0; p < num_pixels; ++p) {
-        std::vector<std::vector<double>> pixel_bands(num_bands, std::vector<double>(times));
-        std::vector<int> pixel_qa(times);
-        bool any_data = false;
-        for (int t = 0; t < times; ++t) {
-            pixel_qa[t] = qa_ptr[static_cast<size_t>(p) * times + t];
-            bool nan_here = false;
-            for (int b = 0; b < num_bands; ++b) {
-                double v = val_ptr[static_cast<size_t>(p) * num_bands * times + static_cast<size_t>(b) * times + t];
-                pixel_bands[b][t] = v;
-                if (std::isnan(v)) nan_here = true;
-                else if (v != 0.0) any_data = true;
-            }
-            if (nan_here) {  // no observation on this date
-                pixel_qa[t] = 255;
-                for (int b = 0; b < num_bands; ++b) pixel_bands[b][t] = 0.0;
-            }
-        }
-        if (!any_data) continue;
-
-        std::vector<CCDCSegment> segs;
-        try {
-            segs = fit_one(dates, pixel_bands, pixel_qa, c);
-        } catch (...) {
-        }
-
-        int n_segs = std::min(static_cast<int>(segs.size()), max_segments);
-        counts_ptr[p] = n_segs;
-        for (int i = 0; i < n_segs; ++i) {
-            const auto& seg = segs[i];
-            size_t base = static_cast<size_t>(p) * max_segments * params_per_segment + static_cast<size_t>(i) * params_per_segment;
-            if (return_coefs) {
-                seg_ptr[base + 0] = seg.t_start;
-                seg_ptr[base + 1] = seg.t_end;
-                seg_ptr[base + 2] = seg.t_break;
-                size_t idx = 3;
+    {
+        pybind11::gil_scoped_release release;
+        #ifdef _OPENMP
+        int num_threads = n_jobs > 0 ? n_jobs : std::max(1, omp_get_num_procs() - 1);
+        #pragma omp parallel for schedule(dynamic) num_threads(num_threads)
+        #endif
+        for (int p = 0; p < num_pixels; ++p) {
+            std::vector<std::vector<double>> pixel_bands(num_bands, std::vector<double>(times));
+            std::vector<int> pixel_qa(times);
+            bool any_data = false;
+            for (int t = 0; t < times; ++t) {
+                pixel_qa[t] = qa_ptr[static_cast<size_t>(p) * times + t];
+                bool nan_here = false;
                 for (int b = 0; b < num_bands; ++b) {
-                    seg_ptr[base + idx++] = seg.rmse[b];
-                    for (int k = 0; k < 8; ++k) seg_ptr[base + idx++] = seg.coefs[b][k];
+                    double v = val_ptr[static_cast<size_t>(p) * num_bands * times + static_cast<size_t>(b) * times + t];
+                    pixel_bands[b][t] = v;
+                    if (std::isnan(v)) nan_here = true;
+                    else if (v != 0.0) any_data = true;
                 }
-            } else {
-                seg_ptr[base + 0] = seg.t_break;
+                if (nan_here) {  // no observation on this date
+                    pixel_qa[t] = 255;
+                    for (int b = 0; b < num_bands; ++b) pixel_bands[b][t] = 0.0;
+                }
+            }
+            if (!any_data) continue;
+
+            std::vector<CCDCSegment> segs;
+            try {
+                segs = fit_one(dates, pixel_bands, pixel_qa, c);
+            } catch (...) {
+            }
+
+            int n_segs = std::min(static_cast<int>(segs.size()), max_segments);
+            counts_ptr[p] = n_segs;
+            for (int i = 0; i < n_segs; ++i) {
+                const auto& seg = segs[i];
+                size_t base = static_cast<size_t>(p) * max_segments * params_per_segment + static_cast<size_t>(i) * params_per_segment;
+                if (return_coefs) {
+                    seg_ptr[base + 0] = seg.t_start;
+                    seg_ptr[base + 1] = seg.t_end;
+                    seg_ptr[base + 2] = seg.t_break;
+                    size_t idx = 3;
+                    for (int b = 0; b < num_bands; ++b) {
+                        seg_ptr[base + idx++] = seg.rmse[b];
+                        for (int k = 0; k < 8; ++k) seg_ptr[base + idx++] = seg.coefs[b][k];
+                    }
+                } else {
+                    seg_ptr[base + 0] = seg.t_break;
+                }
             }
         }
     }

@@ -308,22 +308,25 @@ pybind11::array_t<double> fit_bfast_lite_batch(
 
     if (n_jobs <= 0) n_jobs = std::max(1, omp_get_max_threads() - 1);
 
-    #pragma omp parallel num_threads(n_jobs)
     {
-        #pragma omp for
-        for (int p = 0; p < n_pixels; ++p) {
-            const double* y = ptr + (size_t)p * n_time;
-            BFLResult r = bfast_lite_impl(y, n_time, X, h, max_breaks_output, min_valid);
+        pybind11::gil_scoped_release release;
+        #pragma omp parallel num_threads(n_jobs)
+        {
+            #pragma omp for
+            for (int p = 0; p < n_pixels; ++p) {
+                const double* y = ptr + (size_t)p * n_time;
+                BFLResult r = bfast_lite_impl(y, n_time, X, h, max_breaks_output, min_valid);
 
-            out_ptr[0 * n_pixels + p] = r.n_breaks;
-            out_ptr[1 * n_pixels + p] = r.rss;
-            out_ptr[2 * n_pixels + p] = r.lwz;
-            out_ptr[3 * n_pixels + p] = r.n_valid;
-            out_ptr[4 * n_pixels + p] = r.valid;
-            for (int b = 0; b < (int)r.breakpoint_idx.size() && b < max_breaks_output; ++b) {
-                out_ptr[(size_t)(5 + b) * n_pixels + p] = r.breakpoint_idx[b];
-                out_ptr[(size_t)(5 + max_breaks_output + b) * n_pixels + p] = r.magnitude[b];
-                out_ptr[(size_t)(5 + 2 * max_breaks_output + b) * n_pixels + p] = r.first_after_idx[b];
+                out_ptr[0 * n_pixels + p] = r.n_breaks;
+                out_ptr[1 * n_pixels + p] = r.rss;
+                out_ptr[2 * n_pixels + p] = r.lwz;
+                out_ptr[3 * n_pixels + p] = r.n_valid;
+                out_ptr[4 * n_pixels + p] = r.valid;
+                for (int b = 0; b < (int)r.breakpoint_idx.size() && b < max_breaks_output; ++b) {
+                    out_ptr[(size_t)(5 + b) * n_pixels + p] = r.breakpoint_idx[b];
+                    out_ptr[(size_t)(5 + max_breaks_output + b) * n_pixels + p] = r.magnitude[b];
+                    out_ptr[(size_t)(5 + 2 * max_breaks_output + b) * n_pixels + p] = r.first_after_idx[b];
+                }
             }
         }
     }

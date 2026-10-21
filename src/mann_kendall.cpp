@@ -473,37 +473,40 @@ pybind11::array_t<double> fit_mann_kendall_batch(
     if (n_jobs <= 0) n_jobs = std::max(1, omp_get_max_threads() - 1);
     MKMethod method = static_cast<MKMethod>(method_int);
 
-    #pragma omp parallel num_threads(n_jobs)
     {
-        // One scratch buffer set per OpenMP thread (not per pixel) - see
-        // MKScratch's comment above for why this matters.
-        MKScratch scratch;
-        scratch.reserve_for(n_time, period);
+        pybind11::gil_scoped_release release;
+        #pragma omp parallel num_threads(n_jobs)
+        {
+            // One scratch buffer set per OpenMP thread (not per pixel) - see
+            // MKScratch's comment above for why this matters.
+            MKScratch scratch;
+            scratch.reserve_for(n_time, period);
 
-        #pragma omp for
-        for (int p = 0; p < n_pixels; ++p) {
-            scratch.y.resize(n_time);
-            int valid_count = 0;
-            for (int t = 0; t < n_time; ++t) {
-                double v = ptr[(size_t)p * n_time + t];
-                scratch.y[t] = v;
-                if (!std::isnan(v)) ++valid_count;
+            #pragma omp for
+            for (int p = 0; p < n_pixels; ++p) {
+                scratch.y.resize(n_time);
+                int valid_count = 0;
+                for (int t = 0; t < n_time; ++t) {
+                    double v = ptr[(size_t)p * n_time + t];
+                    scratch.y[t] = v;
+                    if (!std::isnan(v)) ++valid_count;
+                }
+                if (valid_count < min_valid) continue;
+
+                MKResult r = (method == MKMethod::SEASONAL)
+                    ? seasonal_mk_test(scratch.y, period, alpha, scratch)
+                    : mk_test_impl(scratch.y, method, alpha, lag, scratch);
+
+                out_ptr[0 * n_pixels + p] = (double)r.trend;
+                out_ptr[1 * n_pixels + p] = r.h ? 1.0 : 0.0;
+                out_ptr[2 * n_pixels + p] = r.p;
+                out_ptr[3 * n_pixels + p] = r.z;
+                out_ptr[4 * n_pixels + p] = r.tau;
+                out_ptr[5 * n_pixels + p] = r.s;
+                out_ptr[6 * n_pixels + p] = r.var_s;
+                out_ptr[7 * n_pixels + p] = r.slope;
+                out_ptr[8 * n_pixels + p] = r.intercept;
             }
-            if (valid_count < min_valid) continue;
-
-            MKResult r = (method == MKMethod::SEASONAL)
-                ? seasonal_mk_test(scratch.y, period, alpha, scratch)
-                : mk_test_impl(scratch.y, method, alpha, lag, scratch);
-
-            out_ptr[0 * n_pixels + p] = (double)r.trend;
-            out_ptr[1 * n_pixels + p] = r.h ? 1.0 : 0.0;
-            out_ptr[2 * n_pixels + p] = r.p;
-            out_ptr[3 * n_pixels + p] = r.z;
-            out_ptr[4 * n_pixels + p] = r.tau;
-            out_ptr[5 * n_pixels + p] = r.s;
-            out_ptr[6 * n_pixels + p] = r.var_s;
-            out_ptr[7 * n_pixels + p] = r.slope;
-            out_ptr[8 * n_pixels + p] = r.intercept;
         }
     }
 

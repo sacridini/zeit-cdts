@@ -232,145 +232,149 @@ pybind11::array_t<double> fit_phenology_batch(
     // season duration in real elapsed time instead of observation count.
     std::vector<double> dates_vec(dates_ptr, dates_ptr + n_time);
 
-    #pragma omp parallel for num_threads(n_jobs)
-    for (int p = 0; p < n_pixels; ++p) {
-        std::vector<double> y_raw(n_time);
-        std::optional<std::vector<double>> w_raw;
-        if (has_weights) {
-            std::vector<double> w_pixel(n_time);
+    {
+        pybind11::gil_scoped_release release;
+        #pragma omp parallel for num_threads(n_jobs)
+        for (int p = 0; p < n_pixels; ++p) {
+            std::vector<double> y_raw(n_time);
+            std::optional<std::vector<double>> w_raw;
+            if (has_weights) {
+                std::vector<double> w_pixel(n_time);
+                for (int t = 0; t < n_time; ++t) {
+                    double w = weights_ptr[p * n_time + t];
+                    w_pixel[t] = std::isnan(w) ? 1.0 : std::clamp(w, 0.0, 1.0);
+                }
+                w_raw = std::move(w_pixel);
+            }
+
+            bool valid_pixel = false;
+            double pixel_min = 99999.0;
+            double pixel_max = -99999.0;
+
             for (int t = 0; t < n_time; ++t) {
-                double w = weights_ptr[p * n_time + t];
-                w_pixel[t] = std::isnan(w) ? 1.0 : std::clamp(w, 0.0, 1.0);
+                double v = vals_ptr[p * n_time + t];
+                y_raw[t] = v;
+                if (!std::isnan(v) && v != -9999.0) {
+                    valid_pixel = true;
+                    if (v < pixel_min) pixel_min = v;
+                    if (v > pixel_max) pixel_max = v;
+                }
             }
-            w_raw = std::move(w_pixel);
-        }
 
-        bool valid_pixel = false;
-        double pixel_min = 99999.0;
-        double pixel_max = -99999.0;
+            if (!valid_pixel) continue;
 
-        for (int t = 0; t < n_time; ++t) {
-            double v = vals_ptr[p * n_time + t];
-            y_raw[t] = v;
-            if (!std::isnan(v) && v != -9999.0) {
-                valid_pixel = true;
-                if (v < pixel_min) pixel_min = v;
-                if (v > pixel_max) pixel_max = v;
+            // 1. Skip Logic: Early exit for low amplitude (water, urban, bare soil)
+            if (pixel_max - pixel_min < min_pixel_amplitude) continue;
+
+            std::vector<double> y_smooth = y_raw;
+            if (apply_whittaker) {
+                try {
+                    // QC weights (when provided) feed straight into the Whittaker
+                    // fit, same role as phenofit's `w` argument to check_input/
+                    // smooth_wWHIT: low-quality observations pull the smoothed
+                    // curve less instead of being treated as equally trustworthy.
+                    y_smooth = eigen_whittaker(y_raw, w_raw, whittaker_lambda);
+                } catch (...) {
+                    continue;
+                }
+            } else if (apply_hants) {
+                try {
+                    std::vector<double> t_vec(t_all.data(), t_all.data() + t_all.size());
+                    y_smooth = eigen_hants(y_raw, t_vec, hants_frequencies, hants_threshold, w_raw);
+                } catch (...) {
+                    continue;
+                }
             }
-        }
 
-        if (!valid_pixel) continue;
-
-        // 1. Skip Logic: Early exit for low amplitude (water, urban, bare soil)
-        if (pixel_max - pixel_min < min_pixel_amplitude) continue;
-
-        std::vector<double> y_smooth = y_raw;
-        if (apply_whittaker) {
-            try {
-                // QC weights (when provided) feed straight into the Whittaker
-                // fit, same role as phenofit's `w` argument to check_input/
-                // smooth_wWHIT: low-quality observations pull the smoothed
-                // curve less instead of being treated as equally trustworthy.
-                y_smooth = eigen_whittaker(y_raw, w_raw, whittaker_lambda);
-            } catch (...) {
-                continue;
-            }
-        } else if (apply_hants) {
-            try {
-                std::vector<double> t_vec(t_all.data(), t_all.data() + t_all.size());
-                y_smooth = eigen_hants(y_raw, t_vec, hants_frequencies, hants_threshold, w_raw);
-            } catch (...) {
-                continue;
-            }
-        }
-
-        auto seasons = split_growing_seasons(y_smooth, dates_vec, min_season_length, min_amplitude, rtrough_max, r_min_filter, season_retry);
+            auto seasons = split_growing_seasons(y_smooth, dates_vec, min_season_length, min_amplitude, rtrough_max, r_min_filter, season_retry);
         
-        int s_idx = 0;
-        for (const auto& season : seasons) {
-            if (s_idx >= max_seasons) break;
+            int s_idx = 0;
+            for (const auto& season : seasons) {
+                if (s_idx >= max_seasons) break;
             
-            int start = season.start_idx;
-            int end = season.end_idx;
-            int len = end - start + 1;
+                int start = season.start_idx;
+                int end = season.end_idx;
+                int len = end - start + 1;
             
-            if (len < 4) continue;
+                if (len < 4) continue;
             
-            Eigen::VectorXd t_seg(len);
-            Eigen::VectorXd y_seg(len);
-            for (int i = 0; i < len; ++i) {
-                t_seg(i) = t_all(start + i);
-                y_seg(i) = y_raw[start + i];
-            }
-            
-            Eigen::VectorXd params;
-            switch(curve_type) {
-                case CurveType::BECK: params = Eigen::VectorXd::Ones(6); break;
-                case CurveType::ELMORE: params = Eigen::VectorXd::Ones(7); break;
-                case CurveType::GU: params = Eigen::VectorXd::Ones(9); break;
-                case CurveType::KLOS: params = Eigen::VectorXd::Ones(13); break;
-                case CurveType::ZHANG: params = Eigen::VectorXd::Ones(7); break;
-                case CurveType::AG: params = Eigen::VectorXd::Ones(7); break;
-                case CurveType::DL: params = Eigen::VectorXd::Ones(6); break;
-            }
-            
-            // Iterative fitting with wTSM weights, seeded from the external
-            // QC weights (if any) instead of assuming every observation in
-            // the season is equally reliable.
-            Eigen::VectorXd w_seg = Eigen::VectorXd::Ones(len);
-            if (w_raw.has_value()) {
+                Eigen::VectorXd t_seg(len);
+                Eigen::VectorXd y_seg(len);
                 for (int i = 0; i < len; ++i) {
-                    w_seg(i) = (*w_raw)[start + i];
+                    t_seg(i) = t_all(start + i);
+                    y_seg(i) = y_raw[start + i];
                 }
-            }
-            bool converged = false;
             
-            // Phenofit default: 2 iterations
-            int iters = 2;
-            for (int iter = 1; iter <= iters; ++iter) {
-                converged = fit_curve(t_seg, y_seg, w_seg, params, curve_type);
-                if (converged && iter < iters) {
-                    Eigen::VectorXd yfit = evaluate_curve(curve_type, params, t_seg);
-                    // nptperyear for MODIS 16-day is 23. wfact default is 0.5
-                    w_seg = eigen_wTSM(y_seg, yfit, w_seg, iter, 23, 0.5);
+                Eigen::VectorXd params;
+                switch(curve_type) {
+                    case CurveType::BECK: params = Eigen::VectorXd::Ones(6); break;
+                    case CurveType::ELMORE: params = Eigen::VectorXd::Ones(7); break;
+                    case CurveType::GU: params = Eigen::VectorXd::Ones(9); break;
+                    case CurveType::KLOS: params = Eigen::VectorXd::Ones(13); break;
+                    case CurveType::ZHANG: params = Eigen::VectorXd::Ones(7); break;
+                    case CurveType::AG: params = Eigen::VectorXd::Ones(7); break;
+                    case CurveType::DL: params = Eigen::VectorXd::Ones(6); break;
                 }
-            }
             
-            if (converged) {
-                PhenologyMetrics metrics = extract_metrics(params, curve_type, t_seg);
-                int base_idx = p * max_seasons + s_idx;
-                int stride = n_pixels * max_seasons;
+                // Iterative fitting with wTSM weights, seeded from the external
+                // QC weights (if any) instead of assuming every observation in
+                // the season is equally reliable.
+                Eigen::VectorXd w_seg = Eigen::VectorXd::Ones(len);
+                if (w_raw.has_value()) {
+                    for (int i = 0; i < len; ++i) {
+                        w_seg(i) = (*w_raw)[start + i];
+                    }
+                }
+                bool converged = false;
+            
+                // Phenofit default: 2 iterations
+                int iters = 2;
+                for (int iter = 1; iter <= iters; ++iter) {
+                    converged = fit_curve(t_seg, y_seg, w_seg, params, curve_type);
+                    if (converged && iter < iters) {
+                        Eigen::VectorXd yfit = evaluate_curve(curve_type, params, t_seg);
+                        // nptperyear for MODIS 16-day is 23. wfact default is 0.5
+                        w_seg = eigen_wTSM(y_seg, yfit, w_seg, iter, 23, 0.5);
+                    }
+                }
+            
+                if (converged) {
+                    PhenologyMetrics metrics = extract_metrics(params, curve_type, t_seg);
+                    int base_idx = p * max_seasons + s_idx;
+                    int stride = n_pixels * max_seasons;
                 
-                out_ptr[0 * stride + base_idx] = metrics.trs2_sos;
-                out_ptr[1 * stride + base_idx] = metrics.trs2_eos;
-                out_ptr[2 * stride + base_idx] = metrics.trs5_sos;
-                out_ptr[3 * stride + base_idx] = metrics.trs5_eos;
-                out_ptr[4 * stride + base_idx] = metrics.trs6_sos;
-                out_ptr[5 * stride + base_idx] = metrics.trs6_eos;
-                out_ptr[6 * stride + base_idx] = metrics.der_sos;
-                out_ptr[7 * stride + base_idx] = metrics.der_pos;
-                out_ptr[8 * stride + base_idx] = metrics.der_eos;
-                out_ptr[9 * stride + base_idx] = metrics.gu_ud;
-                out_ptr[10 * stride + base_idx] = metrics.gu_sd;
-                out_ptr[11 * stride + base_idx] = metrics.gu_dd;
-                out_ptr[12 * stride + base_idx] = metrics.gu_rd;
-                out_ptr[13 * stride + base_idx] = metrics.zhang_greenup;
-                out_ptr[14 * stride + base_idx] = metrics.zhang_maturity;
-                out_ptr[15 * stride + base_idx] = metrics.zhang_senescence;
-                out_ptr[16 * stride + base_idx] = metrics.zhang_dormancy;
-                out_ptr[17 * stride + base_idx] = metrics.los;
-                out_ptr[18 * stride + base_idx] = metrics.pop;
+                    out_ptr[0 * stride + base_idx] = metrics.trs2_sos;
+                    out_ptr[1 * stride + base_idx] = metrics.trs2_eos;
+                    out_ptr[2 * stride + base_idx] = metrics.trs5_sos;
+                    out_ptr[3 * stride + base_idx] = metrics.trs5_eos;
+                    out_ptr[4 * stride + base_idx] = metrics.trs6_sos;
+                    out_ptr[5 * stride + base_idx] = metrics.trs6_eos;
+                    out_ptr[6 * stride + base_idx] = metrics.der_sos;
+                    out_ptr[7 * stride + base_idx] = metrics.der_pos;
+                    out_ptr[8 * stride + base_idx] = metrics.der_eos;
+                    out_ptr[9 * stride + base_idx] = metrics.gu_ud;
+                    out_ptr[10 * stride + base_idx] = metrics.gu_sd;
+                    out_ptr[11 * stride + base_idx] = metrics.gu_dd;
+                    out_ptr[12 * stride + base_idx] = metrics.gu_rd;
+                    out_ptr[13 * stride + base_idx] = metrics.zhang_greenup;
+                    out_ptr[14 * stride + base_idx] = metrics.zhang_maturity;
+                    out_ptr[15 * stride + base_idx] = metrics.zhang_senescence;
+                    out_ptr[16 * stride + base_idx] = metrics.zhang_dormancy;
+                    out_ptr[17 * stride + base_idx] = metrics.los;
+                    out_ptr[18 * stride + base_idx] = metrics.pop;
 
-                Eigen::VectorXd yfit_seg = evaluate_curve(curve_type, params, t_seg);
-                GoodnessOfFit gof = compute_gof(y_seg, yfit_seg, w_seg);
-                out_ptr[19 * stride + base_idx] = gof.r2;
-                out_ptr[20 * stride + base_idx] = gof.rmse;
+                    Eigen::VectorXd yfit_seg = evaluate_curve(curve_type, params, t_seg);
+                    GoodnessOfFit gof = compute_gof(y_seg, yfit_seg, w_seg);
+                    out_ptr[19 * stride + base_idx] = gof.r2;
+                    out_ptr[20 * stride + base_idx] = gof.rmse;
 
-                s_idx++;
+                    s_idx++;
+                }
             }
         }
-    }
     
+    }
+
     return out_arr;
 }
 

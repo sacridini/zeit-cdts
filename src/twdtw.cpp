@@ -33,14 +33,17 @@ public:
     }
 };
 
-TWDTWResult fit_twdtw(const std::vector<double>& ts_values,
+// fit_twdtw with the time-weight table already built (a batch builds it once,
+// not once per series: 2001 exp() each time).
+static TWDTWResult fit_twdtw_lut(const std::vector<double>& ts_values,
                  const std::vector<int>& ts_dates,
                  const std::vector<double>& pattern_values,
                  const std::vector<int>& pattern_dates,
                  int num_bands,
                  const TWDTWParams& params,
                  double abort_threshold,
-                 bool return_path) {
+                 bool return_path,
+                 const TWDTW_LUT& lut) {
     
     int n = ts_dates.size();
     int m = pattern_dates.size();
@@ -48,8 +51,6 @@ TWDTWResult fit_twdtw(const std::vector<double>& ts_values,
     result.distance = std::numeric_limits<double>::infinity();
 
     if (n == 0 || m == 0) return result;
-
-    TWDTW_LUT lut(params);
 
     if (return_path) {
         std::vector<std::vector<double>> d(n + 1, std::vector<double>(m + 1, std::numeric_limits<double>::infinity()));
@@ -171,6 +172,18 @@ TWDTWResult fit_twdtw(const std::vector<double>& ts_values,
     return result;
 }
 
+TWDTWResult fit_twdtw(const std::vector<double>& ts_values,
+                 const std::vector<int>& ts_dates,
+                 const std::vector<double>& pattern_values,
+                 const std::vector<int>& pattern_dates,
+                 int num_bands,
+                 const TWDTWParams& params,
+                 double abort_threshold,
+                 bool return_path) {
+    return fit_twdtw_lut(ts_values, ts_dates, pattern_values, pattern_dates, num_bands, params,
+                         abort_threshold, return_path, TWDTW_LUT(params));
+}
+
 pybind11::array_t<double> fit_twdtw_batch(
     pybind11::array_t<double> values_array,
     pybind11::array_t<int> dates_array,
@@ -232,75 +245,78 @@ pybind11::array_t<double> fit_twdtw_batch(
         }
     }
 
-    #pragma omp parallel for collapse(2) num_threads(n_jobs > 0 ? n_jobs : std::max(1, omp_get_max_threads() - 1))
-    for (int y = 0; y < Y; ++y) {
-        for (int x = 0; x < X; ++x) {
-            std::vector<double> ts_vals(T * num_bands);
-            for (int t = 0; t < T * num_bands; ++t) {
-                ts_vals[t] = values_ptr[y * X * T * num_bands + x * T * num_bands + t];
-            }
-            // Dates with a missing value (NaN in any band) leave this pixel's series,
-            // as R's twdtw drops incomplete cases.
-            std::vector<int> pixel_dates;
-            bool complete = true;
-            for (int t = 0; t < T && complete; ++t) {
-                for (int b = 0; b < num_bands; ++b) {
-                    if (std::isnan(ts_vals[t * num_bands + b])) { complete = false; break; }
+    {
+        pybind11::gil_scoped_release release;
+        #pragma omp parallel for collapse(2) num_threads(n_jobs > 0 ? n_jobs : std::max(1, omp_get_max_threads() - 1))
+        for (int y = 0; y < Y; ++y) {
+            for (int x = 0; x < X; ++x) {
+                std::vector<double> ts_vals(T * num_bands);
+                for (int t = 0; t < T * num_bands; ++t) {
+                    ts_vals[t] = values_ptr[(static_cast<size_t>(y) * X + x) * T * num_bands + t];
                 }
-            }
-            if (!complete) {
-                std::vector<double> kept;
-                for (int t = 0; t < T; ++t) {
-                    bool ok = true;
-                    for (int b = 0; b < num_bands; ++b) ok = ok && !std::isnan(ts_vals[t * num_bands + b]);
-                    if (!ok) continue;
-                    for (int b = 0; b < num_bands; ++b) kept.push_back(ts_vals[t * num_bands + b]);
-                    pixel_dates.push_back(ts_dates[t]);
-                }
-                ts_vals.swap(kept);
-                if (pixel_dates.empty()) {
-                    result_ptr[y * X + x] = std::numeric_limits<double>::quiet_NaN();
-                    continue;
-                }
-            }
-
-            if (use_lb && complete) {
-                double lb_dist = 0.0;
-                bool valid_lb = true;
-                for (int t = 0; t < T; ++t) {
-                    if (!valid_window[t]) {
-                        lb_dist = std::numeric_limits<double>::infinity();
-                        break;
+                // Dates with a missing value (NaN in any band) leave this pixel's series,
+                // as R's twdtw drops incomplete cases.
+                std::vector<int> pixel_dates;
+                bool complete = true;
+                for (int t = 0; t < T && complete; ++t) {
+                    for (int b = 0; b < num_bands; ++b) {
+                        if (std::isnan(ts_vals[t * num_bands + b])) { complete = false; break; }
                     }
-                    double spatial_dist = 0.0;
-                    if (num_bands == 1) {
-                        double v = ts_vals[t];
-                        if (v > U[t][0]) spatial_dist = v - U[t][0];
-                        else if (v < L[t][0]) spatial_dist = L[t][0] - v;
-                    } else {
-                        double sq_dist = 0.0;
-                        for (int b = 0; b < num_bands; ++b) {
-                            double v = ts_vals[t * num_bands + b];
-                            if (v > U[t][b]) sq_dist += (v - U[t][b]) * (v - U[t][b]);
-                            else if (v < L[t][b]) sq_dist += (L[t][b] - v) * (L[t][b] - v);
+                }
+                if (!complete) {
+                    std::vector<double> kept;
+                    for (int t = 0; t < T; ++t) {
+                        bool ok = true;
+                        for (int b = 0; b < num_bands; ++b) ok = ok && !std::isnan(ts_vals[t * num_bands + b]);
+                        if (!ok) continue;
+                        for (int b = 0; b < num_bands; ++b) kept.push_back(ts_vals[t * num_bands + b]);
+                        pixel_dates.push_back(ts_dates[t]);
+                    }
+                    ts_vals.swap(kept);
+                    if (pixel_dates.empty()) {
+                        result_ptr[y * X + x] = std::numeric_limits<double>::quiet_NaN();
+                        continue;
+                    }
+                }
+
+                if (use_lb && complete) {
+                    double lb_dist = 0.0;
+                    bool valid_lb = true;
+                    for (int t = 0; t < T; ++t) {
+                        if (!valid_window[t]) {
+                            lb_dist = std::numeric_limits<double>::infinity();
+                            break;
                         }
-                        spatial_dist = std::sqrt(sq_dist);
+                        double spatial_dist = 0.0;
+                        if (num_bands == 1) {
+                            double v = ts_vals[t];
+                            if (v > U[t][0]) spatial_dist = v - U[t][0];
+                            else if (v < L[t][0]) spatial_dist = L[t][0] - v;
+                        } else {
+                            double sq_dist = 0.0;
+                            for (int b = 0; b < num_bands; ++b) {
+                                double v = ts_vals[t * num_bands + b];
+                                if (v > U[t][b]) sq_dist += (v - U[t][b]) * (v - U[t][b]);
+                                else if (v < L[t][b]) sq_dist += (L[t][b] - v) * (L[t][b] - v);
+                            }
+                            spatial_dist = std::sqrt(sq_dist);
+                        }
+                        lb_dist += spatial_dist;
+                        if (lb_dist > abort_threshold) {
+                            break;
+                        }
                     }
-                    lb_dist += spatial_dist;
-                    if (lb_dist > abort_threshold) {
-                        break;
-                    }
-                }
                 
-                if (lb_dist > abort_threshold) {
-                    result_ptr[y * X + x] = std::numeric_limits<double>::infinity();
-                    continue; // LB Keogh successfully pruned this calculation!
+                    if (lb_dist > abort_threshold) {
+                        result_ptr[y * X + x] = std::numeric_limits<double>::infinity();
+                        continue; // LB Keogh successfully pruned this calculation!
+                    }
                 }
-            }
 
-            TWDTWResult res = fit_twdtw(ts_vals, complete ? ts_dates : pixel_dates, pat_vals, pat_dates, num_bands,
-                                        params, abort_threshold, false);
-            result_ptr[y * X + x] = res.distance;
+                TWDTWResult res = fit_twdtw_lut(ts_vals, complete ? ts_dates : pixel_dates, pat_vals, pat_dates, num_bands,
+                                                params, abort_threshold, false, lut);
+                result_ptr[y * X + x] = res.distance;
+            }
         }
     }
 

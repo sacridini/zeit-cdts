@@ -1141,44 +1141,46 @@ pybind11::tuple fit_trajectory_batch(
     std::fill(counts_ptr, counts_ptr + num_pixels, 0);
     std::fill(rmse_ptr, rmse_ptr + num_pixels, 0.0);
 
-    #ifdef _OPENMP
-    int num_threads = n_jobs > 0 ? n_jobs : std::max(1, omp_get_num_procs() - 1);
-    omp_set_num_threads(num_threads);
-    #pragma omp parallel
-    #endif
     {
-        // One reusable buffer per thread instead of one heap allocation per
-        // pixel (millions of pixels otherwise reallocate this every iteration).
-        std::vector<double> pixel_values(times);
-
+        pybind11::gil_scoped_release release;
         #ifdef _OPENMP
-        #pragma omp for schedule(dynamic)
+        int num_threads = n_jobs > 0 ? n_jobs : std::max(1, omp_get_num_procs() - 1);
+        #pragma omp parallel num_threads(num_threads)
         #endif
-        for (int p = 0; p < num_pixels; ++p) {
-            bool has_valid_data = false;
+        {
+            // One reusable buffer per thread instead of one heap allocation per
+            // pixel (millions of pixels otherwise reallocate this every iteration).
+            std::vector<double> pixel_values(times);
 
-            for (int t = 0; t < times; ++t) {
-                double v = val_ptr[p * times + t];
-                // no-data years are simply absent from the fit (NaN = not in
-                // the original's `goods`), never fitted as real values.
-                if (v == no_data_value || std::isnan(v)) {
-                    pixel_values[t] = std::numeric_limits<double>::quiet_NaN();
-                } else {
-                    pixel_values[t] = v;
-                    has_valid_data = true;
+            #ifdef _OPENMP
+            #pragma omp for schedule(dynamic)
+            #endif
+            for (int p = 0; p < num_pixels; ++p) {
+                bool has_valid_data = false;
+
+                for (int t = 0; t < times; ++t) {
+                    double v = val_ptr[static_cast<size_t>(p) * times + t];
+                    // no-data years are simply absent from the fit (NaN = not in
+                    // the original's `goods`), never fitted as real values.
+                    if (v == no_data_value || std::isnan(v)) {
+                        pixel_values[t] = std::numeric_limits<double>::quiet_NaN();
+                    } else {
+                        pixel_values[t] = v;
+                        has_valid_data = true;
+                    }
                 }
+
+                if (!has_valid_data) continue;
+
+                TrajectoryResult result = fit_trajectory_impl(years, pixel_values, params);
+
+                counts_ptr[p] = result.vertices.size();
+                for (size_t i = 0; i < result.vertices.size() && (int)i < max_vertices; ++i) {
+                    vert_ptr[static_cast<size_t>(p) * max_vertices * 2 + i * 2 + 0] = result.vertices[i].year;
+                    vert_ptr[static_cast<size_t>(p) * max_vertices * 2 + i * 2 + 1] = result.vertices[i].value;
+                }
+                rmse_ptr[p] = result.rmse;
             }
-
-            if (!has_valid_data) continue;
-
-            TrajectoryResult result = fit_trajectory_impl(years, pixel_values, params);
-
-            counts_ptr[p] = result.vertices.size();
-            for (size_t i = 0; i < result.vertices.size() && (int)i < max_vertices; ++i) {
-                vert_ptr[p * max_vertices * 2 + i * 2 + 0] = result.vertices[i].year;
-                vert_ptr[p * max_vertices * 2 + i * 2 + 1] = result.vertices[i].value;
-            }
-            rmse_ptr[p] = result.rmse;
         }
     }
 

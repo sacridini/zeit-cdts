@@ -563,36 +563,39 @@ pybind11::array_t<double> fit_bfast_batch(
 
     if (n_jobs <= 0) n_jobs = std::max(1, omp_get_max_threads() - 1);
 
-    #pragma omp parallel num_threads(n_jobs)
     {
-        // One pair of scratch buffers per thread, reused across every pixel
-        // it processes (see FitScratch's comment) - not per pixel, since
-        // n_time/h/max_breaks are shared batch-wide, so buffer sizes are
-        // typically stable across a thread's whole share of pixels.
-        FitScratch trend_scratch, season_scratch;
+        pybind11::gil_scoped_release release;
+        #pragma omp parallel num_threads(n_jobs)
+        {
+            // One pair of scratch buffers per thread, reused across every pixel
+            // it processes (see FitScratch's comment) - not per pixel, since
+            // n_time/h/max_breaks are shared batch-wide, so buffer sizes are
+            // typically stable across a thread's whole share of pixels.
+            FitScratch trend_scratch, season_scratch;
 
-        #pragma omp for
-        for (int p = 0; p < n_pixels; ++p) {
-            const double* y = ptr + (size_t)p * n_time;
-            BFResult r = bfast_impl(y, n_time, start_time, frequency, order, h,
-                                     max_breaks_trend, max_breaks_season, max_iter, level, min_valid,
-                                     Xtrend_full, Xharm_full, trend_scratch, season_scratch);
+            #pragma omp for
+            for (int p = 0; p < n_pixels; ++p) {
+                const double* y = ptr + (size_t)p * n_time;
+                BFResult r = bfast_impl(y, n_time, start_time, frequency, order, h,
+                                         max_breaks_trend, max_breaks_season, max_iter, level, min_valid,
+                                         Xtrend_full, Xharm_full, trend_scratch, season_scratch);
 
-            out_ptr[0 * n_pixels + p] = r.n_trend_breaks;
-            out_ptr[1 * n_pixels + p] = r.n_season_breaks;
-            out_ptr[2 * n_pixels + p] = r.magnitude;
-            out_ptr[3 * n_pixels + p] = r.time;
-            out_ptr[4 * n_pixels + p] = r.n_iter;
-            out_ptr[5 * n_pixels + p] = r.n_valid;
-            out_ptr[6 * n_pixels + p] = r.valid;
-            for (int b = 0; b < (int)r.trend_breakpoint_idx.size() && b < max_breaks_trend; ++b) {
-                out_ptr[(size_t)(7 + b) * n_pixels + p] = r.trend_breakpoint_idx[b];
-                out_ptr[(size_t)(7 + max_breaks_trend + max_breaks_season + b) * n_pixels + p] = r.trend_magnitude[b];
-                out_ptr[(size_t)(7 + 2 * max_breaks_trend + max_breaks_season + b) * n_pixels + p] =
-                    r.trend_first_after_idx[b];
-            }
-            for (int b = 0; b < (int)r.season_breakpoint_idx.size() && b < max_breaks_season; ++b) {
-                out_ptr[(size_t)(7 + max_breaks_trend + b) * n_pixels + p] = r.season_breakpoint_idx[b];
+                out_ptr[0 * n_pixels + p] = r.n_trend_breaks;
+                out_ptr[1 * n_pixels + p] = r.n_season_breaks;
+                out_ptr[2 * n_pixels + p] = r.magnitude;
+                out_ptr[3 * n_pixels + p] = r.time;
+                out_ptr[4 * n_pixels + p] = r.n_iter;
+                out_ptr[5 * n_pixels + p] = r.n_valid;
+                out_ptr[6 * n_pixels + p] = r.valid;
+                for (int b = 0; b < (int)r.trend_breakpoint_idx.size() && b < max_breaks_trend; ++b) {
+                    out_ptr[(size_t)(7 + b) * n_pixels + p] = r.trend_breakpoint_idx[b];
+                    out_ptr[(size_t)(7 + max_breaks_trend + max_breaks_season + b) * n_pixels + p] = r.trend_magnitude[b];
+                    out_ptr[(size_t)(7 + 2 * max_breaks_trend + max_breaks_season + b) * n_pixels + p] =
+                        r.trend_first_after_idx[b];
+                }
+                for (int b = 0; b < (int)r.season_breakpoint_idx.size() && b < max_breaks_season; ++b) {
+                    out_ptr[(size_t)(7 + max_breaks_trend + b) * n_pixels + p] = r.season_breakpoint_idx[b];
+                }
             }
         }
     }

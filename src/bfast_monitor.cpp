@@ -295,23 +295,26 @@ pybind11::array_t<double> fit_bfast_monitor_batch(
 
     if (n_jobs <= 0) n_jobs = std::max(1, omp_get_max_threads() - 1);
 
-    #pragma omp parallel num_threads(n_jobs)
     {
-        BFMScratch sc;
-        sc.reserve_for(n_time, n_cols);
+        pybind11::gil_scoped_release release;
+        #pragma omp parallel num_threads(n_jobs)
+        {
+            BFMScratch sc;
+            sc.reserve_for(n_time, n_cols);
 
-        #pragma omp for
-        for (int p = 0; p < n_pixels; ++p) {
-            const double* y = ptr + (size_t)p * n_time;
-            BFMResult r = bfast_monitor_impl(y, n_time, X, start_time, monitor_start_time, frequency, h, period, alpha, min_valid, sc);
+            #pragma omp for
+            for (int p = 0; p < n_pixels; ++p) {
+                const double* y = ptr + (size_t)p * n_time;
+                BFMResult r = bfast_monitor_impl(y, n_time, X, start_time, monitor_start_time, frequency, h, period, alpha, min_valid, sc);
 
-            out_ptr[0 * n_pixels + p] = r.breakpoint;
-            out_ptr[1 * n_pixels + p] = r.breakpoint_idx;
-            out_ptr[2 * n_pixels + p] = r.magnitude;
-            out_ptr[3 * n_pixels + p] = r.sigma;
-            out_ptr[4 * n_pixels + p] = r.n_history;
-            out_ptr[5 * n_pixels + p] = r.has_break;
-            out_ptr[6 * n_pixels + p] = r.valid;
+                out_ptr[0 * n_pixels + p] = r.breakpoint;
+                out_ptr[1 * n_pixels + p] = r.breakpoint_idx;
+                out_ptr[2 * n_pixels + p] = r.magnitude;
+                out_ptr[3 * n_pixels + p] = r.sigma;
+                out_ptr[4 * n_pixels + p] = r.n_history;
+                out_ptr[5 * n_pixels + p] = r.has_break;
+                out_ptr[6 * n_pixels + p] = r.valid;
+            }
         }
     }
 
