@@ -673,3 +673,245 @@ def test_ccdc_api():
             mod.ccdc.fit_ccdc(dates.tolist(), x, qa[0, 1:].tolist())
         with pytest.raises(ValueError, match="one value per date"):
             mod.ccdc.fit_ccdc(dates.tolist(), [x[0][1:]] + x[1:], qa[0].tolist())
+
+
+# ---------------------------------------------------------------- warp
+WARP_METHODS = (0, 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 14)
+WARP_DTYPES = (np.uint8, np.int8, np.uint16, np.int16, np.uint32, np.int32, np.uint64, np.int64, np.float32,
+               np.float64)
+# destination pixel -> source pixel (x = c + a u + b v, y = d + e u + f v) and GDAL's scales
+WARP_GEOMETRIES = {
+    "up": ((1.3, 0.37, 0.0, 2.1, 0.0, 0.41), (1 / 0.37, 1 / 0.41)),
+    "down": ((-3.0, 2.3, 0.0, -2.5, 0.0, 1.7), (1 / 2.3, 1 / 1.7)),
+    "rotated": ((4.0, 0.9, 0.25, -3.0, -0.2, 1.05), (1.0, 1.0)),
+    "same": ((0.0, 1.0, 0.0, 0.0, 0.0, 1.0), (1.0, 1.0)),
+}
+_IDENTITY = (0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
+_NO_LATTICE = (np.empty(0, np.int8), np.empty((0, 2)), np.empty(0, np.int64), np.empty((0, 2)), (1, 0, 0))
+_NO_DENSE = (np.empty((0, 0, 2)), 0, 0)
+_NO_TRANSFORMER = (0, np.empty(0, dtype=np.uintp))
+
+
+def _warp_values(dtype, shape, seed):
+    """Values of a raster type: its whole range at a few cells, repeats (for the modes), a NoData value (7) and
+    the destination NoData (3) here and there."""
+    rng = np.random.default_rng(seed)
+    if np.dtype(dtype).kind == "f":
+        v = rng.normal(100, 40, shape).astype(dtype)
+        v[rng.random(shape) < 0.3] = 42.0
+        v.flat[::97] = np.finfo(dtype).max
+        v.flat[5::89] = -np.finfo(dtype).max / 2
+    else:
+        info = np.iinfo(dtype)
+        lo, hi = max(info.min, -(2 ** 62)), min(info.max, 2 ** 62)
+        v = rng.integers(lo, hi, shape, dtype=dtype, endpoint=True)
+        small = rng.integers(max(info.min, -3), min(info.max, 12), shape, dtype=dtype, endpoint=True)
+        v = np.where(rng.random(shape) < 0.5, small, v)
+        v.flat[::97] = info.max
+        v.flat[5::89] = info.min
+    v.flat[3::13] = 7
+    v.flat[1::11] = 3
+    return np.ascontiguousarray(v)
+
+
+def _warp_pair(*args, **kw):
+    a = _core.warp.warp(*args, **kw)
+    b = _rust.warp.warp(*args, **kw)
+    assert_same_bits(a, b)
+    return a
+
+
+def _affine_args(geometry, method):
+    gt, scales = WARP_GEOMETRIES[geometry]
+    offset = 0.0 if method >= 5 else 0.5
+    return scales, (0, offset, gt, _IDENTITY) + _NO_LATTICE + _NO_DENSE + _NO_TRANSFORMER
+
+
+@pytest.mark.parametrize("geometry", sorted(WARP_GEOMETRIES))
+@pytest.mark.parametrize("method", WARP_METHODS)
+def test_warp_methods_and_types(method, geometry):
+    scales, coords = _affine_args(geometry, method)
+    for k, dtype in enumerate(WARP_DTYPES):
+        nan = np.dtype(dtype).kind == "f"
+        for bands in (1, 3):
+            src = _warp_values(dtype, (bands, 40, 36), 100 * method + k)
+            for has_nodata, src_nodata in ((False, 0.0), (True, 7.0), (True, float("nan") if nan else -1.0)):
+                for per_band in (True, False):
+                    for dst_nodata in (3.0, 0.0):
+                        for n_threads in (1, 3):
+                            _warp_pair(src, method, (40, 36), (0, 0), scales, has_nodata, src_nodata, dst_nodata,
+                                       (0, 0, 30, 28), *coords, per_band=per_band, n_threads=n_threads)
+
+
+@pytest.mark.parametrize("method", WARP_METHODS)
+def test_warp_window_and_region(method):
+    """A window of the source and a region of the destination away from both origins."""
+    gt = (12.0, 0.8, 0.05, 9.0, -0.04, 0.7)
+    offset = 0.0 if method >= 5 else 0.5
+    coords = (0, offset, gt, _IDENTITY) + _NO_LATTICE + _NO_DENSE + _NO_TRANSFORMER
+    for dtype in (np.uint8, np.int16, np.float32, np.float64):
+        whole = _warp_values(dtype, (2, 70, 64), method)
+        src = np.ascontiguousarray(whole[:, 4:66, 3:60])
+        for has_nodata in (False, True):
+            for per_band in (True, False):
+                a = _warp_pair(src, method, (70, 64), (4, 3), (1.25, 1.4), has_nodata, 7.0, 3.0, (5, 6, 33, 31),
+                               *coords, per_band=per_band, n_threads=2)
+                b = _rust.warp.warp(whole, method, (70, 64), (0, 0), (1.25, 1.4), has_nodata, 7.0, 3.0,
+                                    (5, 6, 33, 31), *coords, per_band=per_band, n_threads=2)
+                assert_same_bits(a, b)  # any window holding the cells needed gives the same values
+
+
+def _lattice(cells_y, cells_x, seed, cell_x0=1, cell_y0=2):
+    """A lattice with cells at every level, its nodes on a smooth map with points that fail (NaN) here and there."""
+    rng = np.random.default_rng(seed)
+    level = rng.integers(0, 5, cells_y * cells_x).astype(np.int8)
+
+    def at(u, v):
+        return 3.0 + 0.45 * u + 0.03 * v + 0.0004 * u * v, -2.0 + 0.02 * u + 0.5 * v - 0.0003 * u * u
+
+    cu = (cell_x0 + np.arange(cells_x + 1)) * 16 + 0.5
+    cv = (cell_y0 + np.arange(cells_y + 1)) * 16 + 0.5
+    grid0 = np.stack(at(cu[None, :], cv[:, None]), axis=-1)
+    node_off = np.zeros(level.size, np.int64)
+    blocks, used = [], 0
+    for c, lev in enumerate(level):
+        if lev == 0:
+            continue
+        cy, cx = divmod(c, cells_x)
+        steps = np.arange(0, 17, 16 >> lev) + 0.5
+        block = np.stack(at((cell_x0 + cx) * 16 + steps[None, :], (cell_y0 + cy) * 16 + steps[:, None]),
+                         axis=-1).reshape(-1, 2)
+        if c % 7 == 3:
+            block[len(block) // 2] = np.nan
+        node_off[c] = used
+        used += len(block)
+        blocks.append(block)
+    nodes = np.concatenate(blocks) if blocks else np.empty((0, 2))
+    return level, np.ascontiguousarray(grid0), node_off, np.ascontiguousarray(nodes), (cells_x, cell_x0, cell_y0)
+
+
+@pytest.mark.parametrize("method", WARP_METHODS)
+def test_warp_lattice_and_dense(method):
+    offset = 0.0 if method >= 5 else 0.5
+    lat = _lattice(4, 5, method)
+    r0, c0, h, w = 2 * 16 + 3, 16 + 5, 30, 50
+    rng = np.random.default_rng(method)
+    dense = np.stack(np.meshgrid(np.arange(c0, c0 + w + 2) * 0.8 - 12.3, np.arange(r0, r0 + h + 2) * 0.9 - 20.1),
+                     axis=-1) + rng.normal(0, 0.2, (h + 2, w + 2, 2))
+    dense[rng.random(dense.shape[:2]) < 0.05] = np.nan
+    dense[5, 7] = np.inf
+    for dtype in (np.uint8, np.uint16, np.int32, np.float32, np.float64):
+        src = _warp_values(dtype, (2, 45, 50), 7 * method)
+        lattice = (1, offset, _IDENTITY, _IDENTITY) + lat + _NO_DENSE + _NO_TRANSFORMER
+        dense_coords = (2, offset, _IDENTITY, _IDENTITY) + _NO_LATTICE + (np.ascontiguousarray(dense), r0, c0) \
+            + _NO_TRANSFORMER
+        for has_nodata in (False, True):
+            _warp_pair(src, method, (45, 50), (0, 0), (2.2, 2.0), has_nodata, 7.0, 3.0, (r0, c0, h, w), *lattice,
+                       per_band=True, n_threads=3)
+            _warp_pair(src, method, (45, 50), (0, 0), (1.2, 1.1), has_nodata, 7.0, 3.0, (r0, c0, h, w),
+                       *dense_coords, per_band=False, n_threads=2)
+
+
+def _transformer(width):
+    """A ctypes GDALTransformerFunc: destination to source wrapping around the source's columns (an antimeridian),
+    failing in a corner; source to destination failing past column width - 3 (the edge of a projection's domain)."""
+    import ctypes
+
+    p_double = ctypes.POINTER(ctypes.c_double)
+    func = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_int, ctypes.c_int, p_double, p_double, p_double,
+                            ctypes.POINTER(ctypes.c_int))
+
+    def transform(arg, dst_to_src, n, x, y, z, ok):
+        xs = np.ctypeslib.as_array(x, (n,))
+        ys = np.ctypeslib.as_array(y, (n,))
+        oks = np.ctypeslib.as_array(ok, (n,))
+        if dst_to_src:
+            u, v = xs.copy(), ys.copy()
+            xs[:] = np.mod(0.93 * u + 0.05 * v - 4.0, width)
+            ys[:] = 0.88 * v + 0.03 * u - 1.5
+            oks[:] = ~((u > 40) & (v > 30))
+        else:
+            oks[:] = xs < width - 3
+            xs[:] = (xs + 4.0) / 0.93
+            ys[:] = (ys + 1.5) / 0.88
+        return 1
+
+    cb = func(transform)
+    return cb, ctypes.cast(cb, ctypes.c_void_p).value
+
+
+@pytest.mark.parametrize("method", WARP_METHODS)
+def test_warp_exact_with_a_transformer(method):
+    offset = 0.0 if method >= 5 else 0.5
+    cb, address = _transformer(36)
+    args = np.arange(1, 5, dtype=np.uintp)  # one per thread: GDAL's own, here mere tokens
+    for kind in (3, 0):  # exact; affine with the transformer for the edge checks
+        coords = (kind, offset, (-2.0, 0.93, 0.0, -1.5, 0.0, 0.88), _IDENTITY) + _NO_LATTICE + _NO_DENSE \
+            + (address, args)
+        for dtype in (np.uint8, np.int16, np.float64):
+            src = _warp_values(dtype, (3, 40, 36), method)
+            for has_nodata, per_band in ((True, True), (True, False), (False, False)):
+                for n_threads in (1, 4):
+                    _warp_pair(src, method, (40, 36), (0, 0), (1.05, 1.1), has_nodata, 7.0, 3.0, (0, 0, 44, 41),
+                               *coords, per_band=per_band, n_threads=n_threads)
+        assert_same_bits(_core.warp.coords(*coords, (0, 0, 45, 42)), _rust.warp.coords(*coords, (0, 0, 45, 42)))
+    del cb
+
+
+def test_warp_coords():
+    cases = [
+        (0, 0.5, WARP_GEOMETRIES["rotated"][0], _IDENTITY) + _NO_LATTICE + _NO_DENSE + _NO_TRANSFORMER,
+        (1, 0.0, _IDENTITY, _IDENTITY) + _lattice(3, 4, 5) + _NO_DENSE + _NO_TRANSFORMER,
+        (2, 0.5, _IDENTITY, _IDENTITY) + _NO_LATTICE + (np.random.default_rng(3).normal(size=(60, 70, 2)), 30, 14)
+        + _NO_TRANSFORMER,
+    ]
+    for case in cases:
+        for region in ((2 * 16, 16, 3 * 16, 4 * 16), (40, 20, 7, 33), (32, 16, 0, 5)):
+            assert_same_bits(_core.warp.coords(*case, region), _rust.warp.coords(*case, region))
+
+
+def test_warp_lattice_checks():
+    rng = np.random.default_rng(8)
+    u, v = np.meshgrid(np.arange(9) * 8.0, np.arange(7) * 8.0)
+    g = np.stack([3 + 0.4 * u + 0.002 * u * v, -5 + 0.6 * v - 0.003 * u * u], axis=-1)
+    g = np.repeat(g[None], 5, axis=0) + rng.normal(0, 0.3, (5, 7, 9, 2))
+    g[1, 3, 3, 0] = np.nan
+    g[2, 0, :, 1] = np.inf
+    g[3] += 500  # outside the source
+    g[4] = np.nan
+    g[0, 2, 2] = [-0.0, 0.0]
+    for n_threads in (1, 3):
+        a = _core.warp.lattice_checks(g, 40, 30, n_threads)
+        b = _rust.warp.lattice_checks(g, 40, 30, n_threads=n_threads)
+        for x, y in zip(a, b):
+            assert_same_bits(x, y)
+
+
+def test_warp_errors():
+    scales, coords = _affine_args("same", 0)
+    names = ("kind", "offset", "gt", "inv", "level", "grid0", "node_off", "nodes", "cells", "dense", "dense_row0",
+             "dense_col0", "transformer", "transformer_args")
+    good = dict(zip(names, coords), src=np.zeros((1, 10, 10), np.uint8), method=0, src_shape=(10, 10),
+                window=(0, 0), scales=scales, has_src_nodata=False, src_nodata=0.0, dst_nodata=0.0,
+                region=(0, 0, 5, 5))
+    lat = dict(zip(names[4:9], _lattice(2, 2, 1)), kind=1)
+    bad = [dict(src=np.zeros((10, 10))), dict(src=np.zeros((1, 10, 10))[:, ::2]), dict(method=7), dict(method=15),
+           dict(region=(0, 0, -1, 5)), dict(window=(1, 0)), dict(scales=(0.0, 1.0)), dict(kind=5), dict(kind=3),
+           dict(kind=2), dict(src=np.zeros((1, 10, 10), bool)), dict(src=np.zeros((1, 10, 10), np.float16)),
+           dict(transformer=12345), dict(lat, cells=(0, 0, 0)), dict(lat, region=(0, 0, 40, 5)),
+           dict(lat, node_off=np.zeros(3, np.int64)), dict(lat, grid0=np.zeros((4, 2))),
+           dict(lat, level=np.full(4, 5, np.int8)), dict(lat, node_off=np.full(4, 10 ** 6, np.int64)),
+           dict(kind=2, dense=np.zeros((10, 10, 3))), dict(kind=2, dense=np.zeros((3, 3, 2))),
+           dict(transformer=12345, transformer_args=np.arange(1, 3, dtype=np.uintp), n_threads=3)]
+    for change in bad:
+        kw = dict(good, **change)
+        with pytest.raises((ValueError, TypeError)) as a:
+            _core.warp.warp(**kw)
+        with pytest.raises((ValueError, TypeError)) as b:
+            _rust.warp.warp(**kw)
+        assert (a.type, str(a.value)) == (b.type, str(b.value)), change
+    for mod in (_core, _rust):
+        with pytest.raises(ValueError, match="bad region"):
+            mod.warp.coords(*coords, (0, -1, 3, 3))
+        with pytest.raises(ValueError, match="g must be"):
+            mod.warp.lattice_checks(np.zeros((1, 4, 3, 2)), 10, 10)

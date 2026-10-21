@@ -171,6 +171,59 @@ def _(core, rng, n_jobs):
     return lambda: core.utils.compute_medoid(v, -9999.0)
 
 
+def _warp_args(src, method, scales, gt, kind, nodata, region, lattice=None):
+    """The arguments of warp.warp as zeit/_warp.py passes them (per_band, without GDAL's transformer)."""
+    if lattice is None:
+        lattice = (np.empty(0, np.int8), np.empty((0, 2)), np.empty(0, np.int64), np.empty((0, 2)), (1, 0, 0))
+    identity = (0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
+    offset = 0.0 if method >= 5 else 0.5
+    return ((src, method, src.shape[1:], (0, 0), scales, nodata is not None, 0.0 if nodata is None else nodata, 0.0,
+             region, kind, offset, gt, identity) + lattice + (np.empty((0, 0, 2)), 0, 0, 0, np.empty(0, np.uintp)))
+
+
+def _warp_lattice(rng, cells_y, cells_x):
+    """The lattice of a reprojection, its corner nodes on a smooth map, a tenth of its cells at level 2."""
+    def at(u, v):
+        return 5.0 + 1.05 * u + 0.08 * v + 2e-5 * u * v, 7.0 - 0.06 * u + 1.02 * v - 1e-5 * u * u
+
+    c = np.arange(cells_x + 1) * 16 + 0.5
+    r = np.arange(cells_y + 1) * 16 + 0.5
+    grid0 = np.ascontiguousarray(np.stack(at(c[None, :], r[:, None]), axis=-1))
+    level = np.where(rng.random(cells_y * cells_x) < 0.1, 2, 0).astype(np.int8)
+    node_off = np.zeros(level.size, np.int64)
+    blocks = []
+    for k in np.flatnonzero(level):
+        cy, cx = divmod(k, cells_x)
+        steps = np.arange(0, 17, 4) + 0.5
+        blocks.append(np.stack(at(cx * 16 + steps[None, :], cy * 16 + steps[:, None]), axis=-1).reshape(-1, 2))
+        node_off[k] = 25 * (len(blocks) - 1)
+    return level, grid0, node_off, np.ascontiguousarray(np.concatenate(blocks)), (cells_x, 0, 0)
+
+
+@workload("warp_bilinear", "warp")
+def _(core, rng, n_jobs):
+    src = rng.normal(1000, 300, (4, 1200, 1200)).astype(np.float32)
+    src[rng.random(src.shape) < 0.1] = np.nan
+    args = _warp_args(src, 1, (0.95, 0.98), (0.0, 1.0, 0.0, 0.0, 0.0, 1.0), 1, float("nan"), (0, 0, 1024, 1024),
+                      _warp_lattice(rng, 64, 64))
+    return lambda: core.warp.warp(*args, per_band=True, n_threads=n_jobs)
+
+
+@workload("warp_lanczos", "warp")
+def _(core, rng, n_jobs):
+    src = np.ascontiguousarray(rng.integers(0, 256, (3, 1100, 1100), dtype=np.uint8))
+    args = _warp_args(src, 4, (1.0, 1.0), (40.0, 0.96, 0.12, 20.0, -0.1, 0.97), 0, None, (0, 0, 1000, 1000))
+    return lambda: core.warp.warp(*args, per_band=True, n_threads=n_jobs)
+
+
+@workload("warp_average", "warp")
+def _(core, rng, n_jobs):
+    src = np.ascontiguousarray(rng.integers(-2000, 8000, (3, 2000, 2000), dtype=np.int16))
+    src[:, rng.random(src.shape[1:]) < 0.05] = -9999
+    args = _warp_args(src, 5, (1 / 2.7, 1 / 2.7), (3.0, 2.7, 0.02, 1.0, -0.03, 2.7), 0, -9999.0, (0, 0, 700, 700))
+    return lambda: core.warp.warp(*args, per_band=True, n_threads=n_jobs)
+
+
 def load_backend(name):
     if name == "cpp":
         return importlib.import_module("zeit._core")

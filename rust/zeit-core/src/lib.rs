@@ -25,4 +25,5 @@ pub mod som;
 pub mod stl;
 pub mod tmask;
 pub mod twdtw;
+pub mod warp;
 pub mod whittaker;

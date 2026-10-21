@@ -26,6 +26,7 @@ mod som;
 mod tmask;
 mod twdtw;
 mod utils;
+mod warp;
 
 /// Adds `sub` to `parent` as `parent.name`, importable as `zeit._rust.name` too
 /// (`from zeit._rust.mannkendall import ...`, as the wrappers do with _core).
@@ -54,5 +55,6 @@ fn _rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
     add_submodule(m, &utils::module(m.py())?)?;
     add_submodule(m, &landtrendr::module(m.py())?)?;
     add_submodule(m, &ccdc::module(m.py())?)?;
+    add_submodule(m, &warp::module(m.py())?)?;
     Ok(())
 }
