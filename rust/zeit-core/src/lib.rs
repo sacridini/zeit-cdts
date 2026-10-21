@@ -13,6 +13,7 @@ pub mod bfast_monitor;
 pub mod cmath;
 pub mod coded;
 pub mod eigen;
+pub mod landtrendr;
 pub mod mann_kendall;
 pub mod medoid;
 pub mod parallel;

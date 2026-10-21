@@ -1,6 +1,6 @@
 import numpy as np
 from typing import List, Dict, Union
-from . import _core
+from ._backend import core as _core
 
 def desawtooth(values: Union[np.ndarray, List[float]], stopat: float = 0.9) -> np.ndarray:
     """

@@ -413,3 +413,108 @@ def test_som(dim):
                 _rust.som.train_online(wb, data, order, 200, False, *schedule)
                 assert_same_bits(wa, wb)
                 assert_same_bits(_core.som.predict_bmus(data, wa, -1), _rust.som.predict_bmus(data, wb, -1))
+
+
+# ----------------------------------------------------------------- LandTrendr
+LT_YEARS = np.arange(1985, 2025, dtype=np.int32)
+
+
+def _lt_series(seed, n=600):
+    """Stable, disturbed, recovering, trending, spiky and integer-scaled series,
+    with NaN gaps, missing first and last years, short series and no-data."""
+    rng = np.random.default_rng(seed)
+    t = LT_YEARS.size
+    out = np.empty((n, t))
+    for k in range(n):
+        kind = k % 6
+        base = rng.uniform(0.3, 0.9)
+        y = np.full(t, base) + rng.normal(0, rng.uniform(0.005, 0.05), t)
+        if kind in (1, 2, 4):
+            at, depth = rng.integers(3, t - 3), rng.uniform(0.1, 0.6)
+            y[at:] -= depth
+            if kind == 2:                                  # recovery, slow or fast
+                y[at:] += np.minimum(rng.uniform(0.005, 0.08) * np.arange(t - at), depth)
+        if kind == 3:
+            y += rng.uniform(-0.01, 0.01) * np.arange(t)
+        if kind == 4:
+            for _ in range(rng.integers(1, 4)):
+                y[rng.integers(0, t)] += rng.choice([-1, 1]) * rng.uniform(0.2, 0.6)
+        if kind == 5:
+            y = np.round(y * 1000)                         # NBR x 1000
+        out[k] = y
+    out[rng.random(out.shape) < 0.08] = np.nan
+    out[::17, :3] = np.nan                                 # missing first years
+    out[::19, -2:] = np.nan                                # missing last years
+    out[::23, 6:] = np.nan                                 # below min_observations_needed
+    out[::29] = -9999.0                                    # all no-data
+    out[1::31, 10] = -9999.0
+    return out
+
+
+def _lt_params(mod, **kw):
+    p = mod.landtrendr.LandTrendrParams()
+    for k, v in kw.items():
+        setattr(p, k, v)
+    return p
+
+
+LT_SETTINGS = [
+    dict(),
+    dict(modifier=-1.0),
+    dict(max_segments=3, pval_threshold=0.1),
+    dict(max_segments=8, recovery_threshold=1.0, spike_threshold=1.0),
+    dict(best_model_proportion=1.25, vertex_count_overshoot=0, min_observations_needed=10),
+    dict(prevent_fast_recovery=False, recovery_threshold=0.1, modifier=-1.0, spike_threshold=0.75),
+]
+
+
+@pytest.mark.parametrize("setting", range(len(LT_SETTINGS)))
+def test_landtrendr_batch(setting):
+    kw = LT_SETTINGS[setting]
+    v = _lt_series(setting).reshape(20, 30, LT_YEARS.size)
+    for n_jobs in (1, -1):
+        a = _core.landtrendr.fit_trajectory_batch(v, LT_YEARS, _lt_params(_core, **kw), -9999.0, n_jobs)
+        b = _rust.landtrendr.fit_trajectory_batch(v, LT_YEARS, _lt_params(_rust, **kw), -9999.0, n_jobs)
+        for x, y in zip(a, b):
+            assert_same_bits(x, y)
+
+
+@pytest.mark.parametrize("setting", range(3))
+def test_landtrendr_single(setting):
+    kw = LT_SETTINGS[setting]
+    v = _lt_series(10 + setting, 150)
+    v[v == -9999.0] = np.nan
+    for y in v:
+        a = _core.landtrendr.fit_trajectory(LT_YEARS.tolist(), y.tolist(), _lt_params(_core, **kw))
+        b = _rust.landtrendr.fit_trajectory(LT_YEARS.tolist(), y.tolist(), _lt_params(_rust, **kw))
+        assert_same_bits(np.array([(x.year, x.value) for x in a], dtype=float).reshape(-1, 2),
+                         np.array([(x.year, x.value) for x in b], dtype=float).reshape(-1, 2))
+    pc, pr = _lt_params(_core), _lt_params(_rust)
+    for name in ("max_segments", "pval_threshold", "prevent_fast_recovery", "recovery_threshold", "spike_threshold",
+                 "best_model_proportion", "vertex_count_overshoot", "min_observations_needed", "modifier"):
+        assert getattr(pc, name) == getattr(pr, name)
+    assert (_rust.landtrendr.Vertex(2000, 0.5).year, _rust.landtrendr.Vertex(2000, 0.5).value) == (2000, 0.5)
+
+
+def test_landtrendr_desawtooth():
+    for y in _lt_series(20, 200):
+        for stopat in (0.9, 0.75, 1.0):
+            assert_same_bits(np.array(_core.landtrendr.desawtooth(y.tolist(), stopat)),
+                             np.array(_rust.landtrendr.desawtooth(y.tolist(), stopat)))
+
+
+def test_landtrendr_fit_to_vertices():
+    rng = np.random.default_rng(21)
+    v = _lt_series(21)
+    seg = _core.landtrendr.fit_trajectory_batch(v.reshape(20, 30, -1), LT_YEARS, _lt_params(_core), -9999.0, -1)
+    vertex_years, counts = seg[0][:, :, 0].astype(np.int32), seg[1].astype(np.int32)
+    other = v + rng.normal(0, 0.02, v.shape)
+    other[other < -9000] = np.nan
+    for spike in (0.9, 1.0):
+        for n_jobs in (1, -1):
+            assert_same_bits(_core.landtrendr.fit_to_vertices_batch(other, LT_YEARS, vertex_years, counts, spike, n_jobs),
+                             _rust.landtrendr.fit_to_vertices_batch(other, LT_YEARS, vertex_years, counts, spike, n_jobs))
+    for y in other[:200]:   # vertex years anywhere, observed or not
+        vys = rng.choice(LT_YEARS, rng.integers(0, 7), replace=False).tolist()
+        assert_same_bits(np.array(_core.landtrendr.fit_to_vertices(LT_YEARS.tolist(), y.tolist(), vys, 0.9)),
+                         np.array(_rust.landtrendr.fit_to_vertices(LT_YEARS.tolist(), y.tolist(), vys, 0.9)))
