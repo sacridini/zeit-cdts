@@ -60,7 +60,7 @@ Single-core execution evaluates algorithmic efficiency without the confounding f
 
 ---
 
-## Multi-Core CPU Scaling (OpenMP)
+## Multi-Core CPU Scaling
 
 Zeit implements parallel execution in its compiled core (`n_jobs=-1`; OpenMP in the C++ core these numbers were measured with, the core's own threads in Rust), avoiding Python Global Interpreter Lock (GIL) contention and inter-process communication (IPC) overhead.
 
@@ -68,7 +68,7 @@ The chart below shows the speedup achieved when scaling from **1 thread to all 2
 
 <div class="bm-chart-card">
   <div class="bm-legend">
-    <span class="bm-legend-item"><i class="bm-legend-swatch" style="background:var(--bm-zeit);"></i> Zeit (OpenMP)</span>
+    <span class="bm-legend-item"><i class="bm-legend-swatch" style="background:var(--bm-zeit);"></i> Zeit</span>
     <span class="bm-legend-item"><i class="bm-legend-swatch" style="background:var(--bm-ref);"></i> Reference Tool (multiprocessing / PSOCK / doParallel)</span>
   </div>
   <img src="../../assets/benchmarks_parallel.svg" alt="Multi-Core Scaling" class="benchmark-chart" />
@@ -110,7 +110,7 @@ The table below lines up **absolute wall-clock times** to show who finishes firs
 | **LightTAE** | Batch = 512 | R `torch` intra-op threads | 32.77 ms | **14.61 ms** | **2.24×** | 42.08 ms | 26.98 ms | 1.56× | **Zeit 1.85× faster** (14.6ms vs 27.0ms) |
 
 !!! warning "The Python IPC Penalty on Mann-Kendall"
-    On a batch of 5,000 short time series, running Python's standard `multiprocessing.Pool(19)` caused execution time to explode from **4.06 seconds** (sequential) to **20.11 seconds** (parallel) — a **5× slowdown** (0.20× speedup). The operating system overhead of pickling objects, IPC socket transfers, and process synchronization dwarfed the actual statistical computation. In contrast, Zeit's native OpenMP thread pool in C++ has sub-microsecond synchronization overhead, achieving a true **4.26× speedup** (down to **7.29 milliseconds**).
+    On a batch of 5,000 short time series, running Python's standard `multiprocessing.Pool(19)` caused execution time to explode from **4.06 seconds** (sequential) to **20.11 seconds** (parallel) — a **5× slowdown** (0.20× speedup). The operating system overhead of pickling objects, IPC socket transfers, and process synchronization dwarfed the actual statistical computation. In contrast, Zeit's threads (OpenMP in the C++ core measured here; the Rust core's own since 2.0) share memory with sub-microsecond synchronization overhead, achieving a true **4.26× speedup** (down to **7.29 milliseconds**).
 
 ---
 

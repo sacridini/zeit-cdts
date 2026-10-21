@@ -7,6 +7,7 @@ name = "zeit-cdts"
 version = "2.0.0"
 description = "Change detection and time series analysis of Earth observation data cubes: LandTrendr, CCDC, BFAST, TWDTW, phenology, accuracy assessment, embeddings and deep learning"
 readme = "README.md"
+requires-python = ">=3.9"
 license = "GPL-2.0-or-later"
 license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
 keywords = ["remote sensing", "earth observation", "change detection", "time series", "landtrendr", "ccdc", "bfast", "xarray", "stac"]

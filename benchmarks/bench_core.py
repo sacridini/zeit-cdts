@@ -190,7 +190,7 @@ def _(core, rng, n_jobs):
 @workload("medoid", "utils")
 def _(core, rng, n_jobs):
     v = np.ascontiguousarray(rng.random((256, 256, 24, 6)))
-    # compute_medoid has no n_jobs: it always uses OpenMP's default team
+    # compute_medoid has no n_jobs: it always uses every processor
     return lambda: core.utils.compute_medoid(v, -9999.0)
 
 

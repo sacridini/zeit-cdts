@@ -150,7 +150,7 @@ Across all families, Zeit delivers **100% bitwise and statistical parity** with 
 
 The prevailing assumption in remote sensing has been that massive spatial workflows require distributed cloud infrastructure like Google Earth Engine. Our full Landsat tile benchmark demonstrates otherwise:
 
-- **Zeit processing 54,731,482 pixels (41 years)** on a single desktop PC completed in **98.44 seconds** (556,007 pixels/sec) using OpenMP.
+- **Zeit processing 54,731,482 pixels (41 years)** on a single desktop PC completed in **98.44 seconds** (556,007 pixels/sec) on 20 threads.
 - **Google Earth Engine's distributed cluster** executed active server compute on ~38M pixels in **1,396 seconds** (27,213 pixels/sec), with an additional **5.08 hours of cloud queue latency**.
 - Zeit delivered **20.4× higher compute throughput** than GEE's server cluster, with zero queue overhead and zero network egress costs.
 
@@ -172,7 +172,7 @@ When both sides use every core, the gap stays wide for the statistical tools, wh
 
 <div class="bm-chart-card">
 <p class="bm-chart-title">Who finishes first with every core</p>
-<p class="bm-chart-sub">Wall-clock time of Zeit with 20 OpenMP threads and of the reference with its own parallel framework (19 R or Python workers, or intra-op threads for the neural networks). Each row is its own workload; log scale.</p>
+<p class="bm-chart-sub">Wall-clock time of Zeit with 20 threads and of the reference with its own parallel framework (19 R or Python workers, or intra-op threads for the neural networks). Each row is its own workload; log scale.</p>
 <div class="bm-chart-legend">
 <span><i class="dot" style="background:var(--bm-zeit)"></i>Zeit, 20 threads</span>
 <span><i class="dot" style="background:var(--bm-ref)"></i>Reference, all workers</span>
