@@ -71,7 +71,12 @@ impl TimeWeight {
 
     #[inline]
     fn get(&self, t1: i32, t2: i32) -> f64 {
-        let dt = elapsed_time(t1, t2, self.cycle_length);
+        self.at(elapsed_time(t1, t2, self.cycle_length))
+    }
+
+    /// The weight of an elapsed time.
+    #[inline]
+    fn at(&self, dt: i32) -> f64 {
         match usize::try_from(dt) {
             Ok(dt) if dt < self.lut.len() => self.lut[dt],
             _ => self.lut[self.lut.len() - 1],
@@ -156,16 +161,38 @@ pub fn distance(
         };
         let mut min_in_row = f64::INFINITY;
         let (ti, vi) = (ts.dates[i - 1], ts.at(i - 1));
-        for j in 1..=m {
-            let tj = pattern.dates[j - 1];
-            if elapsed_time(ti, tj, params.cycle_length) > params.max_time_warp {
-                curr[j] = f64::INFINITY;
-                continue;
+        // the elapsed time once per cell (the C++ takes it again for the weight:
+        // the same value), and the one-band distance without the generic path
+        let (cycle, max_warp) = (params.cycle_length, params.max_time_warp);
+        let (p_row, c_row) = (&prev[..=m], &mut curr[..=m]);
+        if ts.num_bands == 1 {
+            let (v0, pv) = (vi[0], &pattern.values[..m]);
+            for j in 1..=m {
+                let dt = elapsed_time(ti, pattern.dates[j - 1], cycle);
+                if dt > max_warp {
+                    c_row[j] = f64::INFINITY;
+                    continue;
+                }
+                let cvalue = (v0 - pv[j - 1]).abs() + weight.at(dt);
+                let c = cvalue + min3(p_row[j - 1], p_row[j], c_row[j - 1]);
+                c_row[j] = c;
+                if c < min_in_row {
+                    min_in_row = c;
+                }
             }
-            let cvalue = spatial_distance(vi, pattern.at(j - 1)) + weight.get(ti, tj);
-            curr[j] = cvalue + min3(prev[j - 1], prev[j], curr[j - 1]);
-            if curr[j] < min_in_row {
-                min_in_row = curr[j];
+        } else {
+            for j in 1..=m {
+                let dt = elapsed_time(ti, pattern.dates[j - 1], cycle);
+                if dt > max_warp {
+                    c_row[j] = f64::INFINITY;
+                    continue;
+                }
+                let cvalue = spatial_distance(vi, pattern.at(j - 1)) + weight.at(dt);
+                let c = cvalue + min3(p_row[j - 1], p_row[j], c_row[j - 1]);
+                c_row[j] = c;
+                if c < min_in_row {
+                    min_in_row = c;
+                }
             }
         }
         if min_in_row > abort_threshold {

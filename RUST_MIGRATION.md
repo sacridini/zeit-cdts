@@ -99,12 +99,12 @@ mudou, exceto o TWDTW.
 | 0. Infraestrutura | workspace Cargo, `zeit._rust`, `_backend.py`, testes diferenciais, CI | feito |
 | 1. Piloto (ponto de decisão) | `mann_kendall`, `twdtw`, `snic` | feito; suíte verde no CI nos 3 sistemas (os tempos no Linux e no macOS saem no resumo do job Tests) |
 | 2. Kernels simples | `utils` (medoid), `whittaker`, `sma`, `coded`, `tmask` (com o `robustfit` do CCDC) | feito |
-| 3. Regressão e decomposição | `stl_decompose`, `bfast`, `bfast_monitor`, `bfast_lite` | em andamento: `bfast_monitor` e `bfast_lite` feitos |
-| 4. SOM | `som` | |
-| 5. LandTrendr | `landtrendr` | |
-| 6. Fenologia | `phenology_*` (port do LM do Eigen) | |
-| 7. CCDC | `ccdc` (GLMnet float32) | |
-| 8. Warp | `warp` (callback do transformer do GDAL) | |
+| 3. Regressão e decomposição | `stl_decompose`, `bfast`, `bfast_monitor`, `bfast_lite` | feito |
+| 4. SOM | `som` | feito |
+| 5. LandTrendr | `landtrendr` | feito |
+| 6. Fenologia | `phenology_*` | em andamento, bit a bit como os outros módulos (decisão de 2026-10-21): porta o LM, o `SimplicialLLT` com ordenação AMD e o `inverse()` do Eigen (~3 mil linhas), em vez de só concordar com o phenofit dentro da tolerância documentada |
+| 7. CCDC | `ccdc` (GLMnet float32) | em andamento |
+| 8. Warp | `warp` (callback do transformer do GDAL) | em andamento |
 
 **Ponto de decisão após a fase 1:** seguir só se os três módulos do piloto
 tiverem desempenho ≥ C++ nos 3 sistemas e mantiverem a paridade exata.
@@ -203,6 +203,41 @@ carga de fundo, e os dois lados ficaram ~2× mais lentos que em outras mediçõe
 - **Erros dentro de laços paralelos.** No C++, um `x` não crescente no Whittaker
   lança exceção dentro da região OpenMP e derruba o processo (`std::terminate`).
   Em Rust vira `ValueError`.
+
+### Fases 3 a 5 e o que o CI mostrou
+
+BFAST clássico (com o STL), SOM e LandTrendr também dão os mesmos bits que o
+C++. No i5-13600K, 1 thread: BFAST 0,27×, SOM em lote 0,76× (0,97× com 20
+threads), LandTrendr 0,70× (0,61× com todas).
+
+O CI roda a suíte inteira nos dois núcleos e mede C++ × Rust nos três
+sistemas (resumo do job Tests). No Linux o C++ é compilado pelo GCC, bem mais
+rápido que o MSVC, e lá o Rust perdia em CODED (1,12×) e TWDTW (1,04×): os dois
+foram otimizados (abaixo).
+
+### Lições das fases 3 a 5
+
+- **O Eigen bloqueia a profundidade do GEMM pelo tamanho do L1**, consultado
+  com cpuid no x86 e fixo em 16 KB no ARM, onde não há consulta. No macOS isso
+  divide históricos acima de ~200 observações; o único teste que falhou no
+  macOS era esse. O Rust consulta o cache como o Eigen e divide igual
+  (`eigen::l1_cache_size`, `eigen::gemm_kc`). Em CPUs híbridas (núcleos P e E
+  com L1 diferentes), o próprio C++ dá resultados que dependem do núcleo em que
+  rodou o primeiro produto, para profundidades entre ~400 e ~600.
+- **Regiões paralelas curtas e repetidas** (o SOM em lote faz duas por
+  iteração) custam caro no rayon, cujas threads dormem entre elas. O
+  `parallel::team` mantém uma equipe ativa durante a chamada inteira, com uma
+  barreira que gira um pouco antes de dormir, como o OpenMP. Girar demais é
+  pior: com 19 threads e outros programas abertos, quem gira rouba CPU de quem
+  trabalha.
+- **Calcular uma vez o que é igual para todos os pixels.** As datas são as
+  mesmas em todos os pixels de um lote: senos e cossenos do CODED e do Tmask
+  (e a tabela de peso do TWDTW) saem uma vez por lote, com os mesmos valores.
+  Dentro do laço do TWDTW, o tempo decorrido sai uma vez por célula (não uma
+  vez por banda), e o caso de uma banda tem caminho próprio: 0,21× → 0,13× no
+  Windows, 1 thread.
+- **Funções do runtime C com estado global** (o `lgamma` da glibc escreve
+  `signgam`) passam pela versão reentrante (`lgamma_r`), que dá o mesmo valor.
 
 ### Como trabalhar
 
