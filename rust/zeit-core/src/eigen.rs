@@ -24,6 +24,87 @@ pub const MR: usize = 6;
 #[cfg(not(target_arch = "aarch64"))]
 pub const MR: usize = 4;
 
+/// The size of the L1 data cache as Eigen 3.4 takes it (manage_caching_sizes):
+/// queried with cpuid on x86 (leaf 4 on Intel, 0x80000005 on AMD; 32 KB when
+/// unknown), 16 KB elsewhere (Eigen's default off x86 and PPC: there is no
+/// query on ARM). Queried once, as Eigen does; on a hybrid processor it is the
+/// cache of the core that ran the first product.
+pub fn l1_cache_size() -> usize {
+    static L1: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *L1.get_or_init(|| {
+        #[cfg(target_arch = "x86_64")]
+        {
+            let l1 = x86_l1();
+            if l1 > 0 {
+                return l1;
+            }
+            32 * 1024
+        }
+        #[cfg(not(target_arch = "x86_64"))]
+        {
+            16 * 1024
+        }
+    })
+}
+
+#[cfg(target_arch = "x86_64")]
+fn x86_l1() -> usize {
+    use std::arch::x86_64::__cpuid_count;
+    let id = __cpuid_count(0, 0);
+    let vendor = |b: u32, d: u32, c: u32| id.ebx == b && id.edx == d && id.ecx == c;
+    let amd = vendor(0x6874_7541, 0x6974_6e65, 0x444d_4163) || vendor(0x6944_4d41, 0x7465_6273, 0x2172_6574);
+    if amd {
+        let ext = __cpuid_count(0x8000_0000, 0);
+        if ext.eax >= 0x8000_0006 {
+            return ((__cpuid_count(0x8000_0005, 0).ecx >> 24) as usize) * 1024;
+        }
+        return 0;
+    }
+    if id.eax < 4 {
+        return 0; // Eigen's leaf-2 descriptors: processors of before 2004
+    }
+    // Intel's deterministic cache parameters (Eigen's queryCacheSizes_intel_direct)
+    let mut l1 = 0;
+    for cache_id in 0..16 {
+        let r = __cpuid_count(4, cache_id);
+        let cache_type = r.eax & 0x0F;
+        if cache_type == 0 {
+            break;
+        }
+        if (cache_type == 1 || cache_type == 3) && ((r.eax & 0xE0) >> 5) == 1 {
+            let ways = ((r.ebx & 0xFFC0_0000) >> 22) as usize;
+            let partitions = ((r.ebx & 0x003F_F000) >> 12) as usize;
+            let line = (r.ebx & 0x0000_0FFF) as usize;
+            let sets = r.ecx as usize;
+            l1 = (ways + 1) * (partitions + 1) * (line + 1) * (sets + 1);
+        }
+    }
+    l1
+}
+
+/// The depth Eigen's matrix-matrix product takes at once (kc of
+/// evaluateProductBlockingSizesHeuristic, one thread) for a product of depth
+/// `k` into `m` x `n`: all of it but past what fits in L1 with the kernel's
+/// panels; then blocks as even as possible, multiples of 8.
+pub fn gemm_kc(k: usize, m: usize, n: usize) -> usize {
+    if k.max(m).max(n) < 48 {
+        return k;
+    }
+    const NR: usize = 4;
+    let (k_div, k_sub) = (MR * 8 + NR * 8, MR * NR * 8);
+    let l1 = l1_cache_size();
+    let max_kc = ((l1.saturating_sub(k_sub) / k_div) & !7).max(1);
+    if k > max_kc {
+        if k.is_multiple_of(max_kc) {
+            max_kc
+        } else {
+            max_kc - 8 * ((max_kc - 1 - k % max_kc) / (8 * (k / max_kc + 1)))
+        }
+    } else {
+        k
+    }
+}
+
 /// Eigen's pmadd on packets, `a * b + c`: fused on NEON (vfmaq_f64, one
 /// rounding), a multiplication then an addition on SSE2 without FMA. Eigen's
 /// scalar code (the leftover rows and columns of its kernels) never fuses.

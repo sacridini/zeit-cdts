@@ -11,15 +11,16 @@
 //! columns taken by 4, alternate two accumulators over the depth unrolled by
 //! 8, then add them, then the rest. The packet rows multiply-add (fused on
 //! NEON), the last odd row does not.
-//! The depth is taken in one block: Eigen splits it past ~400 (from the size
-//! of the processor's L1 cache, so the C++'s own bits differ from a machine to
-//! another there).
+//! The depth goes in blocks of `eigen::gemm_kc`, from the size of the L1
+//! cache as Eigen takes it (cpuid on x86, 16 KB on ARM): past ~200 on ARM, past
+//! ~400 or ~600 on x86 (32 or 48 KB), where the C++'s own bits depend on the
+//! machine.
 
 // The loops index rows and columns as Eigen's do.
 #![allow(clippy::needless_range_loop)]
 
 use super::qr::{sum_seq, Mat, Order};
-use super::{pmadd, sum_by, MR};
+use super::{gemm_kc, pmadd, sum_by, MR};
 
 /// `X.topRows(n).transpose() * X.topRows(n)` for a column-major `x`: p x p,
 /// column-major, its lower triangle only (what the LDLT reads; Eigen's product
@@ -63,45 +64,54 @@ pub fn xtx_rows(x: &Mat, start: usize, n: usize) -> Mat {
     let mc2 = mc3 + (p - mc3) / 4 * 4;
     let mc1 = mc2 + (p - mc2) / 2 * 2;
     let cols4 = p / 4 * 4;
-    let peeled = n & !7;
+    // The depth in blocks of kc (Eigen's blocking on L1): every block starts
+    // its accumulators afresh and adds them to the result (R = C * 1 + R).
+    let kc = gemm_kc(n, p, p);
     let mut c = vec![0.0; p * p];
-    let mut i = 0;
-    while i < mc1 {
-        let mut j = 0;
-        while j <= i + 1 && j < p {
-            let w = (p - j).min(4);
-            let cd = i >= mc2 && j + 4 <= cols4;
-            let block = match (w, cd) {
-                (4, true) => block_cd::<4>(col(i), col(i + 1), j, &col, n, peeled),
-                (4, false) => block_seq::<4>(col(i), col(i + 1), j, &col, n),
-                (3, _) => block_seq::<3>(col(i), col(i + 1), j, &col, n),
-                (2, _) => block_seq::<2>(col(i), col(i + 1), j, &col, n),
-                _ => block_seq::<1>(col(i), col(i + 1), j, &col, n),
-            };
-            for (r, row) in block.iter().enumerate() {
-                for (t, &v) in row.iter().enumerate().take(w) {
-                    c[(j + t) * p + i + r] = v;
+    let mut k0 = 0;
+    while k0 < n {
+        let len = kc.min(n - k0);
+        let colk = |j: usize| &col(j)[k0..k0 + len];
+        let peeled = len & !7;
+        let mut i = 0;
+        while i < mc1 {
+            let mut j = 0;
+            while j <= i + 1 && j < p {
+                let w = (p - j).min(4);
+                let cd = i >= mc2 && j + 4 <= cols4;
+                let block = match (w, cd) {
+                    (4, true) => block_cd::<4>(colk(i), colk(i + 1), j, &colk, len, peeled),
+                    (4, false) => block_seq::<4>(colk(i), colk(i + 1), j, &colk, len),
+                    (3, _) => block_seq::<3>(colk(i), colk(i + 1), j, &colk, len),
+                    (2, _) => block_seq::<2>(colk(i), colk(i + 1), j, &colk, len),
+                    _ => block_seq::<1>(colk(i), colk(i + 1), j, &colk, len),
+                };
+                for (r, row) in block.iter().enumerate() {
+                    for (t, &v) in row.iter().enumerate().take(w) {
+                        c[(j + t) * p + i + r] += v;
+                    }
                 }
+                j += 4;
             }
-            j += 4;
+            i += 2;
         }
-        i += 2;
-    }
-    if mc1 < p {
-        // the last odd row: scalar
-        let a = col(mc1);
-        for j in 0..p {
-            let b = col(j);
-            let mut v = 0.0;
-            for k in 0..n {
-                v += a[k] * b[k];
+        if mc1 < p {
+            // the last odd row: scalar
+            let a = colk(mc1);
+            for j in 0..p {
+                let b = colk(j);
+                let mut v = 0.0;
+                for k in 0..len {
+                    v += a[k] * b[k];
+                }
+                c[j * p + mc1] += v;
             }
-            c[j * p + mc1] = v;
         }
+        k0 += len;
     }
     for j in 0..p {
         for i in j..p {
-            out.set(i, j, c[j * p + i] * 1.0 + 0.0);
+            out.set(i, j, c[j * p + i]);
         }
     }
     out
