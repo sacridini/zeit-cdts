@@ -282,43 +282,11 @@ pub fn pmax(a: f64, b: f64) -> f64 {
     }
 }
 
-/// predux_min of the two lanes: SSE2 `_mm_min_sd(a0, a1)` (`a1` on ties and
-/// NaN), NEON vpminq_f64.
-#[inline(always)]
-fn predux_min(a0: f64, a1: f64) -> f64 {
-    #[cfg(target_arch = "aarch64")]
-    {
-        pmin(a0, a1)
-    }
-    #[cfg(not(target_arch = "aarch64"))]
-    {
-        if a0 < a1 {
-            a0
-        } else {
-            a1
-        }
-    }
-}
-
-/// predux_max of the two lanes: SSE2 `_mm_max_sd(a0, a1)`, NEON vpmaxq_f64.
-#[inline(always)]
-fn predux_max(a0: f64, a1: f64) -> f64 {
-    #[cfg(target_arch = "aarch64")]
-    {
-        pmax(a0, a1)
-    }
-    #[cfg(not(target_arch = "aarch64"))]
-    {
-        if a0 > a1 {
-            a0
-        } else {
-            a1
-        }
-    }
-}
-
 /// Eigen's reduction of `n` > 0 coefficients in the order of `sum_by`: `pop`
-/// on the packet lanes, `fin` on the two lanes, `sop` on the rest.
+/// on the packet lanes, `fin` on the two lanes, `sop` on the rest. For
+/// minCoeff and maxCoeff, `fin` is not the platform's predux_min (vpminq on
+/// NEON, `_mm_min_sd` on SSE2) but Eigen's generic predux_helper with the
+/// scalar std::min: on NEON a NaN in the second lane is dropped there.
 #[inline]
 fn redux(
     n: usize,
@@ -356,13 +324,13 @@ fn redux(
 /// `minCoeff()` of a vector expression of `n` > 0 coefficients.
 #[inline]
 pub fn min_by(n: usize, c: impl Fn(usize) -> f64) -> f64 {
-    redux(n, c, pmin, predux_min, std_min)
+    redux(n, c, pmin, std_min, std_min)
 }
 
 /// `maxCoeff()` of a vector expression of `n` > 0 coefficients.
 #[inline]
 pub fn max_by(n: usize, c: impl Fn(usize) -> f64) -> f64 {
-    redux(n, c, pmax, predux_max, std_max)
+    redux(n, c, pmax, std_max, std_max)
 }
 
 /// `minCoeff()` of a vector.
@@ -395,6 +363,17 @@ pub fn distance(a: &[f64], b: &[f64]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The two lanes meet in std::min / std::max, on SSE2 and on NEON alike: a
+    /// NaN left in the second lane is dropped, one in the first is kept.
+    #[test]
+    fn min_max_coeff_fold_the_lanes_with_std() {
+        let nan = f64::NAN;
+        assert_eq!(min_coeff(&[1.0, nan, 2.0, 3.0]), 1.0);
+        assert_eq!(max_coeff(&[1.0, nan, 2.0, 3.0]), 2.0); // the 3 shared a lane with the NaN
+        assert!(min_coeff(&[nan, 1.0, 2.0, 3.0]).is_nan());
+        assert!(max_coeff(&[nan, 1.0, 2.0, 3.0]).is_nan());
+    }
 
     /// The order spelled out for each length up to 9.
     #[test]

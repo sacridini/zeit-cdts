@@ -905,11 +905,16 @@ def test_warp_errors():
            dict(transformer=12345, transformer_args=np.arange(1, 3, dtype=np.uintp), n_threads=3)]
     for change in bad:
         kw = dict(good, **change)
-        with pytest.raises((ValueError, TypeError)) as a:
-            _core.warp.warp(**kw)
         with pytest.raises((ValueError, TypeError)) as b:
             _rust.warp.warp(**kw)
-        assert (a.type, str(a.value)) == (b.type, str(b.value)), change
+        try:
+            _core.warp.warp(**kw)
+        except (ValueError, TypeError) as a:
+            assert (type(a), str(a)) == (b.type, str(b.value)), change
+        else:
+            # A C++ core built without OpenMP (macOS) runs one thread, which
+            # needs one transformer argument; the Rust core runs n_threads.
+            assert "n_threads" in change, change
     for mod in (_core, _rust):
         with pytest.raises(ValueError, match="bad region"):
             mod.warp.coords(*coords, (0, -1, 3, 3))
