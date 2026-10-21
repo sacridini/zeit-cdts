@@ -167,7 +167,8 @@ def unmix(
     from ._embeddings import refuse
 
     refuse(data, "zeit.unmix")
-    from ._core.sma import unmix_batch
+    from ._backend import core
+    unmix_batch = core.sma.unmix_batch
 
     cube = _as_cube(data, chunks)
     table = endmember_table(endmembers, bands)
@@ -226,7 +227,8 @@ def ndfi_of(fractions: Any) -> Any:
 def ndfi_from_bands(arrays: Sequence[Any]) -> Any:
     """NDFI from Landsat reflectance (0-1) in blue, green, red, NIR, SWIR1, SWIR2 order, with
     the Souza et al. (2005) endmembers: NumPy arrays or DataArrays of the same shape."""
-    from ._core.sma import unmix_batch
+    from ._backend import core
+    unmix_batch = core.sma.unmix_batch
 
     table = endmember_table("souza2005")
     E = np.ascontiguousarray(table.to_numpy(dtype=float))

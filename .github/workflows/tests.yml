@@ -64,3 +64,14 @@ jobs:
           ZEIT_BACKEND: rust
         run: |
           pytest -v tests/
+
+      - name: Time the Rust core against the C++ one
+        # The modules already in Rust against their C++, in turns in one process,
+        # into the job summary. Informative only: shared runners are noisy.
+        if: matrix.python-version == '3.12'
+        continue-on-error: true
+        shell: bash
+        run: |
+          python benchmarks/bench_core.py --backend cpp rust --rounds 3 --min-time 0.5 --out bench.json             --only mann_kendall twdtw snic whittaker medoid sma coded tmask
+          { echo '### C++ (A) and Rust (B) on ${{ matrix.os }}'; echo '```'
+            python benchmarks/bench_core.py --compare bench.json:cpp bench.json:rust; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

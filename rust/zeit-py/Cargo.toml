@@ -14,3 +14,4 @@ crate-type = ["cdylib"]
 zeit-core = { path = "../zeit-core" }
 pyo3 = "0.30"
 numpy = "0.30"
+mimalloc = { version = "0.1.52", default-features = false }

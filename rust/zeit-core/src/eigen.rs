@@ -10,8 +10,34 @@
 //! packet accumulators over blocks of 4, adds them, adds a last packet, sums
 //! the lanes, then adds the remaining coefficient one at a time.
 
+pub mod ldlt;
+pub mod qr;
+
 /// Doubles per packet in the C++ build (SSE2, NEON).
 pub const PACKET: usize = 2;
+
+/// Rows of the matrix-matrix kernel's register blocks (gebp_traits::mr): 4 on
+/// SSE2 without FMA (16 registers / 2 / nr * 2), 6 where Eigen has a
+/// single-instruction multiply-add (NEON).
+#[cfg(target_arch = "aarch64")]
+pub const MR: usize = 6;
+#[cfg(not(target_arch = "aarch64"))]
+pub const MR: usize = 4;
+
+/// Eigen's pmadd on packets, `a * b + c`: fused on NEON (vfmaq_f64, one
+/// rounding), a multiplication then an addition on SSE2 without FMA. Eigen's
+/// scalar code (the leftover rows and columns of its kernels) never fuses.
+#[inline(always)]
+pub fn pmadd(a: f64, b: f64, c: f64) -> f64 {
+    #[cfg(target_arch = "aarch64")]
+    {
+        a.mul_add(b, c)
+    }
+    #[cfg(not(target_arch = "aarch64"))]
+    {
+        a * b + c
+    }
+}
 
 /// Eigen's sum of the `n` coefficients `c(0)`, ..., `c(n - 1)` of an expression.
 #[inline]

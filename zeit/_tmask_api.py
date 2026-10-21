@@ -109,7 +109,7 @@ def tmask(
 def _screen(values: np.ndarray, ordinals: np.ndarray, scale: float) -> np.ndarray:
     """One (time, 2, y, x) block of green and SWIR -> (time, y, x) clear (C++, every pixel in
     parallel)."""
-    from . import _core
+    from ._backend import core as _core
 
     t, _, rows, cols = values.shape
     green = np.ascontiguousarray(np.moveaxis(values[:, 0], 0, -1).reshape(-1, t), dtype=np.float64)

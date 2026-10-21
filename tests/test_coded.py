@@ -6,8 +6,9 @@ import xarray as xr
 from scipy.optimize import nnls as scipy_nnls
 
 import zeit
-from zeit._core import coded as coded_core
-from zeit._core import sma
+from zeit._backend import core
+
+coded_core, sma = core.coded, core.sma
 from zeit._sma import endmember_table, ndfi_of
 
 E = endmember_table("souza2005")   # gv, shade, npv, soil, cloud x blue..swir2, reflectance

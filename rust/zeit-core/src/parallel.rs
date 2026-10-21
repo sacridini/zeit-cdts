@@ -18,6 +18,12 @@ pub fn threads(n_jobs: i32) -> usize {
     }
 }
 
+/// The `n_jobs` of every processor: the thread count of OpenMP's default
+/// team, which the C++ functions without an `n_jobs` used.
+pub fn all_processors() -> i32 {
+    std::thread::available_parallelism().map_or(1, |n| n.get() as i32)
+}
+
 /// The pool of `threads` threads.
 pub fn pool(threads: usize) -> Arc<rayon::ThreadPool> {
     static POOLS: OnceLock<Mutex<HashMap<usize, Arc<rayon::ThreadPool>>>> = OnceLock::new();

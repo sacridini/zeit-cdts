@@ -9,7 +9,7 @@ was scikit-learn's HuberRegressor, about 190 times slower per core.
 """
 import numpy as np
 
-from . import _core
+from ._backend import core as _core
 
 
 def run_tmask_pixel(dates_julian: np.ndarray, green_band: np.ndarray, swir_band: np.ndarray,

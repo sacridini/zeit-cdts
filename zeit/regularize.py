@@ -61,7 +61,7 @@ def _medoid(cube: xr.DataArray, freq: str) -> xr.DataArray:
     """The medoid of each period by ``_core.utils.compute_medoid`` (C++, OpenMP over rows):
     per pixel, the median of each band over the period's valid values, then the observation
     with every band whose distance to it is smallest (the first one on a tie); NaN without one."""
-    from . import _core
+    from ._backend import core as _core
 
     single = "band" not in cube.dims
     work = cube.expand_dims(band=["value"], axis=1) if single else cube

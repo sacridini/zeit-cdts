@@ -124,7 +124,7 @@ def smooth(
             values = np.where(values == value, np.nan, values)
         flat = np.ascontiguousarray(values.reshape(-1, values.shape[-1]))
         if method == "whittaker":
-            from . import _core
+            from ._backend import core as _core
 
             wflat = np.empty((0, 0)) if w is None else np.ascontiguousarray(
                 np.asarray(w, dtype=np.float64).reshape(flat.shape))

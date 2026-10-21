@@ -2,9 +2,11 @@ import numpy as np
 import dask.array as da
 from typing import Optional
 
-from zeit._core.bfastmonitor import fit_bfast_monitor_batch
-from zeit._core.bfastlite import fit_bfast_lite_batch
-from zeit._core.bfast import fit_bfast_batch
+from zeit._backend import core as _core
+
+fit_bfast_monitor_batch = _core.bfastmonitor.fit_bfast_monitor_batch
+fit_bfast_lite_batch = _core.bfastlite.fit_bfast_lite_batch
+fit_bfast_batch = _core.bfast.fit_bfast_batch
 
 # breakpoint, breakpoint_idx, magnitude, sigma, n_history, has_break, valid
 N_BFM_METRICS = 7

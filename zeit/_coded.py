@@ -132,7 +132,8 @@ def coded(
     from ._embeddings import refuse
 
     refuse(data, "zeit.coded")
-    from ._core.coded import Params, coded_batch, coded_size
+    from ._backend import core
+    Params, coded_batch, coded_size = core.coded.Params, core.coded.coded_batch, core.coded.coded_size
     from ._sma import unmix
 
     if direction not in ("loss", "both"):

@@ -379,7 +379,7 @@ pub fn segment<T: Feature>(
     tile_width: i64,
     n_jobs: i32,
 ) -> Result<Segments, String> {
-    if !compactness.is_finite() || compactness < 0.0 {
+    if !(compactness >= 0.0) || !compactness.is_finite() {
         return Err("compactness must be finite and >= 0".into());
     }
     let (f_n, rows, cols) = (img.features, img.rows, img.cols);

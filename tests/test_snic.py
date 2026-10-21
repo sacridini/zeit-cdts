@@ -11,7 +11,9 @@ import numpy as np
 import pytest
 from scipy import ndimage
 
-from zeit._core import snic as core
+from zeit._backend import core as _backend_core
+
+core = _backend_core.snic
 from zeit.segmentation import run_snic, snic_grid, snic_to_polygons
 
 HERE = os.path.dirname(os.path.abspath(__file__))

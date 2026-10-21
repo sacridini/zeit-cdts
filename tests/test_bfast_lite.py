@@ -2,7 +2,9 @@ import numpy as np
 import xarray as xr
 import dask.array as da
 
-from zeit._core.bfastlite import bfast_lite, fit_bfast_lite_batch
+from zeit._backend import core
+
+bfast_lite, fit_bfast_lite_batch = core.bfastlite.bfast_lite, core.bfastlite.fit_bfast_lite_batch
 from zeit._bfast import run_bfast_lite_dask, bfl_metric_names
 import zeit.xarray_api  # noqa: F401 - registers the .zeit accessor
 

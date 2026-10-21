@@ -5,10 +5,23 @@
 use pyo3::prelude::*;
 use pyo3::types::PyModule;
 
+// mimalloc for the Rust core's allocations: the modules that allocate per pixel
+// (QR decompositions, robust fits) ran up to 3x slower on the system allocator,
+// Windows' above all, and more so on many threads. It changes no value.
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 mod arrays;
+mod bfastlite;
+mod bfastmonitor;
+mod coded;
 mod mannkendall;
+mod sma;
+mod smooth;
 mod snic;
+mod tmask;
 mod twdtw;
+mod utils;
 
 /// Adds `sub` to `parent` as `parent.name`, importable as `zeit._rust.name` too
 /// (`from zeit._rust.mannkendall import ...`, as the wrappers do with _core).
@@ -26,5 +39,12 @@ fn _rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
     add_submodule(m, &mannkendall::module(m.py())?)?;
     add_submodule(m, &twdtw::module(m.py())?)?;
     add_submodule(m, &snic::module(m.py())?)?;
+    add_submodule(m, &smooth::module(m.py())?)?;
+    add_submodule(m, &sma::module(m.py())?)?;
+    add_submodule(m, &coded::module(m.py())?)?;
+    add_submodule(m, &tmask::module(m.py())?)?;
+    add_submodule(m, &bfastmonitor::module(m.py())?)?;
+    add_submodule(m, &bfastlite::module(m.py())?)?;
+    add_submodule(m, &utils::module(m.py())?)?;
     Ok(())
 }
