@@ -8,7 +8,10 @@
 mod sys {
     extern "C" {
         pub fn erfc(x: f64) -> f64;
+        #[cfg(not(unix))]
         pub fn lgamma(x: f64) -> f64;
+        #[cfg(unix)]
+        pub fn lgamma_r(x: f64, sign: *mut i32) -> f64;
     }
 }
 
@@ -19,11 +22,22 @@ pub fn erfc(x: f64) -> f64 {
     unsafe { sys::erfc(x) }
 }
 
-/// The log of the absolute value of the gamma function, `std::lgamma`.
+/// The log of the absolute value of the gamma function, `std::lgamma`. On
+/// Unix through lgamma_r, the same computation (glibc's lgamma is lgamma_r
+/// into the global signgam), without that global's race between threads.
 #[inline]
 pub fn lgamma(x: f64) -> f64 {
-    // SAFETY: as erfc (glibc also writes its global signgam, as the C++'s call does).
-    unsafe { sys::lgamma(x) }
+    #[cfg(unix)]
+    {
+        let mut sign = 0;
+        // SAFETY: a pure function of a double writing the sign into a local.
+        unsafe { sys::lgamma_r(x, &mut sign) }
+    }
+    #[cfg(not(unix))]
+    {
+        // SAFETY: a pure function of a double, present in every C runtime Rust links.
+        unsafe { sys::lgamma(x) }
+    }
 }
 
 #[cfg(test)]
