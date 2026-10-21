@@ -102,9 +102,9 @@ mudou, exceto o TWDTW.
 | 3. Regressão e decomposição | `stl_decompose`, `bfast`, `bfast_monitor`, `bfast_lite` | feito |
 | 4. SOM | `som` | feito |
 | 5. LandTrendr | `landtrendr` | feito |
-| 6. Fenologia | `phenology_*` | em andamento, bit a bit como os outros módulos (decisão de 2026-10-21): porta o LM, o `SimplicialLLT` com ordenação AMD e o `inverse()` do Eigen (~3 mil linhas), em vez de só concordar com o phenofit dentro da tolerância documentada |
+| 6. Fenologia | `phenology_*` | feito, bit a bit como os outros módulos (decisão de 2026-10-21): LM do Eigen (`NonLinearOptimization`), `SimplicialLLT` com ordenação AMD |
 | 7. CCDC | `ccdc` (GLMnet float32) | feito |
-| 8. Warp | `warp` (callback do transformer do GDAL) | em andamento |
+| 8. Warp | `warp` (callback do transformer do GDAL) | feito |
 
 **Ponto de decisão após a fase 1:** seguir só se os três módulos do piloto
 tiverem desempenho ≥ C++ nos 3 sistemas e mantiverem a paridade exata.
@@ -154,22 +154,29 @@ Os cinco módulos dão os mesmos bits que o C++. Para isso foi preciso portar o
 `ColPivHouseholderQR` do Eigen com seus produtos (`rust/zeit-core/src/eigen/qr.rs`),
 peça que serve também a CCDC e BFAST Lite.
 
-Tempos em turnos no mesmo processo (`benchmarks/results/win-i5-13600k-rust.json`,
-todos os módulos convertidos até aqui; com todas as threads a máquina tinha
-carga de fundo, e os dois lados ficaram ~2× mais lentos que em outras medições):
+Tempos em turnos no mesmo processo, todos os módulos, depois das fases 6 a 8
+(`benchmarks/results/win-i5-13600k-rust.json`; 1 thread fixada na CPU 0):
 
 | Módulo | Rust/C++, 1 thread | Rust/C++, todas |
 |---|---:|---:|
-| Mann-Kendall | 0,49 | 0,49 |
-| TWDTW | 0,21 | 0,26 |
-| SNIC | 0,85 | 0,88 |
-| Whittaker | 0,93 | 0,83 |
-| medoid | — | 0,64 |
-| SMA | 0,23 | 0,28 |
-| CODED | 0,76 | 0,71 |
-| Tmask | 0,87 | 1,09 (a investigar: 0,94 numa medição sem carga) |
-| BFAST Monitor | 0,77 | 0,79 |
-| BFAST Lite | 0,48 | 0,52 |
+| Mann-Kendall | 0,48 | 0,48 |
+| TWDTW | 0,13 | 0,30 |
+| SNIC | 0,86 | 0,81 |
+| Whittaker | 0,91 | 0,73 |
+| medoid | — | 0,61 |
+| SMA | 0,26 | 0,16 |
+| CODED | 0,32 | 0,32 |
+| Tmask | 0,75 | 0,73 |
+| BFAST Monitor | 0,79 | 0,76 |
+| BFAST Lite | 0,47 | 0,46 |
+| BFAST clássico | 0,27 | 0,12 |
+| SOM em lote | 0,70 | 0,80 |
+| LandTrendr | 0,73 | 0,61 |
+| Fenologia | 0,59 | 0,49 |
+| CCDC | 0,33 | 0,28 |
+| warp bilinear | 0,89 | 0,84 |
+| warp lanczos | 0,89 | 0,93 |
+| warp average | 0,84 | 0,77 |
 
 ### Lições da fase 2
 
@@ -246,6 +253,55 @@ foram otimizados (abaixo).
   Windows, 1 thread.
 - **Funções do runtime C com estado global** (o `lgamma` da glibc escreve
   `signgam`) passam pela versão reentrante (`lgamma_r`), que dá o mesmo valor.
+
+### Fases 6 a 8: fenologia, CCDC e warp
+
+Os três dão os mesmos bits que o C++. No i5-13600K, tempo do Rust sobre o do
+C++ com 1 thread e com todas: fenologia 0,60 e 0,48; CCDC 0,33 e 0,27; warp
+0,83 a 0,94 e 0,80 a 0,97, conforme o método. Com isso, todo o C++ tem
+versão em Rust; falta a etapa C.
+
+O que não dá para igualar, porque o C++ não tem resultado definido:
+
+- **Fenologia, série com um único pico:** o `check_GS_HeadTail` lê `pos[-1]`
+  e `pos[1]` fora do vetor. O Rust faz o que o C++ quase certamente faz no
+  Windows (não acrescenta vale); os testes evitam esse caso.
+- **Warp, NaN ou −0/+0 numa janela de mediana ou quartil** (quando não são
+  NoData): o C++ depende de como o `std::sort` de cada compilador os ordena.
+  O Rust usa uma ordem total fixa.
+- **Warp, float fora da faixa para inteiro:** o Rust imita o que os
+  compiladores C++ geram no x86-64 (MSVC conferido; GCC pelo CI).
+- **Arrays não contíguos na fenologia:** o binding em C++ os lê errado; o Rust
+  os torna contíguos.
+
+### Lições das fases 6 a 8
+
+- **O LM da fenologia é o antigo `NonLinearOptimization`** (porta do MINPACK)
+  com `NumericalDiff` em diferenças progressivas, passo h = 2⁻²⁶·|x|. A
+  aplicação de Q usa os n refletores, não só os pivôs não nulos.
+- **Zeros mudam a ordem das somas em pacote.** O termo do gradiente escalado é
+  um vetor de m posições com zeros abaixo de n; o `stableNorm` tem de somar as
+  m posições. `stableNorm` e `blueNorm`: um bloco de 4096, máximo e depois
+  soma de quadrados em pacotes; o `blueNorm` é sequencial, com constantes
+  potências de 2. Com NaN, o `fnorm` vira NaN, a norma do gradiente fica 0
+  sob `std::max` e o ajuste "converge" no ponto inicial; o Rust reproduz.
+- **Cholesky esparso:** a ordenação AMD depende só de n (cache por thread, como
+  o `thread_local` do C++); a ordem das entradas em cada coluna permutada
+  decide a ordem das atualizações; o solve triangular pula entradas nulas do
+  lado direito (o que muda o sinal de zeros); o `setFromTriplets` soma
+  duplicatas na ordem de inserção: diagonal = ((w + λ) + 4λ) + λ.
+- **`minCoeff`/`maxCoeff`:** no SSE2, min/max com argumentos trocados (o
+  acumulador fica no NaN); no NEON, `vminq`/`vmaxq` propagam o NaN.
+- **O HANTS monta a matriz densa W = diag(w)** e multiplica por ela: igual a
+  w_i·x_i, exceto que um valor não finito numa coluna a torna toda NaN. O Rust
+  reproduz isso sem o produto n².
+- **Jacobiano numérico mais barato com os mesmos bits:** cada coluna move um só
+  parâmetro; os termos `exp`/`pow` que não dependem dele vêm do ponto base, e
+  f(x) vem dos resíduos já calculados. Corta um terço das avaliações.
+- **Matriz e lasso uma vez por ajuste, não por banda** (CCDC): o produto de
+  duas colunas dá os mesmos bits em qualquer ordem dos fatores.
+- **Os forks em worktree** às vezes nascem do `main`, não do branch de
+  trabalho: conferir a base antes de começar.
 
 ### Como trabalhar
 
