@@ -1,6 +1,6 @@
 ## Reference fits of remotePARTS (1.0.4, CRAN) for zeit-core's remotePARTS ports (rust/zeit-core/tests/
 ## remoteparts.rs): Rscript make_remoteparts_fixtures.R in this folder writes
-## ../../rust/zeit-core/tests/data/remoteparts_ar.json and remoteparts_gls.json.
+## ../../rust/zeit-core/tests/data/remoteparts_ar.json, remoteparts_gls.json and remoteparts_parts.json.
 ##
 ## ar: remotePARTS::fitAR on simulated series (a linear trend, or a trend and a harmonic, with AR(1)
 ## errors). fitAR drops the missing values through model.frame and fits the rest as consecutive
@@ -154,3 +154,69 @@ write(toJSON(list(remoteparts = as.character(packageVersion("remotePARTS")), gls
              digits = NA, auto_unbox = TRUE, na = "null"),
       file.path(out_dir, "remoteparts_gls.json"))
 cat("gls:", length(gls), "cases\n")
+
+## parts: fitCor and fitGLS_partition on a map of 2000 pixels in the unit square, with Euclidean
+## distances divided by their largest (distm_scaled's scaling, without geosphere's geodesics)
+distm_euc <- function(coords, coords2 = NULL) {
+  coords <- as.matrix(coords)
+  if (is.null(coords2)) {
+    D <- as.matrix(dist(coords))
+  } else {
+    coords2 <- as.matrix(coords2)
+    D <- sqrt(outer(coords[, 1], coords2[, 1], "-")^2 + outer(coords[, 2], coords2[, 2], "-")^2)
+  }
+  D / max(D)
+}
+cm <- function(m) list(dim = dim(m), values = as.numeric(m))  # column-major
+npix <- 2000
+map <- data.frame(lng = runif(npix), lat = runif(npix))
+U <- chol(0.9 * exp(-distm_euc(map) / 0.08) + 0.1 * diag(npix))
+field <- function() as.numeric(t(U) %*% rnorm(npix))
+## residual series: AR(1) in time of the spatially correlated innovations, of the first 300 pixels
+nt <- 30
+res <- matrix(0, npix, nt)
+res[, 1] <- field()
+for (t in 2:nt) res[, t] <- 0.4 * res[, t - 1] + field()
+sub <- 1:300
+cor_exp <- fitCor(res, map, distm_FUN = "distm_euc", covar_FUN = "covar_exp", start = list(range = 0.1),
+                  index = sub)
+cor_pow <- fitCor(res, map, distm_FUN = "distm_euc", covar_FUN = "covar_exppow",
+                  start = list(range = 0.1, shape = 1), index = sub)
+fitcor <- list(resids = cm(res[sub, ]), exponential = unname(cor_exp$spcor),
+               exponential_power = unname(cor_pow$spcor), max_distance = cor_exp$max.distance)
+
+map$class <- factor(sample(c("a", "b", "c"), npix, replace = TRUE))
+map$cov <- rnorm(npix)
+map$y <- 0.002 + c(a = 0, b = 0.001, c = -0.0005)[as.character(map$class)] + 0.0004 * map$cov +
+  0.001 * field()
+pm <- sample_partitions(npix = npix, partsize = 200, npart = 10)
+part_case <- function(name, form, nugget, chisqr) {
+  # progressbar = FALSE fails in 1.0.4 ('pb' not found): the bar is drawn and dropped
+  invisible(capture.output(f <- suppressWarnings(fitGLS_partition(
+    form, partmat = pm, data = map, covar_FUN = "covar_exp", covar.pars = c(range = 0.1),
+    distm_FUN = "distm_euc", nugget = nugget, ncross = 6, do.chisqr.test = chisqr))))
+  X <- model.matrix(form, map)
+  list(name = name, nugget = nugget, x = lapply(seq_len(ncol(X)), function(j) unname(X[, j])),
+       coefficients = cm(f$part$coefficients), se = cm(f$part$SEs), nuggets = f$part$nuggets,
+       f = unname(f$part$modstats[, "Fstats"]), rcoefs = cm(f$cross$rcoefs), rssrs = f$cross$rSSRs,
+       rsses = f$cross$rSSEs, overall = list(
+         coefficients = unname(f$overall$coefficients), rcoefficients = cm(f$overall$rcoefficients),
+         rssr = f$overall$rSSR, rsse = f$overall$rSSE, f = f$overall$Fstat, dfs = unname(f$overall$dfs),
+         t = cm(unname(f$overall$t.test)), covar = cm(unname(f$overall$covar_coef)),
+         p_chisqr = if (chisqr) as.numeric(f$overall$pval.chisqr) else NULL))
+}
+parts <- list(
+  part_case("classes_nugget0", y ~ 0 + class, 0, TRUE),
+  part_case("mean_nugget0", y ~ 1, 0, FALSE),
+  part_case("covariate_nuggetML", y ~ cov, NA, TRUE))
+chisqr_cases <- lapply(list(c(1.3, 0.004, 2, 10), c(2.5, 0.02, 1, 30), c(0.8, 0.0, 3, 5),
+                            c(1.1, 0.4, 2, 8)), function(a) {
+  list(fmean = a[1], rssr = a[2], df1 = a[3], npart = a[4],
+       p = as.numeric(remotePARTS:::part_chisqr(a[1], a[2], a[3], a[4])))
+})
+write(toJSON(list(remoteparts = as.character(packageVersion("remotePARTS")), lng = map$lng, lat = map$lat,
+                  y = map$y, partitions = as.integer(pm) - 1L, partsize = nrow(pm), fitcor = fitcor,
+                  parts = parts, chisqr = chisqr_cases),
+             digits = NA, auto_unbox = TRUE, na = "null"),
+      file.path(out_dir, "remoteparts_parts.json"))
+cat("parts:", length(parts), "cases\n")

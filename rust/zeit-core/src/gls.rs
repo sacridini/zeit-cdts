@@ -4,11 +4,12 @@
 //! nugget) V + nugget I), and the F test of X against a null design X0.
 //!
 //! remotePARTS finds the maximum-likelihood nugget with a Cholesky factor of
-//! the n x n covariance at each step of its optimizer. Here V is reduced once
-//! to a tridiagonal T = Q'VQ (Householder), in which (1 - nugget) V + nugget I
-//! is (1 - nugget) T + nugget I: each step is then O(n). With a given nugget,
-//! one Cholesky factor. Both give the cross-products [X X0 y]' V^-1 [X X0 y],
-//! from which every statistic follows.
+//! the n x n covariance at each step of its optimizer. A fit alone here
+//! reduces V once to a tridiagonal T = Q'VQ (Householder), in which (1 -
+//! nugget) V + nugget I is (1 - nugget) T + nugget I: each step is then O(n).
+//! PARTS, which fits many partitions at once, keeps remotePARTS's steps (see
+//! MlBy). With a given nugget, one Cholesky factor. All give the cross-products
+//! [X X0 y]' V^-1 [X X0 y], from which every statistic follows.
 
 use faer::dyn_stack::{MemBuffer, MemStack, StackReq};
 use faer::linalg::cholesky::llt::factor::{cholesky_in_place, cholesky_in_place_scratch};
@@ -18,7 +19,7 @@ use faer::linalg::householder::{
     apply_block_householder_sequence_transpose_on_the_left_in_place_with_conj,
 };
 use faer::linalg::triangular_solve::solve_lower_triangular_in_place;
-use faer::{Conj, Mat, Par};
+use faer::{Conj, Mat, MatRef, Par};
 
 use crate::dist::{f_upper, t_two_sided};
 use crate::optimize::fmin_netlib;
@@ -93,40 +94,11 @@ pub fn fit(
     assert_eq!(x.len(), n * p, "x must be n x p");
     assert_eq!(x0.len(), n * p0, "x0 must be n x p0");
     assert_eq!(y.len(), n, "y must have n values");
-    if p == 0 || n <= p {
-        return None;
-    }
+    let v = MatRef::from_column_major_slice(v, n, n);
+    let mut work = Mat::zeros(n, n);
     let threads = parallel::threads(n_jobs);
-    let run = |par: Par| {
-        let k = p + p0 + 1;
-        let z = Mat::from_fn(n, k, |i, j| {
-            if j < p {
-                x[j * n + i]
-            } else if j < p + p0 {
-                x0[(j - p) * n + i]
-            } else {
-                y[i]
-            }
-        });
-        let (gram, logdet, nugget) = match nugget {
-            Nugget::Fixed(nugget) => {
-                let (g, logdet) = cholesky_gram(v, n, nugget, z, par)?;
-                (g, logdet, nugget)
-            }
-            Nugget::Ml => {
-                let tri = Tridiagonal::new(v, n, &z, par);
-                let nugget = tri.ml_nugget(p, k);
-                let all: Vec<usize> = (0..k).collect();
-                let mut g = vec![0.0; k * k];
-                let logdet = tri.gram(nugget, &all, &mut g);
-                if logdet.is_nan() {
-                    return None;
-                }
-                (g, logdet, nugget)
-            }
-        };
-        statistics(&gram, k, logdet, n, p, p0, nugget)
-    };
+    let mut run =
+        |par: Par| fit_with(v, x, p, x0, p0, y, nugget, MlBy::Tridiagonal, false, &mut work, par).map(|(f, _)| f);
     if threads == 1 {
         run(Par::Seq)
     } else {
@@ -134,37 +106,133 @@ pub fn fit(
     }
 }
 
-/// The lower triangle of (1 - nugget) V + nugget I.
-fn covariance(v: &[f64], n: usize, nugget: f64) -> Mat<f64> {
-    Mat::from_fn(n, n, |i, j| {
-        if i < j {
-            0.0
-        } else if i == j {
-            (1.0 - nugget) * v[j * n + i] + nugget
+/// The Cholesky factor L of (1 - nugget) V + nugget I and the designs under
+/// it, L^-1 X and L^-1 X0 (remotePARTS's invcholV, xx and xx0): what the
+/// statistics between partitions of PARTS take.
+pub struct Whitened {
+    pub l: Mat<f64>,
+    pub xx: Mat<f64>,
+    pub xx0: Mat<f64>,
+}
+
+/// How the maximum-likelihood nugget is searched.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum MlBy {
+    /// V reduced once to a tridiagonal, then O(n) a step: the fastest for a
+    /// fit alone, but bound by memory (the reduction runs over the matrix n / 2
+    /// times), so that fits at once on several threads do not gain from them.
+    Tridiagonal,
+    /// A Cholesky factor a step, as remotePARTS: bound by arithmetic, the
+    /// fastest for many fits at once.
+    Cholesky,
+}
+
+/// `fit` on `par`'s threads with `work` (n x n) for the factors, and with
+/// `whiten` the factor and designs at the nugget of the fit.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn fit_with(
+    v: MatRef<f64>,
+    x: &[f64],
+    p: usize,
+    x0: &[f64],
+    p0: usize,
+    y: &[f64],
+    nugget: Nugget,
+    ml_by: MlBy,
+    whiten: bool,
+    work: &mut Mat<f64>,
+    par: Par,
+) -> Option<(GlsFit, Option<Whitened>)> {
+    let n = v.nrows();
+    if p == 0 || n <= p {
+        return None;
+    }
+    let k = p + p0 + 1;
+    let z = Mat::from_fn(n, k, |i, j| {
+        if j < p {
+            x[j * n + i]
+        } else if j < p + p0 {
+            x0[(j - p) * n + i]
         } else {
-            (1.0 - nugget) * v[j * n + i]
+            y[i]
         }
-    })
+    });
+    let (nugget, tri) = match nugget {
+        Nugget::Fixed(nugget) => (nugget, None),
+        Nugget::Ml => match ml_by {
+            MlBy::Tridiagonal => {
+                let tri = Tridiagonal::new(v, &z, work, par);
+                (tri.ml_nugget(p, k), Some(tri))
+            }
+            MlBy::Cholesky => (ml_nugget_cholesky(v, &z, p, work, par), None),
+        },
+    };
+    let (gram, logdet, white) = match tri {
+        // the statistics from the tridiagonal; the factor only when it is asked for
+        Some(tri) if !whiten => {
+            let all: Vec<usize> = (0..k).collect();
+            let mut g = vec![0.0; k * k];
+            let logdet = tri.gram(nugget, &all, &mut g);
+            if logdet.is_nan() {
+                return None;
+            }
+            (g, logdet, None)
+        }
+        _ => {
+            let (g, logdet, w) = cholesky_gram(v, nugget, z, work, par)?;
+            let white = whiten.then(|| Whitened {
+                l: work.clone(),
+                xx: w.subcols(0, p).to_owned(),
+                xx0: w.subcols(p, p0).to_owned(),
+            });
+            (g, logdet, white)
+        }
+    };
+    Some((statistics(&gram, k, logdet, n, p, p0, nugget)?, white))
+}
+
+/// (1 - nugget) V + nugget I into the lower triangle of `work`, zeros above.
+fn fill_covariance(work: &mut Mat<f64>, v: MatRef<f64>, nugget: f64) {
+    let n = v.nrows();
+    for j in 0..n {
+        for i in 0..n {
+            work[(i, j)] = if i < j {
+                0.0
+            } else if i == j {
+                (1.0 - nugget) * v[(i, j)] + nugget
+            } else {
+                (1.0 - nugget) * v[(i, j)]
+            };
+        }
+    }
 }
 
 /// The cross-products of the columns of `z` under the covariance's Cholesky
-/// factor L (L^-1 z)'(L^-1 z) (k x k, by column), and its log determinant.
-fn cholesky_gram(v: &[f64], n: usize, nugget: f64, mut z: Mat<f64>, par: Par) -> Option<(Vec<f64>, f64)> {
-    let mut a = covariance(v, n, nugget);
+/// factor L, (L^-1 z)'(L^-1 z) (k x k, by column), its log determinant, and
+/// L^-1 z; L is left in `work`.
+fn cholesky_gram(
+    v: MatRef<f64>,
+    nugget: f64,
+    mut z: Mat<f64>,
+    work: &mut Mat<f64>,
+    par: Par,
+) -> Option<(Vec<f64>, f64, Mat<f64>)> {
+    let n = v.nrows();
+    fill_covariance(work, v, nugget);
     let mut mem = MemBuffer::new(cholesky_in_place_scratch::<f64>(n, par, Default::default()));
     cholesky_in_place(
-        a.as_mut(),
+        work.as_mut(),
         Default::default(),
         par,
         MemStack::new(&mut mem),
         Default::default(),
     )
     .ok()?;
-    let logdet = 2.0 * (0..n).map(|i| a[(i, i)].ln()).sum::<f64>();
-    solve_lower_triangular_in_place(a.as_ref(), z.as_mut(), par);
+    let logdet = 2.0 * (0..n).map(|i| work[(i, i)].ln()).sum::<f64>();
+    solve_lower_triangular_in_place(work.as_ref(), z.as_mut(), par);
     let k = z.ncols();
     let g = z.transpose() * &z;
-    Some(((0..k * k).map(|e| g[(e % k, e / k)]).collect(), logdet))
+    Some(((0..k * k).map(|e| g[(e % k, e / k)]).collect(), logdet, z))
 }
 
 /// V = Q T Q' with T tridiagonal, and Q'z by row.
@@ -178,9 +246,10 @@ struct Tridiagonal {
 }
 
 impl Tridiagonal {
-    fn new(v: &[f64], n: usize, z: &Mat<f64>, par: Par) -> Tridiagonal {
-        let k = z.ncols();
-        let mut a = covariance(v, n, 0.0);
+    /// The reduction, in `work`.
+    fn new(v: MatRef<f64>, z: &Mat<f64>, work: &mut Mat<f64>, par: Par) -> Tridiagonal {
+        let (n, k) = (v.nrows(), z.ncols());
+        fill_covariance(work, v, 0.0);
         let mut z = z.clone();
         if n > 1 {
             let bs = faer::linalg::qr::no_pivoting::factor::recommended_block_size::<f64>(n, n);
@@ -189,9 +258,15 @@ impl Tridiagonal {
                 tridiag_in_place_scratch::<f64>(n, par, Default::default()),
                 apply_block_householder_sequence_transpose_on_the_left_in_place_scratch::<f64>(n - 1, bs, k),
             ]));
-            tridiag_in_place(a.as_mut(), h.as_mut(), par, MemStack::new(&mut mem), Default::default());
+            tridiag_in_place(
+                work.as_mut(),
+                h.as_mut(),
+                par,
+                MemStack::new(&mut mem),
+                Default::default(),
+            );
             apply_block_householder_sequence_transpose_on_the_left_in_place_with_conj(
-                a.as_ref().submatrix(1, 0, n - 1, n - 1),
+                work.as_ref().submatrix(1, 0, n - 1, n - 1),
                 h.as_ref(),
                 Conj::No,
                 z.as_mut().subrows_mut(1, n - 1),
@@ -202,8 +277,8 @@ impl Tridiagonal {
         Tridiagonal {
             n,
             k,
-            diag: (0..n).map(|i| a[(i, i)]).collect(),
-            off: (1..n).map(|i| a[(i, i - 1)]).collect(),
+            diag: (0..n).map(|i| work[(i, i)]).collect(),
+            off: (1..n).map(|i| work[(i, i - 1)]).collect(),
             qz: (0..n * k).map(|e| z[(e / k, e % k)]).collect(),
         }
     }
@@ -258,27 +333,49 @@ impl Tridiagonal {
     /// likelihood of the regression on the first `p` columns of z (y the last
     /// of `k`), its lower bound where the optimum is within the tolerance of it.
     fn ml_nugget(&self, p: usize, k: usize) -> f64 {
-        let (lower, upper) = (0.001, 0.999);
-        let tol = f64::EPSILON.sqrt().sqrt();
         let cols: Vec<usize> = (0..p).chain([k - 1]).collect();
-        let n = self.n as f64;
         let mut g = vec![0.0; cols.len() * cols.len()];
-        let minus_loglik = |nugget: f64| {
+        optimize_nugget(self.n, p, |nugget| {
             let logdet = self.gram(nugget, &cols, &mut g);
-            match regress(&g, cols.len(), p) {
-                Some((_, _, sse)) if !logdet.is_nan() => {
-                    0.5 * (n * (2.0 * std::f64::consts::PI).ln() + n * (sse / n).ln() + logdet + n)
-                }
-                _ => f64::MAX,
-            }
-        };
-        let x = fmin_netlib(lower, upper, minus_loglik, tol);
-        if lower + tol >= x {
-            lower
-        } else {
-            x
-        }
+            (logdet, g.clone())
+        })
     }
+}
+
+/// remotePARTS's optimize_nugget: the nugget on [0.001, 0.999] that minimizes
+/// -logLik of the regression of y on X, from `gram(nugget)`: the log
+/// determinant of the covariance and the cross-products of [X y] under it
+/// ((p + 1)^2). Its lower bound where the optimum is within the tolerance of it.
+fn optimize_nugget(n: usize, p: usize, mut gram: impl FnMut(f64) -> (f64, Vec<f64>)) -> f64 {
+    let (lower, upper) = (0.001, 0.999);
+    let tol = f64::EPSILON.sqrt().sqrt();
+    let n = n as f64;
+    let minus_loglik = |nugget: f64| {
+        let (logdet, g) = gram(nugget);
+        match regress(&g, p + 1, p) {
+            Some((_, _, sse)) if !logdet.is_nan() => {
+                0.5 * (n * (2.0 * std::f64::consts::PI).ln() + n * (sse / n).ln() + logdet + n)
+            }
+            _ => f64::MAX,
+        }
+    };
+    let x = fmin_netlib(lower, upper, minus_loglik, tol);
+    if lower + tol >= x {
+        lower
+    } else {
+        x
+    }
+}
+
+/// optimize_nugget with a Cholesky factor of the covariance at each step, as
+/// remotePARTS.
+fn ml_nugget_cholesky(v: MatRef<f64>, z: &Mat<f64>, p: usize, work: &mut Mat<f64>, par: Par) -> f64 {
+    let (n, k) = (v.nrows(), z.ncols());
+    let zxy = Mat::from_fn(n, p + 1, |i, j| if j < p { z[(i, j)] } else { z[(i, k - 1)] });
+    optimize_nugget(n, p, |nugget| match cholesky_gram(v, nugget, zxy.clone(), work, par) {
+        Some((g, logdet, _)) => (logdet, g),
+        None => (f64::NAN, vec![f64::NAN; (p + 1) * (p + 1)]),
+    })
 }
 
 /// The least squares of the last column of the Gram matrix `g` (m x m, by
@@ -422,7 +519,8 @@ mod tests {
             2 => 1.0,
             _ => y[i],
         });
-        let tri = Tridiagonal::new(&v, n, &z, Par::Seq);
+        let mut work = Mat::zeros(n, n);
+        let tri = Tridiagonal::new(MatRef::from_column_major_slice(&v, n, n), &z, &mut work, Par::Seq);
         let mut g = vec![0.0; 16];
         let logdet = tri.gram(0.3, &[0, 1, 2, 3], &mut g);
         let b = statistics(&g, 4, logdet, n, 2, 1, 0.3).unwrap();

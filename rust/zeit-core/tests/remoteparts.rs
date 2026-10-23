@@ -4,6 +4,8 @@
 use serde_json::Value;
 use zeit_core::ar_reml::{self, Gaps};
 use zeit_core::gls::{self, Nugget};
+use zeit_core::parts;
+use zeit_core::spatial::{self, Correlation};
 
 fn fixture(name: &str) -> Value {
     let path = format!("{}/tests/data/{name}", env!("CARGO_MANIFEST_DIR"));
@@ -154,4 +156,174 @@ fn ar_reml_matches_fit_ar() {
         }
     }
     println!("{worst:?}");
+}
+
+/// A column-major R matrix or array written by the fixture's cm().
+struct Cm {
+    dim: Vec<usize>,
+    values: Vec<f64>,
+}
+
+fn cm(v: &Value) -> Cm {
+    Cm {
+        dim: numbers(&v["dim"]).iter().map(|&d| d as usize).collect(),
+        values: numbers(&v["values"]),
+    }
+}
+
+impl Cm {
+    fn at(&self, idx: &[usize]) -> f64 {
+        let (mut k, mut stride) = (0, 1);
+        for (i, d) in idx.iter().zip(&self.dim) {
+            k += i * stride;
+            stride *= d;
+        }
+        self.values[k]
+    }
+}
+
+#[test]
+fn fit_cor_matches() {
+    let data = fixture("remoteparts_parts.json");
+    let fc = &data["fitcor"];
+    let res = cm(&fc["resids"]);
+    let (n, nt) = (res.dim[0], res.dim[1]);
+    let resids: Vec<f64> = (0..n * nt).map(|e| res.at(&[e / nt, e % nt])).collect();
+    let (lng, lat) = (numbers(&data["lng"]), numbers(&data["lat"]));
+    let (x, y) = (&lng[..n], &lat[..n]);
+    let f = spatial::fit_correlation(&resids, nt, x, y, Correlation::Exponential { range: 0.1 }, true, -1).unwrap();
+    let Correlation::Exponential { range } = f.cor else {
+        panic!()
+    };
+    let want = number(&fc["exponential"]);
+    // nls stops at a relative offset of 1e-5; here the least squares converge further
+    assert!(rel(range, want) < 1e-5, "range {range} vs R {want}");
+    let start = Correlation::ExponentialPower { range: 0.1, shape: 1.0 };
+    let f = spatial::fit_correlation(&resids, nt, x, y, start, true, -1).unwrap();
+    let Correlation::ExponentialPower { range, shape } = f.cor else {
+        panic!()
+    };
+    let want = numbers(&fc["exponential_power"]);
+    assert!(
+        rel(range, want[0]) < 1e-5 && rel(shape, want[1]) < 1e-5,
+        "{range} {shape} vs R {want:?}"
+    );
+}
+
+#[test]
+fn part_chisqr_matches() {
+    for c in fixture("remoteparts_parts.json")["chisqr"].as_array().unwrap() {
+        let (fmean, rssr) = (number(&c["fmean"]), number(&c["rssr"]));
+        let (df1, npart) = (number(&c["df1"]) as usize, number(&c["npart"]) as usize);
+        let (p, _) = parts::chisqr(fmean, rssr, df1, npart);
+        // CompQuadForm's imhof integrates to 1e-6
+        let want = number(&c["p"]);
+        assert!((p - want).abs() < 1e-6, "{fmean} {rssr} {df1} {npart}: {p} vs R {want}");
+    }
+}
+
+#[test]
+fn fit_gls_partition_matches() {
+    let data = fixture("remoteparts_parts.json");
+    let (lng, lat, resp) = (numbers(&data["lng"]), numbers(&data["lat"]), numbers(&data["y"]));
+    let npix = lng.len();
+    let partitions: Vec<usize> = numbers(&data["partitions"]).iter().map(|&i| i as usize).collect();
+    let partsize = number(&data["partsize"]) as usize;
+    for case in data["parts"].as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        let cols: Vec<Vec<f64>> = case["x"].as_array().unwrap().iter().map(numbers).collect();
+        let p = cols.len();
+        let design = cols.concat();
+        let ones = vec![1.0; npix];
+        let input = parts::Data {
+            x: &lng,
+            y: &lat,
+            response: &resp,
+            design: &design,
+            p,
+            design0: &ones,
+            p0: 1,
+        };
+        let ml = case["nugget"].is_null();
+        let opts = parts::Options {
+            cor: Correlation::Exponential { range: 0.1 },
+            scaled: true,
+            nugget: if ml {
+                Nugget::Ml
+            } else {
+                Nugget::Fixed(number(&case["nugget"]))
+            },
+            ncross: 6,
+            n_jobs: -1,
+        };
+        let f = parts::fit(&input, &partitions, partsize, &opts).unwrap();
+        let close = |what: &str, a: f64, b: f64, tol: f64| {
+            let d = (a - b).abs() / b.abs().max(1e-300);
+            assert!(d < tol, "{name}: {what} {a} vs R {b} ({d:e})");
+        };
+        let (coef, se) = (cm(&case["coefficients"]), cm(&case["se"]));
+        let nuggets = numbers(&case["nuggets"]);
+        let fs = numbers(&case["f"]);
+        for (k, part) in f.parts.iter().enumerate() {
+            for c in 0..p {
+                let d = (part.coefficients[c] - coef.at(&[k, c])).abs() / se.at(&[k, c]);
+                assert!(d < 1e-8, "{name}: partition {k} coefficient {c} differs by {d:e} SE");
+                close("se", part.se[c], se.at(&[k, c]), 1e-8);
+            }
+            assert!((part.nugget - nuggets[k]).abs() < 1e-8, "{name}: nugget of {k}");
+            if let Some(null) = &part.null {
+                close("F", null.f, fs[k], 1e-8);
+            }
+        }
+        // remotePARTS crosses the partitions after the first without their nugget: with an ML
+        // nugget only the pairs of the first partition are the same
+        let (rcoefs, rssrs, rsses) = (cm(&case["rcoefs"]), numbers(&case["rssrs"]), numbers(&case["rsses"]));
+        for (k, c) in f.cross.iter().enumerate() {
+            if ml && c.i != 0 {
+                continue;
+            }
+            for a in 0..p {
+                for b in 0..p {
+                    let (got, want) = (c.rcoef[b * p + a], rcoefs.at(&[k, a, b]));
+                    assert!(
+                        (got - want).abs() < 1e-8,
+                        "{name}: rcoef {k} [{a}, {b}] {got} vs R {want}"
+                    );
+                }
+            }
+            if p > 1 {
+                close("rSSR", c.rssr, rssrs[k], 1e-7);
+            }
+            close("rSSE", c.rsse, rsses[k], 1e-7);
+        }
+        let o = &case["overall"];
+        let oc = numbers(&o["coefficients"]);
+        for (got, want) in f.coefficients.iter().zip(&oc) {
+            close("overall coefficient", *got, *want, 1e-8);
+        }
+        let dfs = numbers(&o["dfs"]);
+        assert_eq!([f.df1 as f64, f.df2 as f64].to_vec(), dfs, "{name}");
+        if ml {
+            continue;
+        }
+        if p > 1 {
+            close("F mean", f.f, number(&o["f"]), 1e-8);
+            close("rSSR mean", f.rssr, number(&o["rssr"]), 1e-7);
+        }
+        close("rSSE mean", f.rsse, number(&o["rsse"]), 1e-7);
+        let (t, covar) = (cm(&o["t"]), cm(&o["covar"]));
+        for c in 0..p {
+            close("t-test SE", f.t_test.se[c], t.at(&[c, 1]), 1e-7);
+            close("t-test t", f.t_test.t[c].abs(), t.at(&[c, 2]).abs(), 1e-7);
+            close("t-test p", f.t_test.p[c], t.at(&[c, 3]), 1e-6);
+            for d in 0..p {
+                close("covar", f.t_test.covar[d * p + c], covar.at(&[c, d]), 1e-7);
+            }
+        }
+        match (f.p_chisqr, o.get("p_chisqr").and_then(Value::as_f64)) {
+            (Some(a), Some(b)) => assert!((a - b).abs() < 1e-6, "{name}: chisqr {a} vs R {b}"),
+            (None, None) => {}
+            other => panic!("{name}: chisqr {other:?}"),
+        }
+    }
 }

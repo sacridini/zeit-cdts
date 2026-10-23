@@ -36,10 +36,12 @@ CVPR 2017). The authors' reference code is not included; the test suite only
 stores outputs of it (`tests/data/snic_reference_parity.npz`) to check that
 Zeit gives the same labels.
 
-The remotePARTS methods (`rust/zeit-core/src/ar_reml.rs`, `gls.rs`) are
-implemented from the paper (Ives et al., Remote Sensing of Environment 266,
-112678, 2021) and the statistics it defines; the AR(1) fit and the nugget are
-computed by other algorithms than the R package's. The package's code
+The remotePARTS methods (`rust/zeit-core/src/ar_reml.rs`, `gls.rs`,
+`spatial.rs`, `parts.rs`) are implemented from the paper (Ives et al., Remote
+Sensing of Environment 266, 112678, 2021) and the statistics it defines; the
+AR(1) fit, the nugget of a fit alone and the statistics between partitions
+are computed by other algorithms than the R package's. The p-value of the
+correlated chi-square test integrates Imhof's (1961) formula. The package's code
 (GPL-3.0-or-later, which could not be part of the GPL-2.0 `zeit._core`) is not
 included; the test suite only stores outputs of it
 (`rust/zeit-core/tests/data/remoteparts_*.json`, made by
