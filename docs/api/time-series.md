@@ -63,6 +63,102 @@ mk16 = zeit.mann_kendall(ndvi_16d, method="seasonal", period=23)
 zeit.mann_kendall([0.41, 0.44, 0.39, 0.47, 0.52, 0.49, 0.55, 0.58, 0.61, 0.60]).slope.item()
 ```
 
+### `ar_trend` { .api #ar_trend }
+
+<!-- sig: zeit.ar_trend -->
+```python
+zeit.ar_trend(
+    data, time="step", harmonics=0, period=None, gaps="exact",
+    min_valid=0, dates=None, band=None, nodata="auto", chunks=None,
+    n_jobs=-1,
+)
+```
+
+Linear trend with AR(1) errors, fitted by REML, for every pixel: remotePARTS's `fitAR` (Ives et al. 2021, *Remote Sensing of Environment* 266, 112678), on the Rust core. The series is `intercept + slope * t` (plus harmonics, for sub-annual data) and its errors follow an AR(1) process whose coefficient `rho` is estimated with the trend, so the t-test of the slope accounts for the autocorrelation of the series. A parametric alternative to [`mann_kendall`](#mann_kendall), and the per-pixel step of [`parts`](#parts). Same inputs and outputs as `mann_kendall`.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `data` | path, `DataArray`, `Dataset`, `ndarray`, list or `pd.Series` | required | The series, as for [`mann_kendall`](#mann_kendall). |
+| `time` | `str` | `"step"` | `"step"`: `t = 1, 2, ...` as remotePARTS (slope per time step); `"year"`: decimal years of the dates (slope per year). |
+| `harmonics` | `int` | `0` | Pairs of harmonics (cos, sin) of the seasonal cycle in the design. |
+| `period` | `float` | `None` | Observations per cycle of the harmonics, for `time="step"`; from the dates when not given. |
+| `gaps` | `str` | `"exact"` | `"exact"`: observations `k` dates apart are correlated by `rho**k`; `"ignore"`: the valid observations are taken as consecutive, as remotePARTS's `fitAR`. |
+| `min_valid` | `int` | `0` | Pixels with fewer valid values are NaN (at least the design's columns + 2). |
+| `dates` | list | `None` | Date of each time step (needed for `time="year"`). |
+| `band` | `str` or `int` | `None` | The index to use in a `(time, band, y, x)` cube or a `Dataset`. |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | Value marking a missing observation besides NaN. |
+| `chunks` | `"auto"`, `dict` | `None` | Inputs read from disk: `None` reads into memory; `"auto"` or a dict keeps them lazy. |
+| `n_jobs` | `int` | `-1` | Threads. `-1` uses all cores but one. |
+
+</div>
+
+**Returns** an `xarray.Dataset` of `(y, x)` float32 maps: for each coefficient (`intercept`, `slope`, `cos1`, `sin1`, ...) its value and `_se`, `_t`, `_p` (two-sided); `rho`, `mse` (the variance of the innovations) and `loglik`.
+
+```python
+ar = zeit.ar_trend(annual)                        # slope per year for annual composites
+greening = (ar.slope > 0) & (ar.slope_p < 0.05)
+ar16 = zeit.ar_trend(ndvi_16d, time="year", harmonics=2)   # 16-day data, slope per year
+```
+
+### `parts` { .api #parts }
+
+<!-- sig: zeit.parts -->
+```python
+zeit.parts(
+    data, trend=None, response="slope", classes=None, covariates=None,
+    mask=None, partsize=1500, npart=None, ncross=6, nugget="ml",
+    correlation="exponential", range=None, shape=None, fit_n=1000,
+    scaled=False, seed=0, time="step", harmonics=0, period=None,
+    gaps="exact", dates=None, band=None, nodata="auto", n_jobs=-1,
+)
+```
+
+The regional test of the pixels' trends by PARTS (remotePARTS's `fitGLS_partition`, Ives et al. 2021). Counting the pixels with a significant trend says little about a region: neighbouring pixels are correlated, and thousands of tests are run at once. PARTS answers the regional questions with valid p-values: does the mean trend of the region differ from 0, do the trends differ between land-cover classes, do they depend on a covariate. It fits each pixel's trend ([`ar_trend`](#ar_trend)), fits the spatial correlation of the pixels to the correlations of their residual series (`fitCor`), and then a GLS of the trends on the design in random partitions of the pixels, combined into a t-test of each coefficient and a chi-square test of the design, both corrected for the correlation between partitions.
+
+Distances are in the cube's units: give a cube in projected coordinates. The results match remotePARTS's to 1e-10 for a given nugget; remotePARTS 1.0.4 crosses the partitions after the first without their nugget, which Zeit does not.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `data` | path, `DataArray`, `Dataset` or `ndarray` | required | A `(time, y, x)` cube, in projected coordinates. |
+| `trend` | `Dataset` | `None` | An [`ar_trend`](#ar_trend) result to test instead of fitting it. |
+| `response` | `str` | `"slope"` | The variable of the trend tested. |
+| `classes` | `(y, x)` layer | `None` | Classes (land cover, ...): a mean trend per class, and the chi-square test that they differ. |
+| `covariates` | `dict` | `None` | `{name: (y, x) layer}`: their effects on the trend (with a mean), and the chi-square test of them. |
+| `mask` | `(y, x)` layer | `None` | The pixels tested (a region of interest). |
+| `partsize` | `int` | `1500` | Pixels per partition (remotePARTS uses 1500 to 3000). |
+| `npart` | `int` | `None` | Partitions; all the pixels by default. A few hundred are often enough: the correlation between partitions bounds what more of them gain. |
+| `ncross` | `int` | `6` | Partitions crossed to measure the correlation between partitions. |
+| `nugget` | `"ml"` or `float` | `"ml"` | Each partition's maximum-likelihood nugget, or a given one. |
+| `correlation` | `str` | `"exponential"` | `"exponential"`, `exp(-d / range)`, or `"exponential_power"`, `exp(-(d / range) ** shape)`. |
+| `range` | `float` | `None` | The correlation's range when known; fitted to the residuals when `None`. |
+| `shape` | `float` | `None` | The shape of `"exponential_power"`, when known. |
+| `fit_n` | `int` | `1000` | Pixels sampled to fit the correlation. |
+| `scaled` | `bool` | `False` | Distances divided by their largest in each matrix (remotePARTS's default `distm_scaled`), or in the cube's units. |
+| `seed` | `int` | `0` | Seed of the samples and partitions. |
+| `time` | `str` | `"step"` | As for [`ar_trend`](#ar_trend). |
+| `harmonics` | `int` | `0` | As for [`ar_trend`](#ar_trend). |
+| `period` | `float` | `None` | As for [`ar_trend`](#ar_trend). |
+| `gaps` | `str` | `"exact"` | As for [`ar_trend`](#ar_trend). |
+| `dates` | list | `None` | Date of each time step. |
+| `band` | `str` or `int` | `None` | The index to use in a `(time, band, y, x)` cube or a `Dataset`. |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | Value marking a missing observation besides NaN. |
+| `n_jobs` | `int` | `-1` | Threads. `-1` uses all cores but one. |
+
+</div>
+
+**Returns** a `PartsResult`: `table` (a `DataFrame` of the coefficients: `estimate`, `se`, `t`, `p`), `p_chisqr` (the chi-square test of the design against a single mean, `None` without classes or covariates; remotePARTS floors it at 1e-6), `f`, `df1`, `df2`, `correlation` (the function and its parameters), `nuggets`, `partitions` (each partition's coefficients and nugget), `npart`, `partsize`, `n_pixels`.
+
+```python
+res = zeit.parts(annual, classes=landcover, partsize=1500, npart=200)
+print(res)                       # the mean trend of each class, and whether they differ
+res.table.loc["class 3", "p"]
+zeit.parts(annual, mask=roi)     # does the region's mean trend differ from 0?
+```
+
 ## Phenology
 
 ### `phenology` { .api #phenology }

@@ -34,6 +34,7 @@ Built on a compiled core written in Rust (parallel across all cores, outside the
   - **Phenology Extraction**: 19 simultaneous phenological metrics from optimized curve-fitting models (Beck, Elmore, Gu, Zhang, Asymmetric Gaussian, Double Logistic), with QA-based per-observation weighting.
   - **CODED**: forest degradation and deforestation from the NDFI of a spectral unmixing (`unmix`, Souza et al. 2005) of every Landsat observation.
   - **Mann-Kendall / Theil-Sen**: Pixel-wise non-parametric trend test and slope estimation for detecting statistically significant greening/browning trends.
+  - **remotePARTS (AR(1) trends and PARTS)**: Pixel-wise trends with AR(1) errors, and the regional test of them (is the mean trend of a region, or of each land-cover class, different from 0? do covariates explain it?) that accounts for the spatial correlation of the pixels, after Ives et al. (2021); 20 to 100 times faster than the R package.
   - **SNIC Segmentation**: Superpixel segmentation of images and whole time series cubes (one segment = similar trajectories), matching the original SNIC's labels pixel for pixel, with tile-parallel processing for large scenes.
 - **Validation:** `sampling_design`, `stratified_sample` and `accuracy` follow the good practices of Olofsson et al. (2014): a stratified random sample of any map, then its accuracies and error-adjusted areas with confidence intervals (checked against the paper's example and R's `sits`). `interpret` labels the sample by eye, point after point, with yearly image chips, the pixel's series, the keyboard, and a review of the error matrix.
 - **Foundation-model embeddings:** `load_embeddings` reads the yearly embeddings of TESSERA (128 dimensions) and Google's AlphaEarth Foundations (64) at 10 m as a `(time, band, y, x)` cube, on the products' own grids, lazily. Classify them from few samples, cluster or segment them as any cube; `similarity` finds places like a sample, and `embedding_change` follows each pixel from year to year into the same events as LandTrendr or CCDC. In `zeit.plot` the vectors themselves go to the GPU: hover any pixel to see how much every other one looks like it, pin it to follow it across the years, or see what changed from one year to the next. The cube remembers which embeddings it holds, and a model refuses another product's.
@@ -259,6 +260,16 @@ slope_map = result.slope                      # NDVI change per year
 significant = result.h == 1.0                 # statistically significant at alpha=0.05
 declining = (result.trend == -1) & significant
 zeit.save_raster(result, "output/mann_kendall")   # one GeoTIFF per metric
+```
+
+## Regional Trends (remotePARTS)
+
+`ar_trend` fits each pixel's series to a linear trend with AR(1) errors by REML, and `parts` tests the trends of a whole region with PARTS (Ives et al., 2021, *Remote Sensing of Environment* 266, 112678): the mean trend, the trend of each class, the effect of covariates, with p-values that account for the spatial correlation of the pixels, which counting significant pixels does not. Both are implemented from the paper on the Rust core and checked against the R package [`remotePARTS`](https://github.com/morrowcj/remotePARTS).
+
+```python
+trend = zeit.ar_trend(annual_ndvi)                        # slope, slope_se, slope_p, rho, ... per pixel
+res = zeit.parts(annual_ndvi, trend=trend, classes=landcover)
+print(res)          # mean trend per class (correlated t-test) and whether they differ (chi-square)
 ```
 
 ## Change Monitoring (BFAST Monitor)

@@ -18,6 +18,7 @@ mod ccdc;
 mod coded;
 mod landtrendr;
 mod mannkendall;
+mod parts;
 mod phenology;
 mod sma;
 mod smooth;
@@ -42,6 +43,7 @@ fn add_submodule(parent: &Bound<'_, PyModule>, sub: &Bound<'_, PyModule>) -> PyR
 fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__doc__", "The compiled core of zeit, in Rust")?;
     add_submodule(m, &mannkendall::module(m.py())?)?;
+    add_submodule(m, &parts::module(m.py())?)?;
     add_submodule(m, &twdtw::module(m.py())?)?;
     add_submodule(m, &snic::module(m.py())?)?;
     add_submodule(m, &smooth::module(m.py())?)?;

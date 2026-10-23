@@ -13,6 +13,8 @@
 | `bfast_lite` | `(time, y, x)` | `xr.Dataset` of metrics | [`zeit.bfast_lite`](change-detection.md#bfast_lite) |
 | `bfast` | `(time, y, x)` | `xr.Dataset` of metrics | [`zeit.bfast`](change-detection.md#bfast) |
 | `mann_kendall` | `(time, y, x)` | `xr.Dataset` of metrics | [`zeit.mann_kendall`](time-series.md#mann_kendall) |
+| `ar_trend` | `(time, y, x)` | `xr.Dataset` of metrics | [`zeit.ar_trend`](time-series.md#ar_trend) |
+| `parts` | `(time, y, x)` | `PartsResult` | [`zeit.parts`](time-series.md#parts) |
 | `phenology` | `(time, y, x)` | `xr.Dataset` of metrics, by year or season | [`zeit.phenology`](time-series.md#phenology) |
 | `twdtw` | `(time, y, x)` or `(time, band, y, x)` | `xr.Dataset` of classes and distances | [`zeit.twdtw`](time-series.md#twdtw) |
 | `smooth` | `(time, ...)` | the smoothed `DataArray` | [`zeit.smooth`](preprocessing.md#smooth) |
@@ -106,6 +108,24 @@ Mann-Kendall test and Theil-Sen slope on this `(time, y, x)` cube: the same as [
 mk = annual_ndvi.zeit.mann_kendall(method="hamed_rao")
 slope = mk.slope.where(mk.h == 1)        # significant slopes only
 ```
+
+### `ar_trend` { .api .meth }
+
+<!-- sig: zeit.xarray_api.ZeitAccessor.ar_trend -->
+```python
+DataArray.zeit.ar_trend(**kwargs)
+```
+
+The AR(1) REML trend of each pixel of this `(time, y, x)` cube: the same as [`zeit.ar_trend(cube, **kwargs)`](time-series.md#ar_trend).
+
+### `parts` { .api .meth }
+
+<!-- sig: zeit.xarray_api.ZeitAccessor.parts -->
+```python
+DataArray.zeit.parts(**kwargs)
+```
+
+The regional test of this cube's trends by PARTS: the same as [`zeit.parts(cube, **kwargs)`](time-series.md#parts).
 
 ### `phenology` { .api .meth }
 

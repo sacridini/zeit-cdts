@@ -39,6 +39,20 @@ class ZeitAccessor:
         from zeit._series_api import mann_kendall
         return mann_kendall(self._obj, **kwargs)
 
+    def ar_trend(self, **kwargs: Any) -> xr.Dataset:
+        """
+        Fits the AR(1) REML trend of each pixel of this (time, y, x) cube: the same as ``zeit.ar_trend(cube, ...)``.
+        """
+        from zeit._parts import ar_trend
+        return ar_trend(self._obj, **kwargs)
+
+    def parts(self, **kwargs: Any) -> Any:
+        """
+        Tests this (time, y, x) cube's trends over the region by PARTS: the same as ``zeit.parts(cube, ...)``.
+        """
+        from zeit._parts import parts
+        return parts(self._obj, **kwargs)
+
     def bfast_monitor(self, monitor_start: Any, **kwargs: Any) -> xr.Dataset:
         """
         Runs bfastmonitor on this (time, y, x) cube: the same as ``zeit.bfast_monitor(cube, ...)``.
