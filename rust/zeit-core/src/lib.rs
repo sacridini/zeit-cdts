@@ -8,16 +8,20 @@
 // where `s <= 0.0` would pass it.
 #![allow(clippy::neg_cmp_op_on_partial_ord)]
 
+pub mod ar_reml;
 pub mod bfast;
 pub mod bfast_lite;
 pub mod bfast_monitor;
 pub mod ccdc;
 pub mod cmath;
 pub mod coded;
+pub mod dist;
 pub mod eigen;
+pub mod gls;
 pub mod landtrendr;
 pub mod mann_kendall;
 pub mod medoid;
+pub mod optimize;
 pub mod parallel;
 pub mod phenology;
 pub mod robustfit;

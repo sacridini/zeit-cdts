@@ -18,6 +18,7 @@ distributed under the terms of **GPL version 2**.
 | `rust/zeit-core/src/bfast.rs`, `bfast_monitor.rs`, `bfast_lite.rs` | R package [bfast](https://github.com/bfast2/bfast), Verbesselt et al. | GPL-2.0-or-later |
 | `rust/zeit-core/src/bfast*.rs` (efp/MOSUM process, critical values, breakpoints) | R package [strucchangeRcpp](https://github.com/bfast2/strucchangeRcpp), Zeileis et al. | GPL-2.0 or GPL-3.0 |
 | `rust/zeit-core/src/stl.rs` | R `stats::stl()` (`src/library/stats/src/stl.c`), R Core Team | GPL-2.0 or GPL-3.0 |
+| `rust/zeit-core/src/optimize.rs` (Brent's minimizer, `fmin` and `fmin_netlib`) | R `stats::optimize()` (`src/library/stats/src/optimize.c`, `Brent_fmin`, itself a translation of netlib's `fmin.f`, Forsythe, Malcolm & Moler 1977), R Core Team | GPL-2.0 or GPL-3.0 |
 | `rust/zeit-core/src/mann_kendall.rs` | [pymannkendall](https://github.com/mmhs013/pymannkendall), Hussain & Mahmud (2019) | MIT |
 | `rust/zeit-core/src/phenology.rs`, `phenology/` (methodology) | R package [phenofit](https://github.com/eco-hydro/phenofit), Kong et al. (2022) | GPL-2.0 |
 | `rust/zeit-core/src/eigen.rs`, `eigen/` (QR, LDLT, matrix products, sparse Cholesky with AMD ordering, Levenberg-Marquardt), ported operation by operation so the results are those of zeit 1.x | [Eigen](https://eigen.tuxfamily.org) 3.4 | MPL-2.0 |
@@ -35,6 +36,15 @@ CVPR 2017). The authors' reference code is not included; the test suite only
 stores outputs of it (`tests/data/snic_reference_parity.npz`) to check that
 Zeit gives the same labels.
 
+The remotePARTS methods (`rust/zeit-core/src/ar_reml.rs`, `gls.rs`) are
+implemented from the paper (Ives et al., Remote Sensing of Environment 266,
+112678, 2021) and the statistics it defines; the AR(1) fit and the nugget are
+computed by other algorithms than the R package's. The package's code
+(GPL-3.0-or-later, which could not be part of the GPL-2.0 `zeit._core`) is not
+included; the test suite only stores outputs of it
+(`rust/zeit-core/tests/data/remoteparts_*.json`, made by
+`tests/data/make_remoteparts_fixtures.R`) to check that Zeit gives the same fits.
+
 **LandTrendr-2012**: the original repository does not state a license. Zeit's
 port is a derivative of that code; permission from the authors is being
 sought. Until then, the LandTrendr port's redistribution terms are unresolved.
@@ -51,10 +61,13 @@ used only to build it are left out):
 | [ndarray](https://github.com/rust-ndarray/ndarray), `matrixmultiply`, `rawpointer`, `num-traits`, `num-complex`, `num-integer` | array views (through rust-numpy) | MIT OR Apache-2.0 |
 | [rayon](https://github.com/rayon-rs/rayon) (`rayon`, `rayon-core`, `crossbeam-*`, `either`) | threads | MIT OR Apache-2.0 |
 | [mimalloc](https://github.com/purpleprotocol/mimalloc_rust) (`mimalloc`, `libmimalloc-sys`, with Microsoft's [mimalloc](https://github.com/microsoft/mimalloc) C library) | memory allocator | MIT |
-| `libc`, `once_cell`, `portable-atomic`, `portable-atomic-util`, `rustc-hash` | support | MIT OR Apache-2.0 |
+| [faer](https://codeberg.org/sarah-quinones/faer) (`faer`, `faer-traits`, `gemm`, `gemm-*`, `nano-gemm`, `nano-gemm-*`, `private-gemm-x86`, `pulp`, `dyn-stack`, `reborrow`, `equator`, `qd`, `spindle`) | dense linear algebra of the GLS (Cholesky, tridiagonalization) | MIT; parts derived from Eigen (MPL-2.0), LAPACK and SuiteSparse AMD/COLAMD (BSD-3-Clause, see below) |
+| `raw-cpuid`, `libm` | support (through faer) | MIT |
+| `atomic-wait` | support (through faer) | BSD-2-Clause (see below) |
+| `libc`, `once_cell`, `portable-atomic`, `portable-atomic-util`, `rustc-hash`, `bitflags`, `bytemuck`, `cfg-if`, `generativity`, `num_cpus`, `windows-sys` | support | MIT OR Apache-2.0 (`bytemuck`: or Zlib) |
 
-The parts of Eigen ported to Rust (above) are covered by the Mozilla Public
-License 2.0 (<https://mozilla.org/MPL/2.0/>), which allows distributing them
+The parts of Eigen ported to Rust (above), and those faer derives from Eigen,
+are covered by the Mozilla Public License 2.0 (<https://mozilla.org/MPL/2.0/>), which allows distributing them
 as part of a GPL work.
 
 This product includes software developed by the University of Chicago, as
@@ -96,10 +109,12 @@ NonLinearOptimization module, ported to Rust in
 >    LIABILITY), OR OTHERWISE, EVEN IF ANY OF SAID PARTIES HAS BEEN WARNED OF
 >    THE POSSIBILITY OF SUCH LOSS OR DAMAGES.
 
-## BSD-2-Clause notice (rust-numpy)
+## BSD-2-Clause notices (rust-numpy, atomic-wait)
 
 > Copyright (c) 2017, Toshiki Teramura
 > All rights reserved.
+>
+> Copyright (c) 2022, Mara Bos <m-ou.se@m-ou.se>
 >
 > Redistribution and use in source and binary forms, with or without
 > modification, are permitted provided that the following conditions are met:
@@ -121,6 +136,50 @@ NonLinearOptimization module, ported to Rust in
 > OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 > OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+## BSD-3-Clause notices (LAPACK, SuiteSparse AMD and COLAMD, through faer)
+
+> Copyright (c) 1992-2025 The University of Tennessee and The University of
+> Tennessee Research Foundation. All rights reserved.
+> Copyright (c) 2000-2025 The University of California Berkeley. All rights
+> reserved.
+> Copyright (c) 2006-2025 The University of Colorado Denver. All rights
+> reserved. (LAPACK)
+>
+> AMD, Copyright (c), 1996-2022, Timothy A. Davis, Patrick R. Amestoy, and
+> Iain S. Duff. All Rights Reserved.
+>
+> COLAMD, Copyright 1998-2022, Timothy A. Davis.
+>
+> Redistribution and use in source and binary forms, with or without
+> modification, are permitted provided that the following conditions are met:
+>
+> * Redistributions of source code must retain the above copyright notice, this
+>   list of conditions and the following disclaimer.
+> * Redistributions in binary form must reproduce the above copyright notice,
+>   this list of conditions and the following disclaimer in the documentation
+>   and/or other materials provided with the distribution.
+> * Neither the name of the copyright holders, nor of the organizations to which
+>   the authors are affiliated, nor the names of its contributors may be used to
+>   endorse or promote products derived from this software without specific
+>   prior written permission.
+>
+> The copyright holders provide no reassurances that the source code provided
+> does not infringe any patent, copyright, or any other intellectual property
+> rights of third parties. The copyright holders disclaim any liability to any
+> recipient for claims brought against recipient by any third party for
+> infringement of that parties intellectual property rights. (LAPACK)
+>
+> THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+> AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+> IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+> DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE
+> FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+> DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+> SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+> CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+> OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+> OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 ## MIT License notices
 
 The following copyright notices apply to the MIT-licensed code listed above:
@@ -128,6 +187,9 @@ The following copyright notices apply to the MIT-licensed code listed above:
 - Copyright (c) 2003, Frank Warmerdam; Copyright (c) 2008-2013, Even Rouault (GDAL, `gdalwarpkernel.cpp`)
 - Copyright (c) 2018-2025 Microsoft Corporation, Daan Leijen (mimalloc); Copyright 2019 Octavian Oncescu (mimalloc crates)
 - Copyright (c) 2018 Global Environmental Remote Sensing Lab (GERSL/CCDC)
+- Copyright (c) 2021-2025 sarah quiñones el kazdadi (faer, faer-traits, gemm, nano-gemm, private-gemm-x86, pulp, dyn-stack, reborrow, equator, qd, spindle)
+- Copyright (c) 2015 Gerd Zellweger (raw-cpuid)
+- The Rust Project Developers (libm)
 - Copyright (c) 2019 Md. Manjurul Hussain Shourov (pymannkendall)
 - Copyright (c) 2021 VSainteuf (utae-paps)
 - Copyright (c) 2024 Presto Authors (nasaharvest/presto)
