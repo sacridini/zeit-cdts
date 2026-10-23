@@ -1792,6 +1792,205 @@ tempo), Clay, DOFA, AnySat e difusão (pixels gerados que viram quebras falsas) 
   `compare_prithvi.py`): o código oficial de cada um rodando lado a lado, com stubs do Earth
   Engine para o pacote do Presto.
 
+## Fase 20: HPC e Slurm sem configuração
+
+Pedida em 2026-10-23. Hoje o zeit roda num nó de cluster, mas quem usa precisa saber
+coisas que a biblioteca deveria resolver sozinha: passar `--jobs $SLURM_CPUS_PER_TASK`
+em todo comando, desconfiar do `OMP_NUM_THREADS` que o módulo do cluster exporta, apontar
+caches para o scratch, baixar pesos no nó de login e montar à mão o job array que divide
+os tiles. A meta é que o usuário de HPC escreva o mesmo comando que escreveria no desktop,
+e o zeit perceba onde está:
+
+```bash
+#!/bin/bash
+#SBATCH --cpus-per-task=16 --mem=32G --time=02:00:00
+#SBATCH --array=0-49
+zeit landtrendr tiles/ out/ --tiles      # cada tarefa do array pega a sua parte dos tiles
+```
+
+```bash
+zeit slurm landtrendr tiles/ out/ --cpus 16 --mem 32G --time 2:00:00   # escreve (e com --submit, envia) o script acima
+zeit tiles status out/                                                 # feitos, falhos, faltando, e o --array para reenviar
+zeit doctor                                                            # threads, de onde vieram, caches, rede, versão
+```
+
+**Princípio:** nada de variável de ambiente nova obrigatória. Num job (Slurm, PBS, LSF),
+os padrões mudam sozinhos para o que faz sentido num nó alocado (todos os núcleos do job,
+nenhum reservado), e quem quiser outra coisa continua passando `n_jobs`/`--jobs`. O que
+não dá para adivinhar (nó sem internet, credencial do GEE) vira uma mensagem que diz o que
+fazer, em vez de um travamento ou um timeout.
+
+### O que se achou no código (2.0.0)
+
+- **`n_jobs=-1` conta o nó inteiro, não o job.** O core em Rust faz certo: `max_threads()`
+  em `rust/zeit-core/src/parallel.rs` lê `OMP_NUM_THREADS` e, sem ele,
+  `available_parallelism()`, que no Linux respeita o cpuset e a cota do cgroup que o Slurm
+  aplica. Mas a camada Python resolve o `-1` antes, com `os.cpu_count()` (todos os núcleos
+  da máquina), e passa um número explícito ao Rust: `_lt.py` (`_segment_block`),
+  `_ccdc_api.py` (`_threads`), `_series_api.py` (`_jobs`), `_twdtw_api.py`, `_warp.py`
+  (`resolve_threads`), `raster.py` (duas vezes), `_tiles/_worker.py` (`default_cores`) e
+  `_tiles/_coordinator.py`. Num nó de 128 núcleos com `--cpus-per-task=8`, são 127 threads
+  presas em 8 CPUs; SOM e SNIC, com barreiras entre as fases, são os que mais sofrem.
+- **O README promete o que a camada Python não cumpre:** "When `OMP_NUM_THREADS` is set, it
+  takes the place of the core count". Só vale para as funções que passam `-1` direto ao Rust;
+  nas listadas acima o `os.cpu_count()` ganha.
+- **Inconsistência:** `_landtrendr.py` (`run_landtrendr_batch`) usa todos os núcleos com
+  `n_jobs <= 0`; o resto usa todos menos um.
+- **"Todos menos um"** é bom no desktop e desperdiça um núcleo pago num job (8 → 7).
+- **`OMP_NUM_THREADS=1` exportado pelo cluster** (comum nos módulos, para proteger o MPI)
+  deixa o Rust com uma thread, sem aviso.
+- **Dask com threads aninhadas:** cada bloco do `map_blocks` recebe o mesmo `n_jobs`; com o
+  scheduler de threads do Dask (que conta os núcleos certo, pelo cgroup), são N blocos × N
+  threads. Acontece no desktop também, mas pesa mais em nós grandes.
+- **`run_tiles` com várias tarefas na mesma pasta de saída:** `clean_partial` apaga
+  `<saída>/.zeit-partial` inteiro no fim do lote, inclusive o tile que outra tarefa do array
+  ainda está escrevendo lá. O `finalize` (checa `target.exists()` e faz `os.replace`) já é
+  seguro para tiles diferentes; o problema é só a pasta parcial compartilhada.
+- **`--helpers` num cluster:** a descoberta é broadcast UDP (47800) e TCP (47801), feita
+  para rede local; entre nós de computação o broadcast em geral não passa, e o coordenador
+  fica esperando ajudantes que nunca aparecem.
+- **Caches no `$HOME`** (cota pequena, às vezes só leitura nos nós): pesos
+  (`ai/_weights.py`) e embeddings (`_embeddings.py`, `_default_cache`) usam
+  `Path.home() / ".cache"` fixo; os tiles do `zeit.plot` (`_plot/_overlay.py`) também. Só o
+  cache dos tiles da Fase 18 respeita `XDG_CACHE_HOME`.
+- **Nós sem internet:** STAC, GEE, embeddings e pesos falham com o erro da biblioteca de
+  rede, sem dizer que o nó é isolado. Para os pesos já existe `ZEIT_WEIGHTS`.
+- **GEE num job:** `initialize_gee` chama `ee.Authenticate()` quando o `Initialize` falha,
+  o que num job sem terminal trava ou cai. Não há caminho por conta de serviço.
+- **Instalação:** o cibuildwheel 4 gera manylinux_2_28 só para x86_64; clusters com glibc
+  antiga (CentOS 7, 2.17) e ARM (Grace, aarch64) compilam do código e precisam do Rust.
+  O `torch` é dependência obrigatória: gigabytes no venv para quem só usa LandTrendr. Não
+  há imagem publicada para o Apptainer, só o `Dockerfile`.
+
+### 20a: threads certas em qualquer máquina
+
+- **Uma fonte só:** o Rust expõe `_core.parallel.available_threads()` (o mesmo
+  `max_threads()` de hoje, com as regras abaixo), e a camada Python inteira usa um helper,
+  `zeit._threads.resolve(n_jobs)`, no lugar dos oito `os.cpu_count()`. Ou, onde o número só
+  vai para o Rust, passar o `-1` adiante e deixar `parallel::threads` decidir.
+- **Ordem de quem manda:** `n_jobs > 0` explícito > `ZEIT_NUM_THREADS` > `OMP_NUM_THREADS` >
+  `SLURM_CPUS_PER_TASK` (só se o affinity mostrar mais CPUs que ele, isto é, cluster sem
+  cgroup) > affinity/cgroup (`available_parallelism`). Os tiles passam a definir
+  `ZEIT_NUM_THREADS` nos subprocessos, e não `OMP_NUM_THREADS`, para não brigar com o que o
+  cluster exporta.
+- **Reservar um núcleo só fora de job:** dentro de um job (`SLURM_JOB_ID`, `PBS_JOBID`,
+  `LSB_JOBID`) ou com o affinity menor que a máquina, `-1` usa todos. No desktop continua
+  todos menos um.
+- **Aviso uma vez:** com `OMP_NUM_THREADS=1` (ou `ZEIT_NUM_THREADS` menor que o affinity)
+  dentro de um job com mais CPUs, um `warnings.warn` dizendo de onde veio o 1 e como mudar.
+- **`_landtrendr.py`** passa a seguir a mesma regra que o resto.
+- **`zeit doctor`:** imprime threads e a origem do número (`affinity 16 de 128; Slurm job
+  123456`), os caches e se são graváveis, se há rede (STAC, Earth Engine, Hugging Face),
+  versão do zeit, do Python e da plataforma. É o primeiro comando do tutorial de HPC e o
+  que se pede num issue.
+- **Testes:** env vars com `monkeypatch`; no Linux do CI, `os.sched_setaffinity(0, {0, 1})`
+  num subprocesso e conferir que `resolve(-1)` dá 2 (fora de job) e que o Rust concorda;
+  `SLURM_JOB_ID` simulado muda a reserva.
+- **Docs:** o parágrafo "Multi-core CPU Scaling" do README e as tabelas de `n_jobs` da API.
+
+### 20b: Dask sem threads aninhadas
+
+- Dentro de um bloco, `n_jobs=-1` vira `max(1, threads_disponíveis // blocos_simultâneos)`:
+  no scheduler de threads, `blocos_simultâneos` é o `num_workers` do Dask; num worker do
+  `distributed`, o `nthreads` dele (`distributed.get_worker()`). Com `n_jobs` explícito,
+  nada muda.
+- **Medir antes de decidir:** LandTrendr e CCDC num cubo em chunks, 16 e 64 núcleos, com
+  e sem a divisão. Se a diferença for pequena (os blocos já saturam o nó), basta documentar.
+- Fecha o "`n_jobs` automático dentro de um worker" que estava em Para depois.
+
+### 20c: muitos tiles em vários nós, por job array
+
+- **O mesmo comando, a sua parte:** `--tiles` dentro de um job array lê
+  `SLURM_ARRAY_TASK_ID`/`SLURM_ARRAY_TASK_MIN`/`SLURM_ARRAY_TASK_MAX`/`SLURM_ARRAY_TASK_STEP`
+  (e `PBS_ARRAY_INDEX`, `LSB_JOBINDEX`, que custam uma linha cada) e processa só os seus
+  tiles. Divisão estática: a lista ordenada, o tile `i` vai para a tarefa `i mod n`. Não
+  depende de lock no sistema de arquivos (NFS e Lustre se comportam diferente com
+  `O_EXCL`), e os tiles costumam ter tamanhos parecidos.
+- **`--shard i/n`** explícito, para outros gerenciadores ou para dividir à mão; com ele, as
+  variáveis do array são ignoradas.
+- **Pasta parcial por tarefa:** `<saída>/.zeit-partial/<job>_<tarefa>` (ou
+  `<host>-<pid>` fora de job), e `clean_partial` apaga só a sua. Corrige o problema achado
+  acima, que vale também para dois `run_tiles` na mesma pasta fora do cluster.
+- **Retomada e `--requeue`:** a retomada da Fase 18 já pula os tiles feitos. Falta tratar o
+  `SIGTERM` que o Slurm manda antes do limite de tempo (`--signal=B:TERM@120`): parar o
+  tile em andamento, limpar a pasta parcial e sair com um código que o `--requeue` reconhece.
+- **`zeit tiles status out/`:** junta os marcadores (`MARKER`) e os logs das tarefas:
+  feitos, falhos (com o erro), faltando, e a linha `--array=3,17,41` para reenviar só os
+  que faltam.
+- **`zeit slurm <comando> <entrada> <saída> --cpus --mem --time [--partition] [--submit]`:**
+  conta os tiles (`make_plan`), escolhe o tamanho do array, escreve o `sbatch` com `--jobs`
+  certo, `--signal`, `--requeue` e o log por tarefa, e o imprime; com `--submit`, chama o
+  `sbatch`. A memória sugerida sai do tamanho do maior tile e do comando (a medir com o
+  LandTrendr e o CCDC, os dois que mais pedem), e pode ser trocada.
+- **`--helpers` dentro de um job:** erro imediato e claro ("os ajudantes são para a rede
+  local; num cluster use um job array, veja `zeit slurm`"), em vez de esperar broadcasts.
+- **Testes:** variáveis do array simuladas, dois processos na mesma pasta de saída (um
+  termina antes e não apaga o parcial do outro), `--shard`, `SIGTERM` no meio de um tile, o
+  script do `zeit slurm` comparado com um esperado. Sem Slurm de verdade no CI.
+
+### 20d: caches fora do `$HOME` e nós sem internet
+
+- **Uma raiz para todos os caches:** `ZEIT_CACHE_DIR` > `XDG_CACHE_HOME/zeit` >
+  `~/.cache/zeit` (no Windows, `LOCALAPPDATA`, como os tiles já fazem), com as subpastas de
+  hoje (`weights`, `embeddings`, `tiles`). Pesos, embeddings, tiles do `zeit.plot` e tiles
+  da Fase 18 passam a usar a mesma função. `ZEIT_WEIGHTS` e `cache_dir=` continuam valendo.
+- **`zeit fetch`:** baixa no nó de login o que o nó de computação vai precisar:
+  `zeit fetch weights presto prithvi-300m`, `zeit fetch embeddings --bbox ... --years ...`
+  (o que o `zeit embeddings` já faz, sem processar). Os tiles por receita (`stac_tiles`,
+  `gee_tiles`) já podem ser montados antes com o `python -m zeit._tiles._sources`; vale um
+  `zeit fetch tiles` em cima dele.
+- **Mensagem de nó isolado:** quando a conexão falha com erro de rede (DNS, conexão
+  recusada, timeout), e não de HTTP, o erro diz "este computador parece não ter acesso à
+  internet (comum nos nós de computação de um cluster); baixe antes com `zeit fetch ...`
+  no nó de login".
+- **GEE sem terminal:** `initialize_gee` só chama `ee.Authenticate()` com `sys.stdin.isatty()`;
+  sem terminal, erro que explica como autenticar no nó de login (as credenciais ficam no
+  `$HOME`, que os nós costumam ver) ou usar uma conta de serviço
+  (`GOOGLE_APPLICATION_CREDENTIALS` / `ee.ServiceAccountCredentials`, que passa a ser
+  aceita).
+
+### 20e: instalação num cluster
+
+- **`torch` opcional:** vai para um extra `ai` (`pip install zeit-cdts[ai]`); `import zeit.ai`
+  sem ele dá uma mensagem com o comando. Fora de `zeit/ai/` nada importa o torch (conferido
+  em 2.0.0). É uma quebra para quem usa `zeit.ai` só com `pip install zeit-cdts`: entra numa
+  minor com nota no README e no changelog, e o `Dockerfile` instala com o extra.
+- **Wheels para ARM:** `ubuntu-24.04-arm` na matriz do `build_wheels.yml` (aarch64 nativo,
+  sem QEMU), e conferir que numpy, rasterio e o resto têm wheels aarch64.
+- **glibc antiga:** um wheel manylinux2014 do zeit só adianta se as dependências também
+  instalarem em glibc 2.17 (rasterio e, se continuar obrigatório, o torch, que é
+  manylinux_2_28 desde a 2.6). Conferir antes; se não, só documentar a compilação com
+  `rustup` (sem root) e o Apptainer.
+- **Imagem para o Apptainer:** publicar a imagem do `Dockerfile.cpu` (e a de GPU) no GHCR a
+  cada tag, para `apptainer pull docker://ghcr.io/sacridini/zeit-cdts:2.1.0` e
+  `apptainer exec --nv zeit.sif zeit landtrendr ...`.
+- **conda-forge** fica para depois: muitos clusters usam mamba, mas o pacote em pip com
+  wheels resolve o caso comum.
+
+### 20f: tutorial de HPC
+
+`docs/tutorials/hpc-slurm.md`, com o que as etapas acima deixam simples:
+
+- Instalar: venv com pip, ou Apptainer; onde pôr o cache (`ZEIT_CACHE_DIR` no scratch).
+- Um nó: `sbatch` com um cubo ou uma pasta de tiles, sem `--jobs` (`zeit doctor` mostra o
+  que foi detectado).
+- Vários nós: `zeit slurm`, `zeit tiles status`, reenvio, `--requeue`.
+- Nó sem internet: `zeit fetch` no nó de login.
+- GPU para o `zeit.ai`: `--gres=gpu:1` e `--nv` no Apptainer.
+- Troubleshooting: `OMP_NUM_THREADS=1` do módulo, cota do `$HOME`, glibc antiga, GEE sem
+  terminal.
+- Um cubo maior que um nó (Dask sobre vários nós) remete a Para depois.
+
+### Etapas
+
+- **20a + a pasta parcial por tarefa do 20c:** são correções (a segunda perde trabalho);
+  primeiro, numa patch. Junto, o `zeit doctor`.
+- **20c:** job array, `--shard`, `SIGTERM`, `zeit tiles status`, `zeit slurm`.
+- **20d** e **20f**.
+- **20b**, depois da medição.
+- **20e:** o `torch` opcional é a quebra; vai com a minor que juntar o resto ou sozinho,
+  com aviso.
+
 ## Para depois
 
 - Fase 19: `zeit.ai.predict` com fp16 na GPU (2,4× no Siamese, medido) vale para todos os
@@ -1805,7 +2004,9 @@ tempo), Clay, DOFA, AnySat e difusão (pixels gerados que viram quebras falsas) 
   em `view:*`) tiraria parte do degrau que sobra. A correção atmosférica comum não cabe: é
   refazer o L2A.
 - Depois da Fase 18: o modo Dask para um cubo único maior que uma máquina (`zeit.cluster()`
-  sobre o mesmo pareamento, leitura presa à máquina que tem os arquivos, `n_jobs` automático
-  dentro de um worker, escrita do `save_raster` sem a espera entre faixas); um perfil de HPC
-  sobre o `dask-jobqueue`; pausar o ajudante quando o usuário volta a usar a máquina; nuvem.
+  sobre o mesmo pareamento, leitura presa à máquina que tem os arquivos, escrita do
+  `save_raster` sem a espera entre faixas; o `n_jobs` dentro de um worker foi para o 20b);
+  depois da Fase 20, o mesmo cubo em vários nós de um cluster com o `dask-jobqueue`
+  (`SLURMCluster`, com as threads do 20a em cada worker); pausar o ajudante quando o usuário
+  volta a usar a máquina; nuvem.
 
