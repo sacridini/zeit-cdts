@@ -118,7 +118,7 @@ def ewmacd(
           of the harmonic model on its training dates, and its ``coefficients`` (constant, the
           sines, the cosines);
         - for one pixel's series, also ``ewma``, ``limit`` and ``fitted`` per date (the chart, its
-          limits and the model; NaN where the date was left out of the chart).
+          limits, NaN where the date was left out of the chart, and the model, at every date).
 
     Examples
     --------

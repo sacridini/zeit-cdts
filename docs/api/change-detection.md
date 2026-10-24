@@ -11,7 +11,7 @@ Tutorial: [LandTrendr](../tutorials/landtrendr.md).
 <!-- sig: zeit.landtrendr -->
 ```python
 zeit.landtrendr(
-    data, years=None, direction="loss", band=None, max_segments=6,
+    data, *, years=None, direction="loss", band=None, max_segments=6,
     pval_threshold=0.05, recovery_threshold=0.25,
     prevent_fast_recovery=True, spike_threshold=0.9,
     best_model_proportion=0.75, vertex_count_overshoot=3,
@@ -107,7 +107,8 @@ It is a port of the original's `ftv_v1.pro` (with `apply_fitted_trajectory_v1.pr
 ```python
 zeit.metrics.extract_events(
     result, event_type=None, sort_by="greatest", min_magnitude=0.0,
-    min_duration=1, pre_val_threshold=0.0, rmse_map=None, band=None,
+    min_duration=1, pre_val_threshold=0.0, rmse_map=None, *,
+    band=None,
 )
 ```
 
@@ -169,7 +170,7 @@ bfm = zeit.extract_events(zeit.bfast_monitor(ndvi_16d, "2022-01-01"), event_type
 <!-- sig: zeit.recovery_metrics -->
 ```python
 zeit.recovery_metrics(
-    data, events=None, target=0.8, horizon=5, pre_years=2,
+    data, events=None, *, target=0.8, horizon=5, pre_years=2,
     basis="pre_value", event_type=None, sort_by="greatest",
     min_magnitude=0.0, min_duration=1, pre_val_threshold=0.0,
     years=None, band=None, nodata="auto", chunks=None, n_jobs=-1,
@@ -305,7 +306,7 @@ Tutorial: [CCDC](../tutorials/ccdc.md).
 <!-- sig: zeit.ccdc -->
 ```python
 zeit.ccdc(
-    data, qa=None, dates=None, bands=None, max_segments=6,
+    data, *, qa=None, dates=None, bands=None, max_segments=6,
     conseq_anom=6, chi2_prob_threshold=0.99,
     tmax_cg_prob_threshold=0.999999, detection_bands=None, num_c=8,
     tmask_bands=None, thermal_band=None, valid_range=(0.0, 10000.0),
@@ -389,7 +390,7 @@ px[["t_start", "t_end", "t_break"]].to_dataframe().dropna(subset=["t_start"])
 <!-- sig: zeit.predict_synthetic_image -->
 ```python
 zeit.predict_synthetic_image(
-    segments, date=None, num_bands=6, target_julian_day=None,
+    segments, date=None, num_bands=6, *, target_julian_day=None,
 )
 ```
 
@@ -427,7 +428,7 @@ The numpy layout of older versions, `(max_segments, 3 + 9 × bands, rows, cols)`
 <!-- sig: zeit.coded -->
 ```python
 zeit.coded(
-    data, start=None, train_years=3.0, consec=3, thresh=3.0,
+    data, *, start=None, train_years=3.0, consec=3, thresh=3.0,
     min_years=3.0, min_obs=6, direction="loss", max_events=3,
     training=None, label="label", forest_label=None, forest_ndfi=0.5,
     endmembers="souza2005", bands=None, scale="auto",
@@ -487,10 +488,10 @@ points = zeit.stratified_sample(result.strata, design=design)
 <!-- sig: zeit.ewmacd -->
 ```python
 zeit.ewmacd(
-    data, train_end, train_start=None, order=2, lmbda=0.3, sigmas=3.0,
-    persistence=3, xbar_train=1.5, xbar_monitor=20.0, rounding=True,
-    low=None, dates=None, band=None, nodata="auto", chunks=None,
-    n_jobs=-1,
+    data, *, train_end, train_start=None, order=2, lmbda=0.3,
+    sigmas=3.0, persistence=3, xbar_train=1.5, xbar_monitor=20.0,
+    rounding=True, low=None, dates=None, band=None, nodata="auto",
+    chunks=None, n_jobs=-1,
 )
 ```
 
@@ -540,7 +541,7 @@ The flags are those of Brooks' EWMACD v1.3.0 script, the paper's own (Earth Engi
 | `state` | At the last date: 0 stable, 1 disturbed, 2 recovered (disturbed, then back), 3 gain, with `flag_meanings`. |
 | `sigma`, `rmse`, `r2` | The training residuals' standard deviation behind the limits; the harmonic model's RMSE and R². |
 | `coefficients` | `(coefficient, y, x)`: the model's constant, sines and cosines. |
-| `ewma`, `limit`, `fitted` | One pixel's series only, per date: the chart, its limits and the model. NaN where the date was left out of the chart. |
+| `ewma`, `limit`, `fitted` | One pixel's series only, per date: the chart and its limits, NaN where the date was left out of the chart, and the model, at every date. |
 
 ```python
 ndvi = zeit.load_raster("landsat_ndvi/*.tif")             # every scene, 2013-2023
@@ -563,9 +564,9 @@ Like `landtrendr` and `ccdc`, each is one function for every input: it reads wha
 <!-- sig: zeit.bfast_monitor -->
 ```python
 zeit.bfast_monitor(
-    data, monitor_start, dates=None, start_time=None, frequency=None,
-    order=3, h=0.25, period=10, alpha=0.05, min_valid=10, band=None,
-    nodata="auto", chunks=None, n_jobs=-1,
+    data, monitor_start, *, dates=None, start_time=None,
+    frequency=None, order=3, h=0.25, period=10, alpha=0.05,
+    min_valid=10, band=None, nodata="auto", chunks=None, n_jobs=-1,
 )
 ```
 
@@ -641,7 +642,7 @@ float(px.breakpoint)                          # decimal year, NaN if no break
 <!-- sig: zeit.bfast_lite -->
 ```python
 zeit.bfast_lite(
-    data, dates=None, start_time=None, frequency=None, order=3,
+    data, *, dates=None, start_time=None, frequency=None, order=3,
     h=0.15, max_breaks=5, min_valid=20, band=None, nodata="auto",
     chunks=None, n_jobs=-1,
 )
@@ -687,7 +688,7 @@ loss = zeit.extract_events(bfl, event_type="loss")        # the greatest drop of
 <!-- sig: zeit.bfast -->
 ```python
 zeit.bfast(
-    data, dates=None, start_time=None, frequency=None, order=3,
+    data, *, dates=None, start_time=None, frequency=None, order=3,
     h=0.15, max_breaks_trend=5, max_breaks_season=5, max_iter=10,
     level=0.05, min_valid=20, band=None, nodata="auto", chunks=None,
     n_jobs=-1,

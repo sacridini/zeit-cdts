@@ -28,7 +28,7 @@ ai.save(model, "tempcnn.pt")                                    # ai.load("tempc
 <!-- sig: zeit.ai.samples -->
 ```python
 zeit.ai.samples(
-    data, samples, label="class", patch=None, split=0.2,
+    data, samples, *, label="class", patch=None, split=0.2,
     split_by="block", block_size=64, seed=42, nodata="auto",
 )
 ```
@@ -78,7 +78,7 @@ The samples, as a PyTorch `Dataset`, made by `samples`. Each item is a dict with
 <!-- sig: zeit.ai.train -->
 ```python
 zeit.ai.train(
-    model, samples, epochs=50, batch_size=None, lr=0.001,
+    model, samples, *, epochs=50, batch_size=None, lr=0.001,
     weight_decay=0.0, loss="ce", patience=10, device="auto", seed=42,
     verbose=False, **model_kwargs,
 )
@@ -111,7 +111,7 @@ Trains a model on a `SampleSet` with Adam, keeping the weights of the epoch with
 <!-- sig: zeit.ai.predict -->
 ```python
 zeit.ai.predict(
-    model, data, batch_size=256, overlap=0.25, probability=False,
+    model, data, *, batch_size=256, overlap=0.25, probability=False,
     device="auto", nodata="auto", chunks=None,
 )
 ```
@@ -342,8 +342,8 @@ encodings = model.embed(x)   # (batch, 128)
 <!-- sig: zeit.ai.presto_embeddings -->
 ```python
 zeit.ai.presto_embeddings(
-    data, model=None, band_map=None, batch_size=8192, device="auto",
-    nodata="auto", chunks=None,
+    data, *, model=None, band_map=None, batch_size=8192,
+    device="auto", nodata="auto", chunks=None,
 )
 ```
 
@@ -452,6 +452,11 @@ logits = model(torch.randn(8, 4, 256, 256), torch.randn(8, 4, 256, 256))   # (8,
 
 <!-- sig: zeit.ai.Prithvi -->
 ```python
+class zeit.ai.Prithvi(
+    bands, n_dates, num_classes=2, variant="100M-TL", dates=None,
+    latlon=None, band_map=None, reflectance_scale=1.0,
+    freeze_encoder=False, pretrained=True,
+)
 ```
 
 Prithvi-EO-2.0 (Szwarcman et al., 2024), the vision transformer NASA and IBM pretrained on HLS time series, ported from the authors' `prithvi_mae.py`: with their weights, its encoder gives their tokens. A decoder of zeit's brings the 16 × 16 tokens back to a class per pixel, with the pixels' own bands. Takes windows `(batch, bands, dates, H, W)` in the cube's units, NaN where missing, `H` and `W` multiples of 16 (14 for the 600M models); gives logits `(batch, num_classes, H, W)`; `encode` gives the encoder's tokens. `zeit.ai.train` fills in the bands, dates, units and place from the samples. Tutorial: [Prithvi](../tutorials/prithvi.md).

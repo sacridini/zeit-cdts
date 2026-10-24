@@ -10,7 +10,7 @@ The filters take a map (a `DataArray`, a numpy array or a raster path) and give 
 
 <!-- sig: zeit.spatial.apply_mmu_filter -->
 ```python
-zeit.spatial.apply_mmu_filter(data, mmu_pixels=11, nodata="auto")
+zeit.spatial.apply_mmu_filter(data, mmu_pixels=11, *, nodata="auto")
 ```
 
 Minimum mapping unit filter: connected (4-neighbour) patches of pixels holding a value, whatever the value, smaller than `mmu_pixels` become NoData. Removes the salt-and-pepper noise of per-pixel change maps (a LandTrendr year of loss, a magnitude). Also exported as `zeit.apply_mmu_filter`; CLI: `zeit mmu-filter`.
@@ -36,7 +36,7 @@ zeit.save_raster(yod, "results/loss_year_mmu.tif")
 <!-- sig: zeit.spatial.apply_majority_filter -->
 ```python
 zeit.spatial.apply_majority_filter(
-    image, size=3, iterations=1, nodata="auto", n_jobs=-1,
+    image, size=3, *, iterations=1, nodata="auto", n_jobs=-1,
 )
 ```
 
@@ -59,7 +59,7 @@ Majority (mode) filter: each pixel of a class map takes the most common class of
 <!-- sig: zeit.spatial.mmu_sieve -->
 ```python
 zeit.spatial.mmu_sieve(
-    data, min_size=11, connectivity=8, nodata="auto",
+    data, min_size=11, *, connectivity=8, nodata="auto",
 )
 ```
 
@@ -101,7 +101,7 @@ Smooths per-class probabilities spatially, then takes the most likely class. Unl
 <!-- sig: zeit.spatial.smooth_probs -->
 ```python
 zeit.spatial.smooth_probs(
-    probs, window_size=9, neigh_fraction=0.5, smoothness=20.0,
+    probs, window_size=9, neigh_fraction=0.5, smoothness=20.0, *,
     n_jobs=-1,
 )
 ```
@@ -125,7 +125,7 @@ Bayesian smoothing of class probabilities, as sits' `sits_smooth` (Câmara et al
 ```python
 land_cover = zeit.classify(stack, rf, probability=True)
 probs = zeit.smooth_probs(land_cover.probability, window_size=9, smoothness=20)
-label = probs.argmax("class") + 1                     # 1 = the first class, as classify's label
+label = (probs.fillna(-1).argmax("class") + 1).where(probs.notnull().any("class"))   # 1 = the first class; NaN where no data
 label = zeit.mmu_sieve(label, min_size=11)            # then no patch under ~1 ha
 ```
 
@@ -134,7 +134,7 @@ label = zeit.mmu_sieve(label, min_size=11)            # then no patch under ~1 h
 <!-- sig: zeit.spatial.desawtooth_classes -->
 ```python
 zeit.spatial.desawtooth_classes(
-    data, max_length=1, nodata="auto", n_jobs=-1,
+    data, max_length=1, *, nodata="auto", n_jobs=-1,
 )
 ```
 
@@ -158,7 +158,7 @@ Temporal consistency of yearly (or any) classifications: in each pixel's series,
 <!-- sig: zeit.train_classifier -->
 ```python
 zeit.train_classifier(
-    data, samples, label="class", model=None, date=None,
+    data, samples, *, label="class", model=None, date=None,
 )
 ```
 
@@ -182,7 +182,7 @@ Trains a classifier on the features of `data` at sample points. The features of 
 
 <!-- sig: zeit.classify -->
 ```python
-zeit.classify(data, model, date=None, probability=False)
+zeit.classify(data, model, *, date=None, probability=False)
 ```
 
 Classifies every pixel with a trained model. The features are taken as in `train_classifier`, and reordered by name to the model's `zeit_features_`. A lazy cube stays lazy. Loaded on first use (scikit-learn).
@@ -218,8 +218,8 @@ classes = zeit.classify(stack, zeit.train_classifier(stack, points))
 <!-- sig: zeit.aoa -->
 ```python
 zeit.aoa(
-    data, train=None, model=None, weights=None, folds=None, lpd=False,
-    date=None, n_jobs=-1,
+    data, train=None, *, model=None, weights=None, folds=None,
+    lpd=False, date=None, n_jobs=-1,
 )
 ```
 
@@ -258,7 +258,7 @@ applicable = zeit.aoa(stack, model=rf, folds=samples["site"], lpd=True)
 <!-- sig: zeit.train_di -->
 ```python
 zeit.train_di(
-    train=None, model=None, weights=None, folds=None, n_jobs=-1,
+    train=None, *, model=None, weights=None, folds=None, n_jobs=-1,
 )
 ```
 

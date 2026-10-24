@@ -68,7 +68,11 @@ def parameters(obj):
 def render(path):
     obj = resolve(path)
     parts = []
-    for p in parameters(obj):
+    params = parameters(obj)
+    for p in params:
+        # the arguments after it only by name, as the signature says
+        if p.kind is p.KEYWORD_ONLY and not any(q.kind is q.VAR_POSITIONAL for q in params) and "*" not in parts:
+            parts.append("*")
         if p.kind is p.VAR_POSITIONAL:
             parts.append(f"*{p.name}")
         elif p.kind is p.VAR_KEYWORD:

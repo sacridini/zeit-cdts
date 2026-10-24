@@ -12,7 +12,7 @@
 <!-- sig: zeit.plot -->
 ```python
 zeit.plot(
-    data, var=None, time=None, band=None, rgb=None, kind=None,
+    data, *, var=None, time=None, band=None, rgb=None, kind=None,
     cmap=None, vmin=None, vmax=None, classes=None, nodata="auto",
     title=None, static=None, ax=None, figsize=None, colorbar=True,
     ncols=4, max_size=None, save=None, height=480, fps=8,

@@ -18,7 +18,7 @@ print(acc)                                 # overall, user's, producer's, mapped
 <!-- sig: zeit.sampling_design -->
 ```python
 zeit.sampling_design(
-    data, expected_ua=0.75, std_error=0.01, n=None,
+    data, *, expected_ua=0.75, std_error=0.01, n=None,
     alloc="proportional", min_per_stratum=50, bins=None,
     nodata="auto",
 )
@@ -54,7 +54,7 @@ zeit.sampling_design(events, n=300, bins=[2000, 2010, 2020])  # no change, 2000-
 <!-- sig: zeit.stratified_sample -->
 ```python
 zeit.stratified_sample(
-    data, n=None, design=None, bins=None, nodata="auto", seed=42,
+    data, n=None, *, design=None, bins=None, nodata="auto", seed=42,
     **design_kwargs,
 )
 ```
@@ -81,10 +81,10 @@ Draws the points: a simple random sample of pixels within each stratum, without 
 <!-- sig: zeit.interpret -->
 ```python
 zeit.interpret(
-    data, samples=None, classes=None, save=None, rgb=None, band=None,
-    series=None, chips="year", chip_size=33, fit=None, map=None,
-    strata=None, blind=True, interpreter=None, basemap=None, zoom=120,
-    height=480, block=None, open=True,
+    data, samples=None, *, classes=None, save=None, rgb=None,
+    band=None, series=None, chips="year", chip_size=33, fit=None,
+    map=None, strata=None, blind=True, interpreter=None, basemap=None,
+    zoom=120, height=480, block=None, open=True,
 )
 ```
 
@@ -148,7 +148,7 @@ acc = s.accuracy(date_tolerance=1)
 <!-- sig: zeit.accuracy -->
 ```python
 zeit.accuracy(
-    map, samples, reference="ref", strata=None, bins=None,
+    map, samples, *, reference="ref", strata=None, bins=None,
     date_tolerance=None, reference_date="ref_date", confidence=0.95,
     nodata="auto",
 )

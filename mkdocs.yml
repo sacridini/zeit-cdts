@@ -140,9 +140,11 @@ nav:
           - Plotting & Exploring Results: tutorials/plotting.md
       - Change Detection:
           - LandTrendr: tutorials/landtrendr.md
+          - Recovery Metrics: tutorials/recovery.md
           - CCDC: tutorials/ccdc.md
           - BFAST: tutorials/bfast.md
           - BFAST Monitor: tutorials/bfast_monitor.md
+          - EWMACD: tutorials/ewmacd.md
           - BFAST Lite: tutorials/bfast_lite.md
           - Forest Degradation (CODED): tutorials/coded.md
       - Time-Series Analysis:
@@ -153,6 +155,8 @@ nav:
               - Worked Example: tutorials/regional-trends/worked-example.md
               - Advanced Topics: tutorials/regional-trends/advanced.md
               - Interpreting, FAQ & Pitfalls: tutorials/regional-trends/faq.md
+          - Emerging Hot Spots: tutorials/hotspots.md
+          - Spectral Unmixing: tutorials/unmixing.md
           - Phenology: tutorials/phenology.md
           - Pattern Matching (TWDTW): tutorials/twdtw.md
           - Clustering (SOM): tutorials/som.md
@@ -166,6 +170,7 @@ nav:
           - Presto: tutorials/presto.md
           - UTAE: tutorials/utae.md
           - Siamese Change Detector: tutorials/siamese.md
+          - Post-processing & AoA: tutorials/postprocessing.md
           - Prithvi: tutorials/prithvi.md
       - Scaling Up:
           - Parallel & Cloud Processing: tutorials/parallel-cloud-processing.md
@@ -187,3 +192,4 @@ nav:
       - benchmarks/index.md
       - Algorithm Fidelity: benchmarks/fidelity.md
       - Performance & Scaling: benchmarks/performance.md
+      - Against the Originals: benchmarks/vs-originals.md

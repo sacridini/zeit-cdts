@@ -16,6 +16,11 @@ Find where and when the land surface changed.
   <span class="tile-body"><span class="tile-kicker">Annual data</span><span class="tile-title">LandTrendr</span><span class="tile-text">Disturbance and recovery history from one image per year. Maps of year, magnitude and duration.</span></span>
 </a>
 
+<a class="tile" href="recovery/">
+  <img src="../assets/figures/thumbs/recovery.webp" alt="" loading="lazy">
+  <span class="tile-body"><span class="tile-kicker">After a disturbance</span><span class="tile-title">Recovery metrics</span><span class="tile-text">Years to recovery, R80P, RRI and the year-on-year recovery of every disturbed pixel.</span></span>
+</a>
+
 <a class="tile" href="ccdc/">
   <img src="../assets/figures/thumbs/ccdc.webp" alt="" loading="lazy">
   <span class="tile-body"><span class="tile-kicker">Dense data</span><span class="tile-title">CCDC</span><span class="tile-text">Harmonic models of every clear observation. Dates changes and describes the land before and after.</span></span>
@@ -29,6 +34,11 @@ Find where and when the land surface changed.
 <a class="tile" href="bfast_monitor/">
   <img src="../assets/figures/thumbs/bfast_monitor.webp" alt="" loading="lazy">
   <span class="tile-body"><span class="tile-kicker">Near real time</span><span class="tile-title">BFAST Monitor</span><span class="tile-text">Test new observations against a stable history. The basis of alert systems.</span></span>
+</a>
+
+<a class="tile" href="ewmacd/">
+  <img src="../assets/figures/thumbs/ewmacd.webp" alt="" loading="lazy">
+  <span class="tile-body"><span class="tile-kicker">Irregular series</span><span class="tile-title">EWMACD</span><span class="tile-text">Control charts on every observation: disturbances, gains and recoveries, cloudy dates welcome.</span></span>
 </a>
 
 <a class="tile" href="bfast_lite/">
@@ -54,9 +64,19 @@ Trends, seasons, patterns and objects.
   <span class="tile-body"><span class="tile-kicker">Regional trends</span><span class="tile-title">PARTS</span><span class="tile-text">Is the region, or each land-cover class, really trending? A test that accounts for correlated pixels.</span></span>
 </a>
 
+<a class="tile" href="hotspots/">
+  <img src="../assets/figures/thumbs/hotspots.webp" alt="" loading="lazy">
+  <span class="tile-body"><span class="tile-kicker">Space-time patterns</span><span class="tile-title">Emerging hot spots</span><span class="tile-text">Getis-Ord Gi* at every date and its trend: new, intensifying, persistent, sporadic hot and cold spots.</span></span>
+</a>
+
 <a class="tile" href="phenology/">
   <img src="../assets/figures/thumbs/phenology.webp" alt="" loading="lazy">
   <span class="tile-body"><span class="tile-kicker">Seasons</span><span class="tile-title">Phenology</span><span class="tile-text">Start, peak and end of every growing season, and 16 more metrics.</span></span>
+</a>
+
+<a class="tile" href="unmixing/">
+  <img src="../assets/figures/thumbs/unmixing.webp" alt="" loading="lazy">
+  <span class="tile-body"><span class="tile-kicker">Spectral mixtures</span><span class="tile-title">Spectral unmixing</span><span class="tile-text">The fraction of each material in every pixel and date, with endmembers of your own.</span></span>
 </a>
 
 <a class="tile" href="twdtw/">
@@ -87,6 +107,11 @@ PyTorch models for classification and change detection, weight-compatible with t
   <span class="tile-body"><span class="tile-kicker">Pixel classification</span><span class="tile-title">TempCNN</span><span class="tile-text">A fast 1-D convolutional baseline for pixel time series.</span></span>
 </a>
 
+<a class="tile" href="postprocessing/">
+  <img src="../assets/figures/thumbs/postprocessing.webp" alt="" loading="lazy">
+  <span class="tile-body"><span class="tile-kicker">After classifying</span><span class="tile-title">Post-processing & AoA</span><span class="tile-text">Bayesian smoothing, a minimum mapping unit, and the area where the model can be applied.</span></span>
+</a>
+
 </div>
 
 | Model | Task | Tutorial |
@@ -98,6 +123,7 @@ PyTorch models for classification and change detection, weight-compatible with t
 | U-TAE | Segmentation of whole image patches over time | [UTAE](utae.md) |
 | Siamese | Change detection between two dates | [Siamese Change Detector](siamese.md) |
 | Prithvi | Fine-tuning the Prithvi-EO-2.0 foundation model | [Prithvi](prithvi.md) |
+| Any classifier | Smoothing the class map, a minimum mapping unit, the area of applicability | [Post-processing & AoA](postprocessing.md) |
 
 ## Getting and preparing data
 

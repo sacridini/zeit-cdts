@@ -23,7 +23,7 @@ Both products summarise a whole year of imagery in a vector per pixel, made by a
 <!-- sig: zeit.load_embeddings -->
 ```python
 zeit.load_embeddings(
-    region=None, source, years=None, like=None, crs=None, res=None,
+    region=None, *, source, years=None, like=None, crs=None, res=None,
     resampling="auto", version=None, variant=None, depth=None,
     backend=None, store=None, chunks="auto", cache_dir=None,
 )
@@ -68,7 +68,7 @@ The blocks last read are kept as they were downloaded (int8, up to 1 GB; the env
 
 <!-- sig: zeit.similarity -->
 ```python
-zeit.similarity(emb, ref, by=None, year=None, metric="cosine")
+zeit.similarity(emb, ref, *, by=None, year=None, metric="cosine")
 ```
 
 How much each pixel looks like a reference: "find more places like these". The reference is the mean embedding of some samples (every cell of a polygon) in one year, compared with every year of the cube, which shows where it appears over time. Also exported as `zeit.similarity`.
@@ -98,7 +98,7 @@ zeit.plot(mines)                                            # where it looks lik
 
 <!-- sig: zeit.embedding_change -->
 ```python
-zeit.embedding_change(emb, metric="cosine", baseline="previous")
+zeit.embedding_change(emb, *, metric="cosine", baseline="previous")
 ```
 
 How far each pixel's embedding moved from one year to another. [`extract_events`](change-detection.md#extract_events) turns it into one event per pixel in the schema of the other change algorithms, so [`agreement`](change-detection.md#agreement) compares it with LandTrendr, CCDC, BFAST or CODED and the [validation](validation.md) functions take it as it is. Also exported as `zeit.embedding_change`.

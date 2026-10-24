@@ -79,6 +79,8 @@ Every port is held to two standards at once: it must give the reference tool's a
 
 Thirteen of the sixteen ports return the reference tool's own output, bit for bit or to floating-point rounding, and the fifteen measured on a single core are all faster before any parallelism (U-TAE by 8%, the Siamese detector by 7–16%, Presto by 17%). The three "close" ports fit curves or search for breaks with numerical optimisers, where tiny differences in the starting point or in the stopping rule move a date by a few days ([Fidelity](fidelity.md) has the details). The deep-learning ports run the same PyTorch operations as their references, so they gain little; Prithvi, measured on 14 threads and on the GPU, ties with its reference.
 
+The ports added since (emerging hot spots, recovery metrics, EWMACD, unmixing, Bayesian smoothing, area of applicability) are timed against their R originals with the Rust core on a page of their own: [Against the Original Implementations](vs-originals.md).
+
 ---
 
 ## Comparison Matrix at a Glance
@@ -212,5 +214,13 @@ To examine the detailed evidence, methodology, and visualizations, navigate to t
     Interactive log-scale speedup charts, multi-core CPU scaling tables, the Google Earth Engine Landsat tile benchmark, and absolute execution times.
 
     [:octicons-arrow-right-24: Read Performance & Scaling](performance.md)
+
+-   :material-scale-balance:{ .lg .middle } **Against the Original Implementations**
+
+    ---
+
+    The newer ports timed against their R originals on the same inputs (sfdep, RecoverMetricsR, Brooks' EWMACD, RStoolbox, sits, CAST): 3× to 30,000× faster on one thread, the outputs checked to agree on every run.
+
+    [:octicons-arrow-right-24: Read Against the Originals](vs-originals.md)
 
 </div>

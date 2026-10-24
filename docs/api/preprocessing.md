@@ -32,8 +32,8 @@ result = zeit.ccdc(hls.sel(band=["blue", "green", "red", "nir", "swir1", "swir2"
 <!-- sig: zeit.bandpass_adjust -->
 ```python
 zeit.bandpass_adjust(
-    data, sensor=None, etm=None, bands=None, scale="auto", nodata="auto",
-    chunks=None,
+    data, *, sensor=None, etm=None, bands=None, scale="auto",
+    nodata="auto", chunks=None,
 )
 ```
 
@@ -71,8 +71,8 @@ mixed = zeit.bandpass_adjust([s2, landsat])      # one series: blue, green, red,
 <!-- sig: zeit.tmask -->
 ```python
 zeit.tmask(
-    data, green="green", swir="swir1", scale=10000.0, nodata="auto",
-    chunks=None,
+    data, *, green="green", swir="swir1", scale=10000.0,
+    nodata="auto", chunks=None,
 )
 ```
 
@@ -107,7 +107,7 @@ qa = xr.where(clear, 0, 4)                       # or as CCDC's Fmask codes (0 c
 <!-- sig: zeit.unmix -->
 ```python
 zeit.unmix(
-    data, endmembers="souza2005", bands=None, sum_to_one=True,
+    data, endmembers="souza2005", *, bands=None, sum_to_one=True,
     nonneg=True, scale="auto", ndfi=True, cloud_threshold=None,
     nodata="auto", chunks=None, n_jobs=-1,
 )
@@ -146,7 +146,7 @@ fractions.ndfi.zeit.plot()                       # page through the years
 <!-- sig: zeit.smooth -->
 ```python
 zeit.smooth(
-    data, method="whittaker", lmbda=10.0, weights=None, window=5,
+    data, *, method="whittaker", lmbda=10.0, weights=None, window=5,
     polyorder=2, nodata="auto", chunks=None, n_jobs=-1,
 )
 ```

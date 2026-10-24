@@ -20,7 +20,7 @@ The same is available from the terminal: `zeit landtrendr nbr_tiles/ lt_out/ --h
 <!-- sig: zeit.run_tiles -->
 ```python
 zeit.run_tiles(
-    command, inputs, output_dir, helpers=False, local=True,
+    command, inputs, output_dir, *, helpers=False, local=True,
     local_cores=None, port=47801, compress_transfers=True,
     verbose=True, **options,
 )
@@ -95,7 +95,7 @@ Rasters each computer downloads for itself: `https://` (a plain download) or a b
 <!-- sig: zeit.stac_tiles -->
 ```python
 zeit.stac_tiles(
-    tiles, index=None, scale=10000.0, dtype="int16", **options,
+    tiles, *, index=None, scale=10000.0, dtype="int16", **options,
 )
 ```
 
@@ -118,7 +118,7 @@ Annual composites from a STAC catalog, built by each computer for the tiles it p
 <!-- sig: zeit.gee_tiles -->
 ```python
 zeit.gee_tiles(
-    tiles, start_year, end_year, index="NBR", project=None,
+    tiles, *, start_year, end_year, index="NBR", project=None,
     method="auto", scale=10000.0, dtype="int16",
 )
 ```
@@ -145,7 +145,7 @@ Annual medoid composites from Earth Engine, downloaded by each computer for the 
 <!-- sig: zeit.run_worker -->
 ```python
 zeit.run_worker(
-    cores=None, connect=None, join=None, maps=(), cache_dir=None,
+    *, cores=None, connect=None, join=None, maps=(), cache_dir=None,
     cache_gb=20.0,
 )
 ```
@@ -171,7 +171,7 @@ Both computers need the same zeit: a helper with another version (or other code,
 
 <!-- sig: zeit.invite_helpers -->
 ```python
-zeit.invite_helpers(minutes=10.0, port=47801)
+zeit.invite_helpers(minutes=10.0, *, port=47801)
 ```
 
 Shows an invitation code (such as `K7QM-2XDP`) and, for `minutes`, lets other computers join this computer's group with `zeit worker --join <code>`. The same as `zeit helpers invite`. Returns the names of the computers that joined. A computer joins once; afterwards `zeit worker` is enough. Any computer of the group can then run tiles with the others' help, and invite more.

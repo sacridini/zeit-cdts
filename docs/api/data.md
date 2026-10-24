@@ -369,7 +369,7 @@ cube_16d = zeit.regularize_time_series(cube, freq="16D", method="medoid")
 <!-- sig: zeit.io.load_raster -->
 ```python
 zeit.io.load_raster(
-    source, dates=None, start_year=None, band=None, chunks=None,
+    source, *, dates=None, start_year=None, band=None, chunks=None,
     clip=None, masked="auto", pattern=None, date_format=None,
     recursive=False, like=None, crs=None, res=None, resampling="auto",
     validate=None,
@@ -458,7 +458,7 @@ The cells start at the corner of the data's extent, so two rasters loaded this w
 <!-- sig: zeit.io.save_raster -->
 ```python
 zeit.io.save_raster(
-    data, path, like=None, crs=None, transform=None, nodata=None,
+    data, path, *, like=None, crs=None, transform=None, nodata=None,
     dtype=None, band_names=None, compress="deflate", driver=None,
     reference_cube=None,
 )

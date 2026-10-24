@@ -73,6 +73,11 @@ Every image below was produced by Zeit itself. Click one to open its tutorial.
   <span class="tile-body"><span class="tile-kicker">Change detection</span><span class="tile-title">Map forest loss and regrowth</span><span class="tile-text">LandTrendr turns yearly images into maps of when, how much and how fast change happened.</span></span>
 </a>
 
+<a class="tile" href="tutorials/recovery/">
+  <img src="assets/figures/thumbs/recovery.webp" alt="" loading="lazy">
+  <span class="tile-body"><span class="tile-kicker">Change detection</span><span class="tile-title">Measure how land recovers</span><span class="tile-text">Years to recovery, R80P and the relative recovery after each disturbance, from LandTrendr or any annual series.</span></span>
+</a>
+
 <a class="tile" href="tutorials/ccdc/">
   <img src="assets/figures/thumbs/ccdc.webp" alt="" loading="lazy">
   <span class="tile-body"><span class="tile-kicker">Change detection</span><span class="tile-title">Detect change in dense time series</span><span class="tile-text">CCDC models each pixel's seasonal cycle and flags the moment it breaks.</span></span>
@@ -83,9 +88,24 @@ Every image below was produced by Zeit itself. Click one to open its tutorial.
   <span class="tile-body"><span class="tile-kicker">Monitoring</span><span class="tile-title">Raise near-real-time alerts</span><span class="tile-text">BFAST Monitor tests each new image against a stable history.</span></span>
 </a>
 
+<a class="tile" href="tutorials/ewmacd/">
+  <img src="assets/figures/thumbs/ewmacd.webp" alt="" loading="lazy">
+  <span class="tile-body"><span class="tile-kicker">Monitoring</span><span class="tile-title">Monitor irregular, cloudy series</span><span class="tile-text">EWMACD follows every observation with control charts and dates disturbances, gains and recoveries.</span></span>
+</a>
+
 <a class="tile" href="tutorials/mann_kendall/">
   <img src="assets/figures/thumbs/mann_kendall.webp" alt="" loading="lazy">
   <span class="tile-body"><span class="tile-kicker">Trends</span><span class="tile-title">Map greening and browning</span><span class="tile-text">Mann-Kendall and Theil-Sen give a robust, significance-tested trend per pixel.</span></span>
+</a>
+
+<a class="tile" href="tutorials/regional-trends/">
+  <img src="assets/figures/thumbs/parts.webp" alt="" loading="lazy">
+  <span class="tile-body"><span class="tile-kicker">Trends</span><span class="tile-title">Test a region's trend</span><span class="tile-text">PARTS asks whether a region, or each land-cover class, is really trending, accounting for correlated pixels.</span></span>
+</a>
+
+<a class="tile" href="tutorials/hotspots/">
+  <img src="assets/figures/thumbs/hotspots.webp" alt="" loading="lazy">
+  <span class="tile-body"><span class="tile-kicker">Space-time patterns</span><span class="tile-title">Find emerging hot spots</span><span class="tile-text">Where values cluster high or low, and how that changed: new, intensifying, persistent or sporadic hot spots.</span></span>
 </a>
 
 <a class="tile" href="tutorials/phenology/">
@@ -96,6 +116,11 @@ Every image below was produced by Zeit itself. Click one to open its tutorial.
 <a class="tile" href="tutorials/twdtw/">
   <img src="assets/figures/thumbs/twdtw.webp" alt="" loading="lazy">
   <span class="tile-body"><span class="tile-kicker">Classification</span><span class="tile-title">Classify by temporal signature</span><span class="tile-text">TWDTW matches each pixel to reference patterns, even when seasons shift.</span></span>
+</a>
+
+<a class="tile" href="tutorials/unmixing/">
+  <img src="assets/figures/thumbs/unmixing.webp" alt="" loading="lazy">
+  <span class="tile-body"><span class="tile-kicker">Spectral mixtures</span><span class="tile-title">Unmix pixels into materials</span><span class="tile-text">The fraction of vegetation, soil, water or any endmember in every pixel and date, fully constrained.</span></span>
 </a>
 
 <a class="tile" href="tutorials/snic/">
@@ -111,6 +136,11 @@ Every image below was produced by Zeit itself. Click one to open its tutorial.
 <a class="tile" href="tutorials/tempcnn/">
   <img src="assets/figures/thumbs/tempcnn.webp" alt="" loading="lazy">
   <span class="tile-body"><span class="tile-kicker">Deep learning</span><span class="tile-title">Train land-cover classifiers</span><span class="tile-text">PyTorch models (TempCNN, LightTAE, U-TAE) that are weight-compatible with R <code>sits</code>.</span></span>
+</a>
+
+<a class="tile" href="tutorials/postprocessing/">
+  <img src="assets/figures/thumbs/postprocessing.webp" alt="" loading="lazy">
+  <span class="tile-body"><span class="tile-kicker">After classifying</span><span class="tile-title">Clean maps and know where they hold</span><span class="tile-text">Bayesian smoothing, a minimum mapping unit, and the area of applicability: where the model's samples say nothing.</span></span>
 </a>
 
 </div>
@@ -214,9 +244,9 @@ The same analysis in three styles. Pick the one that fits your data:
 
     ---
 
-    Each algorithm is ported from its reference implementation (IDL, MATLAB, R) and tested against it. You get the published method, not an approximation.
+    Each algorithm is ported from its reference implementation (IDL, MATLAB, R) and tested against it, for its results and for its speed. You get the published method, not an approximation.
 
-    [:octicons-arrow-right-24: Fidelity reports](benchmarks/fidelity.md)
+    [:octicons-arrow-right-24: Fidelity reports](benchmarks/fidelity.md) · [:octicons-arrow-right-24: Against the originals](benchmarks/vs-originals.md)
 
 -   :material-lightning-bolt:{ .lg .middle } **Fast by default**
 
@@ -238,7 +268,7 @@ The same analysis in three styles. Pick the one that fits your data:
 
     ---
 
-    Data access, cloud masking, smoothing, change detection, trends, phenology, segmentation, deep learning and plotting all use the same array conventions.
+    Data access, cloud masking, smoothing, unmixing, change detection, monitoring, recovery, trends, hot spots, phenology, segmentation, deep learning, post-processing and plotting all use the same array conventions.
 
     [:octicons-arrow-right-24: API reference](api/index.md)
 

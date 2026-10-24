@@ -9,7 +9,7 @@
 <!-- sig: zeit.mann_kendall -->
 ```python
 zeit.mann_kendall(
-    data, method="hamed_rao", alpha=0.05, lag=None, period=1,
+    data, *, method="hamed_rao", alpha=0.05, lag=None, period=1,
     min_valid=4, dates=None, band=None, nodata="auto", chunks=None,
     n_jobs=-1,
 )
@@ -68,7 +68,7 @@ zeit.mann_kendall([0.41, 0.44, 0.39, 0.47, 0.52, 0.49, 0.55, 0.58, 0.61, 0.60]).
 <!-- sig: zeit.ar_trend -->
 ```python
 zeit.ar_trend(
-    data, time="step", harmonics=0, period=None, gaps="exact",
+    data, *, time="step", harmonics=0, period=None, gaps="exact",
     min_valid=0, dates=None, band=None, nodata="auto", chunks=None,
     n_jobs=-1,
 )
@@ -107,11 +107,12 @@ ar16 = zeit.ar_trend(ndvi_16d, time="year", harmonics=2)   # 16-day data, slope 
 <!-- sig: zeit.parts -->
 ```python
 zeit.parts(
-    data, trend=None, response="slope", classes=None, covariates=None,
-    mask=None, partsize=1500, npart=None, ncross=6, nugget="ml",
-    correlation="exponential", range=None, shape=None, fit_n=1000,
-    scaled=False, seed=0, time="step", harmonics=0, period=None,
-    gaps="exact", dates=None, band=None, nodata="auto", n_jobs=-1,
+    data, *, trend=None, response="slope", classes=None,
+    covariates=None, mask=None, partsize=1500, npart=None, ncross=6,
+    nugget="ml", correlation="exponential", range=None, shape=None,
+    fit_n=1000, scaled=False, seed=0, time="step", harmonics=0,
+    period=None, gaps="exact", dates=None, band=None, nodata="auto",
+    n_jobs=-1,
 )
 ```
 
@@ -166,7 +167,7 @@ zeit.parts(annual, mask=roi)     # does the region's mean trend differ from 0?
 <!-- sig: zeit.emerging_hotspots -->
 ```python
 zeit.emerging_hotspots(
-    data, radius=1, shape="square", lag=1, reference="date",
+    data, radius=1, *, shape="square", lag=1, reference="date",
     alpha=0.05, trend="hamed_rao", band=None, nodata="auto",
     n_jobs=-1,
 )
@@ -223,8 +224,8 @@ new_fronts = ehs.category.isin([1, 2, 3])                     # new, consecutive
 <!-- sig: zeit.phenology -->
 ```python
 zeit.phenology(
-    data, curve="beck", method="threshold", weights=None, dates=None,
-    annual=True, max_seasons=None, whittaker_lambda=10.0,
+    data, *, curve="beck", method="threshold", weights=None,
+    dates=None, annual=True, max_seasons=None, whittaker_lambda=10.0,
     apply_whittaker=True, apply_hants=False, hants_frequencies=3,
     hants_threshold=0.1, min_season_length=0, min_amplitude=0.0,
     min_pixel_amplitude=0.1, season_retry=True, band=None,
@@ -285,7 +286,7 @@ Tutorial: [Pattern Matching](../tutorials/twdtw.md).
 <!-- sig: zeit.twdtw -->
 ```python
 zeit.twdtw(
-    data, patterns, band=None, steepness=0.1, midpoint=50.0,
+    data, patterns, *, band=None, steepness=0.1, midpoint=50.0,
     cycle="year", max_elapsed=None, nodata="auto", chunks=None,
     n_jobs=-1,
 )
@@ -350,9 +351,9 @@ Tutorial: [Segmentation](../tutorials/snic.md).
 <!-- sig: zeit.snic -->
 ```python
 zeit.snic(
-    data, spacing=10, compactness=0.5, seeds=None, grid="rectangular",
-    padding=None, tile_size=None, random_state=None, nodata="auto",
-    n_jobs=-1,
+    data, *, spacing=10, compactness=0.5, seeds=None,
+    grid="rectangular", padding=None, tile_size=None,
+    random_state=None, nodata="auto", n_jobs=-1,
 )
 ```
 
@@ -436,10 +437,11 @@ The seed grids of the R `snic` package, as `(n, 2)` `(row, col)` positions. Also
 <!-- sig: zeit.som -->
 ```python
 zeit.som(
-    data, x=3, y=3, sample=50000, num_iters=None, algorithm="online",
-    sigma=1.0, learning_rate=0.5, decay="linear_decay_to_zero",
-    neighborhood="gaussian", topology="rectangular", init="random",
-    seed=42, nodata="auto", chunks=None, n_jobs=-1,
+    data, *, x=3, y=3, sample=50000, num_iters=None,
+    algorithm="online", sigma=1.0, learning_rate=0.5,
+    decay="linear_decay_to_zero", neighborhood="gaussian",
+    topology="rectangular", init="random", seed=42, nodata="auto",
+    chunks=None, n_jobs=-1,
 )
 ```
 
@@ -481,7 +483,7 @@ zeit.plot(ndvi, fit=clusters)                             # click a pixel: its s
 <!-- sig: zeit.clean_samples -->
 ```python
 zeit.clean_samples(
-    data, samples, label="class", x=None, y=None, num_iters=None,
+    data, samples, *, label="class", x=None, y=None, num_iters=None,
     algorithm="online", sigma=1.0, learning_rate=0.5,
     decay="linear_decay_to_zero", neighborhood="gaussian",
     topology="rectangular", init="random", seed=42, date=None,
