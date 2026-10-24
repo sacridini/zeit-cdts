@@ -109,6 +109,7 @@
 | **Change detection** | |
 | [`landtrendr`](change-detection.md#landtrendr) | LandTrendr on a file, cube, array or single pixel |
 | [`extract_events`](change-detection.md#extract_events) | One event per pixel, the same maps for every change algorithm (and for embedding change) |
+| [`recovery_metrics`](change-detection.md#recovery_metrics) | Recovery after a disturbance: Y2R, R80P, RRI, ARI, YrYr |
 | [`agreement`](change-detection.md#agreement) | Where and when several change maps agree |
 | [`apply_vertices`](change-detection.md#apply_vertices) | Fit another band to the same vertices |
 | [`ccdc`](change-detection.md#ccdc) | CCDC on a file, cube, array or single pixel |

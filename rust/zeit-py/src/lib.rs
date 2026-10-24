@@ -20,6 +20,7 @@ mod landtrendr;
 mod mannkendall;
 mod parts;
 mod phenology;
+mod recovery;
 mod sma;
 mod smooth;
 mod snic;
@@ -59,5 +60,6 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     add_submodule(m, &ccdc::module(m.py())?)?;
     add_submodule(m, &warp::module(m.py())?)?;
     add_submodule(m, &phenology::module(m.py())?)?;
+    add_submodule(m, &recovery::module(m.py())?)?;
     Ok(())
 }

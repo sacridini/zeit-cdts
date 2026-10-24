@@ -262,6 +262,15 @@ declining = (result.trend == -1) & significant
 zeit.save_raster(result, "output/mann_kendall")   # one GeoTIFF per metric
 ```
 
+## Recovery After a Disturbance
+
+`recovery_metrics` measures how each pixel came back after its disturbance (LandTrendr's event, or any event of `extract_events`): the years to recovery (Y2R) and R80P of White et al. (2017), the relative recovery indicator (RRI, Kennedy et al. 2012), the absolute and year-on-year recovery, with the post-disturbance value taken as the best of years 4 and 5 (Frazier et al. 2018).
+
+```python
+lt = zeit.landtrendr(nbr, direction="loss")
+rec = zeit.recovery_metrics(lt)                 # y2r, r80p, rri, ari, yryr, ... after the greatest loss
+```
+
 ## Regional Trends (remotePARTS)
 
 `ar_trend` fits each pixel's series to a linear trend with AR(1) errors by REML, and `parts` tests the trends of a whole region with PARTS (Ives et al., 2021, *Remote Sensing of Environment* 266, 112678): the mean trend, the trend of each class, the effect of covariates, with p-values that account for the spatial correlation of the pixels, which counting significant pixels does not. Both are implemented from the paper on the Rust core and checked against the R package [`remotePARTS`](https://github.com/morrowcj/remotePARTS).

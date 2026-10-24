@@ -164,6 +164,69 @@ any_change = zeit.extract_events(segments, sort_by="newest")              # the 
 bfm = zeit.extract_events(zeit.bfast_monitor(ndvi_16d, "2022-01-01"), event_type="loss")
 ```
 
+### `recovery_metrics` { .api #recovery_metrics }
+
+<!-- sig: zeit.recovery_metrics -->
+```python
+zeit.recovery_metrics(
+    data, events=None, target=0.8, horizon=5, pre_years=2,
+    basis="pre_value", event_type=None, sort_by="greatest",
+    min_magnitude=0.0, min_duration=1, pre_val_threshold=0.0,
+    years=None, band=None, nodata="auto", chunks=None, n_jobs=-1,
+)
+```
+
+How each pixel recovered after its disturbance: the spectral recovery metrics of the forest literature (Kennedy et al. 2012; White et al. 2017; Frazier et al. 2018), on the Rust core. Detecting the year of a loss is half the work; the other half is how fast and how far the pixel came back after a fire, a harvest or an abandonment.
+
+The disturbance runs from its start, the last year before it (an event's `yod`), to its trough, the year it bottoms out (`yod + duration`; the year after `yod` for the algorithms that find abrupt breaks). With `t0` the trough and `k` the horizon:
+
+| Metric | Definition |
+| :--- | :--- |
+| `pre_val` | The mean of the `pre_years` years up to the start (NBR<sub>pre</sub>). |
+| `dist_val`, `magnitude` | The value at `t0`, and `pre_val - dist_val` (ΔNBR). |
+| `post_val` | The best of years `t0 + k - 1` and `t0 + k` (the maximum of years 4 and 5, Frazier et al. 2018): one noisy year does not decide. |
+| `ari` | Absolute recovery (ΔNBR<sub>regrowth</sub>): `post_val - dist_val`. |
+| `rri` | Relative recovery indicator (Kennedy et al. 2012): `ari / magnitude`. |
+| `r80p` | `post_val / (target * pre_val)`: 1 or more when recovered (White et al. 2017). |
+| `yryr` | Year-on-year recovery: `(value at t0 + k - dist_val) / k`. |
+| `y2r` | Years to recovery (White et al. 2017): from `t0` until the value first reaches `target * pre_val`; 0 when it never fell below it, NaN when it has not reached it by the last year. |
+
+On a LandTrendr result the metrics are measured on the fitted trajectory (the line through the vertices), after the event `extract_events` picks; on a series, on its values, after the `events` given. The metrics measured at the horizon are NaN when the series ends before it. Janus has it as the *Recovery (LandTrendr)* tool.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `data` | `Dataset`, path, `DataArray`, `ndarray`, list or `pd.Series` | required | A [`landtrendr`](#landtrendr) result, or an annual series (one observation per year) as for [`mann_kendall`](time-series.md#mann_kendall), with `events`. |
+| `events` | `Dataset`, `(y, x)` layer or number | `None` | The disturbances: an [`extract_events`](#extract_events) result (`yod` and `duration`), or each pixel's start year (the trough is the year after); 0 or NaN for none. LandTrendr results pick their own when `None`. |
+| `target` | `float` | `0.8` | The fraction of the pre-disturbance value that counts as recovered. |
+| `horizon` | `int` | `5` | Years after the trough at which `post_val`, `ari`, `rri`, `r80p` and `yryr` are measured. |
+| `pre_years` | `int` | `2` | Years averaged for `pre_val`. |
+| `basis` | `str` | `"pre_value"` | `"pre_value"`: recovered at `target * pre_val`, for an index that is positive and drops with the disturbance (NBR, NDVI, TCW). `"magnitude"`: recovered once `target` of the loss came back, for any index; `r80p` is then `rri / target`. |
+| `event_type` | `str` | `None` | `"loss"` or `"gain"` (the index rises with the disturbance: the signs turn, `post_val` is the lower of the two years; needs `basis="magnitude"`). Default: LandTrendr's direction, else `"loss"`. |
+| `sort_by` | `str` | `"greatest"` | LandTrendr without `events`: which event, as in [`extract_events`](#extract_events). |
+| `min_magnitude` | `float` | `0.0` | LandTrendr without `events`: as in `extract_events`. |
+| `min_duration` | `int` | `1` | LandTrendr without `events`: as in `extract_events`. |
+| `pre_val_threshold` | `float` | `0.0` | LandTrendr without `events`: as in `extract_events`. |
+| `years` | list | `None` | One pixel's series without dates: its years. |
+| `band` | `str` or `int` | `None` | The index to use in a `(time, band, y, x)` cube or a `Dataset`. |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | Value marking a missing observation besides NaN. |
+| `chunks` | `"auto"`, `dict` | `None` | Inputs read from disk: `None` reads into memory; `"auto"` or a dict keeps them lazy. |
+| `n_jobs` | `int` | `-1` | Threads. `-1` uses all cores but one. |
+
+</div>
+
+**Returns** an `xarray.Dataset` on the grid of the input: `yod` and `trough` (int32, the disturbance's years, 0 without one) and the nine metrics above (float32).
+
+```python
+lt = zeit.landtrendr(nbr, direction="loss")
+rec = zeit.recovery_metrics(lt)                              # after each pixel's greatest loss
+slow = rec.y2r > 10                                          # still under 80% of NBR_pre after 10 years
+
+ev = zeit.extract_events(zeit.ccdc(bands), band="swir2", event_type="gain")
+rec = zeit.recovery_metrics(annual_swir2, ev, event_type="gain", basis="magnitude")
+```
+
 ### `agreement` { .api }
 
 <!-- sig: zeit.agreement -->
