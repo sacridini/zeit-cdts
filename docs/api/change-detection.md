@@ -385,6 +385,82 @@ px = zeit.ccdc(df, qa="fmask")
 px[["t_start", "t_end", "t_break"]].to_dataframe().dropna(subset=["t_start"])
 ```
 
+### `sccd` { .api #sccd }
+
+<!-- sig: zeit.sccd -->
+```python
+zeit.sccd(
+    data, *, qa=None, dates=None, bands=None, max_segments=6, conse=6,
+    prob_threshold=0.99, outlier_prob=0.99999, max_angle=30.0,
+    detection_bands=None, tmask_bands=None,
+    valid_range=(0.0, 10000.0), nodata="auto", chunks=None, n_jobs=-1,
+)
+```
+
+Stochastic Continuous Change Detection (S-CCD; Ye, Rogan, Zhu & Eastman 2021, *Remote Sensing of Environment* 252:112167): CCDC whose harmonic model, once fitted on the first stable observations, is a state-space model that a Kalman filter updates at every new observation instead of refitting it. The trend and the seasons drift a little from one observation to the next, so the model follows slow changes, and a new image costs one update per pixel: on long series it runs about ten times faster than [`ccdc`](#ccdc). It also returns the near-real-time state of every pixel: how many of its latest observations already depart from the model, before `conse` of them confirm a change. Written from the paper; checked against pyxccd, the authors' implementation (see [fidelity](../benchmarks/fidelity.md)). It takes the inputs of [`ccdc`](#ccdc) (the same `data` table, surface reflectance × 10,000, Fmask `qa`); all parameters but `data` are keyword-only.
+
+A change is `conse` consecutive observations whose departures from the model, standardized by each band's RMSE (no less than the median absolute difference of consecutive observations), have a squared norm above `chi2inv(prob_threshold, detection bands)` in every one, and point the same way: their mean angle to the median departure is below `max_angle`. A single observation beyond `chi2inv(outlier_prob, …)` is left out as noise.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `data` | path, `DataArray`, `ndarray` or `pd.DataFrame` | required | What to run on, as [`ccdc`](#ccdc). |
+| `qa` | `str`, `DataArray` or `ndarray` | `None` | Fmask codes per date, as [`ccdc`](#ccdc). |
+| `dates` | list | `None` | Date of each time step, for numpy input and rasters without dates. |
+| `bands` | list of `str` or `int` | `None` | Spectral bands to use, by name or 0-based position, ordered Blue, Green, Red, NIR, SWIR1, SWIR2. |
+| `max_segments` | `int` | `6` | Maximum segments returned per pixel. |
+| `conse` | `int` | `6` | Consecutive anomalous observations that confirm a change (the peek window). |
+| `prob_threshold` | `float` | `0.99` | Change probability of the chi-squared threshold. Lower is more sensitive. |
+| `outlier_prob` | `float` | `0.99999` | Outlier probability: a single observation beyond it is dropped as noise. |
+| `max_angle` | `float` | `30.0` | Largest mean angle (degrees) of the peek window's departures to their median: departures that point every way are noise, not a change. |
+| `detection_bands` | list of `str` or `int` | `None` | Bands of the change test. Default: Green to SWIR2 (with 6 bands or more; else all). |
+| `tmask_bands` | list of `str` or `int` | `None` | Bands of the Tmask cloud screen. Default: Green and SWIR1. |
+| `valid_range` | `tuple` | `(0.0, 10000.0)` | Valid range of the values. |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | Value marking a missing observation besides NaN, as [`ccdc`](#ccdc). |
+| `chunks` | `"auto"`, `dict` | `None` | Inputs read from disk: `None` reads into memory; `"auto"` or a dict keeps them lazy. |
+| `n_jobs` | `int` | `-1` | Threads. `-1` uses all cores but one. |
+
+</div>
+
+**Returns** an `xarray.Dataset`. The segments, as [`ccdc`](#ccdc)'s:
+
+| Variable | Dims | Type | Meaning |
+| :--- | :--- | :--- | :--- |
+| `t_start`, `t_end` | `(segment, y, x)` | datetime64 | First and last date of each segment's model; `NaT` past the last one. |
+| `t_break` | `(segment, y, x)` | datetime64 | Date of the change that ended the segment (its first anomalous observation); `NaT` for the segment still monitored. |
+| `change_prob` | `(segment, y, x)` | float32 | `1` for a confirmed change; for the last segment, the share of `conse` of its latest observations that already depart from it. |
+| `num_obs` | `(segment, y, x)` | int32 | Observations in the model. |
+| `rmse` | `(segment, band, y, x)` | float32 | RMSE of the model's one-step-ahead predictions. |
+| `magnitude` | `(segment, band, y, x)` | float32 | The change: median departure of the peek window from the model, in the band's units; `0` without a change. |
+| `coefs` | `(segment, band, coef, y, x)` | float32 | The filter's state at the end of the segment as harmonic coefficients, `coef` = `a0`, `c1`, `a1`, `b1`, `a2`, `b2` on [`ccdc`](#ccdc)'s time axis, so [`predict_synthetic_image`](#predict_synthetic_image) evaluates it. |
+| `n_segments`, `n_breaks` | `(y, x)` | uint8 | Number of segments (`0`: no model) and of changes. |
+
+The near-real-time state, from the latest observations:
+
+| Variable | Dims | Type | Meaning |
+| :--- | :--- | :--- | :--- |
+| `nrt_mode` | `(y, x)` | uint8 | `0` no model (no clear observation, or less than a quarter clear), `1` monitoring, `2` waiting for enough observations to start a model (at the start, or after a change). |
+| `n_anomalies` | `(y, x)` | uint8 | The latest consecutive observations that depart from the model (`conse` of them make a change). |
+| `anomaly_start` | `(y, x)` | datetime64 | Date of the first of them; `NaT` if none. |
+| `anomaly_statistic` | `(y, x)` | float32 | The smallest of their standardized squared norms, against `attrs["threshold"]`. |
+| `anomaly_magnitude` | `(band, y, x)` | float32 | Their median departure from the model. |
+| `last_statistic`, `last_observation` | `(y, x)` | float32, datetime64 | The latest clear observation's statistic and date. |
+| `n_queue` | `(y, x)` | int32 | Observations waiting for a model (`nrt_mode` 2). |
+
+One pixel also has, per date: `status (time)`, what became of each observation (`0` unused: not clear or missing, `1` in a model, `2` outlier, `3` the first observation of a change, `4` in the final peek window, `5` waiting for a model); `statistic (time)`, its standardized squared norm when tested; and `predicted`, `trend`, `annual`, `semiannual (time, band)`, the model's prediction and its components, filtered up to that date: the chart of a pixel. `attrs` records the parameters and the `threshold`. Coordinates and CRS are kept, so the result goes to [`save_raster`](data.md#save_raster); with a dask cube or `chunks=`, it is lazy.
+
+```python
+segments = zeit.sccd(cube, qa="fmask")
+first_change = segments.t_break.isel(segment=0)     # NaT where nothing changed
+alerts = segments.n_anomalies >= 3                  # changes in progress, not yet confirmed
+july = zeit.predict_synthetic_image(segments, "2024-07-01")
+
+# One pixel: its segments and, per date, what the filter did
+px = zeit.sccd(df, qa="fmask")
+chart = px[["status", "statistic"]].to_dataframe().join(px.predicted.sel(band="nir").to_series().rename("nir_model"))
+```
+
 ### `predict_synthetic_image` { .api }
 
 <!-- sig: zeit.predict_synthetic_image -->

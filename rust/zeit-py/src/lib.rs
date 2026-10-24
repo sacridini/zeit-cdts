@@ -25,6 +25,7 @@ mod parts;
 mod phenology;
 mod postproc;
 mod recovery;
+mod sccd;
 mod sma;
 mod smooth;
 mod snic;
@@ -69,5 +70,6 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     add_submodule(m, &postproc::module(m.py())?)?;
     add_submodule(m, &aoa::module(m.py())?)?;
     add_submodule(m, &hotspots::module(m.py())?)?;
+    add_submodule(m, &sccd::module(m.py())?)?;
     Ok(())
 }

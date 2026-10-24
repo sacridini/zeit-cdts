@@ -1,6 +1,6 @@
 # Against the Original Implementations
 
-Six of Zeit's newer methods were ported from published implementations, all in R: emerging hot spots, recovery metrics, EWMACD, spectral unmixing, Bayesian smoothing of class probabilities and the area of applicability. This page times each port against that original on the same inputs, and records how the results were checked to agree. Every number comes from `benchmarks/results/vs-originals.json`, written by the scripts in `benchmarks/vs_originals/`, one per method.
+Seven of Zeit's newer methods were checked against published implementations: emerging hot spots, recovery metrics, EWMACD, spectral unmixing, Bayesian smoothing of class probabilities and the area of applicability against their R originals, and S-CCD against pyxccd, its authors' Python package. This page times each port against that original on the same inputs, and records how the results were checked to agree. Every number comes from `benchmarks/results/vs-originals.json`, written by the scripts in `benchmarks/vs_originals/`, one per method.
 
 ---
 
@@ -8,7 +8,7 @@ Six of Zeit's newer methods were ported from published implementations, all in R
 
 <div class="bm-chart-card">
 <p class="bm-chart-title">Time of the original and of Zeit, on the largest workload of each benchmark</p>
-<p class="bm-chart-sub">Log scale. The originals are timed inside R, without loading R and its packages. Zeit is the best of three runs. Hover over (or tab to) a row for the exact numbers and the agreement.</p>
+<p class="bm-chart-sub">Log scale. The originals are timed inside R (pyxccd inside Python), without loading R and its packages. Zeit is the best of three runs. Hover over (or tab to) a row for the exact numbers and the agreement.</p>
 <div class="bm-chart-legend">
 <span><i style="background:var(--bm-ref)"></i>Original</span>
 <span><i style="background:var(--bm-gpu-lo)"></i>Zeit, 1 thread</span>
@@ -66,6 +66,22 @@ Zeit's EWMACD against **Brooks' EWMACD v1.3.0 script** (Brooks et al. 2014; `EWM
 
 **How they were checked.** The flags of every pixel and date are identical (the script fails on any difference). The Zeit side is the Rust core that `zeit.ewmacd` runs (`_core.ewmacd.ewmacd_batch`), timed without the wrapper's handling of the cube. With a persistence above 1 the two differ on a few dates after the first disturbance (see [`ewmacd`](../api/change-detection.md#ewmacd)), so the benchmark uses 1. The two workloads have 75 and 71 dates because each draws its own irregular dates.
 
+### S-CCD vs pyxccd
+
+[`zeit.sccd`](../api/change-detection.md#sccd) against **pyxccd 1.1.0**'s `sccd_detect`, the implementation of S-CCD's authors (Ye et al. 2021; Apache-2.0, which GPL-2.0-only Zeit cannot take code from: Zeit's S-CCD is written from the paper, and pyxccd is run as a black box in an environment of its own). pyxccd is called pixel by pixel, as its API does. Two workloads: 4096 pixels of a Landsat Collection 2 stack of Rondonia (2020–2026, the 61 dates of the path these pixels are on), and 1000 synthetic pixels of 35 years every 8 days, a third of the dates cloudy and a third of the pixels with a change: the long series S-CCD was made for. The same pixels also go through Zeit's own [`ccdc`](../api/change-detection.md#ccdc), to time S-CCD's claim, a Kalman update per observation instead of a lasso refit.
+
+| Workload | pyxccd | Zeit, 1 thread | Zeit, 19 threads | Speedup (1 / 19) | Agreement |
+|:---|---:|---:|---:|:---:|:---|
+| 4096 px × 61 dates (Rondonia) | 10.1 s | 1.10 s | 0.196 s | 9× / 52× | same number of breaks 85%; pyxccd's breaks within 1 obs. 76% |
+| 1000 px × 1598 dates (synthetic) | 22.0 s | 1.16 s | 0.142 s | 19× / 155× | same number of breaks 100%; breaks within 1 obs. 100% |
+
+| Workload | Zeit's CCDC, 1 thread | Zeit's S-CCD, 1 thread | CCDC, 19 threads | S-CCD, 19 threads | S-CCD's speedup (1 / 19) |
+|:---|---:|---:|---:|---:|:---:|
+| 4096 px × 61 dates (Rondonia) | 1.50 s | 1.10 s | 0.208 s | 0.196 s | 1.4× / 1.1× |
+| 1000 px × 1598 dates (synthetic) | 12.1 s | 1.16 s | 1.43 s | 0.142 s | 10× / 10× |
+
+**How they were checked.** The script compares the break dates of every pixel: the share of pixels with as many breaks in both, and the share of pyxccd's breaks with one of Zeit's within one clear observation. On the synthetic changes the two agree on every break; on Rondonia, where many statistics are near the threshold, they agree on most, for reasons given in [Fidelity](fidelity.md#9-newer-ports-against-their-originals). The Zeit side is the Rust core that `zeit.sccd` runs (`_core.sccd.sccd_batch`). On the short Rondonia series most of the work is the initialisation that S-CCD shares with CCDC (the lasso fits of the stability test), so S-CCD is only a little faster; on 35 years of observations the Kalman updates replace CCDC's refits and S-CCD is ten times faster, more than the paper's 3–5×. These timings were taken while other builds ran on the machine: over three runs, pyxccd took 5.5–10.1 s on Rondonia and 15.8–22.0 s on the synthetic series, and Zeit varied by up to 2× too, so the speedups are good to a factor of about 2. The Rondonia stack interleaves two Landsat paths; the dates of the other path, with no data in these pixels, are left out, because CCDC refuses a pixel with data on less than half of the dates (S-CCD and pyxccd do not).
+
 ### Spectral unmixing vs RStoolbox
 
 Zeit's unmixing against the R package **RStoolbox 1.0.2.2**'s `mesma` with its NNLS solver (`method = "NNLS"`, `sum_to_one = FALSE`), 4 endmembers (vegetation, soil, water, non-photosynthetic vegetation) and 6 bands, on pixels mixed from them with Dirichlet fractions and noise.
@@ -119,6 +135,7 @@ Zeit's unmixing against the R package **RStoolbox 1.0.2.2**'s `mesma` with its N
 | Platform | Windows 11 (`Windows-11-10.0.26300-SP0`) |
 | Processor | `Intel64 Family 6 Model 183 Stepping 1, GenuineIntel` (the Intel Core i5-13600K of the other benchmarks), 20 logical processors |
 | R | 4.4.2, with sfdep 0.2.5, RecoverMetricsR 0.1.0, RStoolbox 1.0.2.2, sits 1.5.4 and CAST 1.0.4 |
+| Python | pyxccd 1.1.0, in a virtual environment of its own |
 | Date | 2026-10-24 |
 
 ---
@@ -134,6 +151,7 @@ python benchmarks/vs_originals/unmix.py
 python benchmarks/vs_originals/smooth_probs.py
 python benchmarks/vs_originals/aoa.py
 python benchmarks/vs_originals/ewmacd.py "path/to/EWMACD v1.3.0.r"   # Brooks' script, not distributed
+PYXCCD_PYTHON=path/to/pyxccd-env/python python benchmarks/vs_originals/sccd.py CCDC_Stack_Rondonia.tif CCDC_Stack_Rondonia_Dates.csv
 ```
 
 The scripts look for `Rscript` at `C:\Program Files\R\R-4.4.2\bin\Rscript.exe` on Windows and on the `PATH` elsewhere; set the `RSCRIPT` environment variable to use another. Brooks' script is in `EWMACD v1.3.0.7z` at [VTechWorks](https://vtechworks.lib.vt.edu/items/version/7). `hotspots.py` runs sfdep with 199 permutations only up to 20 × 20 cells (the 50 × 50 run above took sfdep 13 minutes), and with 9 on every grid. Each script prints its rows as it records them; the chart above is redrawn from the JSON by `python docs/scripts/make_vs_originals_chart.py`.

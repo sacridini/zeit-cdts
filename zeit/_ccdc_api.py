@@ -211,6 +211,7 @@ def _as_ccdc_cube(data: Any, *, qa: Any, dates: Any, bands: Any, chunks: Any):
     from ._load import load_raster
 
     pixel = False
+    reorder = None
     if isinstance(data, pd.DataFrame):
         times = data.index if dates is None else to_datetime_index(dates)
         frame = data
@@ -225,6 +226,9 @@ def _as_ccdc_cube(data: Any, *, qa: Any, dates: Any, bands: Any, chunks: Any):
         cube = data.transpose("time", "band").expand_dims(("y", "x"), axis=(2, 3))
         pixel = True
     else:
+        if isinstance(data, (xr.DataArray, xr.Dataset)) and "time" in data.indexes                 and not data.indexes["time"].is_monotonic_increasing:
+            # load_raster puts the cube in date order: a QA given by position must follow it
+            reorder = np.argsort(data.indexes["time"].values, kind="stable")
         kwargs = {}
         if not isinstance(data, (xr.DataArray, xr.Dataset, np.ndarray)) and not hasattr(data, "dask"):
             kwargs["chunks"] = chunks
@@ -270,6 +274,8 @@ def _as_ccdc_cube(data: Any, *, qa: Any, dates: Any, bands: Any, chunks: Any):
     elif qa is not None:
         qa_values = qa.data if isinstance(qa, xr.DataArray) else np.asarray(qa)
         qa_values = qa_values.reshape((cube.sizes["time"],) + (() if pixel else qa_values.shape[1:]))
+        if reorder is not None and len(reorder) == qa_values.shape[0]:
+            qa_values = qa_values[reorder]
         if pixel:
             qa_values = qa_values.reshape(-1, 1, 1)
         qa_cube = xr.DataArray(qa_values, dims=("time", "y", "x"))

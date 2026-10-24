@@ -21,19 +21,19 @@ use crate::eigen::qr::{Mat, Order};
 use crate::parallel;
 use crate::robustfit::{median_of, robust_fit};
 
-const W: f64 = 2.0 * std::f64::consts::PI / 365.25; // annual cycle, as in the original
-const DATENUM_OFFSET: i32 = 366; // MATLAB datenum = Python ordinal + 366
+pub(crate) const W: f64 = 2.0 * std::f64::consts::PI / 365.25; // annual cycle, as in the original
+pub(crate) const DATENUM_OFFSET: i32 = 366; // MATLAB datenum = Python ordinal + 366
 
 // Fixed constants of TrendSeasonalFit_v12_30Line.m
-const MIN_NUM_C: i32 = 4;
+pub(crate) const MIN_NUM_C: i32 = 4;
 const MID_NUM_C: i32 = 6;
 const MAX_NUM_C: i32 = 8;
-const N_TIMES: i32 = 3;
-const NUM_YRS: f64 = 365.25;
+pub(crate) const N_TIMES: i32 = 3;
+pub(crate) const NUM_YRS: f64 = 365.25;
 const T_CONST: f64 = 3.89;
-const MINI_YRS: f64 = 1.0;
-const T_SN: f64 = 0.75;
-const T_CLR: f64 = 0.25;
+pub(crate) const MINI_YRS: f64 = 1.0;
+pub(crate) const T_SN: f64 = 0.75;
+pub(crate) const T_CLR: f64 = 0.25;
 const CLOUD_SCREEN_OFFSET: f64 = 400.0; // "median(green) + 400" in the insufficient-clear branch
 const GLMNET_LAMBDA: f32 = 20.0;
 const GLMNET_THRESH: f32 = 1e-4;
@@ -109,11 +109,11 @@ pub struct Segment {
 
 /// An error of the C++'s: the invalid_argument of make_ctx and fit_ccdc, or
 /// what a fit throws (std::length_error) or does not define.
-type Fit<T> = Result<T, &'static str>;
+pub(crate) type Fit<T> = Result<T, &'static str>;
 
 /// std::max(a, b): `a < b ? b : a` (NaN in `a` is kept, unlike f64::max).
 #[inline]
-fn cmax<T: PartialOrd>(a: T, b: T) -> T {
+pub(crate) fn cmax<T: PartialOrd>(a: T, b: T) -> T {
     if a < b {
         b
     } else {
@@ -122,7 +122,7 @@ fn cmax<T: PartialOrd>(a: T, b: T) -> T {
 }
 
 /// *std::min_element: the first of the smallest values.
-fn min_element(v: &[f64]) -> f64 {
+pub(crate) fn min_element(v: &[f64]) -> f64 {
     let mut m = v[0];
     for &x in &v[1..] {
         if x < m {
@@ -180,7 +180,7 @@ fn gamma_p(a: f64, x: f64) -> f64 {
     1.0 - (-x + a * x.ln() - gln).exp() * h
 }
 
-fn chi2inv(p: f64, df: i32) -> f64 {
+pub(crate) fn chi2inv(p: f64, df: i32) -> f64 {
     let a = df as f64 / 2.0;
     let (mut lo, mut hi) = (0.0, 1.0);
     while gamma_p(a, hi / 2.0) < p {
@@ -230,7 +230,7 @@ fn ts_pred(terms: &[f64; 8], c: &[f64; 8]) -> f64 {
 /// At most 7 predictors: t and three harmonics.
 const MAX_NI: usize = 7;
 
-struct Lasso {
+pub(crate) struct Lasso {
     no: usize,
     ni: usize,
     ju: [bool; MAX_NI],
@@ -250,7 +250,7 @@ struct Lasso {
 impl Lasso {
     /// The design of autoTSFit with `df` coefficients at the dates `rows` of
     /// `terms`: t, cos(wt), sin(wt), ... in single precision.
-    fn new(terms: &[[f64; 8]], rows: &[usize], df: i32) -> Fit<Lasso> {
+    pub(crate) fn new(terms: &[[f64; 8]], rows: &[usize], df: i32) -> Fit<Lasso> {
         if df < 1 {
             // std::vector of a negative size in the C++: std::length_error
             return Err("num_c must be at least 1");
@@ -523,7 +523,7 @@ impl Lasso {
 
     /// autoTSFit of the values `y` at the design's dates `rows`: the 8
     /// coefficients and the RMSE, the residuals in `v_dif`.
-    fn ts_fit(
+    pub(crate) fn ts_fit(
         &mut self,
         terms: &[[f64; 8]],
         rows: &[usize],
@@ -555,21 +555,21 @@ impl Lasso {
 // One pixel of TrendSeasonalFit_v12_30Line.m
 
 /// The make_ctx of the C++: the bands and thresholds of a call.
-struct Ctx<'p> {
-    nb: usize,
-    b_detect: Vec<usize>,
-    is_detect: Vec<bool>,
-    b1: usize,
-    b2: usize,
-    conse: i32,
-    num_c: i32,
-    t_cg: f64,
-    tmax_cg: f64,
-    p: &'p Params,
+pub(crate) struct Ctx<'p> {
+    pub(crate) nb: usize,
+    pub(crate) b_detect: Vec<usize>,
+    pub(crate) is_detect: Vec<bool>,
+    pub(crate) b1: usize,
+    pub(crate) b2: usize,
+    pub(crate) conse: i32,
+    pub(crate) num_c: i32,
+    pub(crate) t_cg: f64,
+    pub(crate) tmax_cg: f64,
+    pub(crate) p: &'p Params,
 }
 
 impl<'p> Ctx<'p> {
-    fn new(params: &'p Params, nb: usize) -> Fit<Ctx<'p>> {
+    pub(crate) fn new(params: &'p Params, nb: usize) -> Fit<Ctx<'p>> {
         let nbi = nb as i32;
         let mut b_detect = params.detection_bands.clone();
         if b_detect.is_empty() {
@@ -617,7 +617,7 @@ impl<'p> Ctx<'p> {
     }
 
     /// norm(row(B_detect))^2, rounded like MATLAB's.
-    fn vec_row(&self, row: &[f64]) -> f64 {
+    pub(crate) fn vec_row(&self, row: &[f64]) -> f64 {
         let mut s = 0.0;
         for &b in &self.b_detect {
             s += row[b] * row[b];
@@ -628,30 +628,30 @@ impl<'p> Ctx<'p> {
 }
 
 /// A pixel's observations in date order.
-struct Series<'a> {
+pub(crate) struct Series<'a> {
     /// MATLAB datenum dates.
-    sdate: &'a [f64],
+    pub(crate) sdate: &'a [f64],
     /// The model terms of each date.
-    terms: &'a [[f64; 8]],
+    pub(crate) terms: &'a [[f64; 8]],
     /// [date][band]
-    line: &'a [f64],
-    qa: &'a [i32],
+    pub(crate) line: &'a [f64],
+    pub(crate) qa: &'a [i32],
 }
 
 /// The models of all the bands fitted on the same observations (fit_all).
-struct Models {
-    nb: usize,
-    fit_cft: Vec<[f64; 8]>,
-    rmse: Vec<f64>,
+pub(crate) struct Models {
+    pub(crate) nb: usize,
+    pub(crate) fit_cft: Vec<[f64; 8]>,
+    pub(crate) rmse: Vec<f64>,
     /// [obs][band]: the residuals of the last fit that kept them.
-    rec_v_dif: Vec<f64>,
-    yv: Vec<f64>,
-    ybuf: Vec<f32>,
-    v_dif: Vec<f64>,
+    pub(crate) rec_v_dif: Vec<f64>,
+    pub(crate) yv: Vec<f64>,
+    pub(crate) ybuf: Vec<f32>,
+    pub(crate) v_dif: Vec<f64>,
 }
 
 impl Models {
-    fn new(nb: usize) -> Models {
+    pub(crate) fn new(nb: usize) -> Models {
         Models {
             nb,
             fit_cft: vec![[0.0; 8]; nb],
@@ -663,7 +663,7 @@ impl Models {
         }
     }
 
-    fn fit_all(&mut self, s: &Series, rows: &[usize], df: i32, keep_resid: bool) -> Fit<()> {
+    pub(crate) fn fit_all(&mut self, s: &Series, rows: &[usize], df: i32, keep_resid: bool) -> Fit<()> {
         let (nb, n) = (self.nb, rows.len());
         if keep_resid {
             self.rec_v_dif.clear();
@@ -692,7 +692,7 @@ impl Models {
 
 /// autoTmask: flags the observations `rows` whose green or SWIR1 residual
 /// from a robust 2-frequency harmonic fit exceeds T_const x adj_rmse.
-fn auto_tmask(s: &Series, c: &Ctx, rows: &[usize], yr: f64, var1: f64, var2: f64) -> Vec<bool> {
+pub(crate) fn auto_tmask(s: &Series, c: &Ctx, rows: &[usize], yr: f64, var1: f64, var2: f64) -> Vec<bool> {
     let yr = yr.ceil();
     let (n, nb) = (rows.len(), c.nb);
     let x = Mat::from_fn(n, 4, Order::Col, |i, j| {
@@ -748,12 +748,12 @@ fn rec_at(rec: &mut Vec<Option<Segment>>, k: i32) -> &mut Segment {
 }
 
 /// Observations a..=b (1-based) of `d`.
-fn rows(d: &[usize], a: i32, b: i32) -> &[usize] {
+pub(crate) fn rows(d: &[usize], a: i32, b: i32) -> &[usize] {
     &d[(a - 1) as usize..b as usize]
 }
 
 /// The per-band medians of the rows r0..r1 of `m`.
-fn median_rows(m: &[Vec<f64>], r0: usize, r1: usize, nb: usize) -> Vec<f64> {
+pub(crate) fn median_rows(m: &[Vec<f64>], r0: usize, r1: usize, nb: usize) -> Vec<f64> {
     let mut col = Vec::with_capacity(r1.saturating_sub(r0));
     (0..nb)
         .map(|b| {
@@ -1194,7 +1194,7 @@ fn fit_pixel(s: &Series, c: &Ctx) -> Fit<Vec<Segment>> {
 
 /// The dates in the order the original reads the images (stable: the first
 /// of equal dates first), their datenums and the model terms there.
-fn date_order(dates: &[i32]) -> (Vec<usize>, Vec<f64>, Vec<[f64; 8]>) {
+pub(crate) fn date_order(dates: &[i32]) -> (Vec<usize>, Vec<f64>, Vec<[f64; 8]>) {
     let mut order: Vec<usize> = (0..dates.len()).collect();
     order.sort_by_key(|&t| dates[t]);
     let sdate: Vec<f64> = order.iter().map(|&t| dates[t] as f64 + DATENUM_OFFSET as f64).collect();

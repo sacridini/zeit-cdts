@@ -16,6 +16,7 @@ del _sys
 from ._landtrendr import desawtooth, apply_vertices
 from ._lt import landtrendr
 from ._ccdc_api import ccdc
+from ._sccd import sccd
 from ._series_api import bfast_monitor, bfast_lite, bfast, mann_kendall, phenology
 from ._parts import ar_trend, parts
 from ._recovery import recovery_metrics
@@ -89,7 +90,7 @@ def __dir__():
 
 __all__ = [
     "landtrendr", "desawtooth", "apply_vertices",
-    "ccdc",
+    "ccdc", "sccd",
     "bfast_monitor", "bfast_lite", "bfast", "mann_kendall", "phenology",
     "ar_trend", "parts", "recovery_metrics", "ewmacd",
     "twdtw", "smooth", "tmask", "snic", "som", "clean_samples", "unmix", "coded",

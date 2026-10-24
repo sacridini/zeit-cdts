@@ -27,6 +27,8 @@ ROWS = [
      "RecoverMetricsR", "1000 × 1000 px × 21 years"),
     ("EWMACD", "ewmacd", "Brooks' EWMACD v1.3.0 (R)", "10000 pixels x 71 dates",
      "Brooks' EWMACD v1.3.0 script", "10,000 px × 71 dates"),
+    ("S-CCD", "sccd", "pyxccd 1.1.0 sccd_detect", "1000 pixels x 1598 dates (synthetic)",
+     "pyxccd 1.1.0", "1000 px × 1598 dates, synthetic"),
     ("Spectral unmixing", "unmix", "RStoolbox 1.0.2.2 (R)", "1000x1000 px x 6 bands x 4 em.",
      "RStoolbox mesma", "1000 × 1000 px × 6 bands"),
     ("Bayesian smoothing", "smooth_probs", "sits 1.5.4 (R)", "1000x1000 px x 4 classes",

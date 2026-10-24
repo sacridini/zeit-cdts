@@ -113,7 +113,8 @@
 | [`agreement`](change-detection.md#agreement) | Where and when several change maps agree |
 | [`apply_vertices`](change-detection.md#apply_vertices) | Fit another band to the same vertices |
 | [`ccdc`](change-detection.md#ccdc) | CCDC on a file, cube, array or single pixel |
-| [`predict_synthetic_image`](change-detection.md#predict_synthetic_image) | Evaluate CCDC models on any date |
+| [`sccd`](change-detection.md#sccd) | Stochastic CCDC (S-CCD): CCDC updated by a Kalman filter, with the near-real-time state of each pixel |
+| [`predict_synthetic_image`](change-detection.md#predict_synthetic_image) | Evaluate CCDC (and S-CCD) models on any date |
 | [`bfast_monitor`](change-detection.md#bfast_monitor) | Near-real-time monitoring, on a file, cube, array or single pixel |
 | [`bfast_lite`](change-detection.md#bfast_lite) | Optimal multiple breakpoints |
 | [`bfast`](change-detection.md#bfast) | Trend and seasonal breaks |

@@ -395,6 +395,94 @@
    "threads": 19,
    "note": "DI max diff 1.8e-15",
    "date": "2026-10-24"
+  },
+  {
+   "method": "sccd",
+   "original": "pyxccd 1.1.0 sccd_detect",
+   "size": "4096 pixels x 61 dates",
+   "original_s": 10.08432979999634,
+   "zeit_s": 1.1012686999965808,
+   "speedup": 9.157011181764858,
+   "threads": 1,
+   "note": "same number of breaks 85%, pyxccd's breaks within 1 obs 76%",
+   "date": "2026-10-24"
+  },
+  {
+   "method": "sccd",
+   "original": "zeit.ccdc (CCDC, same pixels)",
+   "size": "4096 pixels x 61 dates",
+   "original_s": 1.5027315999977873,
+   "zeit_s": 1.1012686999965808,
+   "speedup": 1.3645458188382662,
+   "threads": 1,
+   "note": "S-CCD's time against CCDC's in zeit",
+   "date": "2026-10-24"
+  },
+  {
+   "method": "sccd",
+   "original": "pyxccd 1.1.0 sccd_detect",
+   "size": "4096 pixels x 61 dates",
+   "original_s": 10.08432979999634,
+   "zeit_s": 0.19549579999875277,
+   "speedup": 51.583357801347525,
+   "threads": 19,
+   "note": "same number of breaks 85%, pyxccd's breaks within 1 obs 76%",
+   "date": "2026-10-24"
+  },
+  {
+   "method": "sccd",
+   "original": "zeit.ccdc (CCDC, same pixels)",
+   "size": "4096 pixels x 61 dates",
+   "original_s": 0.20849689999886323,
+   "zeit_s": 0.19549579999875277,
+   "speedup": 1.0665032189959753,
+   "threads": 19,
+   "note": "S-CCD's time against CCDC's in zeit",
+   "date": "2026-10-24"
+  },
+  {
+   "method": "sccd",
+   "original": "pyxccd 1.1.0 sccd_detect",
+   "size": "1000 pixels x 1598 dates (synthetic)",
+   "original_s": 22.046679300001415,
+   "zeit_s": 1.161170300001686,
+   "speedup": 18.986602826449666,
+   "threads": 1,
+   "note": "same number of breaks 100%, pyxccd's breaks within 1 obs 100%",
+   "date": "2026-10-24"
+  },
+  {
+   "method": "sccd",
+   "original": "zeit.ccdc (CCDC, same pixels)",
+   "size": "1000 pixels x 1598 dates (synthetic)",
+   "original_s": 12.100546399997256,
+   "zeit_s": 1.161170300001686,
+   "speedup": 10.420991994007844,
+   "threads": 1,
+   "note": "S-CCD's time against CCDC's in zeit",
+   "date": "2026-10-24"
+  },
+  {
+   "method": "sccd",
+   "original": "pyxccd 1.1.0 sccd_detect",
+   "size": "1000 pixels x 1598 dates (synthetic)",
+   "original_s": 22.046679300001415,
+   "zeit_s": 0.14184199999726843,
+   "speedup": 155.43124956237213,
+   "threads": 19,
+   "note": "same number of breaks 100%, pyxccd's breaks within 1 obs 100%",
+   "date": "2026-10-24"
+  },
+  {
+   "method": "sccd",
+   "original": "zeit.ccdc (CCDC, same pixels)",
+   "size": "1000 pixels x 1598 dates (synthetic)",
+   "original_s": 1.432880499996827,
+   "zeit_s": 0.14184199999726843,
+   "speedup": 10.101947942248566,
+   "threads": 19,
+   "note": "S-CCD's time against CCDC's in zeit",
+   "date": "2026-10-24"
   }
  ],
  "machine": {
