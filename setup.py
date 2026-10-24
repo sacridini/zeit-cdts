@@ -11,7 +11,7 @@ rust_extensions = [
 
 setup(
     name='zeit-cdts',
-    version='2.0.0',
+    version='2.1.0',
     packages=find_packages(include=['zeit', 'zeit.*']),
     package_data={'zeit._plot': ['*.js', '*.css']},
     rust_extensions=rust_extensions,
