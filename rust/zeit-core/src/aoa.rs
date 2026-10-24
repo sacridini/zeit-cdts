@@ -4,7 +4,8 @@
 //! cross-validation fold over the mean distance between the training points, and the threshold the upper whisker of
 //! those (the 75% quantile plus 1.5 IQR, at most their largest). A new point's DI is its distance to the nearest
 //! training point over the same mean; it is in the area of applicability when its DI is not above the threshold. Its
-//! local point density (LPD) is how many training points are that near.
+//! local point density (LPD) is how many training points are that near. The nearest training points are found in a
+//! k-d tree up to 9 predictors, from a matrix product beyond; the distances measured exactly either way.
 
 use faer::linalg::matmul::matmul;
 use faer::{Accum, Mat, MatRef, Par};
@@ -140,6 +141,129 @@ pub fn train_di(
 /// Pixels a block of the new data's distances.
 const BLOCK: usize = 256;
 
+/// Up to this many predictors, the nearest training points are searched in a k-d tree (as CAST's FNN); beyond, the
+/// distances to all of them come from a matrix product.
+const KD_MAX_P: usize = 9;
+
+/// Training points a leaf of the k-d tree.
+const LEAF: usize = 12;
+
+/// A k-d tree of the training points: each node splits its points at the median of their widest predictor.
+struct KdTree<'a> {
+    pts: &'a [f64],
+    p: usize,
+    /// the points' indices, each node's a range of them
+    idx: Vec<usize>,
+    nodes: Vec<KdNode>,
+}
+
+struct KdNode {
+    lo: usize,
+    hi: usize,
+    dim: usize,
+    split: f64,
+    /// None: a leaf
+    children: Option<(usize, usize)>,
+}
+
+impl<'a> KdTree<'a> {
+    fn new(pts: &'a [f64], n: usize, p: usize) -> Self {
+        let mut t = KdTree {
+            pts,
+            p,
+            idx: (0..n).collect(),
+            nodes: Vec::new(),
+        };
+        t.build(0, n);
+        t
+    }
+
+    fn build(&mut self, lo: usize, hi: usize) -> usize {
+        let id = self.nodes.len();
+        self.nodes.push(KdNode {
+            lo,
+            hi,
+            dim: 0,
+            split: 0.0,
+            children: None,
+        });
+        if hi - lo > LEAF {
+            let (pts, p) = (self.pts, self.p);
+            let spread = |j: usize| {
+                let (mn, mx) = self.idx[lo..hi]
+                    .iter()
+                    .fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), &i| {
+                        (a.min(pts[i * p + j]), b.max(pts[i * p + j]))
+                    });
+                mx - mn
+            };
+            let dim = (1..p).fold(0, |best, j| if spread(j) > spread(best) { j } else { best });
+            // the points before the median at most its value, those after at least
+            let mid = (lo + hi) / 2;
+            self.idx[lo..hi].select_nth_unstable_by(mid - lo, |&a, &b| pts[a * p + dim].total_cmp(&pts[b * p + dim]));
+            let split = pts[self.idx[mid] * p + dim];
+            let left = self.build(lo, mid);
+            let right = self.build(mid, hi);
+            let node = &mut self.nodes[id];
+            (node.dim, node.split, node.children) = (dim, split, Some((left, right)));
+        }
+        id
+    }
+
+    fn point(&self, i: usize) -> &[f64] {
+        &self.pts[i * self.p..(i + 1) * self.p]
+    }
+
+    /// Lowers `best` to the squared distance from x to the nearest point under `node` if nearer: the exact
+    /// distance2, a subtree left out when the distance to its box
+    /// is above `best` (Arya & Mount's incremental distance: `rd` the squared distance to the node's box, `off` its
+    /// part along each predictor).
+    fn nearest(&self, x: &[f64], node: usize, rd: f64, off: &mut [f64], best: &mut f64) {
+        let nd = &self.nodes[node];
+        match nd.children {
+            None => {
+                for &i in &self.idx[nd.lo..nd.hi] {
+                    *best = best.min(distance2(x, self.point(i)));
+                }
+            }
+            Some((left, right)) => {
+                let diff = x[nd.dim] - nd.split;
+                let (near, far) = if diff < 0.0 { (left, right) } else { (right, left) };
+                self.nearest(x, near, rd, off, best);
+                let old = off[nd.dim];
+                let rd_far = rd - old * old + diff * diff;
+                // a margin for rounding: a point as near as the best is never left out
+                if rd_far * (1.0 - 1e-12) <= *best {
+                    off[nd.dim] = diff;
+                    self.nearest(x, far, rd_far, off, best);
+                    off[nd.dim] = old;
+                }
+            }
+        }
+    }
+
+    /// The points under `node` whose squared distance to x is `inside`, those beyond `reach2` (with a margin)
+    /// left out.
+    fn count(&self, x: &[f64], node: usize, reach2: f64, inside: &dyn Fn(f64) -> bool) -> usize {
+        let nd = &self.nodes[node];
+        match nd.children {
+            None => self.idx[nd.lo..nd.hi]
+                .iter()
+                .filter(|&&i| inside(distance2(x, self.point(i))))
+                .count(),
+            Some((left, right)) => {
+                let diff = x[nd.dim] - nd.split;
+                let (near, far) = if diff < 0.0 { (left, right) } else { (right, left) };
+                let mut c = self.count(x, near, reach2, inside);
+                if diff * diff <= reach2 * (1.0 + 1e-6) {
+                    c += self.count(x, far, reach2, inside);
+                }
+                c
+            }
+        }
+    }
+}
+
 /// The DI of each new point of `data` (pixels x p, a missing value: NaN) and, with `lpd`, its local point density
 /// (how many training points have a DI to it below the threshold; else empty).
 pub fn di(data: &[f64], n_pixels: usize, td: &TrainDi, lpd: bool, n_jobs: i32) -> (Vec<f64>, Vec<f64>) {
@@ -151,6 +275,7 @@ pub fn di(data: &[f64], n_pixels: usize, td: &TrainDi, lpd: bool, n_jobs: i32) -
         .collect();
     let top = norms.iter().copied().fold(0.0, f64::max);
     let reach = td.threshold * td.mean_distance;
+    let tree = (p <= KD_MAX_P && n > LEAF).then(|| KdTree::new(&td.train, n, p));
     let mut di = vec![f64::NAN; n_pixels];
     let mut lp = vec![f64::NAN; if lpd { n_pixels } else { 0 }];
     let work = |k0: usize, out: &mut [f64], out_lpd: &mut [f64]| {
@@ -178,13 +303,30 @@ pub fn di(data: &[f64], n_pixels: usize, td: &TrainDi, lpd: bool, n_jobs: i32) -
                 }
             }
         }
+        if let Some(tree) = &tree {
+            let mut off = vec![0.0; p];
+            for r in (0..m).filter(|&r| ok[r]) {
+                let x = &a[r * p..(r + 1) * p];
+                let mut best = f64::INFINITY;
+                off.fill(0.0);
+                tree.nearest(x, 0, 0.0, &mut off, &mut best);
+                out[r] = best.sqrt() / td.mean_distance;
+                if !out_lpd.is_empty() {
+                    // CAST: knnDI < threshold, strictly
+                    let inside = |d2: f64| d2.sqrt() / td.mean_distance < td.threshold;
+                    out_lpd[r] = tree.count(x, 0, reach * reach, &inside) as f64;
+                }
+            }
+            return;
+        }
         // |a - b|² = |a|² + |b|² - 2 a.b, then the nearest candidates measured exactly
-        let mut g = Mat::<f64>::zeros(m, n);
+        // n x m, column-major: each pixel's products with the training points contiguous
+        let mut g = Mat::<f64>::zeros(n, m);
         matmul(
             g.as_mut(),
             Accum::Replace,
-            MatRef::from_row_major_slice(&a, m, p),
-            train.transpose(),
+            train,
+            MatRef::from_row_major_slice(&a, m, p).transpose(),
             1.0,
             Par::Seq,
         );
@@ -192,7 +334,8 @@ pub fn di(data: &[f64], n_pixels: usize, td: &TrainDi, lpd: bool, n_jobs: i32) -
             let x = &a[r * p..(r + 1) * p];
             let an: f64 = x.iter().map(|v| v * v).sum();
             let tol = 1e-9 * (an + top) + 1e-300;
-            let approx = |j: usize| an + norms[j] - 2.0 * g[(r, j)];
+            let col = g.col(r).try_as_col_major().unwrap().as_slice();
+            let approx = |j: usize| an + norms[j] - 2.0 * col[j];
             let best = (0..n).map(approx).fold(f64::INFINITY, f64::min);
             let mut min = f64::INFINITY;
             for j in (0..n).filter(|&j| approx(j) <= best + tol) {
@@ -284,6 +427,46 @@ mod tests {
         let (d, _) = di(&[1.0, f64::NAN], 1, &td, false, 1);
         assert!(d[0] == 0.0, "{d:?}");
         assert!(train_di(&t, 3, 2, &[1.0, 1.0], None, 1).is_err());
+    }
+
+    #[test]
+    fn tree_is_the_brute_search() {
+        // 5 predictors (the k-d tree) and the same points padded with 10 of weight 0 (the matrix product)
+        let (n, p, m) = (500, 5, 2000);
+        let mut s = 7u64;
+        let mut rnd = || {
+            s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (s >> 11) as f64 / (1u64 << 53) as f64
+        };
+        let t: Vec<f64> = (0..n * p).map(|k| rnd() * 10.0 + (k / p % 4) as f64 * 20.0).collect();
+        // half the new points near training points, half anywhere
+        let x: Vec<f64> = (0..m * p)
+            .map(|k| {
+                if k / p % 2 == 0 {
+                    t[(k / p / 2 % n) * p + k % p] + rnd()
+                } else {
+                    rnd() * 80.0
+                }
+            })
+            .collect();
+        let pad = |v: &[f64], rows: usize| -> Vec<f64> {
+            (0..rows)
+                .flat_map(|i| {
+                    v[i * p..(i + 1) * p]
+                        .iter()
+                        .copied()
+                        .chain((0..10).map(move |j| j as f64 + i as f64))
+                })
+                .collect()
+        };
+        let w: Vec<f64> = [1.0, 2.0, 0.5, 1.0, 3.0].into_iter().chain([0.0; 10]).collect();
+        let td = train_di(&t, n, p, &w[..p], None, 1).unwrap();
+        let tdp = train_di(&pad(&t, n), n, p + 10, &w, None, 1).unwrap();
+        assert_eq!(td.mean_distance, tdp.mean_distance);
+        let (d, l) = di(&x, m, &td, true, 1);
+        let (dp, lp) = di(&pad(&x, m), m, &tdp, true, 1);
+        assert_eq!((&d, &l), (&dp, &lp));
+        assert!(l.iter().any(|&v| v > 0.0) && l.contains(&0.0));
     }
 
     #[test]

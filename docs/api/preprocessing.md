@@ -113,7 +113,7 @@ zeit.unmix(
 )
 ```
 
-The fraction of each endmember (pure material) in every pixel and date: a 30 m Landsat pixel of forest after selective logging is part canopy (green vegetation), part dead wood and litter (non-photosynthetic vegetation), part soil and part shade, and the fractions show the damage that the reflectance hides. The unmixing is fully constrained least squares (non-negative fractions that add up to one; Heinz & Chang 2001), in Rust, every pixel and date in parallel. Also exported as `zeit.unmix`.
+The fraction of each endmember (pure material) in every pixel and date: a 30 m Landsat pixel of forest after selective logging is part canopy (green vegetation), part dead wood and litter (non-photosynthetic vegetation), part soil and part shade, and the fractions show the damage that the reflectance hides. The unmixing is fully constrained least squares (non-negative fractions that add up to one; Heinz & Chang 2001), in Rust, every pixel and date in parallel; the active set solves each pixel exactly. RStoolbox's `mesma` (R), whose NNLS iterates to a tolerance, takes 22 s on 1000 x 1000 pixels of 6 bands and 4 endmembers; Zeit 1.2 s on one thread, 0.13 s on 19, its residual never larger (benchmarks/vs_originals/unmix.py). Also exported as `zeit.unmix`.
 
 <div class="params" markdown>
 

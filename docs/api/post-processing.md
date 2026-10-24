@@ -106,7 +106,7 @@ zeit.spatial.smooth_probs(
 )
 ```
 
-Bayesian smoothing of class probabilities, as sits' `sits_smooth` (Câmara et al.). Each class's logit, `log(p / (sum - p))`, is pulled towards the mean `m` of the highest `neigh_fraction` of the logits of its window (mirrored at the edges), the more the less that neighbourhood varies (`s²`) against `smoothness`: `w = s² / (s² + smoothness)`, `x' = w x + (1 - w) m`. A pixel whose model is confident keeps its class against consistent neighbours, while the noise among uncertain pixels goes. The result equals sits 1.5.4's to 1e-15 (tests/test_postproc.py), except that a missing pixel stays missing where sits gives it its neighbours' mean. Also exported as `zeit.smooth_probs`.
+Bayesian smoothing of class probabilities, as sits' `sits_smooth` (Câmara et al.). Each class's logit, `log(p / (sum - p))`, is pulled towards the mean `m` of the highest `neigh_fraction` of the logits of its window (mirrored at the edges), the more the less that neighbourhood varies (`s²`) against `smoothness`: `w = s² / (s² + smoothness)`, `x' = w x + (1 - w) m`. A pixel whose model is confident keeps its class against consistent neighbours, while the noise among uncertain pixels goes. The result equals sits 1.5.4's to 1e-15 (tests/test_postproc.py), except that a missing pixel stays missing where sits gives it its neighbours' mean. On 1000 x 1000 pixels and 4 classes, sits takes 10.7 s; Zeit 1.1 s on one thread, 0.15 s on 19 (benchmarks/vs_originals/smooth_probs.py). Also exported as `zeit.smooth_probs`.
 
 <div class="params" markdown>
 
@@ -223,7 +223,7 @@ zeit.aoa(
 )
 ```
 
-Where a model can be applied (Meyer & Pebesma 2021): the dissimilarity index (DI) of each pixel to the training data, and the area of applicability (AOA), where it is no more dissimilar than the training data are to each other, as CAST's `aoa` (the same DI as CAST 1.0.4, to 1e-13). The predictors are scaled by the training data's means and standard deviations and weighted by their importance; a pixel's DI is its distance to the nearest training point over the mean distance between training points. The threshold is the upper whisker (75% quantile + 1.5 IQR, at most their largest) of the training points' own DI, each the distance to the nearest point of another cross-validation fold. A model's predictions outside the AOA are extrapolations: its validation says nothing about them.
+Where a model can be applied (Meyer & Pebesma 2021): the dissimilarity index (DI) of each pixel to the training data, and the area of applicability (AOA), where it is no more dissimilar than the training data are to each other, as CAST's `aoa` (the same DI as CAST 1.0.4, to 1e-13). The predictors are scaled by the training data's means and standard deviations and weighted by their importance; a pixel's DI is its distance to the nearest training point over the mean distance between training points. The threshold is the upper whisker (75% quantile + 1.5 IQR, at most their largest) of the training points' own DI, each the distance to the nearest point of another cross-validation fold. A model's predictions outside the AOA are extrapolations: its validation says nothing about them. The nearest training points are found in a k-d tree up to 9 predictors (as CAST's FNN), from a matrix product beyond, the distances exact either way: with 2000 training points and 100,000 pixels, CAST takes 1.2 s with 8 predictors and 5.8 s with 64; Zeit 0.45 s and 1 s on one thread, 0.04 s and 0.3 s on 19 (benchmarks/vs_originals/aoa.py).
 
 <div class="params" markdown>
 

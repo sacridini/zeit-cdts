@@ -558,8 +558,7 @@ def _normalize(da: xr.DataArray, *, dates: Any, start_year: Optional[int]) -> xr
     elif "time" in da.dims and "time" in da.coords and not np.issubdtype(da.time.dtype, np.datetime64):
         da = da.assign_coords(time=to_datetime_index(da.time.values))
 
-    if "time" in da.dims and "time" in da.coords:
-        da = da.sortby("time")
+    da = sorted_by_time(da)
     order = [d for d in ("time", "band", "y", "x") if d in da.dims]
     others = [d for d in da.dims if d not in order]
     da = da.transpose(*others, *order)
@@ -575,6 +574,13 @@ def _normalize(da: xr.DataArray, *, dates: Any, start_year: Optional[int]) -> xr
                 da = da.rio.write_crs(crs)
             except Exception:  # noqa: BLE001 - an unreadable crs attribute just stays as it is
                 pass
+    return da
+
+
+def sorted_by_time(da: Any) -> Any:
+    """The cube in the order of its dates; as it is (not copied) when it already is."""
+    if "time" in da.indexes and not da.indexes["time"].is_monotonic_increasing:
+        return da.sortby("time")
     return da
 
 

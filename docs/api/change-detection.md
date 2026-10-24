@@ -191,7 +191,7 @@ The disturbance runs from its start, the last year before it (an event's `yod`),
 | `yryr` | Year-on-year recovery: `(value at t0 + k - dist_val) / k`. |
 | `y2r` | Years to recovery (White et al. 2017): from `t0` until the value first reaches `target * pre_val`; 0 when it never fell below it, NaN when it has not reached it by the last year. |
 
-On a LandTrendr result the metrics are measured on the fitted trajectory (the line through the vertices), after the event `extract_events` picks; on a series, on its values, after the `events` given. The metrics measured at the horizon are NaN when the series ends before it. Janus has it as the *Recovery (LandTrendr)* tool.
+On a LandTrendr result the metrics are measured on the fitted trajectory (the line through the vertices), after the event `extract_events` picks; on a series, on its values, after the `events` given. The metrics measured at the horizon are NaN when the series ends before it. Janus has it as the *Recovery (LandTrendr)* tool. RecoverMetricsR (R) computes RRI, R80P and YrYr alike (it takes the best of the 5 years after the trough, and counts the years to recovery from the year after it): on 1000 x 1000 pixels and 21 years, it takes 52 s; Zeit 0.1 s on one thread (benchmarks/vs_originals/recovery.py).
 
 <div class="params" markdown>
 
@@ -503,7 +503,7 @@ Exponentially Weighted Moving Average Change Detection (EWMACD; Brooks et al. 20
 
 The flags after the training years give the first disturbance, its severity, the date it recovered, the first gain and the state at the last date.
 
-The flags are those of Brooks' EWMACD v1.3.0 script, the paper's own (Earth Engine has it as `ee.Algorithms.TemporalSegmentation.Ewmacd`). With `persistence=1` they were checked date by date on synthetic series (`tests/data/make_ewmacd_parity_fixtures.R`) and on 400 pixels of the paper's sample data. With more persistence, the first disturbance is the same but a few later dates differ: on those dates the script means to keep the previous sustained state but reads another date's flag. Values not above `low` are treated as missing from the start, whereas the script still fits them in its first regression.
+The flags are those of Brooks' EWMACD v1.3.0 script, the paper's own (Earth Engine has it as `ee.Algorithms.TemporalSegmentation.Ewmacd`). With `persistence=1` they were checked date by date on synthetic series (`tests/data/make_ewmacd_parity_fixtures.R`) and on 400 pixels of the paper's sample data. With more persistence, the first disturbance is the same but a few later dates differ: on those dates the script means to keep the previous sustained state but reads another date's flag. Values not above `low` are treated as missing from the start, whereas the script still fits them in its first regression. On 10,000 pixels and 71 dates, the script takes 2.8 s; Zeit 55 ms on one thread, 7 ms on 19 (benchmarks/vs_originals/ewmacd.py).
 
 <div class="params" markdown>
 

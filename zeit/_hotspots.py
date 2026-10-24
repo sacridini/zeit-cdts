@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
+from ._load import sorted_by_time
 from ._series_api import _series_cube
 
 #: The patterns by code (ESRI's): hot spots positive, cold spots negative, 0 no pattern.
@@ -112,7 +113,7 @@ def emerging_hotspots(
     cube, pixel = _series_cube(data, dates=None, band=band, chunks=None, need_dates=False, nodata=nodata)
     if pixel:
         raise ValueError("emerging_hotspots needs a map at each date (its neighbourhoods), not one pixel's series")
-    cube = cube.sortby("time").transpose("time", "y", "x")
+    cube = sorted_by_time(cube).transpose("time", "y", "x")
     values = np.ascontiguousarray(np.asarray(cube.values, dtype=np.float64))
     r = _core.hotspots.emerging(values, radius=int(radius), circle=shape == "circle", lag=int(lag),
                                 cube_reference=reference == "cube", alpha=float(alpha), method=TRENDS[trend],

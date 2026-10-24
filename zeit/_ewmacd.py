@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
+from ._load import sorted_by_time
 from ._series_api import _series_cube
 from ._time import fractional_years
 
@@ -141,7 +142,7 @@ def ewmacd(
     if int(order) < 1:
         raise ValueError(f"order must be at least 1, got {order!r}")
     cube, pixel = _series_cube(data, dates=dates, band=band, chunks=chunks, nodata=nodata)
-    cube = cube.sortby("time")
+    cube = sorted_by_time(cube)
     times = pd.DatetimeIndex(cube.time.values)
     years = times.year.to_numpy().astype(np.int32)
     doys = times.dayofyear.to_numpy().astype(np.float64)
