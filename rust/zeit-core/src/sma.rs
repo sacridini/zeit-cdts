@@ -67,7 +67,9 @@ fn nnls_impl(a: &Mat, b: &[f64], max_iter: i64) -> Vec<f64> {
             let mut alpha = f64::INFINITY;
             for j in 0..n {
                 if passive[j] && z[j] <= 0.0 {
-                    let v = x[j] / (x[j] - z[j]);
+                    // x and z both 0 (a spectrum that is one of the endmembers): no step, the variable leaves the
+                    // passive set below, where 0 / 0 made every fraction NaN
+                    let v = if x[j] == z[j] { 0.0 } else { x[j] / (x[j] - z[j]) };
                     if v < alpha {
                         alpha = v;
                     }
@@ -209,6 +211,32 @@ mod tests {
                 assert!((out[j] - f[j]).abs() < 1e-6, "{sum_to_one} {nonneg} {out:?}");
             }
             assert!(out[3] < 1e-6);
+        }
+    }
+
+    #[test]
+    fn an_endmember_is_itself() {
+        // endmembers taken from pixels of the image unmix those pixels into themselves (1 and 0s); 0 / 0 in the
+        // step of NNLS made about 7% of them NaN
+        let mut state = 12345u64;
+        let mut uniform = || {
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            0.01 + 0.59 * ((state >> 11) as f64 / (1u64 << 53) as f64)
+        };
+        for _ in 0..300 {
+            let (k, bands) = (3, 8);
+            let em: Vec<f64> = (0..k * bands).map(|_| uniform()).collect();
+            for j in 0..k {
+                for (sum_to_one, nonneg) in [(true, true), (false, true)] {
+                    let out = unmix_pixel(&em[j * bands..(j + 1) * bands], &em, k, sum_to_one, nonneg, 1000.0).unwrap();
+                    for (i, f) in out[..k].iter().enumerate() {
+                        let want = if i == j { 1.0 } else { 0.0 };
+                        assert!((f - want).abs() < 1e-9, "{sum_to_one} {nonneg} {j}: {out:?}");
+                    }
+                }
+            }
         }
     }
 
