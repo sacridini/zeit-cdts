@@ -25,7 +25,7 @@ from ._accuracy import sampling_design, stratified_sample, accuracy
 from ._ccdc import predict_synthetic_image
 from ._twdtw_api import twdtw
 
-from .spatial import apply_mmu_filter, apply_majority_filter
+from .spatial import apply_mmu_filter, apply_majority_filter, desawtooth_classes, mmu_sieve, smooth_probs
 from .segmentation import snic_grid, snic_to_polygons
 from ._snic_api import snic
 from ._som_api import som, clean_samples
@@ -94,7 +94,7 @@ __all__ = [
     "extract_events", "agreement", "predict_synthetic_image",
     "sampling_design", "stratified_sample", "accuracy",
     "train_classifier", "classify",
-    "apply_mmu_filter", "apply_majority_filter",
+    "apply_mmu_filter", "apply_majority_filter", "mmu_sieve", "smooth_probs", "desawtooth_classes",
     "snic_grid", "snic_to_polygons",
     "extract_water_mask",
     "qc_modis_summary", "qc_modis_state", "qc_sentinel2_scl",

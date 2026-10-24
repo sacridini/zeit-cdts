@@ -21,6 +21,7 @@ mod landtrendr;
 mod mannkendall;
 mod parts;
 mod phenology;
+mod postproc;
 mod recovery;
 mod sma;
 mod smooth;
@@ -63,5 +64,6 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     add_submodule(m, &phenology::module(m.py())?)?;
     add_submodule(m, &recovery::module(m.py())?)?;
     add_submodule(m, &ewmacd::module(m.py())?)?;
+    add_submodule(m, &postproc::module(m.py())?)?;
     Ok(())
 }

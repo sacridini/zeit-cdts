@@ -35,17 +35,44 @@ zeit.save_raster(yod, "results/loss_year_mmu.tif")
 
 <!-- sig: zeit.spatial.apply_majority_filter -->
 ```python
-zeit.spatial.apply_majority_filter(image, size=3)
+zeit.spatial.apply_majority_filter(
+    image, size=3, iterations=1, nodata="auto", n_jobs=-1,
+)
 ```
 
-Replaces each pixel of a class map with the most common class in its neighbourhood. Also exported as `zeit.apply_majority_filter`.
+Majority (mode) filter: each pixel of a class map takes the most common class of its window (cut at the edges), its own when it is among the most common (else the smallest of them), `iterations` times or until nothing changes. NoData pixels stay and do not vote. Also exported as `zeit.apply_majority_filter`.
 
 <div class="params" markdown>
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `image` | `DataArray`, `ndarray` or path | required | 2-D class map. |
-| `size` | `int` | `3` | Window size (3 = 3 × 3). |
+| `size` | `int` | `3` | Window size, odd (3 = 3 × 3). |
+| `iterations` | `int` | `1` | How many times to apply it. |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | The map's NoData (NaN for floats), a number, or none. |
+| `n_jobs` | `int` | `-1` | Threads. |
+
+</div>
+
+### `mmu_sieve` { .api }
+
+<!-- sig: zeit.spatial.mmu_sieve -->
+```python
+zeit.spatial.mmu_sieve(
+    data, min_size=11, connectivity=8, nodata="auto",
+)
+```
+
+Minimum mapping unit of a class map by a sieve: each patch (pixels of one class connected 4- or 8-wise) of fewer than `min_size` pixels is merged, the smallest first, into the neighbouring patch with which it shares the longest border (on a tie, the largest), and takes its class; a merge that joins patches of one class makes a single patch of them. Unlike [`apply_mmu_filter`](#apply_mmu_filter), the map stays complete (as with GDAL's sieve): the small patches take a class, they are not emptied. A patch surrounded only by NoData stays. Also exported as `zeit.mmu_sieve`.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `data` | `DataArray`, `ndarray` or path | required | 2-D class map. |
+| `min_size` | `int` | `11` | Patches with fewer pixels are merged (11 Landsat pixels ≈ 1 ha). |
+| `connectivity` | `int` | `8` | `4` or `8`: diagonal pixels in the same patch. |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | The map's NoData (NaN for floats), a number, or none. |
 
 </div>
 
@@ -68,6 +95,61 @@ Smooths per-class probabilities spatially, then takes the most likely class. Unl
 </div>
 
 **Returns** the winning class per pixel `(y, x)`: its index for a numpy array, the class itself for a `DataArray` whose first dim has coordinates.
+
+### `smooth_probs` { .api }
+
+<!-- sig: zeit.spatial.smooth_probs -->
+```python
+zeit.spatial.smooth_probs(
+    probs, window_size=9, neigh_fraction=0.5, smoothness=20.0,
+    n_jobs=-1,
+)
+```
+
+Bayesian smoothing of class probabilities, as sits' `sits_smooth` (Câmara et al.). Each class's logit, `log(p / (sum - p))`, is pulled towards the mean `m` of the highest `neigh_fraction` of the logits of its window (mirrored at the edges), the more the less that neighbourhood varies (`s²`) against `smoothness`: `w = s² / (s² + smoothness)`, `x' = w x + (1 - w) m`. A pixel whose model is confident keeps its class against consistent neighbours, while the noise among uncertain pixels goes. The result equals sits 1.5.4's to 1e-15 (tests/test_postproc.py), except that a missing pixel stays missing where sits gives it its neighbours' mean. Also exported as `zeit.smooth_probs`.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `probs` | `DataArray`, `ndarray` or path | required | `(class, y, x)` probabilities in [0, 1], e.g. `zeit.classify(..., probability=True).probability`. |
+| `window_size` | `int` | `9` | The neighbourhood, odd. |
+| `neigh_fraction` | `float` | `0.5` | The fraction of the neighbourhood's highest logits that make its mean. |
+| `smoothness` | `float` or list | `20.0` | The prior's variance, one or one per class: higher smooths more. |
+| `n_jobs` | `int` | `-1` | Threads. |
+
+</div>
+
+**Returns** the smoothed probabilities, of the input's kind. As sits', they no longer sum to one: the class of a pixel is their `argmax` over `class`.
+
+```python
+land_cover = zeit.classify(stack, rf, probability=True)
+probs = zeit.smooth_probs(land_cover.probability, window_size=9, smoothness=20)
+label = probs.argmax("class") + 1                     # 1 = the first class, as classify's label
+label = zeit.mmu_sieve(label, min_size=11)            # then no patch under ~1 ha
+```
+
+### `desawtooth_classes` { .api }
+
+<!-- sig: zeit.spatial.desawtooth_classes -->
+```python
+zeit.spatial.desawtooth_classes(
+    data, max_length=1, nodata="auto", n_jobs=-1,
+)
+```
+
+Temporal consistency of yearly (or any) classifications: in each pixel's series, a run of at most `max_length` dates of one class between two runs of another, the same before and after (forest, pasture, forest), takes that class (forest, forest, forest). The runs are those of the series given: forest, pasture, crop, pasture, forest with `max_length=1` only changes the crop. NoData dates stay and do not break a run. Also exported as `zeit.desawtooth_classes`.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `data` | `DataArray`, `ndarray` or path | required | Classes `(time, y, x)` (a DataArray's `time` anywhere; numpy: time first) or one series. |
+| `max_length` | `int` | `1` | The longest excursion removed, in dates. |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | The map's NoData (NaN for floats), a number, or none. |
+| `n_jobs` | `int` | `-1` | Threads. |
+
+</div>
 
 ## Classification
 

@@ -132,6 +132,9 @@
 | **Post-processing** | |
 | [`apply_mmu_filter`](post-processing.md#apply_mmu_filter) | Remove patches below a minimum size |
 | [`apply_majority_filter`](post-processing.md#apply_majority_filter) / [`apply_bayesian_filter`](post-processing.md#apply_bayesian_filter) | Smooth class maps |
+| [`mmu_sieve`](post-processing.md#mmu_sieve) | Merge patches below a minimum size into their neighbours |
+| [`smooth_probs`](post-processing.md#smooth_probs) | Bayesian smoothing of class probabilities (sits_smooth) |
+| [`desawtooth_classes`](post-processing.md#desawtooth_classes) | Remove short excursions from class series (A B A → A A A) |
 | [`train_classifier`](post-processing.md#train_classifier) / [`classify`](post-processing.md#classify) | Train at sample points, classify any cube, metrics or CCDC models |
 | [`extract_water_mask`](post-processing.md#extract_water_mask) | Water mask from CCDC |
 | **Validation** | |

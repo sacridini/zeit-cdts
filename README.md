@@ -395,6 +395,12 @@ regularized_map = apply_majority_filter(land_cover.label, size=3)
 # Minimum Mapping Unit (MMU): erase isolated patches smaller than 11 pixels
 final_map = apply_mmu_filter(regularized_map, mmu_pixels=11)
 save_raster(final_map, "results/classified_final.tif")
+
+# Or, as sits: Bayesian smoothing of the probabilities (sits_smooth, the same values),
+# the small patches merged into their neighbours, and yearly maps made consistent
+probs = zeit.smooth_probs(land_cover.probability, window_size=9, smoothness=20)
+label = zeit.mmu_sieve(probs.argmax("class") + 1, min_size=11)
+yearly = zeit.desawtooth_classes(yearly_maps)          # forest, pasture, forest -> forest x3
 ```
 
 ## Exporting Geospatial Data
