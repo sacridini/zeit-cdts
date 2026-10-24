@@ -124,7 +124,7 @@ def train_classifier(data: Any, samples: Any, *, label: str = "class", model: An
     Returns
     -------
     The fitted model, with the feature names in ``zeit_features_`` (``zeit.classify``
-    checks them) and, for a cube of embeddings (``zeit.load_embeddings``), which ones in
+    checks them), the training features in ``zeit_train_`` (``zeit.aoa``) and, for a cube of embeddings (``zeit.load_embeddings``), which ones in
     ``zeit_embedding_`` (``zeit.classify`` refuses other embeddings).
 
     Examples
@@ -147,6 +147,7 @@ def train_classifier(data: Any, samples: Any, *, label: str = "class", model: An
         model = RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1)
     model.fit(x, y)
     model.zeit_features_ = [str(f) for f in feats.feature.values]
+    model.zeit_train_ = x
     from ._embeddings import embedding_meta
 
     model.zeit_embedding_ = embedding_meta(data)

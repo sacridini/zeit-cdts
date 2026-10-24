@@ -136,6 +136,7 @@
 | [`smooth_probs`](post-processing.md#smooth_probs) | Bayesian smoothing of class probabilities (sits_smooth) |
 | [`desawtooth_classes`](post-processing.md#desawtooth_classes) | Remove short excursions from class series (A B A → A A A) |
 | [`train_classifier`](post-processing.md#train_classifier) / [`classify`](post-processing.md#classify) | Train at sample points, classify any cube, metrics or CCDC models |
+| [`aoa`](post-processing.md#aoa) / [`train_di`](post-processing.md#train_di) | Area of applicability of a model: dissimilarity index to the training data (CAST) |
 | [`extract_water_mask`](post-processing.md#extract_water_mask) | Water mask from CCDC |
 | **Validation** | |
 | [`sampling_design`](validation.md#sampling_design) | Sample size and allocation per stratum (Olofsson et al. 2014) |

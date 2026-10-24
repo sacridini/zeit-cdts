@@ -176,7 +176,7 @@ Trains a classifier on the features of `data` at sample points. The features of 
 
 </div>
 
-**Returns** the fitted model, with the feature names in `zeit_features_`.
+**Returns** the fitted model, with the feature names in `zeit_features_` and the training features in `zeit_train_` (for [`aoa`](#aoa)).
 
 ### `classify` { .api }
 
@@ -210,6 +210,73 @@ zeit.save_raster(land_cover, "results/land_cover")             # label.tif, prob
 stack = zeit.load_raster("s2_2022.tif")                         # any cube: each date and band a feature
 classes = zeit.classify(stack, zeit.train_classifier(stack, points))
 ```
+
+## Area of applicability
+
+### `aoa` { .api }
+
+<!-- sig: zeit.aoa -->
+```python
+zeit.aoa(
+    data, train=None, model=None, weights=None, folds=None, lpd=False,
+    date=None, n_jobs=-1,
+)
+```
+
+Where a model can be applied (Meyer & Pebesma 2021): the dissimilarity index (DI) of each pixel to the training data, and the area of applicability (AOA), where it is no more dissimilar than the training data are to each other, as CAST's `aoa` (the same DI as CAST 1.0.4, to 1e-13). The predictors are scaled by the training data's means and standard deviations and weighted by their importance; a pixel's DI is its distance to the nearest training point over the mean distance between training points. The threshold is the upper whisker (75% quantile + 1.5 IQR, at most their largest) of the training points' own DI, each the distance to the nearest point of another cross-validation fold. A model's predictions outside the AOA are extrapolations: its validation says nothing about them.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `data` | `DataArray`, `Dataset`, `DataFrame` or array | required | What the model is applied to: anything `classify` takes, its features matched to the training's by name, or a table of points (predictors in columns). |
+| `train` | `DataFrame`, array or `TrainDI` | `None` | The training data (points × predictors), or a `train_di` result to reuse; none with `model`. |
+| `model` | classifier | `None` | A model from `train_classifier`: its training data (`zeit_train_`) and, unless `weights` says otherwise, its `feature_importances_` as the weights. |
+| `weights` | `str`, `dict` or list | `None` | The predictors' weights: `None` (the model's importance, else all 1), `"importance"`, a dict by name or a list. Negative weights count as 0; a predictor of weight 0 is ignored, even missing. |
+| `folds` | list | `None` | Each training point's cross-validation fold (any labels; `None`/NaN: in none). Spatially clustered samples should be given their clusters, or the threshold is too strict. |
+| `lpd` | `bool` | `False` | Also the local point density: how many training points are within the threshold's DI. |
+| `date` | date | `None` | CCDC segments: the date whose models are the features. |
+| `n_jobs` | `int` | `-1` | Threads (`-1`: all). |
+
+</div>
+
+**Returns**, for a map, an `xarray.Dataset` georeferenced as the data: `DI (y, x)` float32; `AOA (y, x)`, `1` inside, `0` outside, `255` where a feature is missing; `LPD (y, x)` with `lpd=True`; the `threshold` and `mean_distance` in its attributes. For points, a `DataFrame` of `DI`, `AOA` (NaN where a predictor is missing; CAST calls those inside) and `LPD`. Distances are Euclidean (CAST's Mahalanobis option is not ported); the DI is computed by blocks of pixels against every training point, the nearest ones exactly.
+
+```python
+rf = zeit.train_classifier(stack, "samples.gpkg", label="class")
+land_cover = zeit.classify(stack, rf)
+applicable = zeit.aoa(stack, model=rf)                          # weighted by the forest's importance
+land_cover["label"] = land_cover.label.where(applicable.AOA == 1, 0)
+zeit.save_raster(applicable, "results/aoa")                      # DI.tif, AOA.tif
+
+# samples in clusters (sites, polygons): their spatial cross-validation folds
+applicable = zeit.aoa(stack, model=rf, folds=samples["site"], lpd=True)
+```
+
+### `train_di` { .api }
+
+<!-- sig: zeit.train_di -->
+```python
+zeit.train_di(
+    train=None, model=None, weights=None, folds=None, n_jobs=-1,
+)
+```
+
+The dissimilarity of the training data to itself and the AOA's threshold, as CAST's `trainDI`, to reuse with `aoa(data, train=td)` on several images.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `train` | `DataFrame` or array | `None` | The training data (points × predictors); points with a missing value are left out. None with `model`. |
+| `model` | classifier | `None` | As in `aoa`. |
+| `weights` | `str`, `dict` or list | `None` | As in `aoa`. |
+| `folds` | list | `None` | As in `aoa`. |
+| `n_jobs` | `int` | `-1` | Threads (`-1`: all). |
+
+</div>
+
+**Returns** a `TrainDI`: `features`, `center`, `scale`, `weight`, `train` (scaled and weighted), `mean_distance`, `train_di` (each training point's DI) and `threshold`.
 
 ## Masks
 

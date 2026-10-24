@@ -10,6 +10,7 @@ use pyo3::types::PyModule;
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
+mod aoa;
 mod arrays;
 mod bfast;
 mod bfastlite;
@@ -65,5 +66,6 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     add_submodule(m, &recovery::module(m.py())?)?;
     add_submodule(m, &ewmacd::module(m.py())?)?;
     add_submodule(m, &postproc::module(m.py())?)?;
+    add_submodule(m, &aoa::module(m.py())?)?;
     Ok(())
 }

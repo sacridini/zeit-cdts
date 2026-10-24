@@ -192,6 +192,10 @@ synthetic_image = zeit.predict_synthetic_image(segments, "2020-07-15")   # (band
 rf_model = zeit.train_classifier(segments, "samples.gpkg", label="class", date="2020-07-01")
 land_cover = zeit.classify(segments, rf_model, date="2020-07-01")
 zeit.save_raster(land_cover, "output/land_cover")     # label.tif; class names in label's flag_meanings
+
+# 5. Where the model can be trusted: its area of applicability (Meyer & Pebesma 2021, CAST's aoa),
+# the pixels no more unlike the training data than they are to each other
+applicable = zeit.aoa(segments, model=rf_model, date="2020-07-01")   # DI and AOA maps
 ```
 
 ## Phenology Extraction
