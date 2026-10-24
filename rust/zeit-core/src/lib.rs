@@ -10,6 +10,7 @@
 
 pub mod aoa;
 pub mod ar_reml;
+pub mod beast;
 pub mod bfast;
 pub mod bfast_lite;
 pub mod bfast_monitor;

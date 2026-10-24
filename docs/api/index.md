@@ -120,6 +120,7 @@
 | [`bfast`](change-detection.md#bfast) | Trend and seasonal breaks |
 | [`coded`](change-detection.md#coded) | Forest degradation and deforestation from the NDFI (CODED) |
 | [`ewmacd`](change-detection.md#ewmacd) | Monitoring of irregular series with EWMA control charts (EWMACD): disturbance, recovery, gain |
+| [`beast`](change-detection.md#beast) | Bayesian changepoints, season and trend (BEAST): their probabilities and credible intervals |
 | **Time-series analysis** | |
 | [`mann_kendall`](time-series.md#mann_kendall) | Trend test and Theil-Sen slope |
 | [`ar_trend`](time-series.md#ar_trend) | Trend with AR(1) errors and its t-test (remotePARTS) |

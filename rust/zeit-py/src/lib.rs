@@ -12,6 +12,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 mod aoa;
 mod arrays;
+mod beast;
 mod bfast;
 mod bfastlite;
 mod bfastmonitor;
@@ -71,5 +72,6 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     add_submodule(m, &aoa::module(m.py())?)?;
     add_submodule(m, &hotspots::module(m.py())?)?;
     add_submodule(m, &sccd::module(m.py())?)?;
+    add_submodule(m, &beast::module(m.py())?)?;
     Ok(())
 }

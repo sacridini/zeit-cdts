@@ -1,6 +1,6 @@
 # Change Detection
 
-<p class="lead">LandTrendr and CCDC, one function each for every kind of input, and the BFAST family at every level: one pixel, an in-memory array, a GeoTIFF on disk, or a Dask array. The xarray accessor forms are listed in <a href="../xarray/">Xarray Accessor</a>.</p>
+<p class="lead">LandTrendr and CCDC, one function each for every kind of input, the BFAST family and BEAST at every level: one pixel, an in-memory array, a GeoTIFF on disk, or a Dask array. The xarray accessor forms are listed in <a href="../xarray/">Xarray Accessor</a>.</p>
 
 ## LandTrendr
 
@@ -810,3 +810,96 @@ abrupt = (bf.n_trend_breaks > 0) & (bf.magnitude < -0.1)
 when = bf.break_time.where(abrupt)
 zeit.save_raster(bf, "bfast.tif")                 # one band per variable, named
 ```
+
+## BEAST (Bayesian changepoints, season and trend)
+
+### `beast` { .api #beast }
+
+<!-- sig: zeit.beast -->
+```python
+zeit.beast(
+    data, *, season="harmonic", period=None, freq=None, deltat=None,
+    start=None, times=None, scp_minmax=(0, 10), sorder_minmax=(0, 5),
+    tcp_minmax=(0, 10), torder_minmax=(0, 1), sseg_minlength=None,
+    tseg_minlength=None, samples=8000, burnin=200, chains=3, thin=5,
+    seed=42, prec_value=1.5, prec_type="componentwise", ci=True,
+    max_missing_rate=0.75, dates=None, band=None, nodata="auto",
+    chunks=None, n_jobs=-1,
+)
+```
+
+BEAST, the Bayesian estimator of abrupt change, seasonal change and trend (Zhao et al. 2019). Each series is decomposed into a piecewise harmonic season and a piecewise linear (or polynomial) trend. Instead of choosing one model, reversible-jump MCMC samples models of every number and position of changepoints and every harmonic order, each in proportion to how well it fits and to its prior, and the outputs average over them. The result therefore says how sure each answer is:
+
+- the probability of a changepoint at each date (`trend_cp_occ`, `season_cp_occ`);
+- the probability of each number of changepoints;
+- the season and the trend, with their 95% credible intervals;
+- the trend's slope and the probability that it rises;
+- the season's amplitude.
+
+From these, the most probable changepoints are listed with their probabilities, the jump of the component at each and their intervals. Every pixel runs in parallel in the Rust core.
+
+It is a port of Rbeast 1.0.2's C code (Kaiguang Zhao, GPL ≥ 2): its `beast()` on one series, with the generic kernels (`cputype = "sse"`). The same seed gives the same chain and the same float32 outputs, to the last bit. This was checked on the Nile, Rbeast's simulated series, its Yellowstone NDVI with gaps, its irregular Ohio Landsat series (`beast.irreg()`), a short series and the uniform and constant priors (`tests/data/make_beast_fixtures.R`). Each pixel of a cube is fitted as `beast()` fits one series: from the seed, whatever the other pixels or the threads. Rbeast's `beast123()` instead carries its random stream from one pixel to the next. Zeit differs from Rbeast in two outputs:
+
+- The slope's credible interval is the mean over the chains, in the slope's units; Rbeast sums it over the chains, per time step.
+- `ncp_mode`, `ncp_median` and the percentiles are given with one chain too; Rbeast leaves them at 0.
+
+By default Rbeast picks the vector kernels of the processor (AVX2), which sum in another order. Their chain then departs from the generic one, so the results agree in distribution but not bit for bit. On one series of 360 months, Rbeast's AVX2 kernels take 0.13 s and Zeit 0.19 s, as fast as Rbeast's generic kernels. On a cube of 10,000 pixels × 144 months, `beast123()` takes 328 s on one thread and 34.5 s on 19; Zeit takes 217 s and 18.1 s ([Against the Original Implementations](../benchmarks/vs-originals.md#beast-vs-rbeast)).
+
+An irregular series (dates missing, or several in one step) is first put on a regular grid of step `deltat`, each step the mean of the values in it, as `beast.irreg()` does. Dates become decimal years, and the season's `period` defaults to 1.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `data` | `DataArray`, `Dataset`, path, `pd.Series`, `ndarray` or list | required | One index: a `(time, y, x)` cube, a raster, a `Dataset` with `band=`, or one pixel's series, as for [`mann_kendall`](time-series.md#mann_kendall). Values alone are a regular series from `start` every `deltat`. |
+| `season` | `str` | `"harmonic"` | `"harmonic"` (a season of sines and cosines) or `"none"` (a trend alone). |
+| `period` | `float` | `None` | The season's period, in the units of the times. With dates it is in years, and the default is 1. Otherwise it is needed for a harmonic season (12 for a monthly series counted in months). |
+| `freq` | `float` | `None` | The values per period instead (`period = freq * deltat`), Rbeast's older argument. |
+| `deltat` | `float` | `None` | The grid's step. The default is the series' own step when it is regular. Otherwise, for dates it is the nearest of a day, half a month, a month and a week to the mean spacing, as in Rbeast (a 16-day series needs `deltat=1/23`). For `times` it is the period divided by the number of whole steps the mean spacing fits into it. Without times it is 1. |
+| `start` | `float` | `None` | The time of the grid's first value: the first time, or 1 without times. |
+| `times` | array | `None` | Numeric times of the values in any unit, with `period` and `deltat` in the same unit; instead of dates. |
+| `scp_minmax`, `tcp_minmax` | `(int, int)` | `(0, 10)` | The least and most changepoints of the season and of the trend. |
+| `sorder_minmax` | `(int, int)` | `(0, 5)` | The least and most harmonics of the season (from 1 to half the period minus one). |
+| `torder_minmax` | `(int, int)` | `(0, 1)` | The least and most degree of the trend's polynomials (flat or linear segments). |
+| `sseg_minlength`, `tseg_minlength` | `int` | `None` | The shortest segment of the season and of the trend, in steps. The default is half a period, or 3 without a season. |
+| `samples`, `burnin`, `chains`, `thin` | `int` | `8000`, `200`, `3`, `5` | The MCMC: samples kept per chain, iterations discarded first, chains, and how many iterations apart the kept samples are. |
+| `seed` | `int` | `42` | The random stream's seed (Rbeast's `mcmc.seed`): the same seed gives the same result. |
+| `prec_value`, `prec_type` | `float`, `str` | `1.5`, `"componentwise"` | The coefficients' prior precision, and its model: `"componentwise"` (one for the season, one for the trend), `"uniform"` (one for all) or `"constant"` (fixed). |
+| `ci` | `bool` | `True` | The 95% credible intervals of the season, the trend and the slope (Rbeast's `dump.ci`). They draw from the random stream, so the chain differs with and without them. |
+| `max_missing_rate` | `float` | `0.75` | A series missing more than this fraction of its grid is not fitted (NaN). |
+| `dates`, `band`, `nodata`, `chunks`, `n_jobs` | | `None`, `None`, `"auto"`, `None`, `-1` | As for [`mann_kendall`](time-series.md#mann_kendall). A dask cube stays lazy. |
+
+</div>
+
+**Returns** an `xarray.Dataset` on the regular `time` grid (decimal years for dates), `(y, x)` maps for a cube:
+
+| Variable | Meaning |
+| :--- | :--- |
+| `trend`, `trend_sd`, `trend_ci` | The trend, its standard deviation and its 95% interval (`bound`: lower, upper), per date. |
+| `trend_slope`, `trend_slope_sd`, `trend_slope_ci` | Its slope per unit of time, with the slope's standard deviation and interval. |
+| `trend_slope_pos_prob`, `trend_slope_zero_prob` | The probability that the slope is positive, and that it is zero (a flat segment). |
+| `trend_order` | The mean degree of the trend at each date. |
+| `trend_cp_occ` | The probability of a trend changepoint at each date. |
+| `trend_ncp`, `trend_ncp_mode`, `trend_ncp_median`, `trend_ncp_pct10`, `trend_ncp_pct90` | The mean, the mode, the median and the 10th and 90th percentiles of the number of trend changepoints. |
+| `trend_ncp_prob` | `(tncp)`: the probability of 0, 1, ... trend changepoints. |
+| `trend_cp`, `trend_cp_prob`, `trend_cp_abrupt`, `trend_cp_ci` | `(tcp)`: the trend changepoints found, most probable first, with NaN after the last. For each: its probability, the jump of the trend there, and its interval of dates (`bound`). |
+| `season`, `season_sd`, `season_ci`, `season_order`, `season_cp_occ`, `season_ncp`... | The same for the season (dimensions `sncp`, `scp`); `season_order` is the mean number of harmonics. |
+| `season_amp`, `season_amp_sd` | The season's amplitude at each date, and its standard deviation. |
+| `data` | The series on the grid (the mean of each step for an irregular one). |
+| `marg_lik`, `sig2`, `r2`, `rmse` | The fit: the marginal likelihood, the noise variance, R² and RMSE. |
+
+A pixel not fitted (too many missing values) is NaN in every variable.
+
+```python
+ndvi = zeit.load_raster("modis_ndvi_16d/*.tif")
+res = zeit.beast(ndvi, deltat=1 / 23)                    # 16-day composites, a yearly season
+res.trend_ncp.plot()                                     # how many trend changes
+when = res.trend_cp.isel(tcp=0).where(res.trend_cp_prob.isel(tcp=0) > 0.5)
+
+px = zeit.beast(ndvi.isel(x=120, y=80), deltat=1 / 23)   # one pixel
+px.trend.plot()
+px.trend_ci.plot.line(x="time", hue="bound")             # the band around it
+px.trend_cp_occ.plot()                                   # where it changes
+```
+
+Reference: Zhao, K., Wulder, M. A., Hu, T., Bright, R., Wu, Q., Qin, H., Li, Y., Toman, E., Mallick, B., Zhang, X., & Brown, M. (2019). Detecting change-point, trend, and seasonality in satellite time series data to track abrupt changes and nonlinear dynamics: A Bayesian ensemble algorithm. *Remote Sensing of Environment*, 232, 111181.

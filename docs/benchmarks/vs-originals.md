@@ -1,6 +1,6 @@
 # Against the Original Implementations
 
-Seven of Zeit's newer methods were checked against published implementations: emerging hot spots, recovery metrics, EWMACD, spectral unmixing, Bayesian smoothing of class probabilities and the area of applicability against their R originals, and S-CCD against pyxccd, its authors' Python package. This page times each port against that original on the same inputs, and records how the results were checked to agree. Every number comes from `benchmarks/results/vs-originals.json`, written by the scripts in `benchmarks/vs_originals/`, one per method.
+Eight of Zeit's newer methods were checked against published implementations: emerging hot spots, recovery metrics, EWMACD, spectral unmixing, Bayesian smoothing of class probabilities, the area of applicability and BEAST against their R originals, and S-CCD against pyxccd, its authors' Python package. This page times each port against that original on the same inputs, and records how the results were checked to agree. Every number comes from `benchmarks/results/vs-originals.json`, written by the scripts in `benchmarks/vs_originals/`, one per method.
 
 ---
 
@@ -19,7 +19,7 @@ Seven of Zeit's newer methods were checked against published implementations: em
 </div>
 </div>
 
-On one thread, Zeit is 3× (the area of applicability with 8 predictors) to 30,000× (emerging hot spots) faster than the original, and the outputs compared agree to floating-point rounding (for the unmixing, to the tolerance at which the original's solver stops). Compiled loops against R's per-pixel ones account for most of the gain on one thread; the threads multiply it where there is enough work to share.
+On one thread, Zeit is 3× (the area of applicability with 8 predictors) to 30,000× (emerging hot spots) faster than the original, and the outputs compared agree to floating-point rounding (for the unmixing, to the tolerance at which the original's solver stops). Compiled loops against R's per-pixel ones account for most of the gain on one thread; the threads multiply it where there is enough work to share. BEAST is the exception: its original is already C, multithreaded and vectorized, and Zeit, a port of its generic kernels, is 1.5× to 1.9× faster on a cube and slower on one series.
 
 ---
 
@@ -118,6 +118,27 @@ Zeit's unmixing against the R package **RStoolbox 1.0.2.2**'s `mesma` with its N
 
 **How they were checked.** The DI of every new point, to 1e-9 (the largest difference was below 1e-14). Both sides time the training's dissimilarity and the new points' together. CAST finds the nearest training points with FNN's k-d tree; Zeit uses a k-d tree up to 9 predictors and a matrix product beyond, the distances exact either way. With 8 predictors both search a tree, and the gain on one thread is smallest (3×); most of Zeit's advantage there is its threads.
 
+### BEAST vs Rbeast
+
+`zeit.beast` against the R package **Rbeast 1.0.2** (GPL ≥ 2), whose C code it ports: `beast()` on one series, and `beast123()`, its batch with threads of its own, on a cube. The series are monthly, with a season of period 12, noise, 5% missing values, and changes of level and of slope. Both use `beast()`'s defaults, from seed 42: on one series, 8,000 samples and 3 chains; on the cube, 2,000 samples and 2 chains. Rbeast runs its AVX2 kernels, the fastest on this processor; Zeit runs the port of its generic kernels.
+
+| Workload | Rbeast | Zeit, 1 thread | Zeit, 19 threads | Speedup (1 / 19) | Agreement |
+|:---|---:|---:|---:|:---:|:---|
+| 1 series × 360 months | 0.13 s | 0.19 s | | 0.7× | the same chain as Rbeast's generic kernels |
+| 10,000 px × 144 months | 328 s on 1 thread, 34.5 s on 19 | 217 s | 18.1 s | 1.5× / 1.9× | the same chain as Rbeast's generic kernels |
+
+The cube's speedups compare each Zeit time with Rbeast on as many threads: Rbeast's `beast123()` is multithreaded too. On one series Zeit is slower than Rbeast's AVX2 kernels and as fast as its generic ones (0.19–0.21 s): it runs the same scalar arithmetic. On a cube it is faster, because `beast123()` costs Rbeast more per pixel than `beast()` does (33 ms against 21 ms here, on one thread).
+
+**How they were checked.** With Rbeast's generic kernels (`cputype = "sse"`), Rbeast and Zeit run the same chain. The script checks that the trend and the number of changepoints of the series and of the cube's first pixel are identical to the last bit, and the tests compare every output on six series (see [Fidelity](fidelity.md)). The timed AVX2 runs sum in another order, so their chains drift apart, and the outputs agree only in distribution:
+
+- the trends differ by a median of 2e-3 standard deviations of the series;
+- Rbeast's mean number of trend changepoints is 0.31 higher on the cube.
+
+Most of that gap is Rbeast's own. Zeit fits each pixel as `beast()` fits one series, from the seed, and its mean equals `beast()`'s exactly. `beast123()` carries its random stream from one pixel to the next and finds more changepoints: 0.06 more on average over 200 of these pixels, with the same generic kernels. Rbeast's 19-thread run also left one pixel unfitted (NaN).
+
+!!! note "Windows' power throttling"
+    Windows 11 slows down the processes it considers to be in the background (power throttling, or EcoQoS): after a few seconds of work, it moves them to the efficiency cores of a hybrid processor and lowers their clock. A benchmark run from a terminal is such a process. Zeit's unpinned threads ran 2.4 times slower for it. Rbeast's threads, which it pins to processors, were slowed less. The script takes both processes out of power throttling, so the times are of the computation. Zeit's one-thread runs are pinned to the first processor, as Rbeast pins its own.
+
 ---
 
 ## Protocol
@@ -134,7 +155,7 @@ Zeit's unmixing against the R package **RStoolbox 1.0.2.2**'s `mesma` with its N
 |:---|:---|
 | Platform | Windows 11 (`Windows-11-10.0.26300-SP0`) |
 | Processor | `Intel64 Family 6 Model 183 Stepping 1, GenuineIntel` (the Intel Core i5-13600K of the other benchmarks), 20 logical processors |
-| R | 4.4.2, with sfdep 0.2.5, RecoverMetricsR 0.1.0, RStoolbox 1.0.2.2, sits 1.5.4 and CAST 1.0.4 |
+| R | 4.4.2, with sfdep 0.2.5, RecoverMetricsR 0.1.0, RStoolbox 1.0.2.2, sits 1.5.4, CAST 1.0.4 and Rbeast 1.0.2 |
 | Python | pyxccd 1.1.0, in a virtual environment of its own |
 | Date | 2026-10-24 |
 
@@ -150,6 +171,7 @@ python benchmarks/vs_originals/recovery.py
 python benchmarks/vs_originals/unmix.py
 python benchmarks/vs_originals/smooth_probs.py
 python benchmarks/vs_originals/aoa.py
+python benchmarks/vs_originals/beast.py
 python benchmarks/vs_originals/ewmacd.py "path/to/EWMACD v1.3.0.r"   # Brooks' script, not distributed
 PYXCCD_PYTHON=path/to/pyxccd-env/python python benchmarks/vs_originals/sccd.py CCDC_Stack_Rondonia.tif CCDC_Stack_Rondonia_Dates.csv
 ```

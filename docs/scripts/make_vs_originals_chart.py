@@ -37,6 +37,9 @@ ROWS = [
      "CAST", "2000 × 100,000 points, 8 predictors"),
     ("Area of applicability", "aoa", "CAST 1.0.4 (R)", "2000 train x 100000 new, 64 pred.",
      "CAST", "2000 × 100,000 points, 64 predictors"),
+    # Rbeast's beast123 has threads: its time on 1 thread is drawn; the speedups are against it on as many.
+    ("BEAST", "beast", "Rbeast 1.0.2 (R)", "10000 px x 144 months",
+     "Rbeast (beast123, AVX2) on 1 thread", "10,000 px × 144 months"),
 ]
 
 
