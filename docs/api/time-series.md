@@ -161,6 +161,61 @@ res.table.loc["class 3", "p"]
 zeit.parts(annual, mask=roi)     # does the region's mean trend differ from 0?
 ```
 
+### `emerging_hotspots` { .api #emerging_hotspots }
+
+<!-- sig: zeit.emerging_hotspots -->
+```python
+zeit.emerging_hotspots(
+    data, radius=1, shape="square", lag=1, reference="date",
+    alpha=0.05, trend="hamed_rao", band=None, nodata="auto",
+    n_jobs=-1,
+)
+```
+
+Emerging hot spot analysis (ESRI's Space Time Pattern Mining; R sfdep's `emerging_hotspot_analysis`): where the values cluster high (hot spots) or low (cold spots), and how that changed over the dates. For each date, the Getis-Ord Gi* z-score of each pixel (Getis & Ord 1992): the sum of its neighbourhood (the pixel among it) against the mean, the neighbourhood the pixels within `radius` at that date and the `lag` dates before. A hot spot is a date whose Gi* is significantly positive, a cold spot significantly negative. Then the Mann-Kendall test of each pixel's Gi* series, and its pattern as ESRI's documentation defines them:
+
+| Code | Pattern | Definition (hot spots; the cold ones, negative, alike) |
+| :--- | :--- | :--- |
+| 1 | new | hot at the last date only |
+| 2 | consecutive | one run of hot dates, at the end |
+| 3 | intensifying | hot on 90 % of the dates or more, the last one too, its Gi* rising significantly |
+| 4 | persistent | the same, without a significant trend |
+| 5 | diminishing | the same, its Gi* falling significantly |
+| 6 | sporadic | hot at the last date, on and off before, never cold |
+| 7 | oscillating | hot at the last date, cold at some date before |
+| 8 | historical | hot on 90 % of the dates, not at the last |
+| 0 | no pattern | |
+
+Where two definitions hold, the first of the table. Each date's Gi* is computed from row prefix sums, a few operations a pixel whatever the radius's area, and the trends in parallel.
+
+The Gi* equals sfdep 0.2.5's (`include_gi = TRUE`, queen neighbours, `k` the lag) to 1e-14, and the trend test Kendall's to its single precision (tests/data/make_hotspots_sfdep_fixtures.R). sfdep's patterns differ: it takes the significance of each Gi* from 199 permutations and has rules of its own (it calls sporadic a pixel not significant at the last date); Zeit's follow ESRI's definitions with the normal p-values of the Gi*. As sfdep's, the Gi* of a date measures the dates before it in its neighbourhood against that date's mean: with a lag, a rise everywhere lowers it (`reference="cube"` measures every date against the whole cube's). On a grid of 50 x 50 cells and 12 dates, sfdep takes 13 minutes (28 s with 9 permutations); Zeit 4 to 7 ms (benchmarks/vs_originals/hotspots.py).
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `data` | path, `DataArray`, `Dataset` or `ndarray` | required | One variable as a `(time, y, x)` cube (an index, a count, an anomaly). Missing values are left out of the sums and statistics. |
+| `radius` | `int` | `1` | The neighbourhood in pixels: with `shape="square"` the (2 `radius` + 1)² pixels around (1: the 8 neighbours, queen contiguity, sfdep's default); with `"circle"` those whose centres are within it. |
+| `shape` | `str` | `"square"` | `"square"` or `"circle"`. |
+| `lag` | `int` | `1` | The dates before each date in its neighbourhood (sfdep's `k`, ESRI's neighbourhood time step). |
+| `reference` | `str` | `"date"` | `"date"`: each date's Gi* against that date's mean and standard deviation (as sfdep: a place hot against the others at that date); `"cube"`: against the whole cube's (a date high everywhere is hot everywhere). |
+| `alpha` | `float` | `0.05` | The significance of the Gi* (two-sided, normal) and of its trend. |
+| `trend` | `str` | `"hamed_rao"` | The trend test of the Gi* series: `"hamed_rao"` (the Gi* of consecutive dates share neighbours, so their series are autocorrelated), `"original"` Mann-Kendall (ESRI's and sfdep's) or `"yue_wang"`. |
+| `band` | `str` or `int` | `None` | The index to use in a `(time, band, y, x)` cube or a `Dataset`. |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | Value marking a missing observation besides NaN. |
+| `n_jobs` | `int` | `-1` | Threads. `-1` uses all cores but one. |
+
+</div>
+
+**Returns** an `xarray.Dataset`: `category (y, x)` int8, the pattern's code (`-128` with fewer than 3 dates; `flag_values` and `flag_meanings`, the names in `zeit.emerging_hotspots.PATTERNS`); `gi (time, y, x)`, the Gi* z-scores, and `p`, their p-values; `trend_z`, `trend_p` and `tau`, the trend test of the Gi*; `n_hot` and `n_cold`, the dates a significant hot or cold spot.
+
+```python
+loss = -zeit.load_raster("ndvi_annual.tif")                  # (time, y, x): where the losses concentrate
+ehs = zeit.emerging_hotspots(loss, radius=3, shape="circle")
+ehs.category.zeit.plot()                                       # legend: the patterns
+new_fronts = ehs.category.isin([1, 2, 3])                     # new, consecutive, intensifying hot spots
+```
+
 ## Phenology
 
 ### `phenology` { .api #phenology }

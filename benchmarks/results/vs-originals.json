@@ -1,0 +1,119 @@
+{
+ "results": [
+  {
+   "method": "emerging_hotspots",
+   "original": "sfdep 0.2.5 (R), 199 perm.",
+   "size": "50x50 cells x 12 dates",
+   "original_s": 804.03,
+   "zeit_s": 0.00711560000127065,
+   "speedup": 112995.39038962594,
+   "threads": 1,
+   "note": "Gi* max diff 1.8e-14",
+   "date": "2026-10-24"
+  },
+  {
+   "method": "emerging_hotspots",
+   "original": "sfdep 0.2.5 (R), 199 perm.",
+   "size": "50x50 cells x 12 dates",
+   "original_s": 804.03,
+   "zeit_s": 0.004470300002139993,
+   "speedup": 179860.41196678075,
+   "threads": 19,
+   "note": "Gi* max diff 1.8e-14",
+   "date": "2026-10-24"
+  },
+  {
+   "method": "emerging_hotspots",
+   "original": "sfdep 0.2.5 (R), 199 perm.",
+   "size": "20x20 cells x 12 dates",
+   "original_s": 24.26,
+   "zeit_s": 0.0011616999981924891,
+   "speedup": 20883.18846324059,
+   "threads": 1,
+   "note": "Gi* max diff 3.6e-15",
+   "date": "2026-10-24"
+  },
+  {
+   "method": "emerging_hotspots",
+   "original": "sfdep 0.2.5 (R), 199 perm.",
+   "size": "20x20 cells x 12 dates",
+   "original_s": 24.26,
+   "zeit_s": 0.0018229999986942858,
+   "speedup": 13307.734513097148,
+   "threads": 19,
+   "note": "Gi* max diff 3.6e-15",
+   "date": "2026-10-24"
+  },
+  {
+   "method": "emerging_hotspots",
+   "original": "sfdep 0.2.5 (R), 9 perm.",
+   "size": "20x20 cells x 12 dates",
+   "original_s": 1.39,
+   "zeit_s": 0.0012772999980370514,
+   "speedup": 1088.2329931387656,
+   "threads": 1,
+   "note": "Gi* max diff 3.6e-15",
+   "date": "2026-10-24"
+  },
+  {
+   "method": "emerging_hotspots",
+   "original": "sfdep 0.2.5 (R), 9 perm.",
+   "size": "20x20 cells x 12 dates",
+   "original_s": 1.39,
+   "zeit_s": 0.0015863000007811934,
+   "speedup": 876.2529151582153,
+   "threads": 19,
+   "note": "Gi* max diff 3.6e-15",
+   "date": "2026-10-24"
+  },
+  {
+   "method": "emerging_hotspots",
+   "original": "sfdep 0.2.5 (R), 9 perm.",
+   "size": "50x50 cells x 12 dates",
+   "original_s": 28.43,
+   "zeit_s": 0.004311799999413779,
+   "speedup": 6593.534023810304,
+   "threads": 1,
+   "note": "Gi* max diff 1.8e-14",
+   "date": "2026-10-24"
+  },
+  {
+   "method": "emerging_hotspots",
+   "original": "sfdep 0.2.5 (R), 9 perm.",
+   "size": "50x50 cells x 12 dates",
+   "original_s": 28.43,
+   "zeit_s": 0.002391499998338986,
+   "speedup": 11887.936449820625,
+   "threads": 19,
+   "note": "Gi* max diff 1.8e-14",
+   "date": "2026-10-24"
+  },
+  {
+   "method": "emerging_hotspots",
+   "original": "sfdep 0.2.5 (R), 9 perm.",
+   "size": "100x100 cells x 12 dates",
+   "original_s": 519.82,
+   "zeit_s": 0.017053900002792943,
+   "speedup": 30481.004340055257,
+   "threads": 1,
+   "note": "Gi* max diff 2.0e-14",
+   "date": "2026-10-24"
+  },
+  {
+   "method": "emerging_hotspots",
+   "original": "sfdep 0.2.5 (R), 9 perm.",
+   "size": "100x100 cells x 12 dates",
+   "original_s": 519.82,
+   "zeit_s": 0.006040500000381144,
+   "speedup": 86055.7900781724,
+   "threads": 19,
+   "note": "Gi* max diff 2.0e-14",
+   "date": "2026-10-24"
+  }
+ ],
+ "machine": {
+  "platform": "Windows-11-10.0.26300-SP0",
+  "processor": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel",
+  "cpus": 20
+ }
+}

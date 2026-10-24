@@ -258,8 +258,8 @@ mod tests {
         ];
         let mean_raw = raw.iter().map(|r| r.iter().sum::<f64>() / 4.0).sum::<f64>() / 5.0;
         let mins = [1.0, 1.0, 1.0, 1.0, 7.0];
-        for i in 0..5 {
-            assert!((td.train_di[i] - mins[i] / mean_raw).abs() < 1e-12);
+        for (got, min) in td.train_di.iter().zip(mins) {
+            assert!((got - min / mean_raw).abs() < 1e-12);
         }
         // the whisker (1/m + 1.5 * 0) is below the largest: the threshold
         assert!((td.threshold - 1.0 / mean_raw).abs() < 1e-12);

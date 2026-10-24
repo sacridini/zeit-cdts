@@ -18,6 +18,7 @@ mod bfastmonitor;
 mod ccdc;
 mod coded;
 mod ewmacd;
+mod hotspots;
 mod landtrendr;
 mod mannkendall;
 mod parts;
@@ -67,5 +68,6 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     add_submodule(m, &ewmacd::module(m.py())?)?;
     add_submodule(m, &postproc::module(m.py())?)?;
     add_submodule(m, &aoa::module(m.py())?)?;
+    add_submodule(m, &hotspots::module(m.py())?)?;
     Ok(())
 }

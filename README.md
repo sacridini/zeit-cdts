@@ -264,6 +264,10 @@ slope_map = result.slope                      # NDVI change per year
 significant = result.h == 1.0                 # statistically significant at alpha=0.05
 declining = (result.trend == -1) & significant
 zeit.save_raster(result, "output/mann_kendall")   # one GeoTIFF per metric
+
+# Emerging hot spots (ESRI's Space Time Pattern Mining, sfdep's Gi* exactly): where the values
+# cluster high or low, and how that changed: new, intensifying, persistent, sporadic... hot spots
+ehs = zeit.emerging_hotspots(-annual_ndvi, radius=3, shape="circle")
 ```
 
 ## Recovery After a Disturbance
