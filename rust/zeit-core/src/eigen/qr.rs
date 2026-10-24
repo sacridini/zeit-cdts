@@ -152,18 +152,63 @@ pub(super) fn gemv_row(n: usize, a: impl Fn(usize) -> f64, b: impl Fn(usize) -> 
     cc
 }
 
+/// The column-major kernel's blocks of columns: all of them under 128 (one
+/// block); from 128, 16 while a column of `rows` doubles is under 32000 bytes,
+/// else 4, as Eigen's general_matrix_vector_product splits them (the sums of
+/// the blocks added in turn). Beyond 128 columns no reference of Eigen's bits is
+/// tested: the sums are those of the blocks, in order.
+#[inline]
+fn col_block(rows: usize, n: usize) -> usize {
+    if n < 128 {
+        n.max(1)
+    } else if rows * 8 < 32000 {
+        16
+    } else {
+        4
+    }
+}
+
 /// Row `i` of `rows` of the column-major kernel: `sum_j a(j) * b(j)`, one
-/// column after the other from 0 (one block of columns: fewer than 128). The
-/// rows go by packets of 2 (multiply-adds) but for an odd last one (scalar).
+/// column after the other from 0, block after block (one block under 128
+/// columns). The rows go by packets of 2 (multiply-adds) but for an odd last
+/// one (scalar).
 #[inline]
 pub(super) fn gemv_col(i: usize, rows: usize, n: usize, a: impl Fn(usize) -> f64, b: impl Fn(usize) -> f64) -> f64 {
-    assert!(n < 128, "the column-major kernel splits 128 columns or more in blocks");
     let packed = i < rows / PACKET * PACKET;
-    let mut c = 0.0;
-    for j in 0..n {
-        c = if packed { pmadd(a(j), b(j), c) } else { c + a(j) * b(j) };
+    let block = col_block(rows, n);
+    let mut total = 0.0;
+    for j0 in (0..n).step_by(block) {
+        let mut c = 0.0;
+        for j in j0..(j0 + block).min(n) {
+            c = if packed { pmadd(a(j), b(j), c) } else { c + a(j) * b(j) };
+        }
+        total = if j0 == 0 { c } else { total + c };
     }
-    c
+    total
+}
+
+/// The column-major kernel of `rows` rows of A times x: each block's sums of
+/// every row (one block under 128 columns).
+fn col_blocks(a: &Mat, rows: usize, x: &[f64]) -> Vec<Vec<f64>> {
+    let packed = rows / PACKET * PACKET;
+    let block = col_block(a.rows, a.cols);
+    (0..a.cols.max(1))
+        .step_by(block)
+        .map(|j0| {
+            let mut c = vec![0.0; rows];
+            for j in j0..(j0 + block).min(a.cols) {
+                let xj = x[j];
+                let col = &a.data[j * a.rows..j * a.rows + rows];
+                for i in 0..packed {
+                    c[i] = pmadd(col[i], xj, c[i]);
+                }
+                for i in packed..rows {
+                    c[i] += col[i] * xj;
+                }
+            }
+            c
+        })
+        .collect()
 }
 
 /// `A * x`, assigned to a new vector (Eigen: zero, then add 1 * the product).
@@ -184,20 +229,10 @@ pub fn mat_vec_rows(a: &Mat, rows: usize, x: &[f64]) -> Vec<f64> {
             .collect(),
         Order::Col => {
             // the column-major kernel, a column at a time for every row together
-            assert!(
-                a.cols < 128,
-                "the column-major kernel splits 128 columns or more in blocks"
-            );
-            let packed = rows / PACKET * PACKET;
-            let mut c = vec![0.0; rows];
-            for (j, &xj) in x.iter().enumerate() {
-                let col = &a.data[j * a.rows..j * a.rows + rows];
-                for i in 0..packed {
-                    c[i] = pmadd(col[i], xj, c[i]);
-                }
-                for i in packed..rows {
-                    c[i] += col[i] * xj;
-                }
+            let mut blocks = col_blocks(a, rows, x).into_iter();
+            let mut c = blocks.next().unwrap_or_else(|| vec![0.0; rows]);
+            for b in blocks {
+                c.iter_mut().zip(&b).for_each(|(v, w)| *v += w);
             }
             c.iter().map(|&v| v * 1.0 + 0.0).collect()
         }
@@ -218,22 +253,12 @@ pub fn residual(a: &Mat, x: &[f64], y: &[f64]) -> Vec<f64> {
             .map(|i| y[i] - gemv_row(a.cols, |j| a.get(i, j), |j| x[j]))
             .collect(),
         Order::Col => {
-            assert!(
-                a.cols < 128,
-                "the column-major kernel splits 128 columns or more in blocks"
-            );
-            let packed = rows / PACKET * PACKET;
-            let mut c = vec![0.0; rows];
-            for (j, &xj) in x.iter().enumerate() {
-                let col = &a.data[j * a.rows..j * a.rows + rows];
-                for i in 0..packed {
-                    c[i] = pmadd(col[i], xj, c[i]);
-                }
-                for i in packed..rows {
-                    c[i] += col[i] * xj;
-                }
+            // each block's sums taken off y in turn
+            let mut r = y.to_vec();
+            for b in col_blocks(a, rows, x) {
+                r.iter_mut().zip(&b).for_each(|(v, w)| *v -= w);
             }
-            y.iter().zip(&c).map(|(&yi, &ci)| yi - ci).collect()
+            r
         }
     }
 }

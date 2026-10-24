@@ -66,3 +66,24 @@ def test_series_with_band_names_and_constraints():
     assert float(free.bright.squeeze()) < 0
     fcls = zeit.unmix(outside, e, scale=10000.0, ndfi=False)
     assert float(fcls.bright.squeeze()) == 0.0 and float(fcls.dark.squeeze()) == pytest.approx(1.0)
+
+
+def test_hundreds_of_bands_named_by_wavelength():
+    # EnMAP's 224 bands, labelled by their wavelengths (numbers): the solver's products over 128 bands or more go
+    # by blocks of bands, and the endmember table's numeric columns are the cube's bands
+    rng = np.random.default_rng(4)
+    nm = np.linspace(420.0, 2450.0, 224)
+    e = np.stack([0.05 + 0.4 / (1 + np.exp(-(nm - 720) / 20)), 0.1 + 0.25 * nm / 2450, 0.08 * np.exp(-nm / 600)])
+    f = rng.dirichlet(np.ones(3), size=(4, 5)).transpose(2, 0, 1)
+    scene = xr.DataArray(np.einsum("kb,kyx->byx", e, f), dims=("band", "y", "x"), coords={"band": nm})
+    table = pd.DataFrame(e, index=["veg", "soil", "water"], columns=nm)
+    for sum_to_one, nonneg in [(True, True), (False, True), (True, False), (False, False)]:
+        res = zeit.unmix(scene, table, sum_to_one=sum_to_one, nonneg=nonneg, ndfi=False)
+        for j, name in enumerate(table.index):
+            np.testing.assert_allclose(res[name].values, f[j], atol=1e-6)
+
+
+def test_repeated_bands_are_named():
+    scene = xr.DataArray(np.ones((3, 2, 2)), dims=("band", "y", "x"), coords={"band": ["a", "b", "a"]})
+    with pytest.raises(ValueError, match="repeats the bands"):
+        zeit.unmix(scene, pd.DataFrame([[1.0, 0.0], [0.0, 1.0]], index=["x", "y"], columns=["a", "b"]), ndfi=False)

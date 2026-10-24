@@ -56,6 +56,12 @@ def _resolve(cube: xr.DataArray, columns: Sequence[str], bands: Optional[Sequenc
     from .indices import BAND_CANDIDATES, resolve_band
 
     available = [str(b) for b in cube.band.values]
+    repeated = sorted({b for b in available if available.count(b) > 1})
+    if repeated:
+        raise ValueError(f"the cube repeats the bands {repeated}: give each band its own name")
+    repeated = sorted({str(c) for c in columns if [str(k) for k in columns].count(str(c)) > 1})
+    if repeated:
+        raise ValueError(f"the endmember table repeats the bands {repeated}")
     if bands is not None:
         if len(bands) != len(columns):
             raise ValueError(f"bands= needs one band per endmember column {list(columns)}")
@@ -65,8 +71,9 @@ def _resolve(cube: xr.DataArray, columns: Sequence[str], bands: Optional[Sequenc
         return [cube.band.values[available.index(str(b))] for b in bands]
     out = []
     for column in columns:
-        if column in available:
-            out.append(cube.band.values[available.index(column)])
+        # numbers (wavelengths) as the cube's labels, whatever their type
+        if str(column) in available:
+            out.append(cube.band.values[available.index(str(column))])
         else:
             try:
                 if column not in BAND_CANDIDATES:
