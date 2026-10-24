@@ -49,6 +49,11 @@ Trends, seasons, patterns and objects.
   <span class="tile-body"><span class="tile-kicker">Trends</span><span class="tile-title">Mann-Kendall</span><span class="tile-text">Significant greening and browning, with a robust slope per pixel.</span></span>
 </a>
 
+<a class="tile" href="regional-trends/">
+  <img src="../assets/figures/thumbs/parts.webp" alt="" loading="lazy">
+  <span class="tile-body"><span class="tile-kicker">Regional trends</span><span class="tile-title">PARTS</span><span class="tile-text">Is the region, or each land-cover class, really trending? A test that accounts for correlated pixels.</span></span>
+</a>
+
 <a class="tile" href="phenology/">
   <img src="../assets/figures/thumbs/phenology.webp" alt="" loading="lazy">
   <span class="tile-body"><span class="tile-kicker">Seasons</span><span class="tile-title">Phenology</span><span class="tile-text">Start, peak and end of every growing season, and 16 more metrics.</span></span>

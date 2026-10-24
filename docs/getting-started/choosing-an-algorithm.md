@@ -12,6 +12,7 @@
 | How many changes happened, and when, in a regular series? | [BFAST Lite](../tutorials/bfast_lite.md) | Regular series |
 | Did the trend change, the seasonal cycle, or both? | [BFAST](../tutorials/bfast.md) | Regular series |
 | Is this area getting greener or browner over the decades? | [Mann-Kendall](../tutorials/mann_kendall.md) | One value per year (or `method="seasonal"`) |
+| Is a whole region (or each land-cover class) trending, given that neighbouring pixels are correlated? | [PARTS](../tutorials/regional-trends/index.md) | A cube in a projected CRS |
 | When does the growing season start, peak and end? Is this year late? | [Phenology](../tutorials/phenology.md) | Dense series, several per month |
 | Which crop or land-cover type is this pixel, given a few examples? | [TWDTW](../tutorials/twdtw.md) | Reference time series per class |
 | Which land-cover types exist here, with no labels at all? | [SOM](../tutorials/som.md) | Any cube |

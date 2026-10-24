@@ -147,6 +147,12 @@ nav:
           - Forest Degradation (CODED): tutorials/coded.md
       - Time-Series Analysis:
           - Trend Analysis (Mann-Kendall): tutorials/mann_kendall.md
+          - Regional Trends (PARTS):
+              - tutorials/regional-trends/index.md
+              - How It Works: tutorials/regional-trends/how-it-works.md
+              - Worked Example: tutorials/regional-trends/worked-example.md
+              - Advanced Topics: tutorials/regional-trends/advanced.md
+              - Interpreting, FAQ & Pitfalls: tutorials/regional-trends/faq.md
           - Phenology: tutorials/phenology.md
           - Pattern Matching (TWDTW): tutorials/twdtw.md
           - Clustering (SOM): tutorials/som.md

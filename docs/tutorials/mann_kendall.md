@@ -111,7 +111,7 @@ From the shell: [`zeit mann-kendall`](../cli.md#6-mann-kendall-trend-test-mann-k
 ## Good practice
 
 - **Trend is not timing.** Mann-Kendall says a monotonic trend exists over the whole period, not when it started. Pair it with [LandTrendr](landtrendr.md) or [CCDC](ccdc.md) to find *when* and *how abruptly*.
-- **Many pixels, many tests.** At `alpha=0.05`, about 5% of trendless pixels will still test significant. Look at spatial patterns, or tighten `alpha`, before interpreting isolated pixels.
+- **Many pixels, many tests.** At `alpha=0.05`, about 5% of trendless pixels will still test significant. Look at spatial patterns, or tighten `alpha`, before interpreting isolated pixels. To test whether a whole region or a land-cover class is trending, use [PARTS](regional-trends/index.md), which accounts for the correlation between neighbouring pixels.
 - **Mask what cannot trend.** Water and bare ground produce meaningless tests. Mask them first.
 
 ??? info "Validation"

@@ -117,6 +117,8 @@ zeit.parts(
 
 The regional test of the pixels' trends by PARTS (remotePARTS's `fitGLS_partition`, Ives et al. 2021). Counting the pixels with a significant trend says little about a region: neighbouring pixels are correlated, and thousands of tests are run at once. PARTS answers the regional questions with valid p-values: does the mean trend of the region differ from 0, do the trends differ between land-cover classes, do they depend on a covariate. It fits each pixel's trend ([`ar_trend`](#ar_trend)), fits the spatial correlation of the pixels to the correlations of their residual series (`fitCor`), and then a GLS of the trends on the design in random partitions of the pixels, combined into a t-test of each coefficient and a chi-square test of the design, both corrected for the correlation between partitions.
 
+A step-by-step guide with figures, a worked example and the pitfalls: [Regional Trends (PARTS)](../tutorials/regional-trends/index.md).
+
 Distances are in the cube's units: give a cube in projected coordinates. The results match remotePARTS's to 1e-10 for a given nugget; remotePARTS 1.0.4 crosses the partitions after the first without their nugget, which Zeit does not.
 
 <div class="params" markdown>
