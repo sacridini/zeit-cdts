@@ -16,6 +16,7 @@ mod bfastlite;
 mod bfastmonitor;
 mod ccdc;
 mod coded;
+mod ewmacd;
 mod landtrendr;
 mod mannkendall;
 mod parts;
@@ -61,5 +62,6 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     add_submodule(m, &warp::module(m.py())?)?;
     add_submodule(m, &phenology::module(m.py())?)?;
     add_submodule(m, &recovery::module(m.py())?)?;
+    add_submodule(m, &ewmacd::module(m.py())?)?;
     Ok(())
 }

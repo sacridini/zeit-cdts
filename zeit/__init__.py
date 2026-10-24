@@ -19,6 +19,7 @@ from ._ccdc_api import ccdc
 from ._series_api import bfast_monitor, bfast_lite, bfast, mann_kendall, phenology
 from ._parts import ar_trend, parts
 from ._recovery import recovery_metrics
+from ._ewmacd import ewmacd
 from .metrics import extract_events, agreement
 from ._accuracy import sampling_design, stratified_sample, accuracy
 from ._ccdc import predict_synthetic_image
@@ -88,7 +89,7 @@ __all__ = [
     "landtrendr", "desawtooth", "apply_vertices",
     "ccdc",
     "bfast_monitor", "bfast_lite", "bfast", "mann_kendall", "phenology",
-    "ar_trend", "parts", "recovery_metrics",
+    "ar_trend", "parts", "recovery_metrics", "ewmacd",
     "twdtw", "smooth", "tmask", "snic", "som", "clean_samples", "unmix", "coded",
     "extract_events", "agreement", "predict_synthetic_image",
     "sampling_design", "stratified_sample", "accuracy",

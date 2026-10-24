@@ -480,6 +480,78 @@ design = zeit.sampling_design(result.strata, expected_ua={"degradation": 0.6, "d
 points = zeit.stratified_sample(result.strata, design=design)
 ```
 
+## EWMACD (monitoring with control charts)
+
+### `ewmacd` { .api #ewmacd }
+
+<!-- sig: zeit.ewmacd -->
+```python
+zeit.ewmacd(
+    data, train_end, train_start=None, order=2, lmbda=0.3, sigmas=3.0,
+    persistence=3, xbar_train=1.5, xbar_monitor=20.0, rounding=True,
+    low=None, dates=None, band=None, nodata="auto", chunks=None,
+    n_jobs=-1,
+)
+```
+
+Exponentially Weighted Moving Average Change Detection (EWMACD; Brooks et al. 2014): disturbances, gains and recovery from every observation of a vegetation index, irregular and cloudy dates included, with statistical quality control charts. The method is light, and it catches small persistent shifts (thinning, drought, pests) as well as clearcuts. Unlike BFAST Monitor, it needs no regular series. Per pixel, in Rust:
+
+1. A harmonic model (a constant and `order` sine and cosine pairs of the day of the year) is fitted on the training years. It is then refitted without the dates beyond `xbar_train` standard deviations, a Shewhart X-bar chart that screens out the clouds and shadows of those years.
+2. The residuals of every date are screened again: training dates beyond `xbar_train`, and later dates beyond `xbar_monitor` (only gross anomalies).
+3. The EWMA chart of the residuals kept is `z_j = (1 - lmbda) z_(j-1) + lmbda r_j`. Its control limits are `sigmas * sigma * sqrt(lmbda / (2 - lmbda) * (1 - (1 - lmbda)^(2j)))`, where `sigma` is the standard deviation of the training residuals.
+4. The flags are `z / limit` truncated toward zero: 0 inside the limits, -1, -2... for a loss of 1, 2... limits, and positive values for a gain. A signal must last `persistence` dates.
+
+The flags after the training years give the first disturbance, its severity, the date it recovered, the first gain and the state at the last date.
+
+The flags are those of Brooks' EWMACD v1.3.0 script, the paper's own (Earth Engine has it as `ee.Algorithms.TemporalSegmentation.Ewmacd`). With `persistence=1` they were checked date by date on synthetic series (`tests/data/make_ewmacd_parity_fixtures.R`) and on 400 pixels of the paper's sample data. With more persistence, the first disturbance is the same but a few later dates differ: on those dates the script means to keep the previous sustained state but reads another date's flag. Values not above `low` are treated as missing from the start, whereas the script still fits them in its first regression.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `data` | `DataArray`, `Dataset`, path, `pd.Series`, `ndarray` or list | required | One index (NDVI, NBR, the tasseled cap angle of the paper): a `(time, y, x)` cube, a raster, or one pixel's series, as for [`mann_kendall`](time-series.md#mann_kendall). Every observation counts. |
+| `train_end` | `int` | required | The first year after the training period, exclusive (as Brooks' `trainingEnd` and Earth Engine's `trainingEndYear`). The model is fitted on the years before it, and monitoring starts with it. The training years should be stable. |
+| `train_start` | `int` | `None` | The first year looked at; earlier dates are left out. Default: the first year. |
+| `order` | `int` | `2` | Sine and cosine pairs of the harmonic model. |
+| `lmbda` | `float` | `0.3` | Weight of each new residual in the EWMA, in (0, 1]. Low values make a slow, smooth chart (subtle changes, few false signals); 1 gives a Shewhart chart of each date. |
+| `sigmas` | `float` | `3.0` | The control limits, in standard deviations of the EWMA. |
+| `persistence` | `int` | `3` | Dates a signal must last (Earth Engine's default). A shorter run takes the flag of the last run that lasted. |
+| `xbar_train` | `float` | `1.5` | X-bar screen of the training dates, in standard deviations. |
+| `xbar_monitor` | `float` | `20.0` | X-bar screen of the later dates. An abrupt change larger than this many standard deviations of a quiet pixel is screened as an anomaly until it comes back within it; raise it for smooth series. |
+| `rounding` | `bool` | `True` | Flags truncated to integers. Otherwise the flag is the ratio `z / limit` itself beyond ±1, and 0 inside. |
+| `low` | `float` | `None` | Values not above it are missing (Brooks' `lowthresh`: no vegetation, fill values). |
+| `dates` | list | `None` | The dates of a series that has none. |
+| `band` | `str` or `int` | `None` | The index in a `(time, band, y, x)` cube or a `Dataset`. |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | Value marking a missing observation besides NaN. |
+| `chunks` | `"auto"`, `dict` | `None` | Inputs read from disk: `None` reads into memory; `"auto"` or a dict keeps them lazy. |
+| `n_jobs` | `int` | `-1` | Threads. `-1` uses all cores but one. |
+
+</div>
+
+**Returns** an `xarray.Dataset`:
+
+| Variable | Meaning |
+| :--- | :--- |
+| `flags` | `(time, y, x)`: the chart's flags. NaN before `train_start` or where no model could be fitted. Dates left out of the chart carry the flag of the date before. |
+| `break_time` | The first disturbance after the training years: the decimal year of the first negative flag. NaN when there is none. |
+| `severity` | Its most negative flag until it recovers, in control limits. |
+| `recovery_time` | The first date back inside the limits (or above) after the disturbance. |
+| `gain_time` | The first positive flag after the training years. |
+| `state` | At the last date: 0 stable, 1 disturbed, 2 recovered (disturbed, then back), 3 gain, with `flag_meanings`. |
+| `sigma`, `rmse`, `r2` | The training residuals' standard deviation behind the limits; the harmonic model's RMSE and R². |
+| `coefficients` | `(coefficient, y, x)`: the model's constant, sines and cosines. |
+| `ewma`, `limit`, `fitted` | One pixel's series only, per date: the chart, its limits and the model. NaN where the date was left out of the chart. |
+
+```python
+ndvi = zeit.load_raster("landsat_ndvi/*.tif")             # every scene, 2013-2023
+res = zeit.ewmacd(ndvi, train_end=2017)                   # trained on 2013-2016
+res.break_time.plot()
+disturbed_now = res.state == 1
+
+px = zeit.ewmacd(ndvi.isel(x=120, y=80), train_end=2017)  # one pixel: its chart
+(px.ewma / px.limit).plot.line("o")                       # out of control beyond ±1
+```
+
 ## BFAST family
 
 Ports of R's `bfast` package: [`bfast_monitor`](#bfast_monitor) (near-real-time monitoring), [`bfast_lite`](#bfast_lite) (multiple breakpoints in one pass) and [`bfast`](#bfast) (classic iterative trend and season breaks). Tutorials: [BFAST Monitor](../tutorials/bfast_monitor.md), [BFAST Lite](../tutorials/bfast_lite.md), [BFAST](../tutorials/bfast.md).

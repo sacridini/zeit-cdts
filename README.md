@@ -294,6 +294,15 @@ disturbed = result.has_break == 1.0
 break_time = result.breakpoint  # fractional-year time of the first detected break
 ```
 
+## Change Monitoring (EWMACD)
+
+`ewmacd` monitors every observation of an index, with its irregular and cloudy dates, against a harmonic model of its training years. It uses the EWMA control charts of Brooks et al. (2014): X-bar charts screen out the clouds, and a disturbance is signalled when the EWMA of the residuals stays beyond its control limits. The result gives the first disturbance, its severity, when it recovered, the first gain and the state now. The flags are those of Brooks' script (v1.3.0, the paper's; Earth Engine's `Ewmacd`).
+
+```python
+res = zeit.ewmacd(ndvi, train_end=2017)         # trained on the years before 2017
+res.break_time.plot()                           # first disturbance; res.state: 0 stable, 1 disturbed, 2 recovered, 3 gain
+```
+
 ## Change Detection (BFAST Lite)
 
 Pixel-wise, single-pass multiple-breakpoint detection, ported from the R package `bfast`'s `bfastlite()` and its `strucchangeRcpp` dependency's `breakpoints()` (the Bai & Perron optimal multiple-breakpoint dynamic program) to a parallel Rust backend. Unlike `bfastmonitor` above (single break, near-real-time), this retrospectively segments the *whole* series into the optimal number of pieces (via the LWZ model-selection criterion) — no STL decomposition needed. Verified exactly against R's `bfastlite()` across 6 scenarios (~3.1x faster single-threaded than R; `n_jobs=-1` adds a further ~5.5x on top of that by reserving one CPU core and parallelizing across the rest — a smaller gap than `bfastmonitor`'s, since this workload is genuinely CPU-bound dynamic programming on both sides, not dominated by R's per-call overhead). See the [BFAST Lite tutorial](https://sacridini.github.io/zeit-cdts/tutorials/bfast_lite/) for the full method background, scope, and validation details (including two real numerical bugs caught and fixed along the way).
