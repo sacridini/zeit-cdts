@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from . import _group, _net, _system, _tasks
+from . import _group, _journal, _net, _system, _tasks
 from ._tasks import Plan, Tile, format_bytes, format_seconds
 
 MAX_FAILURES = 2          # a tile that fails this many times is given up
@@ -81,6 +81,16 @@ class _Attempt:
     started: float
     cancel: threading.Event = field(default_factory=threading.Event)
     closed: bool = False
+
+
+class Stopped(KeyboardInterrupt):
+    """A tile run stopped by a signal (SIGTERM: a scheduler's warning before the job's time
+    limit, or its cancellation). ``done``: the tiles finished before."""
+
+    def __init__(self, signal_name: str = "SIGTERM"):
+        super().__init__(signal_name)
+        self.signal_name = signal_name
+        self.done: List[str] = []
 
 
 @dataclass
@@ -185,6 +195,7 @@ class Coordinator:
         self._server = self._responder = None
         self._tmp: Optional[tempfile.TemporaryDirectory] = None
         self.local_machine: Optional[Machine] = None
+        self.journal: Optional[_journal.Journal] = None
         if local:
             cores = local_cores if local_cores and local_cores > 0 else _worker_cores()
             self.local_machine = Machine(f"{self.name} (this computer)", True, cores, builds=plan.recipes)
@@ -202,6 +213,7 @@ class Coordinator:
     def start(self) -> "Coordinator":
         # what a run of the same name left (a job requeued after it was stopped)
         _tasks.clean_partial(self.plan)
+        self.journal = _journal.Journal(self.plan, self.plan.shard)
         if self.helpers and not self.finished.is_set():
             secret = _group.load_secret()
             if secret is None:
@@ -238,15 +250,21 @@ class Coordinator:
                 while not self.finished.wait(0.5):
                     pass
                 time.sleep(0.5 if self.helpers else 0)   # helpers asking now hear "done"
-        except KeyboardInterrupt:
+        except KeyboardInterrupt as e:
             self._print.end()
-            self._print.line("Stopped. Run the same command again to continue: finished tiles are kept.")
-            self.close()
+            done = self._result().done
+            if isinstance(e, Stopped):
+                e.done = done
+                self._print.line(f"Stopped by {e.signal_name} (the job's time limit?) after {len(done)} tile(s); "
+                                 "the tiles being processed are dropped, the finished ones kept.")
+            else:
+                self._print.line("Stopped. Run the same command again to continue: finished tiles are kept.")
+            self.close(stopped=e.signal_name if isinstance(e, Stopped) else "interrupted")
             raise
         self.close()
         return self._result()
 
-    def close(self) -> None:
+    def close(self, stopped: Optional[str] = None) -> None:
         self._stop.set()
         self.finished.set()
         self._wake.set()
@@ -266,6 +284,9 @@ class Coordinator:
             self._tmp.cleanup()
             self._tmp = None
         _tasks.clean_partial(self.plan)
+        if self.journal is not None:
+            self.journal.end(stopped)
+            self.journal = None
         self._print.end()
 
     def _address(self) -> str:
@@ -379,6 +400,8 @@ class Coordinator:
                 return False
             self._close(attempt)
             task.state = "done"
+            if self.journal is not None:
+                self.journal.done(task.tile.stem)
             self._drop_sending(task)
             for other in task.attempts:
                 if not other.closed:
@@ -404,7 +427,7 @@ class Coordinator:
         self._wake.set()
         return True
 
-    def _fail(self, attempt: _Attempt, message: str) -> None:
+    def _fail(self, attempt: _Attempt, message: str, log: Optional[Path] = None) -> None:
         with self._lock:
             task, machine = attempt.task, attempt.machine
             if attempt.closed:
@@ -418,6 +441,8 @@ class Coordinator:
             task.state = "failed" if task.failures >= MAX_FAILURES else "pending"
             if task.state == "failed":
                 self._drop_sending(task)
+                if self.journal is not None:
+                    self.journal.failed(task.tile.stem, "\n\n".join(task.errors), log)
             first = message.strip().splitlines()[-1] if message.strip() else "no message"
             again = "given up" if task.state == "failed" else "will try again"
             self._print.line(f"! {task.tile.stem} failed on {machine.name} ({again}): {first}")
@@ -475,7 +500,7 @@ class Coordinator:
             elif attempt.cancel.is_set():
                 self._lose(attempt)
             else:
-                self._fail(attempt, message)
+                self._fail(attempt, message, log=folder / "log.txt")
             shutil.rmtree(folder, ignore_errors=True)
 
     def _build_here(self, tile: Tile, attempt: _Attempt, folder: Path) -> Tuple[Path, float, str]:

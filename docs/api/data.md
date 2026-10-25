@@ -305,6 +305,8 @@ for year in range(1985, 2026):
     download_gee_image(img, roi, f"nbr_{year}.tif", crs="EPSG:32723", sub_tile_workers=32)
 ```
 
+`initialize_gee(project=None, *, key_file=None)` uses the credentials `earthengine authenticate` saved, and asks to authenticate when there are none, in a terminal or a notebook. In a batch job, with no one to answer, it raises a `RuntimeError` that says what to do instead of waiting: authenticate once on the login node (the credentials go to `~/.config/earthengine`, which compute nodes usually see), or use a service account, whose JSON key `key_file` or the variable `GOOGLE_APPLICATION_CREDENTIALS` names (its project is the default `project`). Without internet access it says so, and that `zeit fetch tiles` builds the tiles of `gee_tiles` beforehand.
+
 ### `resolve_roi` { .api }
 
 <!-- sig: zeit.gee.roi.resolve_roi -->

@@ -46,10 +46,10 @@ def _threads() -> List[str]:
     given = [f"{v}={os.environ[v]}" for v in VARIABLES[:3] if os.environ.get(v)]
     if given:
         lines.append("  " + ", ".join(given))
-    if found.variable == "OMP_NUM_THREADS" and found.job is not None and found.all < found.available:
-        lines.append(f"  ! OMP_NUM_THREADS={found.all} leaves {found.available - found.all} of this job's processors "
-                     f"idle (cluster modules often set it for MPI programs): set ZEIT_NUM_THREADS="
-                     f"{found.available}, which zeit reads first")
+    if found.idle():
+        lines.append(f"  ! OMP_NUM_THREADS={found.all} leaves {found.idle()} of this job's processors idle (cluster "
+                     f"modules often set it for MPI programs): set ZEIT_NUM_THREADS={found.job_processors()}, which "
+                     "zeit reads first")
     return lines
 
 

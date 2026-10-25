@@ -202,7 +202,16 @@ def build_time_series(
         
     # 2. Connect to STAC API
     stac_url = STAC_CATALOGS.get(source, source)
-    catalog = Client.open(stac_url)
+    try:
+        catalog = Client.open(stac_url)
+    except Exception as e:
+        from ._network import connection_failed, offline_message
+
+        if not connection_failed(e):
+            raise
+        raise RuntimeError(offline_message(
+            f"the STAC catalog {stac_url}", "zeit fetch tiles for the tiles of stac_tiles, or by building the cube "
+            "there and saving it with zeit.save_raster")) from e
     
     # 3. Search for items
     query_params = {}

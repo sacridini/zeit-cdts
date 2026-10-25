@@ -27,30 +27,16 @@ ALIASES = {
     "nir": ("nir08", "b8a", "nir", "b08", "b8"), "swir1": ("swir1", "swir16", "b11"),   # narrow NIR first, as HLS
     "swir2": ("swir2", "swir22", "b12"),
 }
-_HUB = "https://huggingface.co/ibm-nasa-geospatial"
 #: The published models: repository, revision, file, SHA-256, size; width, depth, heads,
 #: patch side; whether they encode the dates and the location (TL).
-VARIANTS = {
-    "tiny-TL": ("Prithvi-EO-2.0-tiny-TL", "335eadc2c45ad5abe7bd307223e1c48c5b60c41b", "Prithvi_EO_V2_tiny_TL.pt",
-                "d47326db9bad502b611f73e3e3f3a0e68b7b82640d67c22c795417f7209f8d70", 192, 12, 3, 16, True),
-    "100M-TL": ("Prithvi-EO-2.0-100M-TL", "2c84e383194986040f883cc43d7869002c425e1b", "Prithvi_EO_V2_100M_TL.pt",
-                "d45406d5fc51af1d9657d48f2e2c3ff077408a2e1113f9a242889a4fe4469b17", 768, 12, 12, 16, True),
-    "300M": ("Prithvi-EO-2.0-300M", "9eb1b1102806593963daa333bcc491b1c6f8562f", "Prithvi_EO_V2_300M.pt",
-             "faab2c8b776f0723f93431747603a7ec586a54fc45473613b4322c29752486e7", 1024, 24, 16, 16, False),
-    "300M-TL": ("Prithvi-EO-2.0-300M-TL", "63adbd39c271da4c42f447e69b1a7c91a338cdc9", "Prithvi_EO_V2_300M_TL.pt",
-                "3629cedfbb350faafcb0dac902ae0d3c927e25ce8d9e0024aa1276ec66956ddb", 1024, 24, 16, 16, True),
-    "600M": ("Prithvi-EO-2.0-600M", "2a5cf6cedea1c0b31734021e2a5ac90082825414", "Prithvi_EO_V2_600M.pt",
-             "26a3f387ac6fc8e5eee8eb1986e6b9e99f36aa4d03aeb7fd5722feee5d5f88d0", 1280, 32, 16, 14, False),
-    "600M-TL": ("Prithvi-EO-2.0-600M-TL", "3d72adc6dfc4cc3862bf4f41da8c83db267193c9", "Prithvi_EO_V2_600M_TL.pt",
-                "7b92c53b0204a76bb775bd8930f045e05776251caa8c83f7367ed0b75b594702", 1280, 32, 16, 14, True),
-}
+from .._weights import PRITHVI_HUB as _HUB, PRITHVI_VARIANTS as VARIANTS  # noqa: E402
 _PRETRAINED_FRAMES, _PRETRAINED_SIZE = 4, 224
 
 
 def pretrained_weights(variant: str):
-    """The file of a variant's weights (``zeit.ai._weights.fetch``: downloaded once,
+    """The file of a variant's weights (``zeit._weights.fetch``: downloaded once,
     ``ZEIT_WEIGHTS`` for a local copy)."""
-    from ._weights import fetch
+    from .._weights import fetch
 
     repo, rev, name, sha = VARIANTS[variant][:4]
     return fetch(f"{_HUB}/{repo}/resolve/{rev}/{name}", sha, f"the weights of {repo}")

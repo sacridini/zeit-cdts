@@ -29,7 +29,7 @@ SHARED_FILES = {"ccdc": ("dates_file",), "twdtw": ("patterns",), "classify": ("m
 # Options naming a file that belongs to one raster: they make no sense for many tiles.
 PER_TILE_FILES = {"phenology": ("weights",), "smooth": ("weights",), "classify": ("samples",)}
 # The tile run's own options, never forwarded to the command.
-RUN_OPTIONS = {"help", "tiles", "helpers", "no_local", "local_cores", "port", "jobs"}
+RUN_OPTIONS = {"help", "tiles", "helpers", "no_local", "local_cores", "port", "jobs", "shard", "requeue"}
 
 SUFFIXES = (".tif", ".tiff")
 MARKER = ".zeit-tile.json"
@@ -115,7 +115,7 @@ def check_args(command: str, args: Sequence[str], *, received: bool = False) -> 
         message = err.getvalue().strip().splitlines()
         raise ValueError(f"{command}: {message[-1] if message else 'invalid options'}") from None
     if received:
-        if ns.tiles or ns.helpers or ns.no_local or ns.local_cores is not None:
+        if ns.tiles or ns.helpers or ns.no_local or ns.local_cores is not None or ns.shard or ns.requeue:
             raise ValueError("a tile's options cannot start a tile run")
         for dest in SHARED_FILES.get(command, ()) + PER_TILE_FILES.get(command, ()):
             if getattr(ns, dest, None) is not None:
@@ -223,6 +223,8 @@ class Plan:
     digest: str = ""
     recipes: bool = False               # the tiles are built by whoever processes them
     run: str = field(default_factory=lambda: _run_name())   # this run, among those writing into output_dir
+    names: List[str] = field(default_factory=list)          # every tile of the inputs, in the split's order
+    shard: Any = None                                       # the part of them this run processes (_shard.Shard)
 
     @property
     def partial(self) -> Path:
@@ -246,7 +248,10 @@ def params_digest(command: str, args: Sequence[str], shared: Sequence[dict]) -> 
     return hashlib.sha256(text.encode()).hexdigest()
 
 
-def make_plan(command: str, inputs, output_dir, values: Dict[str, Any]) -> Plan:
+def make_plan(command: str, inputs, output_dir, values: Dict[str, Any], shard=None) -> Plan:
+    """The tiles of ``inputs`` to process into ``output_dir`` (those of part ``shard`` only,
+    a ``_shard.Shard``), and those already done there."""
+    from ._journal import write_manifest
     from ._sources import TileSources
 
     command = command_name(command)
@@ -262,7 +267,10 @@ def make_plan(command: str, inputs, output_dir, values: Dict[str, Any]) -> Plan:
             st = path.stat()
             tiles.append(Tile(i, path, path.stem, st.st_size, st.st_mtime_ns))
     output_dir.mkdir(parents=True, exist_ok=True)
-    plan = Plan(command, args, shared, output_dir, [], digest=digest, recipes=isinstance(inputs, TileSources))
+    plan = Plan(command, args, shared, output_dir, [], digest=digest, recipes=isinstance(inputs, TileSources),
+                names=[t.stem for t in tiles], shard=shard)
+    if shard is not None:
+        tiles = [t for i, t in enumerate(tiles) if shard.takes(i)]
     conflicts = []
     for tile in tiles:
         target = output_dir / tile.stem
@@ -280,6 +288,10 @@ def make_plan(command: str, inputs, output_dir, values: Dict[str, Any]) -> Plan:
         raise FileExistsError(f"{output_dir} already has results of other options (or not from a tile run) for "
                               f"{len(conflicts)} tile(s): {shown}. Use another output folder, or delete them.")
     plan.tiles.sort(key=lambda t: t.size, reverse=True)    # the largest first
+    try:
+        write_manifest(plan)
+    except OSError:
+        pass      # read by `zeit tiles status` only
     return plan
 
 

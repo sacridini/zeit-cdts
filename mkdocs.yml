@@ -176,6 +176,7 @@ nav:
           - Prithvi: tutorials/prithvi.md
       - Scaling Up:
           - Parallel & Cloud Processing: tutorials/parallel-cloud-processing.md
+          - On a Cluster (HPC, Slurm): tutorials/hpc-slurm.md
   - API Reference:
       - api/index.md
       - Data & I/O: api/data.md

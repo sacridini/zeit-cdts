@@ -353,10 +353,15 @@ def _add_tile_args(p: argparse.ArgumentParser) -> None:
     g.add_argument("--local-cores", type=int, default=None, help="Cores for the tiles processed here (default: "
                    "--jobs: every processor of a job, all but one elsewhere)")
     g.add_argument("--port", type=int, default=47801, help="TCP port the helpers connect to (default: 47801)")
+    g.add_argument("--shard", default=None, metavar="I/N", help="With --tiles (implied): process part I (from 0) of N "
+                   "of the tiles, tile k being part k mod N's (default: in a Slurm job array, the task's part)")
+    g.add_argument("--requeue", action="store_true", help="With --tiles, in a Slurm job: when stopped by SIGTERM "
+                   "(#SBATCH --signal=B:TERM@120, before the time limit), requeue the job to continue where it "
+                   "stopped (#SBATCH --requeue)")
 
 
 def run_tiles_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
-    from ._tiles import run_tiles
+    from ._tiles import Stopped, run_tiles
     from ._tiles._tasks import RUN_OPTIONS
 
     if args.no_local and not args.helpers:
@@ -367,13 +372,113 @@ def run_tiles_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
     cores = args.local_cores if args.local_cores is not None else (args.jobs if args.jobs > 0 else None)
     try:
         result = run_tiles(args.command, args.input, args.output_dir, helpers=args.helpers,
-                           local=not args.no_local, local_cores=cores, port=args.port, **options)
+                           local=not args.no_local, local_cores=cores, port=args.port, shard=args.shard, **options)
+    except Stopped as stopped:
+        sys.exit(_after_sigterm(stopped, args.requeue))
     except KeyboardInterrupt:
         sys.exit(130)
     except (ValueError, TypeError, OSError, RuntimeError) as e:
         print(f"Error: {e}")
         sys.exit(1)
     sys.exit(0 if result.ok else 1)
+
+
+def _after_sigterm(stopped, requeue: bool) -> int:
+    """A tile run stopped by SIGTERM: requeue the job when asked (and when it finished a tile,
+    or the next run would stop in the same place). The exit code."""
+    from ._tiles._slurm import requeue as requeue_job
+
+    if not requeue:
+        return 128 + 15
+    if not stopped.done:
+        print("Not requeued: no tile finished before the time limit, so the next run would stop in the same place. "
+              "Give the job more time (--time), or more processors.", flush=True)
+        return 128 + 15
+    try:
+        job = requeue_job()
+    except (OSError, RuntimeError, ValueError) as e:
+        print(f"Could not requeue the job: {e}", flush=True)
+        return 128 + 15
+    if job is None:
+        print("Not requeued: this is not a Slurm job.", flush=True)
+        return 128 + 15
+    print(f"Requeued job {job}: it continues with the tiles left.", flush=True)
+    return 0
+
+
+def run_tiles_status_cli(args: argparse.Namespace) -> None:
+    from ._tiles._journal import describe, read_status
+
+    try:
+        status = read_status(args.output_dir)
+    except FileNotFoundError as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+    script = args.script or (status.split or {}).get("script")
+    print(describe(status, script=script, shown=args.show))
+    sys.exit(0 if not status.failed and not status.missing else 3)
+
+
+def run_fetch_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    if args.fetch_command == "weights":
+        from ._weights import fetch_weights, published
+
+        if not args.names:
+            print("The published weights (zeit fetch weights NAME ..., or all):")
+            for name, (url, _, what) in published().items():
+                print(f"  {name:<16} {what}")
+            return
+        try:
+            for path in fetch_weights(*args.names):
+                print(f"{path}")
+        except (ValueError, RuntimeError) as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+    elif args.fetch_command == "tiles":
+        from ._tiles import fetch_tiles
+
+        try:
+            fetch_tiles(args.input, cache_dir=args.cache_dir, threads=args.threads)
+        except (ValueError, RuntimeError, OSError) as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+    elif args.fetch_command == "embeddings":
+        run_embeddings_cli(args)
+    else:
+        parser.zeit_commands["fetch"].print_help()
+
+
+def run_slurm_cli(argv: List[str]) -> None:
+    from ._tiles import _slurm
+    from ._tiles._tasks import RUN_OPTIONS, check_args, command_name
+
+    args, rest = _slurm.split_args(argv)
+    try:
+        command = command_name(args.command)
+        check_args(command, rest)
+    except ValueError as e:
+        raise SystemExit(f"zeit slurm: {e}")
+    ns = build_parser().parse_args([command, args.input, args.output_dir, *rest])
+    sub = build_parser().zeit_commands[command]
+    values = {a.dest: getattr(ns, a.dest) for a in sub._actions if a.option_strings and a.dest not in RUN_OPTIONS}
+    try:
+        job = _slurm.write_script(command, args.input, args.output_dir, values, cpus=args.cpus, mem=args.mem,
+                                  time=args.time, partition=args.partition, account=args.account, tasks=args.tasks,
+                                  max_running=args.max_running, sbatch=args.sbatch, setup=args.setup,
+                                  script=args.script)
+    except (ValueError, TypeError, OSError) as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+    print(job.text)
+    print(f"Written to {job.path}: {job.tiles} tiles, {job.tasks} tasks.")
+    if args.submit:
+        try:
+            print(_slurm.submit(job.path))
+        except RuntimeError as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+    else:
+        print(f"Submit it with: sbatch {job.path}")
 
 
 def run_worker_cli(args: argparse.Namespace) -> None:
@@ -419,6 +524,25 @@ def run_helpers_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -
         print("This computer left its group." if _group.forget_secret() else "This computer is not in a group.")
     else:
         parser.zeit_commands["helpers"].print_help()
+
+
+def _add_embeddings_args(em_parser: argparse.ArgumentParser) -> None:
+    em_parser.add_argument("output_dir", help="Directory to save the GeoTIFF")
+    em_parser.add_argument("--source", choices=["tessera", "alphaearth"], required=True, help="Which embeddings")
+    em_parser.add_argument("--bbox", type=float, nargs=4, metavar=("WEST", "SOUTH", "EAST", "NORTH"), default=None,
+                           help="Region bounds in longitude and latitude")
+    em_parser.add_argument("--region", default=None, help="Vector file of the region (cells outside its polygons are NoData)")
+    em_parser.add_argument("--years", nargs="+", default=None, help="Years, e.g. 2018 2020 or 2018-2024 (default: all)")
+    em_parser.add_argument("--crs", default=None, help="CRS of the output (default: the region's UTM zone, the native grid)")
+    em_parser.add_argument("--res", type=float, default=None, help="Cell size, in units of --crs (default: 10 m)")
+    em_parser.add_argument("--version", default=None, help="TESSERA: dataset version (default: v1.1)")
+    em_parser.add_argument("--variant", default=None, help="TESSERA: dataset variant (default: the version's)")
+    em_parser.add_argument("--depth", type=int, default=None, help="TESSERA v2: the first DEPTH dimensions only")
+    em_parser.add_argument("--backend", choices=["source.coop", "gee"], default=None,
+                           help="AlphaEarth: the open COGs (default) or Earth Engine")
+    em_parser.add_argument("--store", default=None, help="A local copy of the product to read instead of the public one")
+    em_parser.add_argument("--cache-dir", default=None, help="Where downloads are kept (default: the embeddings folder of ZEIT_CACHE_DIR, by default ~/.cache/zeit)")
+    em_parser.add_argument("--prefix", default=None, help="Name of the output file (default: the source)")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -626,22 +750,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     em_parser = subparsers.add_parser("embeddings", help="Download the yearly embeddings of a foundation model "
                                                          "(TESSERA, AlphaEarth) over a region, as one GeoTIFF")
-    em_parser.add_argument("output_dir", help="Directory to save the GeoTIFF")
-    em_parser.add_argument("--source", choices=["tessera", "alphaearth"], required=True, help="Which embeddings")
-    em_parser.add_argument("--bbox", type=float, nargs=4, metavar=("WEST", "SOUTH", "EAST", "NORTH"), default=None,
-                           help="Region bounds in longitude and latitude")
-    em_parser.add_argument("--region", default=None, help="Vector file of the region (cells outside its polygons are NoData)")
-    em_parser.add_argument("--years", nargs="+", default=None, help="Years, e.g. 2018 2020 or 2018-2024 (default: all)")
-    em_parser.add_argument("--crs", default=None, help="CRS of the output (default: the region's UTM zone, the native grid)")
-    em_parser.add_argument("--res", type=float, default=None, help="Cell size, in units of --crs (default: 10 m)")
-    em_parser.add_argument("--version", default=None, help="TESSERA: dataset version (default: v1.1)")
-    em_parser.add_argument("--variant", default=None, help="TESSERA: dataset variant (default: the version's)")
-    em_parser.add_argument("--depth", type=int, default=None, help="TESSERA v2: the first DEPTH dimensions only")
-    em_parser.add_argument("--backend", choices=["source.coop", "gee"], default=None,
-                           help="AlphaEarth: the open COGs (default) or Earth Engine")
-    em_parser.add_argument("--store", default=None, help="A local copy of the product to read instead of the public one")
-    em_parser.add_argument("--cache-dir", default=None, help="Where downloads are kept (default: the embeddings folder of ZEIT_CACHE_DIR, by default ~/.cache/zeit)")
-    em_parser.add_argument("--prefix", default=None, help="Name of the output file (default: the source)")
+    _add_embeddings_args(em_parser)
 
     wk_parser = subparsers.add_parser("worker", help="Lend this computer to the group: wait for tiles and process "
                                                       "them (see `zeit helpers invite`)")
@@ -669,6 +778,41 @@ def build_parser() -> argparse.ArgumentParser:
     fw.add_argument("--port", type=int, default=47801, help="TCP port (default: 47801)")
     hp_sub.add_parser("leave", help="Take this computer out of its group")
 
+    tl_parser = subparsers.add_parser("tiles", help="The tiles of an output folder: done, failed, still to do")
+    tl_sub = tl_parser.add_subparsers(dest="tiles_command")
+    st = tl_sub.add_parser("status", help="The tiles of an output folder, across the tasks of a job array: done, "
+                                          "failed (with the error and the log), not done, and the --array to "
+                                          "submit again (exit code 3 while some are left)")
+    st.add_argument("output_dir", help="The output folder of a tile run")
+    st.add_argument("--script", default=None, help="The job script to name in the line that submits the rest "
+                    "(default: the one zeit slurm wrote)")
+    st.add_argument("--show", type=int, default=10, help="Tiles listed per kind (default: 10)")
+
+    from ._tiles._slurm import add_arguments as _slurm_arguments
+
+    sl_parser = subparsers.add_parser("slurm", help="Write the Slurm job script that splits a folder of tiles among "
+                                                    "the tasks of a job array (and submit it with --submit); "
+                                                    "the options after the output folder that are not its own go "
+                                                    "to the command")
+    _slurm_arguments(sl_parser)
+
+    fe_parser = subparsers.add_parser("fetch", help="Download beforehand, on a computer with internet access (a "
+                                                    "cluster's login node), what zeit would download while "
+                                                    "running: weights, tiles, embeddings")
+    fe_sub = fe_parser.add_subparsers(dest="fetch_command")
+    fw_parser = fe_sub.add_parser("weights", help="The pretrained weights of zeit.ai, into the cache")
+    fw_parser.add_argument("names", nargs="*", help="presto, prithvi-tiny-tl, prithvi-100m-tl, prithvi-300m, "
+                           "prithvi-300m-tl, prithvi-600m, prithvi-600m-tl, or all (default: list them)")
+    ft_parser = fe_sub.add_parser("tiles", help="The tiles of a .txt file of URLs, into the tile cache, where a "
+                                                "tile run looks for them first")
+    ft_parser.add_argument("input", help="A .txt file of URLs, one per line")
+    ft_parser.add_argument("--cache-dir", default=None, help="The tile cache (default: the tiles folder of "
+                           "ZEIT_CACHE_DIR)")
+    ft_parser.add_argument("--threads", type=int, default=4, help="Tiles downloaded at once (default: 4)")
+    fm_parser = fe_sub.add_parser("embeddings", help="The embeddings of a region, as one GeoTIFF that "
+                                                     "zeit.load_raster reads (the same as zeit embeddings)")
+    _add_embeddings_args(fm_parser)
+
     dr_parser = subparsers.add_parser("doctor", help="What zeit finds here: threads and where their number comes "
                                                      "from, the job, the caches, the network, the versions")
     dr_parser.add_argument("--no-network", action="store_true", help="Do not check the services zeit downloads from")
@@ -676,10 +820,20 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[List[str]] = None) -> None:
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if argv[:1] == ["slurm"] and not {"-h", "--help"} & set(argv[1:2]):
+        run_slurm_cli(argv[1:])      # its own options, and the command's after them
+        return
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    if getattr(args, "tiles", False) or getattr(args, "helpers", False) is True or getattr(args, "no_local", False):
+    if args.command == "tiles":
+        if args.tiles_command == "status":
+            run_tiles_status_cli(args)
+        else:
+            parser.zeit_commands["tiles"].print_help()
+    elif (getattr(args, "tiles", False) is True or getattr(args, "helpers", False) is True
+            or getattr(args, "no_local", False) or getattr(args, "shard", None)):
         run_tiles_cli(args, parser)
     elif args.command == "worker":
         run_worker_cli(args)
@@ -719,6 +873,8 @@ def main(argv: Optional[List[str]] = None) -> None:
         run_bandpass_cli(args)
     elif args.command == "embeddings":
         run_embeddings_cli(args)
+    elif args.command == "fetch":
+        run_fetch_cli(args, parser)
     elif args.command == "doctor":
         from ._doctor import doctor
 

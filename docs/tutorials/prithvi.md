@@ -30,7 +30,7 @@ The bands are read in the cube's units (reflectance from 0 to 1 or times 10,000)
 | `"300M"`, `"300M-TL"` | 304 M, 24 layers of 1024 | 1.3 GB | `-TL` only |
 | `"600M"`, `"600M-TL"` | 632 M, 32 layers of 1280, squares of 14 | 2.6 GB | `-TL` only |
 
-The weights are downloaded once from Hugging Face (`ibm-nasa-geospatial/Prithvi-EO-2.0-*`, at a fixed revision) to `~/.cache/zeit/weights`, and checked against their SHA-256. Without network access, download the `.pt` file elsewhere and set `ZEIT_WEIGHTS` to the folder holding it. The larger models want a GPU: on a CPU of 14 threads, the 100M model takes about a quarter of a second per window of 4 × 224 × 224 (on a GPU, 30 ms).
+The weights are downloaded once from Hugging Face (`ibm-nasa-geospatial/Prithvi-EO-2.0-*`, at a fixed revision) to `~/.cache/zeit/weights`, and checked against their SHA-256. Without network access (the compute nodes of a cluster), run `zeit fetch weights prithvi-300m-tl` (or the variant used) beforehand where there is access, with the cache in a folder both see, or download the `.pt` file elsewhere and set `ZEIT_WEIGHTS` to the folder holding it. The larger models want a GPU: on a CPU of 14 threads, the 100M model takes about a quarter of a second per window of 4 × 224 × 224 (on a GPU, 30 ms).
 
 ## When to Use It
 

@@ -9,6 +9,7 @@ and all of them in a job of Slurm, PBS or LSF, or when the process is confined t
 the machine has.
 """
 
+import os
 import warnings
 from typing import NamedTuple, Optional
 
@@ -41,6 +42,21 @@ class Threads(NamedTuple):
             where.append("one kept free")
         return f"{self.threads} thread{'s' if self.threads != 1 else ''} ({'; '.join(where)})"
 
+    def idle(self) -> int:
+        """The processors of the job an OMP_NUM_THREADS lower than them leaves idle (0 outside a
+        job, or when another variable gave the count): those the process may run on, or
+        SLURM_CPUS_PER_TASK where it is fewer (a cluster that does not confine its jobs)."""
+        if self.variable != "OMP_NUM_THREADS" or self.job is None:
+            return 0
+        return max(0, self.job_processors() - self.all)
+
+    def job_processors(self) -> int:
+        try:
+            given = int(os.environ.get("SLURM_CPUS_PER_TASK", ""))
+        except ValueError:
+            given = 0
+        return given if 0 < given < self.available else self.available
+
 
 def detect() -> Threads:
     """The threads of ``n_jobs=-1`` now, and where they come from."""
@@ -62,10 +78,11 @@ def _warn_low(found: Threads) -> None:
     """Once: a job's processors left idle by an OMP_NUM_THREADS its environment set (cluster
     modules often export OMP_NUM_THREADS=1 for MPI programs)."""
     global _warned
-    if _warned or found.variable != "OMP_NUM_THREADS" or found.job is None or found.all >= found.available:
+    if _warned or not found.idle():
         return
     _warned = True
+    job = found.job_processors()
     warnings.warn(f"zeit uses {found.all} thread{'s' if found.all != 1 else ''} because OMP_NUM_THREADS="
-                  f"{found.all}, while this {found.scheduler} job may use {found.available} processors. To use "
-                  f"them, set ZEIT_NUM_THREADS={found.available} (zeit reads it before OMP_NUM_THREADS) or pass "
+                  f"{found.all}, while this {found.scheduler} job may use {job} processors. To use "
+                  f"them, set ZEIT_NUM_THREADS={job} (zeit reads it before OMP_NUM_THREADS) or pass "
                   f"n_jobs (--jobs on the command line).", RuntimeWarning, stacklevel=3)

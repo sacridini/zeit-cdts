@@ -155,3 +155,4 @@ PyTorch models for classification and change detection, weight-compatible with t
 - **[Google Earth Engine](gee-downloads.md)**: harmonised Landsat composites prepared on Google's servers.
 - **[Embeddings (TESSERA, AlphaEarth)](embeddings.md)**: the yearly embeddings of foundation models as a cube: classify from few samples, find similar places, follow change year to year.
 - **[Parallel & Cloud Processing](parallel-cloud-processing.md)**: from one core to a cluster, with Dask and Zarr.
+- **[Zeit on a Cluster (HPC, Slurm)](hpc-slurm.md)**: installing on a cluster, a job array over the tiles with `zeit slurm`, time limits, nodes without internet access.

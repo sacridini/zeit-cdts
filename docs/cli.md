@@ -493,6 +493,8 @@ zeit landtrendr urls.txt lt_out/ --helpers                    # URLs, one per li
 | `--no-local` | `flag` | `False` | With `--helpers`: process nothing here, only hand out the tiles and collect the results. |
 | `--local-cores` | `int` | `--jobs` | Cores for the tiles processed here (as `--jobs -1` by default: all but one, all of a cluster job's). Each helper uses the cores it lends. |
 | `--port` | `int` | `47801` | TCP port the helpers connect to. |
+| `--shard` | `I/N` | | Process part `I` (from 0) of `N` of the tiles, tile `k` being part `k mod N`'s (implies `--tiles`). In a Slurm job array the part is the task's without it. |
+| `--requeue` | `flag` | `False` | In a Slurm job: when stopped by SIGTERM before the time limit (`#SBATCH --signal=B:TERM@120`), requeue the job to continue with the tiles left, if it finished at least one. |
 
 - **Resumable.** Finished tiles are kept: running the same command again processes only the others. Running it with other options into the same output folder is refused rather than mixing results.
 - **Where the helpers read the tiles.** From shared storage (a NAS) when they see the same file, otherwise this computer sends it (a file stored without compression goes as a lossless ZSTD copy); a helper keeps the tiles it received (20 GB by default), so another run does not send them again. Given a `.txt` file of URLs, each computer downloads the tiles it processes. Tiles built from STAC or Earth Engine on each computer: [`zeit.stac_tiles`, `zeit.gee_tiles`](api/parallel.md#tiles-each-computer-builds) (Python).
@@ -550,6 +552,61 @@ Threads (n_jobs=-1): 16 threads (16 of 128 processors available to this process;
 ```
 
 See [Threads](api/parallel.md#threads-n_jobs) for how the count is made.
+
+### 21. A job array for the tiles (`zeit slurm`)
+
+```bash
+zeit slurm landtrendr tiles/ out/ --cpus 16 --time 2:00:00 --max-segments 8   # writes the script
+zeit slurm landtrendr tiles/ out/ --cpus 16 --time 2:00:00 --submit          # and submits it
+```
+
+Writes the Slurm job script that splits a folder of tiles among the tasks of a job array (one task per tile, up to 1000), prints it and saves it as `out/.zeit-tiles/<command>.sbatch`; `--submit` hands it to `sbatch`. Every task runs `zeit <command> tiles/ out/ --tiles --requeue` with the options given after the output folder (any of the command's, except `--jobs`: each task uses every processor it is given). The script sets the job's log per task (`out/.zeit-tiles/logs/slurm-<job>_<task>.out`), `--signal=B:TERM@120` and `--requeue`, so that a task stopped at its time limit drops the tile at work and requeues itself.
+
+| Option | Type | Default | Description |
+| :--- | :---: | :---: | :--- |
+| `--cpus` | `int` | `16` | Processors of each task (`--cpus-per-task`). |
+| `--mem` | `str` | suggested | Memory of each task (`32G`). By default, from the command and the widest tile: a task holds one row of blocks of `--chunk-size` at a time, at most one block per processor (measured for LandTrendr and CCDC; the script says how it was reckoned). |
+| `--time` | `str` | the partition's | Time limit of each task (`2:00:00`, `1-00:00:00`). |
+| `--partition`, `--account` | `str` | | Where the job runs, and who pays. |
+| `--tasks` | `int` | one per tile | Tasks of the array; with fewer than tiles, each task processes several. |
+| `--max-running` | `int` | | Tasks running at once (`--array=0-49%N`). |
+| `--sbatch` | `str` | | Another `#SBATCH` line, e.g. `--sbatch=--qos=long` (repeatable). |
+| `--setup` | `str` | | A line run before zeit, e.g. `--setup "module load gdal"` (repeatable). The script runs zeit with the Python it was written from, so an activated virtual environment needs no setup. |
+| `--script` | path | `out/.zeit-tiles/<command>.sbatch` | Where to write the script. |
+| `--submit` | `flag` | `False` | Submit it with `sbatch`. |
+
+### 22. The tiles of an output folder (`zeit tiles status`)
+
+```bash
+zeit tiles status out/
+```
+
+```text
+landtrendr in out: 120 tiles, 115 done, 2 failed, 3 not done
+  failed: tile_031 (run 4242_31): MemoryError
+          log: out/.zeit-tiles/logs/tile_031.log
+  not started: tile_088, tile_101, tile_117
+To process the 5 left: sbatch --array=31,40,88,101,117 out/.zeit-tiles/landtrendr.sbatch
+```
+
+What the runs that wrote into an output folder did, across the tasks of a job array: the tiles done, failed (with the error and the tile's log), not done (and those in runs that have not ended: still running, or killed), and the `--array` that submits again only the tasks with tiles left. Outside an array, run the same command again. Exit code 0 when every tile is done, 3 while some are left.
+
+### 23. Downloading beforehand (`zeit fetch`)
+
+```bash
+zeit fetch weights                    # lists the published weights
+zeit fetch weights prithvi-300m-tl    # or presto, ..., all
+zeit fetch tiles urls.txt             # the tiles of a list of URLs
+zeit fetch embeddings out/ --source tessera --bbox -63.2 -10.1 -62.8 -9.7 --years 2020-2024
+```
+
+The compute nodes of many clusters have no internet access. On the login node, which has it, `zeit fetch` downloads what zeit would download while running, into the [cache](getting-started/installation.md#caches): with `ZEIT_CACHE_DIR` set to a folder the compute nodes also see (the scratch space), they find it there.
+
+- **`weights`**: the pretrained weights of `zeit.ai`, checked by SHA-256. It does not need torch.
+- **`tiles`**: the tiles of a `.txt` file of URLs (one per line), into the tile cache, where `zeit <command> urls.txt out/ --tiles` looks first. `--threads` (default 4) downloads several at once, and `--cache-dir` names another cache. A tile that cannot be downloaded is reported, and the others are kept: run it again for the rest.
+- **`embeddings`**: the same as `zeit embeddings` (one GeoTIFF of the region, which `zeit.load_raster` reads), with the same options.
+
+Without network access, zeit says so and names the `zeit fetch` command that downloads what is missing, instead of a connection error.
 
 ---
 

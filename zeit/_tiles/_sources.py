@@ -92,6 +92,16 @@ def tile_urls(urls: Union[Dict[str, str], Iterable[str]]) -> TileSources:
     return TileSources(recipes)
 
 
+def url_list(inputs):
+    """A ``.txt`` file of URLs (one per line, ``#`` comments) as ``tile_urls``; other inputs as
+    they are."""
+    if isinstance(inputs, (str, Path)) and str(inputs).lower().endswith(".txt") and Path(inputs).is_file():
+        urls = [line.strip() for line in Path(inputs).read_text().splitlines()
+                if line.strip() and not line.lstrip().startswith("#")]
+        return tile_urls(urls)
+    return inputs
+
+
 def stac_tiles(tiles, *, index: Optional[str] = None, scale: float = 10000.0, dtype: Optional[str] = "int16",
                **options) -> TileSources:
     """Annual composites from a STAC catalog, built by each computer for the tiles it

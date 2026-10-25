@@ -169,15 +169,26 @@ def load_embeddings(
     wanted = _years(years)
     cache = Path(os.path.expanduser(os.fspath(cache_dir))) if cache_dir is not None else _default_cache()
 
-    if source == "tessera":
-        from . import _tessera
+    try:
+        if source == "tessera":
+            from . import _tessera
 
-        parts, meta = _tessera.parts(bbox, wanted, version=version, variant=variant, depth=depth, store=store,
-                                     cache_dir=cache)
-    else:
-        from . import _alphaearth
+            parts, meta = _tessera.parts(bbox, wanted, version=version, variant=variant, depth=depth, store=store,
+                                         cache_dir=cache)
+        else:
+            from . import _alphaearth
 
-        parts, meta = _alphaearth.parts(bbox, wanted, backend=backend, store=store, cache_dir=cache, crs=crs)
+            parts, meta = _alphaearth.parts(bbox, wanted, backend=backend, store=store, cache_dir=cache, crs=crs)
+    except Exception as e:
+        from ._network import connection_failed, offline_message
+
+        if not connection_failed(e):
+            raise
+        name = "TESSERA" if source == "tessera" else "AlphaEarth"
+        raise RuntimeError(offline_message(
+            f"the {name} embeddings", f"zeit fetch embeddings --source {source} (one GeoTIFF of the region, which "
+            "zeit.load_raster reads), or with load_embeddings itself and ZEIT_CACHE_DIR set to a folder both see, "
+            "which keeps what it downloads")) from e
 
     da = _assemble(parts, grid, crs, res, resampling, bbox)
     if shapes is not None:

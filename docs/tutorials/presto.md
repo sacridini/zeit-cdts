@@ -87,7 +87,7 @@ logits = model(x)              # x: (batch, 12, 6), NaN where missing
 encodings = model.embed(x)     # (batch, 128)
 ```
 
-The weights (3 MB) are downloaded once from the authors' repository to `~/.cache/zeit/weights` and checked against their SHA-256. Without network access, download [`default_model.pt`](https://github.com/nasaharvest/presto/raw/11e207a668a34336ced1d8e492a1bd5849b96c4a/data/default_model.pt) elsewhere and set the environment variable `ZEIT_WEIGHTS` to the folder holding it. `pretrained=False` starts from random weights.
+The weights (3 MB) are downloaded once from the authors' repository to `~/.cache/zeit/weights` and checked against their SHA-256. Without network access (the compute nodes of a cluster), run `zeit fetch weights presto` beforehand where there is access, with the cache in a folder both see, or download [`default_model.pt`](https://github.com/nasaharvest/presto/raw/11e207a668a34336ced1d8e492a1bd5849b96c4a/data/default_model.pt) elsewhere and set the environment variable `ZEIT_WEIGHTS` to the folder holding it. `pretrained=False` starts from random weights.
 
 ## Limits
 

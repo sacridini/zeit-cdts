@@ -38,16 +38,14 @@ ALIASES = {
     "elevation": ("elevation", "dem"), "slope": ("slope",),
 }
 
-WEIGHTS_URL = ("https://raw.githubusercontent.com/nasaharvest/presto/"
-               "11e207a668a34336ced1d8e492a1bd5849b96c4a/data/default_model.pt")
-WEIGHTS_SHA256 = "559c9d76f525bdf2dd3774da8b1e7f1510769b73baacac12e9e4d8d5c67fbe65"
+from .._weights import PRESTO_SHA256 as WEIGHTS_SHA256, PRESTO_URL as WEIGHTS_URL  # noqa: E402
 VERSION = "nasaharvest/presto@11e207a"
 
 
 def pretrained_weights():
-    """The authors' weights (3 MB): see ``zeit.ai._weights.fetch`` (``ZEIT_WEIGHTS`` for a
+    """The authors' weights (3 MB): see ``zeit._weights.fetch`` (``ZEIT_WEIGHTS`` for a
     local copy)."""
-    from ._weights import fetch
+    from .._weights import fetch
 
     return fetch(WEIGHTS_URL, WEIGHTS_SHA256, "Presto's weights")
 

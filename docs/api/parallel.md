@@ -22,7 +22,7 @@ The same is available from the terminal: `zeit landtrendr nbr_tiles/ lt_out/ --h
 zeit.run_tiles(
     command, inputs, output_dir, *, helpers=False, local=True,
     local_cores=None, port=47801, compress_transfers=True,
-    verbose=True, **options,
+    verbose=True, shard=None, **options,
 )
 ```
 
@@ -48,11 +48,12 @@ Runs a command of the [zeit command line](../cli.md) on every tile, writing `<ou
 | `port` | `int` | `47801` | TCP port the helpers connect to. |
 | `compress_transfers` | `bool` | `True` | Send a tile stored without compression as a lossless ZSTD copy: the same values, fewer bytes on the network (1.43× fewer for Landsat NBR in float32, made at ~300 MB/s). |
 | `verbose` | `bool` | `True` | Print the progress, the helpers that join or leave, and the warnings. |
+| `shard` | `str` | `None` | `"i/n"`: process part `i` (from 0) of `n` of the tiles, tile `k` (in the order of `inputs`) being part `k mod n`'s. Inside a Slurm job array, `None` takes the task's part (see [Clusters](#clusters)). |
 | `**options` | | | The command's options as keyword arguments, named as in the CLI with underscores: `max_segments=6`, `event_type="gain"`, `monitor_start_time="2020-01-01"`. A file used by every tile (`patterns=` of `twdtw`, `dates_file=` of `ccdc`, `model=` of `classify`, `training=` of `coded`) is sent to the helpers; a file that belongs to one raster (`weights=`, `samples=`) cannot be used. |
 
 </div>
 
-Returns a `TileRunResult`: `done` (the tiles processed now), `skipped` (already done before), `failed` (tile → error), `machines` (computer → tiles processed), `seconds`, and `ok` (no failures).
+Returns a `TileRunResult`: `done` (the tiles processed now), `skipped` (already done before), `failed` (tile → error), `machines` (computer → tiles processed), `seconds`, and `ok` (no failures). On SIGTERM (a scheduler's warning before a job's time limit) it raises `zeit._tiles.Stopped`, a `KeyboardInterrupt` whose `done` lists the tiles finished before: the tiles being processed are dropped, the finished ones kept.
 
 ```python
 result = zeit.run_tiles("bfast_monitor", "ndvi_16day/", "monitor/", helpers=True,
@@ -188,6 +189,22 @@ Shows an invitation code (such as `K7QM-2XDP`) and, for `minutes`, lets other co
 !!! note "Security"
     The code is only an invitation: it authenticates one pairing (over TLS, with a key stretched by scrypt; ten wrong codes close the invitation), in which the newcomer receives the group's random 256-bit secret. Every later connection proves the secret both ways, bound to the coordinator's TLS certificate, so another machine of the network can neither pose as a member nor read the tiles. The secret is kept in the user's configuration folder (`%APPDATA%\zeit` on Windows, `~/.config/zeit` elsewhere); `zeit helpers leave` forgets it.
 
+## Clusters
+
+On a cluster the tiles go to the tasks of a job array rather than to helpers (whose broadcasts a cluster's network does not carry; `helpers=True` inside a job is refused). Every task runs the same command, and takes its part of the tiles by itself:
+
+```bash
+#SBATCH --array=0-49 --cpus-per-task=16
+zeit landtrendr tiles/ out/ --tiles      # task i processes tiles i, i + 50, i + 100, ...
+```
+
+- **The split.** Tile `k`, in the order of the inputs, goes to part `k mod n`, `n` being the number of tasks. Static, so it needs no lock on the shared file system (NFS and Lustre differ on them). The first task keeps the split in `out/.zeit-tiles/split.json`, so that tasks submitted again later (`--array=3,17,41`) take the same tiles. Other schedulers: `shard="i/n"` (`--shard`), e.g. `--shard $PBS_ARRAY_INDEX/50`.
+- **Shared output folder.** Each run keeps its unfinished work apart (`out/.zeit-partial/<job>_<task>`), and a finished tile moves into place atomically.
+- **The record.** `out/.zeit-tiles/` keeps the tiles of the run, what each task finished, what failed (with the error, and the tile's log in `logs/`) and whether it was stopped: [`zeit tiles status`](../cli.md#22-the-tiles-of-an-output-folder-zeit-tiles-status) reads it.
+- **Time limits.** On SIGTERM (`#SBATCH --signal=B:TERM@120`, two minutes before the limit) the tile at work is dropped, its folder deleted, and with `--requeue` the task requeues itself (`scontrol requeue`) to continue with the tiles left.
+
+[`zeit slurm`](../cli.md#21-a-job-array-for-the-tiles-zeit-slurm) writes the job script; the tutorial is [Zeit on a cluster (HPC, Slurm)](../tutorials/hpc-slurm.md).
+
 ## Threads (`n_jobs`)
 
 Every function with `n_jobs` counts the threads of `n_jobs=-1` (the default) with one rule, the same in Python and in the compiled core. A positive `n_jobs` is the count. Otherwise, the first that applies:
@@ -215,4 +232,35 @@ Prints what zeit finds on this computer: the threads of `n_jobs=-1` and where th
 | `network` | `bool` | `True` | Check the services (a few seconds without internet access). |
 
 </div>
+
+### `fetch_tiles` { .api }
+
+<!-- sig: zeit.fetch_tiles -->
+```python
+zeit.fetch_tiles(inputs, *, cache_dir=None, threads=4, verbose=True)
+```
+
+Downloads or builds the tiles of `inputs` (`tile_urls`, `stac_tiles`, `gee_tiles`, or a `.txt` file of URLs) into the tile cache, where `run_tiles` looks for them before fetching them itself. On a cluster, run it on the login node, which has internet access, with `ZEIT_CACHE_DIR` set to a folder the compute nodes also see: they then process the tiles without it. The same as `zeit fetch tiles`.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `inputs` | recipes or path | | The tiles. A folder of tiles is already on disk, so it is refused. |
+| `cache_dir` | path | `None` | Where to keep them (default: the `tiles` folder of the cache). |
+| `threads` | `int` | `4` | Tiles fetched at once. |
+| `verbose` | `bool` | `True` | Print each tile as it arrives. |
+
+</div>
+
+**Returns** the cached files. A tile that cannot be fetched does not stop the others: a `RuntimeError` at the end lists those that failed.
+
+### `fetch_weights` { .api }
+
+<!-- sig: zeit.fetch_weights -->
+```python
+zeit.fetch_weights(*names)
+```
+
+Downloads the pretrained weights of `zeit.ai` into the cache, checked by SHA-256, without importing torch: `"presto"`, `"prithvi-tiny-tl"`, `"prithvi-100m-tl"`, `"prithvi-300m"`, `"prithvi-300m-tl"`, `"prithvi-600m"`, `"prithvi-600m-tl"`, or `"all"` (also with no names). **Returns** the files. The same as `zeit fetch weights`.
 
