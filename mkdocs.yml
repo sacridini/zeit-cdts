@@ -142,6 +142,7 @@ nav:
           - LandTrendr: tutorials/landtrendr.md
           - Recovery Metrics: tutorials/recovery.md
           - CCDC: tutorials/ccdc.md
+          - S-CCD: tutorials/sccd.md
           - BFAST: tutorials/bfast.md
           - BFAST Monitor: tutorials/bfast_monitor.md
           - EWMACD: tutorials/ewmacd.md

@@ -83,6 +83,11 @@ Every image below was produced by Zeit itself. Click one to open its tutorial.
   <span class="tile-body"><span class="tile-kicker">Change detection</span><span class="tile-title">Detect change in dense time series</span><span class="tile-text">CCDC models each pixel's seasonal cycle and flags the moment it breaks.</span></span>
 </a>
 
+<a class="tile" href="tutorials/sccd/">
+  <img src="assets/figures/thumbs/sccd.webp" alt="" loading="lazy">
+  <span class="tile-body"><span class="tile-kicker">Monitoring</span><span class="tile-title">Watch every new image</span><span class="tile-text">S-CCD carries CCDC's models forward with a Kalman filter and flags changes still in progress.</span></span>
+</a>
+
 <a class="tile" href="tutorials/bfast_monitor/">
   <img src="assets/figures/thumbs/bfast_monitor.webp" alt="" loading="lazy">
   <span class="tile-body"><span class="tile-kicker">Monitoring</span><span class="tile-title">Raise near-real-time alerts</span><span class="tile-text">BFAST Monitor tests each new image against a stable history.</span></span>

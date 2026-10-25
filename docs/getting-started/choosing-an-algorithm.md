@@ -10,6 +10,7 @@
 | How fast did it recover after the disturbance, and has it recovered yet? | [Recovery metrics](../tutorials/recovery.md) | One image per year (or a LandTrendr result) |
 | Was the forest degraded (logged, burned) or cleared? | [CODED](../tutorials/coded.md) | Every clear Landsat image, six bands |
 | Did anything change, at any time of year? What did it change into? | [CCDC](../tutorials/ccdc.md) | Every clear image (dense, multi-band) |
+| The same, updated image by image: which pixels are changing *right now*, before the change is confirmed? | [S-CCD](../tutorials/sccd.md) | Every clear image (dense, multi-band) |
 | Is something changing *right now*, compared with a stable past? | [BFAST Monitor](../tutorials/bfast_monitor.md) | Regular series (e.g. 16-day composites) |
 | The same, from every observation, cloudy and irregular, and when did it recover? | [EWMACD](../tutorials/ewmacd.md) | Every clear image, any dates |
 | How many changes happened, and when, in a regular series? | [BFAST Lite](../tutorials/bfast_lite.md) | Regular series |
@@ -45,6 +46,7 @@ flowchart TD
     B -->|"Whole history"| BL["BFAST Lite / BFAST"]
     B -->|"New observations only"| BM["BFAST Monitor"]
     CC -.->|"Monitoring, irregular dates"| EW["EWMACD"]
+    CC -.->|"Monitoring, multi-band"| SC["S-CCD"]
 
     L -->|"A few examples per class"| TW["TWDTW / Presto"]
     L -->|"Many labelled samples"| DL["TempCNN / LightTAE / U-TAE"]
@@ -53,7 +55,7 @@ flowchart TD
 
 ## Change detection methods compared
 
-The five change-detection families answer related but different questions. The figures below all come from their tutorials.
+The six change-detection families answer related but different questions. The figures below all come from their tutorials.
 
 <div class="gallery" markdown>
 
@@ -65,6 +67,11 @@ The five change-detection families answer related but different questions. The f
 <a class="tile" href="../../tutorials/ccdc/">
   <img src="../../assets/figures/thumbs/ccdc.webp" alt="" loading="lazy">
   <span class="tile-body"><span class="tile-kicker">Dense · retrospective</span><span class="tile-title">CCDC</span><span class="tile-text">Harmonic models of the seasonal cycle, multi-band. Dates changes within the year and describes the new state.</span></span>
+</a>
+
+<a class="tile" href="../../tutorials/sccd/">
+  <img src="../../assets/figures/thumbs/sccd.webp" alt="" loading="lazy">
+  <span class="tile-body"><span class="tile-kicker">Dense · near real time</span><span class="tile-title">S-CCD</span><span class="tile-text">CCDC's models carried forward by a Kalman filter: one update per new image, and the changes still in progress.</span></span>
 </a>
 
 <a class="tile" href="../../tutorials/bfast_lite/">
@@ -84,13 +91,13 @@ The five change-detection families answer related but different questions. The f
 
 </div>
 
-| | LandTrendr | CCDC | BFAST Lite / BFAST | BFAST Monitor | EWMACD |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| Input | 1 index, 1 value per year | Up to 7 bands, every clear observation | 1 index, regular series | 1 index, regular series | 1 index, every observation, irregular dates |
-| Models the season? | No (annual values) | Yes (harmonics) | Yes (harmonics) | Yes (harmonics) | Yes (harmonics of the training years) |
-| Detects | Abrupt and gradual change, recovery | Abrupt change, any time of year | Breaks in trend (and season, for BFAST) | The first break after a date | Disturbances, gains and recoveries after the training years |
-| Typical use | Forest disturbance history | Land-cover change mapping and classification | Retrospective break analysis | Alerts | Monitoring subtle and abrupt change |
-| Speed per pixel | Very fast | Moderate | Moderate | Very fast | Very fast |
+| | LandTrendr | CCDC | S-CCD | BFAST Lite / BFAST | BFAST Monitor | EWMACD |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| Input | 1 index, 1 value per year | Up to 7 bands, every clear observation | Up to 7 bands, every clear observation | 1 index, regular series | 1 index, regular series | 1 index, every observation, irregular dates |
+| Models the season? | No (annual values) | Yes (harmonics) | Yes (harmonics, filtered) | Yes (harmonics) | Yes (harmonics) | Yes (harmonics of the training years) |
+| Detects | Abrupt and gradual change, recovery | Abrupt change, any time of year | Abrupt change, and changes in progress at the last date | Breaks in trend (and season, for BFAST) | The first break after a date | Disturbances, gains and recoveries after the training years |
+| Typical use | Forest disturbance history | Land-cover change mapping and classification | Monitoring as images arrive | Retrospective break analysis | Alerts | Monitoring subtle and abrupt change |
+| Speed per pixel | Very fast | Moderate | Fast | Moderate | Very fast | Very fast |
 
 !!! tip "Combine methods"
     The methods complement each other. A common pattern is Mann-Kendall to find *where* a region is trending, then LandTrendr or CCDC to find *when* and *how abruptly* it changed there. Another is Tmask to clean the data before CCDC. See the [User Guide](../tutorials/index.md) for every workflow.

@@ -26,6 +26,11 @@ Find where and when the land surface changed.
   <span class="tile-body"><span class="tile-kicker">Dense data</span><span class="tile-title">CCDC</span><span class="tile-text">Harmonic models of every clear observation. Dates changes and describes the land before and after.</span></span>
 </a>
 
+<a class="tile" href="sccd/">
+  <img src="../assets/figures/thumbs/sccd.webp" alt="" loading="lazy">
+  <span class="tile-body"><span class="tile-kicker">Dense data · near real time</span><span class="tile-title">S-CCD</span><span class="tile-text">CCDC carried forward by a Kalman filter: the breaks, and the changes still in progress at the last image.</span></span>
+</a>
+
 <a class="tile" href="bfast/">
   <img src="../assets/figures/thumbs/bfast.webp" alt="" loading="lazy">
   <span class="tile-body"><span class="tile-kicker">Regular series</span><span class="tile-title">BFAST</span><span class="tile-text">Separate breaks in the trend from breaks in the seasonal cycle.</span></span>

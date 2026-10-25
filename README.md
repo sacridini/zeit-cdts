@@ -28,6 +28,7 @@ Built on a compiled core written in Rust (parallel across all cores, outside the
   - **TWDTW** (Time-Weighted Dynamic Time Warping): Highly optimized with LB_Keogh lower bounding, early abandonment, Sakoe-Chiba constraints, and multivariate vectorized distances.
   - **Batch SOM** (Self-Organizing Maps): Unsupervised multi-threaded clustering of massive spectral-temporal arrays.
   - **CCDC / COLD**: Continuous Change Detection and Classification via robust harmonic modeling.
+  - **S-CCD**: `sccd`, Stochastic Continuous Change Detection (Ye et al. 2021), written from the paper: CCDC's harmonic models carried forward by a Kalman filter, one update per new image instead of a refit (ten times faster than CCDC on 35 years of observations), with the near-real-time state of every pixel (how many of its latest observations already depart from the model, and since when); checked against pyxccd, the authors' package.
   - **LandTrendr**: Trajectory-based disturbance and recovery detection.
   - **Recovery metrics**: `recovery_metrics` measures how each pixel recovered after its disturbance (years to recovery, R80P, RRI, ARI, year-on-year recovery; White et al. 2017, Frazier et al. 2018), from LandTrendr or any annual series.
   - **BFAST, BFAST Monitor & BFAST Lite**: Classic iterative trend+season break detection, near-real-time monitoring, and single-pass multiple-breakpoint detection (ported from R's `bfast`/`strucchangeRcpp`).
