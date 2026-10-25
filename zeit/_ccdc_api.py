@@ -220,7 +220,7 @@ def _as_ccdc_cube(data: Any, *, qa: Any, dates: Any, bands: Any, chunks: Any):
             qa = frame[qa_name].to_numpy()
             frame = frame.drop(columns=[qa_name])
         cube = xr.DataArray(frame.to_numpy(dtype=float)[:, :, None, None], dims=("time", "band", "y", "x"),
-                            coords={"time": pd.DatetimeIndex(times), "band": [str(c) for c in frame.columns]})
+                            coords={"time": pd.DatetimeIndex(times).rename(None), "band": [str(c) for c in frame.columns]})
         pixel = True
     elif isinstance(data, xr.DataArray) and data.ndim == 2 and set(data.dims) == {"time", "band"}:
         cube = data.transpose("time", "band").expand_dims(("y", "x"), axis=(2, 3))

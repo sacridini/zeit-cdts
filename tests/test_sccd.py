@@ -223,3 +223,14 @@ def test_agrees_with_pyxccd_on_rondonia():
     # the count of the latest anomalies agrees less (81%): the statistics of a peek window are
     # often near the threshold, where the two RMSEs decide differently
     assert np.mean(ds.n_anomalies.isel(y=0).values[both] == f["anomaly_conse"][both]) > 0.75
+
+
+def test_dataframe_with_a_named_index():
+    """A pixel's DataFrame whose dates index has a name (df.index.name = 'date'), for sccd and ccdc alike."""
+    dates = pd.date_range("2015-01-01", periods=60, freq="16D")
+    rng = np.random.default_rng(0)
+    df = pd.DataFrame(rng.uniform(500, 3000, (60, 6)), index=dates,
+                      columns=["blue", "green", "red", "nir", "swir1", "swir2"])
+    df.index.name = "date"
+    assert zeit.sccd(df).sizes["time"] == 60
+    assert "t_start" in zeit.ccdc(df)
