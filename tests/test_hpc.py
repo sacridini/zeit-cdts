@@ -391,3 +391,15 @@ def test_embeddings_and_stac_out_of_reach_say_how_to_fetch_them(monkeypatch):
     monkeypatch.setattr(_alphaearth, "parts", refused)        # an answer from the server: not offline
     with pytest.raises(urllib.error.HTTPError):
         zeit.load_embeddings((-63.0, -10.0, -62.99, -9.99), source="alphaearth", years=2020)
+
+
+def test_a_dask_worker_uses_its_threads(monkeypatch):
+    distributed = pytest.importorskip("distributed")
+    monkeypatch.setenv("OMP_NUM_THREADS", "1")          # what the nanny of a worker process sets
+    with distributed.Client(n_workers=1, threads_per_worker=3, processes=False, dashboard_address=None) as client:
+        assert client.submit(_threads.resolve, -1, pure=False).result() == 3
+        assert client.submit(_threads.resolve, 5, pure=False).result() == 5
+        monkeypatch.setenv("ZEIT_NUM_THREADS", "2")
+        assert client.submit(_threads.resolve, -1, pure=False).result() == 2
+    monkeypatch.delenv("ZEIT_NUM_THREADS")
+    assert _threads.resolve(-1) == 1                    # outside the worker: OMP_NUM_THREADS

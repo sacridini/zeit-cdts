@@ -213,12 +213,11 @@ def beast(
                  time_units="decimal years" if (t is not None and not numeric) else "as given")
 
     series = cube.transpose("y", "x", "time")
-    jobs = resolve(n_jobs)
 
     def _block(v):   # (..., time) -> (..., width)
         shape = v.shape[:-1]
         flat = np.ascontiguousarray(v.reshape(-1, v.shape[-1]), dtype=np.float64)
-        out = _core.beast.beast_batch(flat, t, n_jobs=jobs, **kw)
+        out = _core.beast.beast_batch(flat, t, n_jobs=resolve(n_jobs), **kw)
         return np.asarray(out).reshape(shape + (width,))
 
     if series.chunks is not None:

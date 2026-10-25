@@ -199,11 +199,11 @@ The same is available as [`zeit ccdc`](../cli.md#2-continuous-change-detection-c
 
 ```python
 cube = cube.chunk({"time": -1, "band": -1, "y": 256, "x": 256})
-segments = cube.zeit.ccdc(qa="fmask", max_segments=6, n_jobs=1)   # same as zeit.ccdc(cube, ...)
+segments = cube.zeit.ccdc(qa="fmask", max_segments=6)   # same as zeit.ccdc(cube, ...)
 segments.to_zarr("s3://my-bucket/ccdc.zarr")
 ```
 
-Use `n_jobs=1` when Dask already runs one task per core. See [Parallel & Cloud Processing](parallel-cloud-processing.md).
+The blocks running at once share the core's threads, so `n_jobs` stays at its default. See [Parallel & Cloud Processing](parallel-cloud-processing.md).
 
 ## Good practice
 

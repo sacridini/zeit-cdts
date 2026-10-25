@@ -210,9 +210,12 @@ zeit landtrendr tiles/ out/ --tiles      # task i processes tiles i, i + 50, i +
 Every function with `n_jobs` counts the threads of `n_jobs=-1` (the default) with one rule, the same in Python and in the compiled core. A positive `n_jobs` is the count. Otherwise, the first that applies:
 
 1. `ZEIT_NUM_THREADS`, as it is. Tile runs set it for each tile's process.
-2. `OMP_NUM_THREADS`, as it is.
-3. `SLURM_CPUS_PER_TASK`, when the processors this process may run on are more: a cluster that does not confine its jobs.
-4. The processors this process may run on: its affinity (`taskset`, `srun --cpu-bind`) and the cgroup quota a scheduler or a container sets. On a desktop one is kept free, so the computer stays responsive; in a job of Slurm, PBS or LSF (`SLURM_JOB_ID`, `PBS_JOBID`, `LSB_JOBID`), or when the process is confined to fewer than the machine has, all of them are used: they were given to it.
+2. In a worker of `dask.distributed`, the worker's threads (`--nthreads`, `threads_per_worker`), and not the `OMP_NUM_THREADS=1` its nanny sets for the BLAS libraries.
+3. `OMP_NUM_THREADS`, as it is.
+4. `SLURM_CPUS_PER_TASK`, when the processors this process may run on are more: a cluster that does not confine its jobs.
+5. The processors this process may run on: its affinity (`taskset`, `srun --cpu-bind`) and the cgroup quota a scheduler or a container sets. On a desktop one is kept free, so the computer stays responsive; in a job of Slurm, PBS or LSF (`SLURM_JOB_ID`, `PBS_JOBID`, `LSB_JOBID`), or when the process is confined to fewer than the machine has, all of them are used: they were given to it.
+
+**With Dask, leave `n_jobs` alone.** The blocks of a cube that run at once share the core's threads: there is one pool per thread count in a process, so four blocks with `n_jobs=-1` on dask's threads scheduler still run on as many threads as the processors, not four times as many, and dividing them among the blocks only leaves processors idle (LandTrendr on 2048 × 2048 pixels of 40 years, blocks of 512, 20 processors: 4.3 s with `-1`, 10.1 s with 5 threads per block). In a `distributed` worker, `-1` is the worker's threads (4 processes of 5 threads: 4.3 s, against 6.0 s with the nanny's single thread per block). One catch: creating a `LocalCluster` leaves `OMP_NUM_THREADS=1` in the process that created it, so zeit run there outside Dask then uses one thread; `ZEIT_NUM_THREADS` or `n_jobs` sets it back.
 
 On a node of 128 cores, a job of `--cpus-per-task=16` gets 16 threads, without `--jobs`. Clusters' modules often export `OMP_NUM_THREADS=1` (for MPI programs): zeit then warns once that it leaves the job's other processors idle, and `ZEIT_NUM_THREADS`, read first, sets zeit's count without touching the other programs'.
 

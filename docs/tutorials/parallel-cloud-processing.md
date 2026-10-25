@@ -25,15 +25,15 @@ import zeit   # registers the .zeit accessor
 cube = xr.open_zarr("s3://my-bucket/annual_ndvi.zarr")["ndvi"]        # (time, y, x), lazy
 cube = cube.chunk({"time": -1, "y": 512, "x": 512})                   # whole history per chunk
 
-trend = cube.zeit.mann_kendall(method="hamed_rao", n_jobs=1)          # still lazy: a Dataset of maps
+trend = cube.zeit.mann_kendall(method="hamed_rao")                    # still lazy: a Dataset of maps
 trend.to_zarr("s3://my-bucket/ndvi_trend.zarr", consolidated=True)    # computes, in parallel
 ```
 
 !!! warning "Chunk in space, never in time"
     Every algorithm needs a pixel's complete history, so the `time` axis must be a **single chunk** (`-1`). Chunk only `y` and `x`. Typical sizes are 256–1024 pixels, small enough that a chunk's full history fits in a worker's memory.
 
-!!! tip "Avoid oversubscription"
-    If Dask already runs one task per core, give each task one thread (`n_jobs=1`). If instead you run **one worker process per machine**, let that worker use all its cores (`n_jobs=-1`, `--nthreads 1`). Mixing both gives cores × cores threads fighting over the CPU.
+!!! tip "Leave `n_jobs` at its default"
+    The blocks that run at once share the compiled core's threads (one pool per process), so `n_jobs=-1` in every block does not multiply them, and in a `dask.distributed` worker it is the worker's `--nthreads`. Setting `n_jobs` lower only leaves processors idle. See [Threads](../api/parallel.md#threads-n_jobs) for the measurements.
 
 ## Many tiles on several computers
 
@@ -214,7 +214,7 @@ ndvi = xr.open_zarr("gs://my-bucket/annual_ndvi.zarr")["ndvi"]      # (time, y, 
 ndvi = ndvi.chunk({"time": -1, "y": 512, "x": 512})
 
 # Lazy: the years come from the time coordinate; direction="loss" looks for NDVI drops.
-lt = zeit.landtrendr(ndvi, max_segments=6, n_jobs=1)
+lt = zeit.landtrendr(ndvi, max_segments=6)
 lt.to_zarr("gs://my-bucket/landtrendr_vertices.zarr", mode="w")     # computes, in parallel
 
 # Event maps from the saved vertices, again chunk by chunk

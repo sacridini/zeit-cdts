@@ -2,14 +2,18 @@
 ``rust/zeit-core/src/parallel.rs``).
 
 ``n_jobs`` > 0 is the number of threads. ``n_jobs`` <= 0 (or None) is, from the first that
-applies: ``ZEIT_NUM_THREADS``; ``OMP_NUM_THREADS``; ``SLURM_CPUS_PER_TASK``, where the
+applies: ``ZEIT_NUM_THREADS``; the threads of a dask.distributed worker (below); ``OMP_NUM_THREADS``; ``SLURM_CPUS_PER_TASK``, where the
 processors this process may run on are more (a cluster that does not confine its jobs); the
 processors this process may run on (its affinity and cgroup quota), all but one on a desktop
 and all of them in a job of Slurm, PBS or LSF, or when the process is confined to fewer than
 the machine has.
-"""
 
+In a worker of dask.distributed, the worker's threads come before OMP_NUM_THREADS, which its
+nanny sets to 1 for the BLAS libraries: the blocks that run there at once share the core's
+pool of that many threads (one pool per count, per process), so they never ask for more.
+"""
 import os
+import sys
 import warnings
 from typing import NamedTuple, Optional
 
@@ -69,9 +73,22 @@ def resolve(n_jobs: Optional[int]) -> int:
     """The number of threads ``n_jobs`` asks for (see the module)."""
     if n_jobs is not None and int(n_jobs) > 0:
         return int(n_jobs)
+    worker = _worker_threads()
+    if worker and not os.environ.get("ZEIT_NUM_THREADS", "").strip():
+        return worker
     found = detect()
     _warn_low(found)
     return found.threads
+
+
+def _worker_threads() -> Optional[int]:
+    """The threads of the dask.distributed worker running this, or None outside one."""
+    if "distributed" not in sys.modules:
+        return None
+    try:
+        return int(sys.modules["distributed"].get_worker().state.nthreads) or None
+    except Exception:  # noqa: BLE001 - not in a worker
+        return None
 
 
 def _warn_low(found: Threads) -> None:

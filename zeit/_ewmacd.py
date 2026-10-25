@@ -179,13 +179,12 @@ def ewmacd(
         return ds
 
     series = cube.transpose("y", "x", "time")
-    jobs = resolve(n_jobs)
     width = len(NAMES) + n_coef
 
     def _block(v):   # (..., time) -> (..., time + width)
         shape = v.shape[:-1]
         flat = np.ascontiguousarray(v.reshape(-1, v.shape[-1]), dtype=np.float64)
-        flags, maps = _core.ewmacd.ewmacd_batch(flat, years, doys, t, start, end, n_jobs=jobs, **kw)
+        flags, maps = _core.ewmacd.ewmacd_batch(flat, years, doys, t, start, end, n_jobs=resolve(n_jobs), **kw)
         return np.concatenate([flags, maps.T], axis=1).reshape(shape + (len(t) + width,))
 
     if series.chunks is not None:

@@ -142,7 +142,6 @@ def recovery_metrics(data: Any, events: Any = None, *, target: float = 0.8, hori
 
     start, trough = _event_years(events, like)
     year_values = np.asarray(year_values, dtype=np.int32)
-    jobs = resolve(n_jobs)
 
     def _block(values, starts, troughs):
         shape = starts.shape
@@ -150,7 +149,7 @@ def recovery_metrics(data: Any, events: Any = None, *, target: float = 0.8, hori
         out = _core.recovery.recovery_batch(v, year_values, starts.reshape(-1).astype(np.int32),
                                             troughs.reshape(-1).astype(np.int32), target=float(target),
                                             horizon=int(horizon), pre_years=int(pre_years), basis=basis,
-                                            loss=event_type == "loss", n_jobs=jobs)
+                                            loss=event_type == "loss", n_jobs=resolve(n_jobs))
         return np.moveaxis(out.reshape((len(NAMES),) + shape), 0, -1).astype(np.float32)
 
     if series.chunks is not None:
