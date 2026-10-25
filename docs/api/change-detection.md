@@ -884,7 +884,7 @@ An irregular series (dates missing, or several in one step) is first put on a re
 | `trend_ncp_prob` | `(tncp)`: the probability of 0, 1, ... trend changepoints. |
 | `trend_cp`, `trend_cp_prob`, `trend_cp_abrupt`, `trend_cp_ci` | `(tcp)`: the trend changepoints found, most probable first, with NaN after the last. For each: its probability, the jump of the trend there, and its interval of dates (`bound`). |
 | `season`, `season_sd`, `season_ci`, `season_order`, `season_cp_occ`, `season_ncp`... | The same for the season (dimensions `sncp`, `scp`); `season_order` is the mean number of harmonics. |
-| `season_amp`, `season_amp_sd` | The season's amplitude at each date, and its standard deviation. |
+| `season_amp`, `season_amp_sd` | Rbeast's amplitude of the season at each date (the sum of the squared harmonic coefficients: a sine of amplitude 0.2 gives 0.04), and its standard deviation. |
 | `data` | The series on the grid (the mean of each step for an irregular one). |
 | `marg_lik`, `sig2`, `r2`, `rmse` | The fit: the marginal likelihood, the noise variance, R² and RMSE. |
 

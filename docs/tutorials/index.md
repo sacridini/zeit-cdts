@@ -51,6 +51,11 @@ Find where and when the land surface changed.
   <span class="tile-body"><span class="tile-kicker">Regular series</span><span class="tile-title">BFAST Lite</span><span class="tile-text">The optimal number of breaks in a whole series, in a single fast pass.</span></span>
 </a>
 
+<a class="tile" href="beast/">
+  <img src="../assets/figures/thumbs/beast.webp" alt="" loading="lazy">
+  <span class="tile-body"><span class="tile-kicker">Annual or regular series</span><span class="tile-title">BEAST</span><span class="tile-text">Trend and season averaged over thousands of models: how probable each changepoint is, and how many there were.</span></span>
+</a>
+
 </div>
 
 ## Time-series analysis

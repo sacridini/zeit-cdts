@@ -15,6 +15,7 @@
 | The same, from every observation, cloudy and irregular, and when did it recover? | [EWMACD](../tutorials/ewmacd.md) | Every clear image, any dates |
 | How many changes happened, and when, in a regular series? | [BFAST Lite](../tutorials/bfast_lite.md) | Regular series |
 | Did the trend change, the seasonal cycle, or both? | [BFAST](../tutorials/bfast.md) | Regular series |
+| The same, with *how sure*: the probability of a change at each date, and of each number of changes? | [BEAST](../tutorials/beast.md) | One index: annual, or regular (irregular dates averaged onto a grid) |
 | Is this area getting greener or browner over the decades? | [Mann-Kendall](../tutorials/mann_kendall.md) | One value per year (or `method="seasonal"`) |
 | Is a whole region (or each land-cover class) trending, given that neighbouring pixels are correlated? | [PARTS](../tutorials/regional-trends/index.md) | A cube in a projected CRS |
 | Where do high (or low) values cluster, and are those clusters new, growing or fading? | [Emerging hot spots](../tutorials/hotspots.md) | One map per date (at least 3) |
@@ -44,6 +45,7 @@ flowchart TD
     C -->|"Every clear image"| CC["CCDC"]
     C -->|"Regular composites"| B{"Past or present?"}
     B -->|"Whole history"| BL["BFAST Lite / BFAST"]
+    BL -.->|"With probabilities"| BE["BEAST"]
     B -->|"New observations only"| BM["BFAST Monitor"]
     CC -.->|"Monitoring, irregular dates"| EW["EWMACD"]
     CC -.->|"Monitoring, multi-band"| SC["S-CCD"]
@@ -55,7 +57,7 @@ flowchart TD
 
 ## Change detection methods compared
 
-The six change-detection families answer related but different questions. The figures below all come from their tutorials.
+The seven change-detection families answer related but different questions. The figures below all come from their tutorials.
 
 <div class="gallery" markdown>
 
@@ -79,6 +81,11 @@ The six change-detection families answer related but different questions. The fi
   <span class="tile-body"><span class="tile-kicker">Regular · retrospective</span><span class="tile-title">BFAST Lite / BFAST</span><span class="tile-text">Statistically optimal number of breaks in trend and season. Single index.</span></span>
 </a>
 
+<a class="tile" href="../../tutorials/beast/">
+  <img src="../../assets/figures/thumbs/beast.webp" alt="" loading="lazy">
+  <span class="tile-body"><span class="tile-kicker">Annual or regular · retrospective</span><span class="tile-title">BEAST</span><span class="tile-text">Bayesian model averaging of trend and season: the probability of each changepoint, and of each number of them.</span></span>
+</a>
+
 <a class="tile" href="../../tutorials/bfast_monitor/">
   <img src="../../assets/figures/thumbs/bfast_monitor.webp" alt="" loading="lazy">
   <span class="tile-body"><span class="tile-kicker">Regular · near real time</span><span class="tile-title">BFAST Monitor</span><span class="tile-text">Is the newest data consistent with the stable past? The basis of many alert systems.</span></span>
@@ -91,13 +98,13 @@ The six change-detection families answer related but different questions. The fi
 
 </div>
 
-| | LandTrendr | CCDC | S-CCD | BFAST Lite / BFAST | BFAST Monitor | EWMACD |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| Input | 1 index, 1 value per year | Up to 7 bands, every clear observation | Up to 7 bands, every clear observation | 1 index, regular series | 1 index, regular series | 1 index, every observation, irregular dates |
-| Models the season? | No (annual values) | Yes (harmonics) | Yes (harmonics, filtered) | Yes (harmonics) | Yes (harmonics) | Yes (harmonics of the training years) |
-| Detects | Abrupt and gradual change, recovery | Abrupt change, any time of year | Abrupt change, and changes in progress at the last date | Breaks in trend (and season, for BFAST) | The first break after a date | Disturbances, gains and recoveries after the training years |
-| Typical use | Forest disturbance history | Land-cover change mapping and classification | Monitoring as images arrive | Retrospective break analysis | Alerts | Monitoring subtle and abrupt change |
-| Speed per pixel | Very fast | Moderate | Fast | Moderate | Very fast | Very fast |
+| | LandTrendr | CCDC | S-CCD | BFAST Lite / BFAST | BEAST | BFAST Monitor | EWMACD |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| Input | 1 index, 1 value per year | Up to 7 bands, every clear observation | Up to 7 bands, every clear observation | 1 index, regular series | 1 index, annual or regular (irregular dates put on a grid) | 1 index, regular series | 1 index, every observation, irregular dates |
+| Models the season? | No (annual values) | Yes (harmonics) | Yes (harmonics, filtered) | Yes (harmonics) | Yes (harmonics), or none | Yes (harmonics) | Yes (harmonics of the training years) |
+| Detects | Abrupt and gradual change, recovery | Abrupt change, any time of year | Abrupt change, and changes in progress at the last date | Breaks in trend (and season, for BFAST) | Changepoints in trend and season, with their probability | The first break after a date | Disturbances, gains and recoveries after the training years |
+| Typical use | Forest disturbance history | Land-cover change mapping and classification | Monitoring as images arrive | Retrospective break analysis | Retrospective analysis, with its uncertainty | Alerts | Monitoring subtle and abrupt change |
+| Speed per pixel | Very fast | Moderate | Fast | Moderate | Slow (an MCMC per pixel) | Very fast | Very fast |
 
 !!! tip "Combine methods"
     The methods complement each other. A common pattern is Mann-Kendall to find *where* a region is trending, then LandTrendr or CCDC to find *when* and *how abruptly* it changed there. Another is Tmask to clean the data before CCDC. See the [User Guide](../tutorials/index.md) for every workflow.

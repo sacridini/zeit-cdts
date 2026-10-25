@@ -147,6 +147,7 @@ nav:
           - BFAST Monitor: tutorials/bfast_monitor.md
           - EWMACD: tutorials/ewmacd.md
           - BFAST Lite: tutorials/bfast_lite.md
+          - BEAST: tutorials/beast.md
           - Forest Degradation (CODED): tutorials/coded.md
       - Time-Series Analysis:
           - Trend Analysis (Mann-Kendall): tutorials/mann_kendall.md

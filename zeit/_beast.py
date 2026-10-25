@@ -136,7 +136,8 @@ def beast(
         - ``trend_cp`` (``tcp``: the changepoints found, most probable first, NaN after the last),
           ``trend_cp_prob``, ``trend_cp_abrupt`` (the jump of the trend there) and ``trend_cp_ci``;
         - the same for the season (``season``, ``season_cp_occ``...), with ``season_amp`` and
-          ``season_amp_sd`` (the amplitude) and ``season_order`` (the mean number of harmonics), on
+          ``season_amp_sd`` (Rbeast's amplitude: the sum of the squared harmonic coefficients, so a sine
+          of amplitude 0.2 gives 0.04) and ``season_order`` (the mean number of harmonics), on
           ``sncp`` and ``scp``;
         - ``data`` (the series on the grid), ``marg_lik``, ``sig2`` (the noise variance), ``r2``
           and ``rmse`` of the fit.
