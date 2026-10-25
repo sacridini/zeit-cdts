@@ -11,6 +11,7 @@ import xarray as xr
 
 from ._load import sorted_by_time
 from ._series_api import _series_cube
+from ._threads import resolve
 
 #: The patterns by code (ESRI's): hot spots positive, cold spots negative, 0 no pattern.
 PATTERNS = {
@@ -117,7 +118,7 @@ def emerging_hotspots(
     values = np.ascontiguousarray(np.asarray(cube.values, dtype=np.float64))
     r = _core.hotspots.emerging(values, radius=int(radius), circle=shape == "circle", lag=int(lag),
                                 cube_reference=reference == "cube", alpha=float(alpha), method=TRENDS[trend],
-                                n_jobs=int(n_jobs))
+                                n_jobs=resolve(n_jobs))
     coords = {c: cube.coords[c] for c in ("time", "y", "x") if c in cube.coords}
     codes = sorted(PATTERNS)
     ds = xr.Dataset(

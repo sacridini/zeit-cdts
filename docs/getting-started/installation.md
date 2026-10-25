@@ -41,6 +41,19 @@ For development and running tests, you can install the optional development depe
 pip install zeit-cdts[dev]
 ```
 
+## Caches
+
+What zeit downloads is kept in one folder, with a subfolder per kind: `weights` (the pretrained weights of `zeit.ai`), `embeddings` (TESSERA and AlphaEarth downloads), `tiles` (the tiles a tile run built or received) and `map-tiles` (the basemaps of `zeit.plot`). The folder is, from the first that is set:
+
+| | Folder |
+| :--- | :--- |
+| `ZEIT_CACHE_DIR` | as given |
+| `XDG_CACHE_HOME` | `$XDG_CACHE_HOME/zeit` |
+| Windows | `%LOCALAPPDATA%\zeit` |
+| elsewhere | `~/.cache/zeit` |
+
+On a cluster, point `ZEIT_CACHE_DIR` at the scratch space (`export ZEIT_CACHE_DIR=/scratch/$USER/zeit-cache`): the home directory's quota is small, and some compute nodes see it read-only. `zeit doctor` shows each folder and whether it can be written. A cache that zeit 2.2 or older filled in `~/.cache/zeit` keeps being used there until `ZEIT_CACHE_DIR` is set.
+
 ## Installing from Source
 
 If you need to modify the Rust core, use the latest unreleased features, or build the package on an unsupported architecture, you will need to install Zeit from the source.

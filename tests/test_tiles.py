@@ -130,6 +130,21 @@ def test_a_folder_of_tiles_runs_here_and_resumes(tiles, tmp_path):
         zeit.run_tiles("mann_kendall", tiles, out, alpha=0.1, verbose=False)
 
 
+def test_runs_sharing_an_output_folder_keep_their_own_unfinished_work(tiles, tmp_path):
+    out = tmp_path / "out"
+    first = _tasks.make_plan("mann-kendall", tiles, out, {})
+    second = _tasks.make_plan("mann-kendall", tiles, out, {})
+    first.run, second.run = "123_0", "123_1"           # two tasks of a job array
+    working = _tasks.partial_dir(first, "tile_0-1.1") / "out"
+    working.mkdir()
+    (working / "half.tif").write_bytes(b"...")
+    _tasks.clean_partial(second)                         # the second task finishes first
+    assert (working / "half.tif").exists()
+    _tasks.clean_partial(first)
+    assert not (out / _tasks.PARTIAL).exists()
+    assert _tasks.make_plan("mann-kendall", tiles, out, {}).run != first.run
+
+
 def test_a_broken_tile_is_reported_and_the_others_finish(tiles, tmp_path):
     (tiles / "broken.tif").write_bytes(b"not a raster")
     result = zeit.run_tiles("mann_kendall", tiles, tmp_path / "out", local_cores=1, verbose=False)

@@ -186,7 +186,7 @@ class Coordinator:
         self._tmp: Optional[tempfile.TemporaryDirectory] = None
         self.local_machine: Optional[Machine] = None
         if local:
-            cores = local_cores if local_cores and local_cores > 0 else max(1, (os.cpu_count() or 2) - 1)
+            cores = local_cores if local_cores and local_cores > 0 else _worker_cores()
             self.local_machine = Machine(f"{self.name} (this computer)", True, cores, builds=plan.recipes)
             self._machines.append(self.local_machine)
         self.compress_transfers = True
@@ -200,6 +200,8 @@ class Coordinator:
     # -------------------------------------------------------------- lifecycle
 
     def start(self) -> "Coordinator":
+        # what a run of the same name left (a job requeued after it was stopped)
+        _tasks.clean_partial(self.plan)
         if self.helpers and not self.finished.is_set():
             secret = _group.load_secret()
             if secret is None:
@@ -627,7 +629,7 @@ class Coordinator:
     def _results_probe(self) -> Optional[dict]:
         """A file in the output folder by which a helper that sees the folder too (a NAS)
         recognizes it, and then writes its results there instead of sending them."""
-        root = self.plan.output_dir / _tasks.PARTIAL
+        root = self.plan.partial
         try:
             root.mkdir(parents=True, exist_ok=True)
             token = secrets.token_hex(16)
@@ -682,7 +684,7 @@ class Coordinator:
                 tile.compressed = _tasks.is_compressed(tile.path)
             if tile.compressed:
                 return tile.path
-            folder = self.plan.output_dir / _tasks.PARTIAL / "send"
+            folder = self.plan.partial / "send"
             folder.mkdir(parents=True, exist_ok=True)
             target = folder / f"{tile.stem}.tif"
             start = time.monotonic()
@@ -745,7 +747,7 @@ class Coordinator:
         if placed is not None:
             while body.read(_net.CHUNK):
                 pass
-            folder = self.plan.output_dir / _tasks.PARTIAL / self._placed_name(attempt)
+            folder = self.plan.partial / self._placed_name(attempt)
             if placed != self._placed_name(attempt) or not _tasks.check_placed(folder):
                 shutil.rmtree(folder, ignore_errors=True)
                 self._lose(attempt, transfer_error="the results placed in the output folder are not there")
@@ -890,6 +892,12 @@ class Coordinator:
             machines = {m.name: m.done for m in self._machines if m.done}
         return TileRunResult(self.plan.output_dir, done, [t.stem for t in self.plan.done], failed, machines,
                              time.monotonic() - self._started)
+
+
+def _worker_cores() -> int:
+    from ._worker import default_cores
+
+    return default_cores()
 
 
 def _ema(old: Optional[float], new: float) -> float:

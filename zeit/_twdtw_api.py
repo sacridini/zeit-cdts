@@ -15,6 +15,8 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
+from ._threads import resolve
+
 _ANY_TIME = 2**31 - 1  # max_elapsed=None: no limit
 _CYCLES = {"year": 366.0, None: 0.0}
 
@@ -253,9 +255,7 @@ def _classify_block(values: np.ndarray, dates: np.ndarray, patterns: Sequence[Tu
     out = np.full((k + 2, rows, cols), np.nan)
     if rows == 0 or cols == 0:
         return out
-    if n_jobs == -1:
-        import os
-        n_jobs = max(1, (os.cpu_count() or 2) - 1)
+    n_jobs = resolve(n_jobs)
     # the engine takes (y, x, time[, band])
     series = np.ascontiguousarray(np.moveaxis(values, (-2, -1), (0, 1)), dtype=np.float64)
     p = _engine_params(params)

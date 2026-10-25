@@ -3,6 +3,7 @@ import xarray as xr
 import dask.array as da
 from typing import Optional
 from . import _core
+from ._threads import resolve
 
 fit_phenology_batch = _core.phenology.fit_phenology_batch
 
@@ -74,7 +75,7 @@ def run_phenology_dask(
             min_season_length=min_season_length,
             min_amplitude=min_amplitude,
             min_pixel_amplitude=min_pixel_amplitude,
-            n_jobs=n_jobs,
+            n_jobs=resolve(n_jobs),
             weights_array=weights_2d,
             season_retry=season_retry
         )

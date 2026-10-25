@@ -12,7 +12,7 @@
 
 ## Levels of parallelism
 
-**Threads within one machine.** Every algorithm's per-pixel loop runs in Rust, on several threads. `n_jobs=-1` (the default) uses all cores but one, and needs nothing else: `zeit.landtrendr`, `zeit.ccdc` and friends are already parallel.
+**Threads within one machine.** Every algorithm's per-pixel loop runs in Rust, on several threads. `n_jobs=-1` (the default) uses all cores but one (in a cluster job, all of the job's), and needs nothing else: `zeit.landtrendr`, `zeit.ccdc` and friends are already parallel.
 
 **Tiles across machines.** When the data already comes in tiles, each tile is a job of its own: `zeit landtrendr tiles/ out/ --helpers` runs them here and on the computers of the local network running `zeit worker`. See [Many tiles on several computers](#many-tiles-on-several-computers): it is the simplest way to use more machines.
 

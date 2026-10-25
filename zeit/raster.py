@@ -18,10 +18,9 @@ def run_landtrendr_array(years: "np.ndarray", raster_stack: "np.ndarray", max_se
         +1.0 (the default) for gain (index-rise) detection.
     """
     from ._landtrendr import run_landtrendr_batch
-    import os as _os
+    from ._threads import resolve
 
-    if n_jobs == -1:
-        n_jobs = max(1, (_os.cpu_count() or 4) - 1)
+    n_jobs = resolve(n_jobs)
 
     time_steps, rows, cols = raster_stack.shape
     max_vertices = max_segments + 1
@@ -71,11 +70,10 @@ def run_ccdc_array(dates: "np.ndarray", raster_stack: "np.ndarray", qa_stack: "n
     then per band rmse and the 8 harmonic coefficients.
     """
     from ._ccdc import run_ccdc_batch
-    import os as _os
-    
-    if n_jobs == -1:
-        n_jobs = max(1, (_os.cpu_count() or 4) - 1)
-        
+    from ._threads import resolve
+
+    n_jobs = resolve(n_jobs)
+
     num_bands, time_steps, rows, cols = raster_stack.shape
     params_per_segment = 3 + num_bands * 9 if return_coefs else 1
     

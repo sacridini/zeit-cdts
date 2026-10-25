@@ -22,7 +22,7 @@ fn values<'a, T: Element + Copy>(a: &'a PyArrayLikeDyn<'_, T, AllowTypeChange>) 
     }
 }
 
-/// The OpenMP thread count of a call: n > 0, or OpenMP's default (every processor).
+/// The thread count of a call: n > 0, or every processor zeit may use (none kept free).
 fn threads_of(n_threads: i32) -> usize {
     if n_threads > 0 {
         n_threads as usize

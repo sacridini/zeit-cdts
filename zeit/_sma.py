@@ -12,6 +12,8 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
+from ._threads import resolve
+
 #: Endmembers of Souza et al. (2005) for Landsat surface reflectance (blue, green, red, NIR,
 #: SWIR1, SWIR2), with the cloud endmember of CODED (Bullock et al. 2020), as CODED uses them
 #: (its cdd_params.yaml; reflectance x 10000).
@@ -189,7 +191,7 @@ def unmix(
     def _unmix(block):
         shape = block.shape[:-1]
         flat = np.ascontiguousarray(block.reshape(-1, block.shape[-1]), dtype=np.float64) / factor
-        out = unmix_batch(flat, E, sum_to_one=sum_to_one, nonneg=nonneg, n_jobs=n_jobs)
+        out = unmix_batch(flat, E, sum_to_one=sum_to_one, nonneg=nonneg, n_jobs=resolve(n_jobs))
         return out.reshape(shape + (k + 1,)).astype(np.float32)
 
     if cube.chunks is not None:

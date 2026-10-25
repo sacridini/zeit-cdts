@@ -4,6 +4,8 @@ from typing import Optional
 
 from zeit import _core
 
+from ._threads import resolve
+
 fit_mann_kendall_batch = _core.mannkendall.fit_mann_kendall_batch
 MKMethod = _core.mannkendall.MKMethod
 
@@ -83,7 +85,7 @@ def run_mann_kendall_dask(
             lag=lag_arg,
             period=period,
             min_valid=min_valid,
-            n_jobs=n_jobs,
+            n_jobs=resolve(n_jobs),
         )  # (9, pixels)
 
         return out.reshape(N_MK_METRICS, rows, cols).astype(np.float32)

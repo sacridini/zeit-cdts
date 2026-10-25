@@ -351,7 +351,7 @@ def _add_tile_args(p: argparse.ArgumentParser) -> None:
     g.add_argument("--no-local", action="store_true", help="With --helpers: process nothing here, only hand out "
                    "the tiles and collect the results")
     g.add_argument("--local-cores", type=int, default=None, help="Cores for the tiles processed here (default: "
-                   "--jobs, i.e. all but one)")
+                   "--jobs: every processor of a job, all but one elsewhere)")
     g.add_argument("--port", type=int, default=47801, help="TCP port the helpers connect to (default: 47801)")
 
 
@@ -432,7 +432,7 @@ def build_parser() -> argparse.ArgumentParser:
     lt_parser.add_argument("output_dir", help="Directory to save the outputs")
     lt_parser.add_argument("--start-year", type=int, default=None, help="Year of the first band (default: read from the band descriptions, e.g. yr1985)")
     lt_parser.add_argument("--max-segments", type=int, default=6, help="Maximum number of segments (default: 6)")
-    lt_parser.add_argument("--jobs", type=int, default=-1, help="Number of CPU cores to use (-1 for all, default: -1)")
+    lt_parser.add_argument("--jobs", type=int, default=-1, help="Threads to use (default: -1, every processor of a Slurm, PBS or LSF job and all but one elsewhere; see `zeit doctor`)")
     lt_parser.add_argument("--save-vertices", action="store_true", help="Save the raw vertices stack")
     lt_parser.add_argument("--chunk-size", type=int, default=512, help="Size of the image chunks to process at once (default: 512)")
     
@@ -462,7 +462,7 @@ def build_parser() -> argparse.ArgumentParser:
     ccdc_parser.add_argument("--dates-file", help="Text file with one date per line (ISO date or Python ordinal day), for a stack without dates in its band names")
     ccdc_parser.add_argument("--max-segments", type=int, default=6, help="Maximum number of segments (default: 6)")
     ccdc_parser.add_argument("--chunk-size", type=int, default=512, help="Size of the image chunks to process at once (default: 512)")
-    ccdc_parser.add_argument("--jobs", type=int, default=-1, help="Number of CPU cores to use (-1 for all, default: -1)")
+    ccdc_parser.add_argument("--jobs", type=int, default=-1, help="Threads to use (default: -1, every processor of a Slurm, PBS or LSF job and all but one elsewhere; see `zeit doctor`)")
     ccdc_parser.add_argument("--conse", type=int, default=6, help="Consecutive anomalous observations to flag a change (default: 6, as in the original CCDC)")
     ccdc_parser.add_argument("--cold", action="store_true", help="Deprecated: same as --conse 6 (now the default)")
     ccdc_parser.add_argument("--prefix", default="ccdc", help="Prefix for output files (default: ccdc)")
@@ -475,7 +475,7 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("input", help="Path to input multi-band GeoTIFF (one band per equally-spaced time step; dates read from the band names)")
         p.add_argument("output_dir", help="Directory to save the output")
         p.add_argument("--chunk-size", type=int, default=512, help="Size of the image chunks to process at once (default: 512)")
-        p.add_argument("--jobs", type=int, default=-1, help="Number of CPU cores to use (-1 for all, default: -1)")
+        p.add_argument("--jobs", type=int, default=-1, help="Threads to use (default: -1, every processor of a Slurm, PBS or LSF job and all but one elsewhere; see `zeit doctor`)")
         _add_tile_args(p)
 
     # bfastmonitor Subparser
@@ -537,7 +537,7 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("input", help=what)
         p.add_argument("output_dir", help="Directory to save the outputs")
         p.add_argument("--chunk-size", type=int, default=512, help="Size of the image chunks to process at once (default: 512)")
-        p.add_argument("--jobs", type=int, default=-1, help="Number of CPU cores to use (-1 for all, default: -1)")
+        p.add_argument("--jobs", type=int, default=-1, help="Threads to use (default: -1, every processor of a Slurm, PBS or LSF job and all but one elsewhere; see `zeit doctor`)")
         p.add_argument("--prefix", default=prefix, help=f"Name of the output file (default: {prefix})")
         _add_tile_args(p)
 
@@ -640,14 +640,14 @@ def build_parser() -> argparse.ArgumentParser:
     em_parser.add_argument("--backend", choices=["source.coop", "gee"], default=None,
                            help="AlphaEarth: the open COGs (default) or Earth Engine")
     em_parser.add_argument("--store", default=None, help="A local copy of the product to read instead of the public one")
-    em_parser.add_argument("--cache-dir", default=None, help="Where downloads are kept (default: ~/.cache/zeit/embeddings)")
+    em_parser.add_argument("--cache-dir", default=None, help="Where downloads are kept (default: the embeddings folder of ZEIT_CACHE_DIR, by default ~/.cache/zeit)")
     em_parser.add_argument("--prefix", default=None, help="Name of the output file (default: the source)")
 
     wk_parser = subparsers.add_parser("worker", help="Lend this computer to the group: wait for tiles and process "
                                                       "them (see `zeit helpers invite`)")
     wk_parser.add_argument("--join", default=None, metavar="CODE", help="Join a group with the code shown by "
                            "`zeit helpers invite` on one of its computers (the first time only)")
-    wk_parser.add_argument("--cores", type=int, default=None, help="Cores to lend (default: all but one)")
+    wk_parser.add_argument("--cores", type=int, default=None, help="Cores to lend (default: all but one; all of a job's)")
     wk_parser.add_argument("--connect", default=None, metavar="HOST[:PORT]", help="The coordinator's address, when "
                            "the broadcasts of the local network do not reach it")
     wk_parser.add_argument("--map", action="append", default=None, metavar="SRC=DST", help="A shared folder mounted "
@@ -668,6 +668,10 @@ def build_parser() -> argparse.ArgumentParser:
     fw = hp_sub.add_parser("firewall", help="Let helpers reach this computer (Windows: creates the firewall rules)")
     fw.add_argument("--port", type=int, default=47801, help="TCP port (default: 47801)")
     hp_sub.add_parser("leave", help="Take this computer out of its group")
+
+    dr_parser = subparsers.add_parser("doctor", help="What zeit finds here: threads and where their number comes "
+                                                     "from, the job, the caches, the network, the versions")
+    dr_parser.add_argument("--no-network", action="store_true", help="Do not check the services zeit downloads from")
     return parser
 
 
@@ -715,6 +719,10 @@ def main(argv: Optional[List[str]] = None) -> None:
         run_bandpass_cli(args)
     elif args.command == "embeddings":
         run_embeddings_cli(args)
+    elif args.command == "doctor":
+        from ._doctor import doctor
+
+        doctor(network=not args.no_network)
     else:
         parser.print_help()
 

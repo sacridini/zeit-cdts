@@ -100,7 +100,8 @@ def load_embeddings(
         product's own blocks). ``None``: read it all into memory. A dict of chunk sizes.
     cache_dir
         Where downloads are kept: the AlphaEarth file index (78 MB, refreshed monthly) and
-        the Earth Engine downloads. Default ``~/.cache/zeit/embeddings``.
+        the Earth Engine downloads. Default: the ``embeddings`` folder of zeit's cache
+        (``ZEIT_CACHE_DIR``, by default ``~/.cache/zeit``).
 
     Returns
     -------
@@ -304,7 +305,9 @@ BLOCKS = BlockCache()
 
 
 def _default_cache() -> Path:
-    return Path.home() / ".cache" / "zeit" / "embeddings"
+    from ._cache import cache_dir
+
+    return cache_dir("embeddings")
 
 
 def _years(years: Any) -> Optional[List[int]]:

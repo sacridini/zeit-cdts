@@ -1,7 +1,14 @@
-//! Threads, as OpenMP gave them to the C++ core of zeit 1.x: `n_jobs` > 0
-//! threads, or all the processors but one for `n_jobs` <= 0, where "all the
-//! processors" is OMP_NUM_THREADS when it is set (as omp_get_max_threads):
-//! zeit's tiles cap each tile process with it.
+//! Threads: `n_jobs` > 0 threads, or for `n_jobs` <= 0 the processors zeit may
+//! use, decided by `detect` from (the first that applies):
+//!
+//! 1. ZEIT_NUM_THREADS, as it is (zeit's tiles set it for each tile's process);
+//! 2. OMP_NUM_THREADS, as it is (as OpenMP's omp_get_max_threads);
+//! 3. SLURM_CPUS_PER_TASK, when the processors this process may run on are more
+//!    (a cluster that does not confine its jobs with a cgroup);
+//! 4. the processors this process may run on, its affinity and cgroup quota
+//!    (std's available_parallelism): all but one on a desktop, all of them in a
+//!    job (Slurm, PBS, LSF) or when the process is confined to fewer than the
+//!    machine has, where the others belong to someone else.
 //!
 //! One rayon pool per thread count, made on first use and kept: a pool costs
 //! tens of microseconds to start, too much for every call on small arrays.
@@ -13,22 +20,106 @@ use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-/// OpenMP's omp_get_max_threads: the first number of OMP_NUM_THREADS when it
-/// is a positive integer, else the processors. Read once, as OpenMP does.
-fn max_threads() -> usize {
-    static MAX: OnceLock<usize> = OnceLock::new();
-    *MAX.get_or_init(|| {
-        std::env::var("OMP_NUM_THREADS")
-            .ok()
-            .and_then(|v| omp_num_threads(&v))
-            .unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |n| n.get()))
+/// The variable that names the job of each batch scheduler.
+pub const JOB_VARIABLES: [(&str, &str); 3] = [("Slurm", "SLURM_JOB_ID"), ("PBS", "PBS_JOBID"), ("LSF", "LSB_JOBID")];
+
+/// What `detect` found: the threads of `n_jobs` <= 0 and where they came from.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Detected {
+    /// The threads of `n_jobs` <= 0.
+    pub threads: usize,
+    /// Every processor zeit may use (`threads` with the one kept free).
+    pub all: usize,
+    /// The variable that gave the count (ZEIT_NUM_THREADS, OMP_NUM_THREADS,
+    /// SLURM_CPUS_PER_TASK), or None for the processors available.
+    pub variable: Option<&'static str>,
+    /// The processors this process may run on (affinity and cgroup quota).
+    pub available: usize,
+    /// The processors of the machine.
+    pub machine: usize,
+    /// The scheduler and id of the job this process runs in, if any.
+    pub job: Option<(&'static str, String)>,
+    /// One processor is kept free (a desktop, outside a job).
+    pub reserved: bool,
+}
+
+/// The processors this process may run on, and those of the machine: read once
+/// (the cgroup files on Linux), as OpenMP does.
+fn processors() -> (usize, usize) {
+    static CPUS: OnceLock<(usize, usize)> = OnceLock::new();
+    *CPUS.get_or_init(|| {
+        let available = std::thread::available_parallelism().map_or(1, |n| n.get());
+        (available, online_processors().unwrap_or(available).max(available))
     })
 }
 
-/// The thread count of an OMP_NUM_THREADS value ("8", or "8,4" for nested
-/// levels, of which the first counts).
-fn omp_num_threads(v: &str) -> Option<usize> {
+/// The processors online in the machine (Linux), from /sys/devices/system/cpu/online.
+fn online_processors() -> Option<usize> {
+    if !cfg!(target_os = "linux") {
+        return None;
+    }
+    cpu_list_len(std::fs::read_to_string("/sys/devices/system/cpu/online").ok()?.trim())
+}
+
+/// The number of processors of a Linux CPU list ("0-3,8-11", "0").
+fn cpu_list_len(list: &str) -> Option<usize> {
+    let mut n = 0;
+    for part in list.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+        n += match part.split_once('-') {
+            Some((a, b)) => b.parse::<usize>().ok()?.checked_sub(a.parse::<usize>().ok()?)? + 1,
+            None => {
+                part.parse::<usize>().ok()?;
+                1
+            }
+        };
+    }
+    (n > 0).then_some(n)
+}
+
+/// A positive thread count from a variable's value ("8", or "8,4" for OpenMP's
+/// nested levels, of which the first counts).
+fn count(v: &str) -> Option<usize> {
     v.split(',').next()?.trim().parse::<usize>().ok().filter(|&n| n > 0)
+}
+
+/// The rules of the module, on the variables `var` gives and the processors.
+pub fn decide(var: &dyn Fn(&str) -> Option<String>, available: usize, machine: usize) -> Detected {
+    let available = available.max(1);
+    let machine = machine.max(available);
+    let job = JOB_VARIABLES.iter().find_map(|&(name, v)| {
+        var(v)
+            .map(|id| id.trim().to_string())
+            .filter(|id| !id.is_empty())
+            .map(|id| (name, id))
+    });
+    let given = ["ZEIT_NUM_THREADS", "OMP_NUM_THREADS"]
+        .into_iter()
+        .find_map(|v| var(v).as_deref().and_then(count).map(|n| (n, v)));
+    let (all, variable) = match given {
+        Some((n, v)) => (n, Some(v)),
+        None => match var("SLURM_CPUS_PER_TASK").as_deref().and_then(count) {
+            Some(n) if n < available => (n, Some("SLURM_CPUS_PER_TASK")),
+            _ => (available, None),
+        },
+    };
+    let reserved = variable.is_none() && job.is_none() && available >= machine;
+    let threads = if reserved { all.saturating_sub(1).max(1) } else { all };
+    Detected {
+        threads,
+        all,
+        variable,
+        available,
+        machine,
+        job,
+        reserved,
+    }
+}
+
+/// The threads of `n_jobs` <= 0 now: the variables are read at every call (a
+/// few lookups), the processors once.
+pub fn detect() -> Detected {
+    let (available, machine) = processors();
+    decide(&|v| std::env::var(v).ok(), available, machine)
 }
 
 /// The number of threads `n_jobs` asks for.
@@ -36,14 +127,15 @@ pub fn threads(n_jobs: i32) -> usize {
     if n_jobs > 0 {
         n_jobs as usize
     } else {
-        max_threads().saturating_sub(1).max(1)
+        detect().threads
     }
 }
 
-/// The `n_jobs` of every processor: the thread count of OpenMP's default
-/// team, which the C++ functions without an `n_jobs` used.
+/// The `n_jobs` of every processor zeit may use, none kept free: the thread
+/// count of OpenMP's default team, which the C++ functions without an `n_jobs`
+/// used.
 pub fn all_processors() -> i32 {
-    max_threads() as i32
+    detect().all as i32
 }
 
 /// The pool of `threads` threads.
@@ -384,12 +476,70 @@ mod tests {
     use super::*;
 
     #[test]
-    fn omp_num_threads_values() {
-        assert_eq!(omp_num_threads("8"), Some(8));
-        assert_eq!(omp_num_threads(" 4 ,2"), Some(4));
-        assert_eq!(omp_num_threads("0"), None);
-        assert_eq!(omp_num_threads("x"), None);
-        assert_eq!(omp_num_threads(""), None);
+    fn count_values() {
+        assert_eq!(count("8"), Some(8));
+        assert_eq!(count(" 4 ,2"), Some(4));
+        assert_eq!(count("0"), None);
+        assert_eq!(count("x"), None);
+        assert_eq!(count(""), None);
+    }
+
+    #[test]
+    fn cpu_lists() {
+        assert_eq!(cpu_list_len("0-127"), Some(128));
+        assert_eq!(cpu_list_len("0"), Some(1));
+        assert_eq!(cpu_list_len("0-3,8-11"), Some(8));
+        assert_eq!(cpu_list_len(""), None);
+        assert_eq!(cpu_list_len("3-1"), None);
+    }
+
+    fn vars(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
+        let pairs: Vec<(String, String)> = pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        move |name| pairs.iter().find(|(k, _)| k == name).map(|(_, v)| v.clone())
+    }
+
+    #[test]
+    fn a_desktop_keeps_one_processor() {
+        let d = decide(&vars(&[]), 16, 16);
+        assert_eq!((d.threads, d.all, d.variable, d.reserved), (15, 16, None, true));
+        assert_eq!(decide(&vars(&[]), 1, 1).threads, 1);
+    }
+
+    #[test]
+    fn a_job_or_a_confined_process_uses_every_processor() {
+        let d = decide(&vars(&[("SLURM_JOB_ID", "123456")]), 16, 128);
+        assert_eq!((d.threads, d.reserved), (16, false));
+        assert_eq!(d.job, Some(("Slurm", "123456".to_string())));
+        assert_eq!(decide(&vars(&[("PBS_JOBID", "7.pbs")]), 8, 8).threads, 8);
+        assert_eq!(decide(&vars(&[("LSB_JOBID", "9")]), 8, 8).threads, 8);
+        // taskset or a container: the other processors belong to someone else
+        assert_eq!(decide(&vars(&[]), 2, 64).threads, 2);
+    }
+
+    #[test]
+    fn the_variables_in_their_order() {
+        let all = [
+            ("ZEIT_NUM_THREADS", "6"),
+            ("OMP_NUM_THREADS", "1"),
+            ("SLURM_CPUS_PER_TASK", "4"),
+            ("SLURM_JOB_ID", "1"),
+        ];
+        let d = decide(&vars(&all), 32, 32);
+        assert_eq!((d.threads, d.variable), (6, Some("ZEIT_NUM_THREADS")));
+        let d = decide(&vars(&all[1..]), 32, 32);
+        assert_eq!((d.threads, d.variable), (1, Some("OMP_NUM_THREADS")));
+        // as they are, on a desktop too
+        assert_eq!(decide(&vars(&[("OMP_NUM_THREADS", "8")]), 16, 16).threads, 8);
+        // SLURM_CPUS_PER_TASK only where no cgroup confines the job
+        let d = decide(&vars(&all[2..]), 32, 32);
+        assert_eq!((d.threads, d.variable), (4, Some("SLURM_CPUS_PER_TASK")));
+        let d = decide(&vars(&all[2..]), 4, 32);
+        assert_eq!((d.threads, d.variable), (4, None));
+        // values that are no count are ignored
+        assert_eq!(
+            decide(&vars(&[("ZEIT_NUM_THREADS", "0"), ("OMP_NUM_THREADS", "x")]), 4, 4).threads,
+            3
+        );
     }
 
     #[test]

@@ -181,7 +181,9 @@ def _tile_xy(lon: float, lat: float, z: int) -> Tuple[float, float]:
 
 
 def _fetch(url: str) -> Optional[bytes]:
-    cache = os.path.join(os.path.expanduser("~"), ".cache", "zeit", "tiles")
+    from .._cache import cache_dir
+
+    cache = str(cache_dir("map-tiles"))
     path = os.path.join(cache, hashlib.sha1(url.encode()).hexdigest() + ".img")
     if os.path.exists(path):
         with open(path, "rb") as f:

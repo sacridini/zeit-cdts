@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
+from ._threads import resolve
 from ._time import ordinal_days, to_datetime_index
 
 COEFS = ["a0", "c1", "a1", "b1", "a2", "b2", "a3", "b3"]
@@ -143,7 +144,7 @@ def ccdc(
         segs, counts = run_ccdc_batch(
             days, np.ascontiguousarray(values.transpose(2, 3, 1, 0)),
             np.ascontiguousarray(qa_values.transpose(1, 2, 0)), max_segments=max_segments,
-            return_coefs=True, n_jobs=_threads(n_jobs), **params)
+            return_coefs=True, n_jobs=resolve(n_jobs), **params)
         segs = segs.reshape(rows, cols, max_segments, per_segment)
         out[:-1] = segs.transpose(2, 3, 0, 1).reshape(max_segments * per_segment, rows, cols)
         out[-1] = counts.reshape(rows, cols)
@@ -167,13 +168,6 @@ def ccdc(
         out = _block(np.asarray(cube.values), qa_values)
 
     return _to_dataset(out, cube, names, max_segments, per_segment, pixel, params)
-
-
-def _threads(n_jobs: int) -> int:
-    if n_jobs == -1:
-        import os
-        return max(1, (os.cpu_count() or 2) - 1)
-    return int(n_jobs)
 
 
 def _missing_values(cube: xr.DataArray, nodata: Any) -> list:

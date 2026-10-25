@@ -222,6 +222,19 @@ class Plan:
     done: List[Tile] = field(default_factory=list)
     digest: str = ""
     recipes: bool = False               # the tiles are built by whoever processes them
+    run: str = field(default_factory=lambda: _run_name())   # this run, among those writing into output_dir
+
+    @property
+    def partial(self) -> Path:
+        """This run's folder of unfinished work: its own, so that runs sharing the output
+        folder (the tasks of a job array) never delete each other's."""
+        return self.output_dir / PARTIAL / self.run
+
+
+def _run_name() -> str:
+    from ._shard import run_name
+
+    return run_name()
 
 
 def params_digest(command: str, args: Sequence[str], shared: Sequence[dict]) -> str:
@@ -291,20 +304,27 @@ def finalize(plan: Plan, tile: Tile, folder: Path, info: dict) -> bool:
 
 
 def partial_dir(plan: Plan, name: str) -> Path:
-    path = plan.output_dir / PARTIAL / name
+    path = plan.partial / name
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
 def clean_partial(plan: Plan) -> None:
+    """Delete this run's unfinished work (only its own), and the folder of all of them once
+    empty."""
     import shutil
 
-    shutil.rmtree(plan.output_dir / PARTIAL, ignore_errors=True)
+    shutil.rmtree(plan.partial, ignore_errors=True)
+    try:
+        (plan.output_dir / PARTIAL).rmdir()
+    except OSError:
+        pass     # other runs are still at work, or it was never made
 
 
 def subprocess_env(cores: int) -> Dict[str, str]:
     env = dict(os.environ)
-    env["OMP_NUM_THREADS"] = str(cores)
+    # zeit's own variable, read before OMP_NUM_THREADS: what a cluster exports there is left alone
+    env["ZEIT_NUM_THREADS"] = str(cores)
     env["PYTHONUNBUFFERED"] = "1"
     if sys.platform == "darwin":
         # torch and other extensions may each bring an OpenMP runtime (see the parallel tutorial).

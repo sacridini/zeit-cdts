@@ -2,6 +2,7 @@ import warnings
 
 import numpy as np
 from . import _core
+from ._threads import resolve
 
 _LR_DECAYS = {'asymptotic_decay': 0, 'inverse_decay_to_zero': 1, 'linear_decay_to_zero': 2}
 _SIGMA_DECAYS = {'asymptotic_decay': 0, 'inverse_decay_to_one': 1, 'linear_decay_to_one': 2}
@@ -153,7 +154,7 @@ class SOM:
                 _NEIGHBORHOODS[self.neighborhood_function], self._xx, self._yy)
 
         if algorithm == 'batch':
-            _core.som.train_batch(self.weights, data, int(num_iters), *args, n_jobs=n_jobs)
+            _core.som.train_batch(self.weights, data, int(num_iters), *args, n_jobs=resolve(n_jobs))
         else:
             # Sample order exactly as MiniSom's _build_iteration_indexes.
             if use_epochs:
@@ -173,7 +174,7 @@ class SOM:
         if not self._is_trained:
             raise ValueError("SOM is not trained yet.")
         data = self._check_data(data)
-        return _core.som.predict_bmus(data, self.weights, n_jobs)
+        return _core.som.predict_bmus(data, self.weights, resolve(n_jobs))
 
     def winner(self, x: np.ndarray):
         """Grid coordinates (i, j) of the best matching unit of a single sample."""
@@ -183,7 +184,7 @@ class SOM:
     def quantization(self, data: np.ndarray, n_jobs: int = -1) -> np.ndarray:
         """Codebook vector of the best matching unit of each sample."""
         data = self._check_data(data)
-        bmus = _core.som.predict_bmus(data, self.weights, n_jobs)
+        bmus = _core.som.predict_bmus(data, self.weights, resolve(n_jobs))
         return self.weights.reshape(-1, self.input_len)[bmus]
 
     def quantization_error(self, data: np.ndarray, n_jobs: int = -1) -> float:

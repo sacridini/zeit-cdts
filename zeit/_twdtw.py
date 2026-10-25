@@ -1,6 +1,7 @@
 import numpy as np
 from typing import List, Dict, Any, Union, Tuple, Optional
 from . import _core
+from ._threads import resolve
 
 def run_twdtw(
     ts_values: Union[np.ndarray, List[float]], 
@@ -143,7 +144,7 @@ def classify_twdtw(
         dist = run_twdtw_batch(
             values_array, dates_array, pat_vals, pat_dates,
             alpha, beta, gamma, max_time_warp, subsequence_matching,
-            abort_threshold=float('inf'), n_jobs=n_jobs
+            abort_threshold=float('inf'), n_jobs=resolve(n_jobs)
         )
         
         mask = dist < best_dist

@@ -10,6 +10,7 @@ import xarray as xr
 
 from ._load import sorted_by_time
 from ._series_api import _series_cube
+from ._threads import resolve
 from ._time import fractional_years
 
 def _pair(value: Sequence[int], name: str) -> Tuple[int, int]:
@@ -212,7 +213,7 @@ def beast(
                  time_units="decimal years" if (t is not None and not numeric) else "as given")
 
     series = cube.transpose("y", "x", "time")
-    jobs = int(n_jobs)
+    jobs = resolve(n_jobs)
 
     def _block(v):   # (..., time) -> (..., width)
         shape = v.shape[:-1]

@@ -54,7 +54,7 @@ LandTrendr needs one value per year: a series whose years repeat raises an error
 | `fitted` | `bool` | `False` | Also return the fitted trajectory, `fitted (time, y, x)`: the series rebuilt from the vertices (LT-GEE's fitted values). |
 | `ftv` | list of `str` | `None` | Other bands to fit to the vertices of `band` (LT-GEE's fitted-to-vertex bands), by name: bands of the `(time, band, y, x)` cube or variables of the `Dataset`. Each is desawtoothed and fitted segment by segment through the vertex years found, in its own scale (not flipped by `direction`), as the original's `ftv_v1`. |
 | `chunks` | `"auto"`, `dict` | `None` | Inputs read from disk: `None` reads the raster into memory; `"auto"` or a dict of chunk sizes keeps it lazy, so the result is computed block by block, for rasters larger than memory. |
-| `n_jobs` | `int` | `-1` | Threads. `-1` uses all cores but one. |
+| `n_jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job ([how they are counted](parallel.md#threads-n_jobs)). |
 
 </div>
 
@@ -213,7 +213,7 @@ On a LandTrendr result the metrics are measured on the fitted trajectory (the li
 | `band` | `str` or `int` | `None` | The index to use in a `(time, band, y, x)` cube or a `Dataset`. |
 | `nodata` | `"auto"`, `float` or `None` | `"auto"` | Value marking a missing observation besides NaN. |
 | `chunks` | `"auto"`, `dict` | `None` | Inputs read from disk: `None` reads into memory; `"auto"` or a dict keeps them lazy. |
-| `n_jobs` | `int` | `-1` | Threads. `-1` uses all cores but one. |
+| `n_jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job ([how they are counted](parallel.md#threads-n_jobs)). |
 
 </div>
 
@@ -349,7 +349,7 @@ Values are **surface reflectance × 10,000** (the original's thresholds, range t
 | `thermal_range` | `tuple` | `(-9320.0, 7070.0)` | Valid range of the thermal band. |
 | `nodata` | `"auto"`, `float` or `None` | `"auto"` | Value marking a missing observation besides NaN. `"auto"`: the raster's NoData value; for integer data without one, `0`. A number: that value. `None`: only NaN. |
 | `chunks` | `"auto"`, `dict` | `None` | Inputs read from disk: `None` reads the raster into memory; `"auto"` or a dict of chunk sizes keeps it lazy, so the result is computed block by block, for rasters larger than memory. |
-| `n_jobs` | `int` | `-1` | Threads. `-1` uses all cores but one. |
+| `n_jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job ([how they are counted](parallel.md#threads-n_jobs)). |
 
 </div>
 
@@ -419,7 +419,7 @@ A change is `conse` consecutive observations whose departures from the model, st
 | `valid_range` | `tuple` | `(0.0, 10000.0)` | Valid range of the values. |
 | `nodata` | `"auto"`, `float` or `None` | `"auto"` | Value marking a missing observation besides NaN, as [`ccdc`](#ccdc). |
 | `chunks` | `"auto"`, `dict` | `None` | Inputs read from disk: `None` reads into memory; `"auto"` or a dict keeps them lazy. |
-| `n_jobs` | `int` | `-1` | Threads. `-1` uses all cores but one. |
+| `n_jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job ([how they are counted](parallel.md#threads-n_jobs)). |
 
 </div>
 
@@ -601,7 +601,7 @@ The flags are those of Brooks' EWMACD v1.3.0 script, the paper's own (Earth Engi
 | `band` | `str` or `int` | `None` | The index in a `(time, band, y, x)` cube or a `Dataset`. |
 | `nodata` | `"auto"`, `float` or `None` | `"auto"` | Value marking a missing observation besides NaN. |
 | `chunks` | `"auto"`, `dict` | `None` | Inputs read from disk: `None` reads into memory; `"auto"` or a dict keeps them lazy. |
-| `n_jobs` | `int` | `-1` | Threads. `-1` uses all cores but one. |
+| `n_jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job ([how they are counted](parallel.md#threads-n_jobs)). |
 
 </div>
 
@@ -677,7 +677,7 @@ Near-real-time disturbance monitoring (`bfastmonitor`, Verbesselt et al. 2012): 
 | `band` | `str` or `int` | `None` | The index to use in a `(time, band, y, x)` cube or a `Dataset` (band or variable name). |
 | `nodata` | `"auto"`, `float` or `None` | `"auto"` | Value marking a missing observation besides NaN. `"auto"`: the raster's NoData value; for integer data without one, `0` (how Earth Engine exports masked pixels). A number: that value. `None`: only NaN. |
 | `chunks` | `"auto"`, `dict` | `None` | Inputs read from disk: `None` reads the raster into memory; `"auto"` or a dict of chunk sizes keeps it lazy, so the result is computed block by block, for rasters larger than memory. |
-| `n_jobs` | `int` | `-1` | Threads. `-1` uses all cores but one. |
+| `n_jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job ([how they are counted](parallel.md#threads-n_jobs)). |
 
 </div>
 

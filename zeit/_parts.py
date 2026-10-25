@@ -16,7 +16,8 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from ._series_api import _as_dask, _jobs, _metrics_dataset, _series_cube
+from ._series_api import _as_dask, _metrics_dataset, _series_cube
+from ._threads import resolve
 from ._time import fractional_years
 
 
@@ -106,7 +107,7 @@ def ar_trend(data: Any, *, time: str = "step", harmonics: int = 0, period: Optio
     design, names = _design(cube, time, harmonics, period)
     metrics = _metric_names(names)
     arr, lazy = _as_dask(cube)
-    jobs = _jobs(n_jobs)
+    jobs = resolve(n_jobs)
 
     def _block(block):
         t, rows, cols = block.shape
@@ -243,7 +244,7 @@ def parts(data: Any, *, trend: Optional[xr.Dataset] = None, response: str = "slo
     if pixel:
         raise ValueError("zeit.parts tests a region: give a (time, y, x) cube")
     cube = cube.compute() if cube.chunks is not None else cube
-    jobs = _jobs(n_jobs)
+    jobs = resolve(n_jobs)
     design_t, names = _design(cube, time, harmonics, period)
     if trend is None:
         trend = ar_trend(cube, time=time, harmonics=harmonics, period=period, gaps=gaps, n_jobs=n_jobs)

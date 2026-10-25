@@ -12,6 +12,7 @@ import pandas as pd
 import xarray as xr
 
 from ._landtrendr import run_landtrendr_batch
+from ._threads import resolve
 from ._time import years as _years_of
 
 _DIRECTIONS = {"loss": -1.0, "gain": 1.0}
@@ -303,9 +304,7 @@ def _segment_block(block: np.ndarray, years: np.ndarray, sentinels: list, params
     if rows == 0 or cols == 0:
         return out
     values = _with_nan(block[0], sentinels[0])
-    if n_jobs == -1:
-        import os
-        n_jobs = max(1, (os.cpu_count() or 2) - 1)
+    n_jobs = resolve(n_jobs)
 
     vertices, counts, rmse = run_landtrendr_batch(
         years, np.ascontiguousarray(np.transpose(values, (1, 2, 0))), no_data_value=np.nan, n_jobs=n_jobs, **params)

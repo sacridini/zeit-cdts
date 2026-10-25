@@ -168,7 +168,7 @@ Smooths time series along `time`, keeping their dates, georeferencing and type. 
 | `polyorder` | `int` | `2` | Savitzky-Golay: order of the local polynomial. |
 | `nodata` | `"auto"`, `float` or `None` | `"auto"` | Value marking a missing observation: the raster's NoData (`0` for integer data without one), a number, or `None`. |
 | `chunks` | `"auto"`, `dict` | `None` | Inputs read from disk: `None` reads into memory; otherwise the result is lazy. |
-| `n_jobs` | `int` | `-1` | Whittaker: threads. `-1` uses all cores but one. |
+| `n_jobs` | `int` | `-1` | Whittaker: threads. `-1`: all the cores but one, or every core of a cluster job ([how they are counted](parallel.md#threads-n_jobs)). |
 
 </div>
 

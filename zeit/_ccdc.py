@@ -1,6 +1,7 @@
 import numpy as np
 from typing import List, Dict, Any, Union, Optional
 from . import _core
+from ._threads import resolve
 
 # The original CCDC parameterises time as MATLAB datenum, which is the Python
 # ordinal day + 366; the harmonic coefficients refer to that time axis.
@@ -203,4 +204,4 @@ def run_ccdc_batch(dates: np.ndarray, values: np.ndarray, qa: np.ndarray, max_se
     values = np.ascontiguousarray(values, dtype=np.float64)
     qa = np.ascontiguousarray(qa, dtype=np.int32)
 
-    return _core.ccdc.fit_ccdc_batch(values, qa, dates, params, max_segments, return_coefs, n_jobs)
+    return _core.ccdc.fit_ccdc_batch(values, qa, dates, params, max_segments, return_coefs, resolve(n_jobs))

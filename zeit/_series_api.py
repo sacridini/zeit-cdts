@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
+from ._threads import resolve
 from ._time import fractional_years, to_datetime_index
 
 
@@ -178,13 +179,6 @@ def _as_time(value: Any) -> float:
     return float(fractional_years(to_datetime_index([value]))[0])
 
 
-def _jobs(n_jobs: int) -> int:
-    if n_jobs == -1:
-        import os
-        return max(1, (os.cpu_count() or 2) - 1)
-    return int(n_jobs)
-
-
 # ---------------------------------------------------------------------------
 # BFAST family
 # ---------------------------------------------------------------------------
@@ -251,7 +245,7 @@ def bfast_monitor(data: Any, monitor_start: Any, *, dates: Optional[Sequence[Any
     arr, lazy = _as_dask(cube)
     out = run_bfast_monitor_dask(arr, start_time=start_time, monitor_start_time=_as_time(monitor_start),
                                  frequency=frequency, order=order, h=h, period=period, alpha=alpha,
-                                 min_valid=min_valid, n_jobs=_jobs(n_jobs))
+                                 min_valid=min_valid, n_jobs=resolve(n_jobs))
     ds = _metrics_dataset(out, BFM_METRIC_NAMES, cube, pixel, lazy, dict(
         algorithm="bfastmonitor", start_time=start_time, frequency=frequency,
         monitor_start=_as_time(monitor_start), order=order, h=h, period=period, alpha=alpha, min_valid=min_valid))
@@ -294,7 +288,7 @@ def bfast_lite(data: Any, *, dates: Optional[Sequence[Any]] = None, start_time: 
     start_time, frequency = _regular_time(cube, start_time, frequency)
     arr, lazy = _as_dask(cube)
     out = run_bfast_lite_dask(arr, start_time=start_time, frequency=frequency, order=order, h=h,
-                              max_breaks_output=max_breaks, min_valid=min_valid, n_jobs=_jobs(n_jobs))
+                              max_breaks_output=max_breaks, min_valid=min_valid, n_jobs=resolve(n_jobs))
     ds = _metrics_dataset(out, bfl_metric_names(max_breaks), cube, pixel, lazy, dict(
         algorithm="bfastlite", start_time=start_time, frequency=frequency, order=order, h=h,
         max_breaks=max_breaks, min_valid=min_valid))
@@ -341,7 +335,7 @@ def bfast(data: Any, *, dates: Optional[Sequence[Any]] = None, start_time: Optio
     arr, lazy = _as_dask(cube)
     out = run_bfast_dask(arr, start_time=start_time, frequency=frequency, order=order, h=h,
                          max_breaks_trend=max_breaks_trend, max_breaks_season=max_breaks_season,
-                         max_iter=max_iter, level=level, min_valid=min_valid, n_jobs=_jobs(n_jobs))
+                         max_iter=max_iter, level=level, min_valid=min_valid, n_jobs=resolve(n_jobs))
     names = bf_metric_names(max_breaks_trend, max_breaks_season)
     names = ["break_time" if n == "time" else n for n in names]  # "time" would clash with the time coordinate
     ds = _metrics_dataset(out, names, cube, pixel, lazy, dict(
@@ -396,7 +390,7 @@ def mann_kendall(data: Any, *, method: str = "hamed_rao", alpha: float = 0.05, l
     cube, pixel = _series_cube(data, dates=dates, band=band, chunks=chunks, need_dates=False, nodata=nodata)
     arr, lazy = _as_dask(cube)
     out = run_mann_kendall_dask(arr, method=method, alpha=alpha, lag=lag, period=period, min_valid=min_valid,
-                                n_jobs=_jobs(n_jobs))
+                                n_jobs=resolve(n_jobs))
     return _metrics_dataset(out, MK_METRIC_NAMES, cube, pixel, lazy, dict(
         algorithm="Mann-Kendall", method=method, alpha=alpha, lag=lag, period=period, min_valid=min_valid))
 
@@ -494,7 +488,7 @@ def phenology(data: Any, *, curve: Union[str, int] = "beck", method: Union[str, 
                              apply_hants=apply_hants, hants_frequencies=hants_frequencies,
                              hants_threshold=hants_threshold, min_season_length=min_season_length,
                              min_amplitude=min_amplitude, min_pixel_amplitude=min_pixel_amplitude,
-                             return_annual=annual, base_year=base_year, n_jobs=_jobs(n_jobs),
+                             return_annual=annual, base_year=base_year, n_jobs=resolve(n_jobs),
                              weights=weights_arr, season_retry=season_retry)
     dim = "year" if annual else "season"
     coord = np.arange(base_year, base_year + seasons) if annual else np.arange(1, seasons + 1)

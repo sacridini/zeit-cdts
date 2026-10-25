@@ -65,10 +65,10 @@ class Grid(NamedTuple):
 
 
 def resolve_threads(n_threads: Optional[int]) -> int:
-    """``None``, 0 or negative: all the cores but one (at least 1)."""
-    if n_threads is None or n_threads <= 0:
-        return max(1, (os.cpu_count() or 2) - 1)
-    return int(n_threads)
+    """``None``, 0 or negative: as ``n_jobs=-1`` (see zeit._threads)."""
+    from ._threads import resolve
+
+    return resolve(n_threads)
 
 
 def transform_of(da: xr.DataArray):

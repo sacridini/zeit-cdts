@@ -18,15 +18,18 @@ def _sha256(path: Path) -> str:
 
 def fetch(url: str, sha256: str, what: str) -> Path:
     """The file at ``url``: from the folder ``ZEIT_WEIGHTS`` names when it is there (a copy
-    made elsewhere, for a computer without network access), else from the cache
-    (``~/.cache/zeit/weights``), downloaded on first use. Checked once against ``sha256``
+    made elsewhere, for a computer without network access), else from the cache (the
+    ``weights`` folder of ``ZEIT_CACHE_DIR``, by default ``~/.cache/zeit``), downloaded on first
+    use. Checked once against ``sha256``
     (a ``.sha256`` file beside it records that)."""
     name = url.rsplit("/", 1)[-1]
     given = os.environ.get("ZEIT_WEIGHTS")
     if given and (Path(given) / name).exists():
         path = Path(given) / name
     else:
-        path = Path.home() / ".cache" / "zeit" / "weights" / name
+        from .._cache import cache_dir
+
+        path = cache_dir("weights") / name
         if not path.exists():
             path.parent.mkdir(parents=True, exist_ok=True)
             part = path.with_name(name + ".part")

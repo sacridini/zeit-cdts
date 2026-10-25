@@ -11,6 +11,8 @@ import numpy as np
 from scipy import ndimage
 from scipy.ndimage import uniform_filter
 
+from ._threads import resolve
+
 
 def _as_map(data: Any):
     """(values, rebuild): the 2-D values of a map, and a function giving back a result like
@@ -109,7 +111,7 @@ def apply_majority_filter(image: Any, size: int = 3, *, iterations: int = 1, nod
     if values.ndim != 2:
         raise ValueError(f"apply_majority_filter takes a single map (y, x), got shape {values.shape}")
     classes, nodata = _classes_in(values, da, nodata)
-    out = postproc.majority(classes, int(size), int(iterations), int(n_jobs))
+    out = postproc.majority(classes, int(size), int(iterations), resolve(n_jobs))
     return rebuild(_classes_out(out, values.dtype, nodata))
 
 
@@ -176,7 +178,7 @@ def smooth_probs(probs: Any, window_size: int = 9, neigh_fraction: float = 0.5,
     if (smooth <= 0).any():
         raise ValueError("smoothness must be positive")
     out = postproc.smooth_probs(values.astype(np.float64), int(window_size), np.ascontiguousarray(smooth),
-                                float(neigh_fraction), int(n_jobs))
+                                float(neigh_fraction), resolve(n_jobs))
     if np.issubdtype(values.dtype, np.floating):
         out = out.astype(values.dtype)
     return rebuild(out)
@@ -210,7 +212,7 @@ def desawtooth_classes(data: Any, max_length: int = 1, *, nodata: Any = "auto", 
     classes, nodata = _classes_in(values, da, nodata)
     t = classes.shape[0]
     flat = np.ascontiguousarray(classes.reshape(t, -1).T)
-    out = postproc.desawtooth(flat, int(max_length), int(n_jobs)).T.reshape(classes.shape)
+    out = postproc.desawtooth(flat, int(max_length), resolve(n_jobs)).T.reshape(classes.shape)
     return rebuild(_classes_out(out, values.dtype, nodata))
 
 

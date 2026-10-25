@@ -17,6 +17,7 @@ from typing import Optional, Tuple, Union
 import numpy as np
 
 from . import _core
+from ._threads import resolve
 
 _GRIDS = ("rectangular", "diamond", "hexagonal", "random")
 
@@ -171,7 +172,7 @@ def run_snic(
 
     labels, means, centroids, sizes = _core.snic.snic_segment(
         planar, seeds_rc, compactness=float(compactness),
-        tile_height=int(tile_h), tile_width=int(tile_w), n_jobs=int(n_jobs),
+        tile_height=int(tile_h), tile_width=int(tile_w), n_jobs=resolve(n_jobs),
     )
     return SnicResult(
         labels=labels,

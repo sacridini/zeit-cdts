@@ -11,6 +11,7 @@ import xarray as xr
 
 from ._load import sorted_by_time
 from ._series_api import _series_cube
+from ._threads import resolve
 from ._time import fractional_years
 
 NAMES = ("break_time", "severity", "recovery_time", "gain_time", "state", "sigma", "rmse", "r2")
@@ -178,7 +179,7 @@ def ewmacd(
         return ds
 
     series = cube.transpose("y", "x", "time")
-    jobs = int(n_jobs)
+    jobs = resolve(n_jobs)
     width = len(NAMES) + n_coef
 
     def _block(v):   # (..., time) -> (..., time + width)

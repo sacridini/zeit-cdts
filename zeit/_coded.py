@@ -25,6 +25,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
+from ._threads import resolve
 from ._time import fractional_years, to_datetime_index
 
 FEATURES = ["gv", "npv", "soil", "shade"]
@@ -171,7 +172,7 @@ def coded(
         shape = nd.shape[:-1]
         y = np.ascontiguousarray(nd.reshape(-1, nd.shape[-1]), dtype=np.float64)
         f = np.ascontiguousarray(fe.reshape((-1,) + fe.shape[-2:]), dtype=np.float64)
-        return coded_batch(t, y, f, params, n_jobs=n_jobs).reshape(shape + (size,))
+        return coded_batch(t, y, f, params, n_jobs=resolve(n_jobs)).reshape(shape + (size,))
 
     if ndfi.chunks is not None:
         ndfi = ndfi.chunk({"time": -1})

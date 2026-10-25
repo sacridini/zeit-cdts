@@ -25,13 +25,16 @@ HEARTBEAT = 5.0
 
 
 def default_cache_dir() -> Path:
-    if sys.platform == "win32":
-        return Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "zeit" / "tiles-cache"
-    return Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "zeit" / "tiles"
+    from .._cache import cache_dir
+
+    return cache_dir("tiles")
 
 
 def default_cores() -> int:
-    return max(1, (os.cpu_count() or 2) - 1)
+    """The threads of ``n_jobs=-1`` (all the processors but one on a desktop, all of them in a job)."""
+    from .._threads import resolve
+
+    return resolve(-1)
 
 
 def info(cores: int) -> dict:

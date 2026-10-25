@@ -14,6 +14,7 @@ import pandas as pd
 import xarray as xr
 
 from ._series_api import _series_cube
+from ._threads import resolve
 from ._time import years as _years_of
 
 NAMES = ("pre_val", "dist_val", "magnitude", "post_val", "ari", "rri", "r80p", "yryr", "y2r")
@@ -141,7 +142,7 @@ def recovery_metrics(data: Any, events: Any = None, *, target: float = 0.8, hori
 
     start, trough = _event_years(events, like)
     year_values = np.asarray(year_values, dtype=np.int32)
-    jobs = int(n_jobs)
+    jobs = resolve(n_jobs)
 
     def _block(values, starts, troughs):
         shape = starts.shape
@@ -193,7 +194,7 @@ def _landtrendr_series(lt: xr.Dataset, n_jobs: int):
             out = _core.recovery.trajectory_batch(
                 np.ascontiguousarray(vertex_years.reshape(-1, k), dtype=np.float64),
                 np.nan_to_num(np.ascontiguousarray(vertex_values.reshape(-1, k), dtype=np.float64)),
-                n.reshape(-1).astype(np.int32), years32, n_jobs=int(n_jobs))
+                n.reshape(-1).astype(np.int32), years32, n_jobs=resolve(n_jobs))
             return out.reshape(shape + (len(years32),))
 
         if vy.chunks is not None:

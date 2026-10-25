@@ -92,7 +92,7 @@ Each function also has an accessor form, available on every xarray object once y
 
 ## Parallelism
 
-- **`n_jobs`** controls the threads of the compiled core. The default `-1` uses all cores **but one**, so your machine stays responsive. `n_jobs=1` runs single-threaded, which is handy for debugging.
+- **`n_jobs`** controls the threads of the compiled core. The default `-1` uses all cores **but one**, so your machine stays responsive; in a job of a cluster (Slurm, PBS, LSF), every core the job was given. `n_jobs=1` runs single-threaded, which is handy for debugging. `ZEIT_NUM_THREADS` sets the count for every call, and `zeit doctor` shows what was found ([details](../api/parallel.md#threads-n_jobs)).
 - **Dask** splits a cube into spatial chunks and processes them in parallel, on one machine or a cluster. Always keep the **time axis in a single chunk** (`chunks={"time": -1, "y": 512, "x": 512}`), because each pixel needs its whole history.
 - When Dask already runs one task per core, set `n_jobs=1` inside each task to avoid oversubscribing the CPU.
 - The pre-built wheels are multi-threaded on every system, macOS included.

@@ -22,6 +22,7 @@ mod ewmacd;
 mod hotspots;
 mod landtrendr;
 mod mannkendall;
+mod parallel;
 mod parts;
 mod phenology;
 mod postproc;
@@ -73,5 +74,6 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     add_submodule(m, &hotspots::module(m.py())?)?;
     add_submodule(m, &sccd::module(m.py())?)?;
     add_submodule(m, &beast::module(m.py())?)?;
+    add_submodule(m, &parallel::module(m.py())?)?;
     Ok(())
 }

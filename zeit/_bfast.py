@@ -4,6 +4,8 @@ from typing import Optional
 
 from zeit import _core
 
+from ._threads import resolve
+
 fit_bfast_monitor_batch = _core.bfastmonitor.fit_bfast_monitor_batch
 fit_bfast_lite_batch = _core.bfastlite.fit_bfast_lite_batch
 fit_bfast_batch = _core.bfast.fit_bfast_batch
@@ -101,7 +103,7 @@ def run_bfast_monitor_dask(
             period=period,
             alpha=alpha,
             min_valid=min_valid,
-            n_jobs=n_jobs,
+            n_jobs=resolve(n_jobs),
         )  # (7, pixels)
 
         return out.reshape(N_BFM_METRICS, rows, cols).astype(np.float32)
@@ -193,7 +195,7 @@ def run_bfast_lite_dask(
             h=h,
             max_breaks_output=max_breaks_output,
             min_valid=min_valid,
-            n_jobs=n_jobs,
+            n_jobs=resolve(n_jobs),
         )  # (5+3*max_breaks_output, pixels)
 
         return out.reshape(n_metrics, rows, cols).astype(np.float32)
@@ -315,7 +317,7 @@ def run_bfast_dask(
             max_iter=max_iter,
             level=level,
             min_valid=min_valid,
-            n_jobs=n_jobs,
+            n_jobs=resolve(n_jobs),
         )  # (7+3*max_breaks_trend+max_breaks_season, pixels)
 
         return out.reshape(n_metrics, rows, cols).astype(np.float32)

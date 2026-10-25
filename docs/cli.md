@@ -41,7 +41,7 @@ zeit landtrendr <input> <output_dir> [OPTIONS]
 | :--- | :---: | :---: | :--- |
 | `--start-year` | `int` | read from the file | The calendar year of the first band. By default the years are read from the band descriptions (e.g. `yr1985`), as `zeit.load_raster` does; pass it for stacks whose bands are not named by year. |
 | `--max-segments`| `int` | `6` | The maximum number of line segments the algorithm can fit per pixel. |
-| `--jobs` | `int` | `-1` | Number of CPU cores to use for parallel processing. `-1` uses all available cores. |
+| `--jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job (see [`zeit doctor`](#20-checking-a-computer-zeit-doctor)). |
 | `--chunk-size` | `int` | `512` | Size of the image chunks (in pixels) processed simultaneously to manage RAM. |
 | `--save-vertices`| `flag` | `False` | If provided, saves the raw multi-band GeoTIFF containing all fitted vertices. |
 | `--no-data-value` | `float` | the raster's NoData, or `0` | Value marking a missing year. By default the raster's NoData value, or `0` for integer stacks without one (how Earth Engine exports masked pixels). NaN is always missing. |
@@ -61,7 +61,7 @@ These options control how specific change events are extracted from the temporal
 | `--prefix` | `str` | `lt_event` | Prefix added to all output file names. |
 
 ### End-to-End Example
-Run LandTrendr on a 30-year NBR stack, extracting the greatest vegetation loss, using all CPU cores, and converting the output back to floating point (assuming NBR was scaled by 10000):
+Run LandTrendr on a 30-year NBR stack, extracting the greatest vegetation loss, using every core but one, and converting the output back to floating point (assuming NBR was scaled by 10000):
 ```bash
 zeit landtrendr ./data/nbr_stack_1990_2020.tif ./results \
     --start-year 1990 \
@@ -99,7 +99,7 @@ zeit ccdc <input> <output_dir> [OPTIONS]
 | `--max-segments`| `int` | `6` | The maximum number of segments to retain per pixel. |
 | `--conse` | `int` | `6` | Consecutive anomalous observations that confirm a break (`conseq_anom`), as in the original CCDC. |
 | `--chunk-size` | `int` | `512` | Size of the image blocks (in pixels) processed at once. |
-| `--jobs` | `int` | `-1` | Number of CPU threads. `-1` uses all cores but one. |
+| `--jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job (see [`zeit doctor`](#20-checking-a-computer-zeit-doctor)). |
 | `--cold` | `flag` | `False` | Deprecated: the same as `--conse 6`, now the default. |
 | `--prefix` | `str` | `ccdc` | Prefix added to all output GeoTIFF files. |
 
@@ -163,7 +163,7 @@ zeit bfast-monitor <input> <output_dir> --monitor-start-time <year or date> [OPT
 | `--alpha` | `float` | `0.05` | Significance level for the monitoring boundary. |
 | `--min-valid` | `int` | `10` | Minimum valid (non-NaN) history observations per pixel. |
 | `--chunk-size` | `int` | `512` | Size of the image chunks to process simultaneously. |
-| `--jobs` | `int` | `-1` | Number of CPU cores to use. `-1` uses all available cores. |
+| `--jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job (see [`zeit doctor`](#20-checking-a-computer-zeit-doctor)). |
 | `--prefix` | `str` | `bfast_monitor` | Filename (without extension) for the output GeoTIFF. |
 
 Output bands (in order): `breakpoint`, `breakpoint_idx`, `magnitude`, `sigma`, `n_history`, `has_break`, `valid` (see [`zeit.bfast_monitor`](api/change-detection.md#bfast_monitor)).
@@ -200,7 +200,7 @@ zeit bfast-lite <input> <output_dir> [OPTIONS]
 | `--max-breaks-output` | `int` | `5` | Maximum number of breakpoints to report per pixel (`max_breaks` in Python). |
 | `--min-valid` | `int` | `20` | Minimum valid observations per pixel. |
 | `--chunk-size` | `int` | `512` | Size of the image chunks to process simultaneously. |
-| `--jobs` | `int` | `-1` | Number of CPU cores to use. |
+| `--jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job (see [`zeit doctor`](#20-checking-a-computer-zeit-doctor)). |
 | `--prefix` | `str` | `bfast_lite` | Filename (without extension) for the output GeoTIFF. |
 
 Output bands: `n_breaks`, `rss`, `lwz`, `n_valid`, `valid`, `breakpoint_idx_1..N` (see [`zeit.bfast_lite`](api/change-detection.md#bfast_lite)).
@@ -234,7 +234,7 @@ zeit bfast <input> <output_dir> [OPTIONS]
 | `--level` | `float` | `0.05` | Significance threshold for the preliminary structural-stability pre-check. |
 | `--min-valid` | `int` | `20` | Minimum valid observations per pixel. |
 | `--chunk-size` | `int` | `512` | Size of the image chunks to process simultaneously. |
-| `--jobs` | `int` | `-1` | Number of CPU cores to use. |
+| `--jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job (see [`zeit doctor`](#20-checking-a-computer-zeit-doctor)). |
 | `--prefix` | `str` | `bfast` | Filename (without extension) for the output GeoTIFF. |
 
 Output bands: `n_trend_breaks`, `n_season_breaks`, `magnitude`, `break_time`, `n_iter`, `n_valid`, `valid`, `trend_breakpoint_idx_1..N`, `season_breakpoint_idx_1..N` (see [`zeit.bfast`](api/change-detection.md#bfast)).
@@ -264,7 +264,7 @@ zeit mann-kendall <input> <output_dir> [OPTIONS]
 | `--period` | `int` | `1` | Season slots for `--method seasonal` (e.g. `23` for MODIS 16-day cycles), letting a raw sub-annual series be tested directly. |
 | `--min-valid` | `int` | `4` | Minimum valid observations per pixel. |
 | `--chunk-size` | `int` | `512` | Size of the image chunks to process simultaneously. |
-| `--jobs` | `int` | `-1` | Number of CPU cores to use. |
+| `--jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job (see [`zeit doctor`](#20-checking-a-computer-zeit-doctor)). |
 | `--prefix` | `str` | `mann_kendall` | Filename (without extension) for the output GeoTIFF. |
 
 Output bands: `trend`, `h`, `p`, `z`, `tau`, `s`, `var_s`, `slope`, `intercept`. `slope`/`intercept` are per time step (per band), so one observation per year gives a directly interpretable per-year trend.
@@ -314,7 +314,7 @@ zeit <command> <input> <output_dir> [OPTIONS]
 | Option | Type | Default | Description |
 | :--- | :---: | :---: | :--- |
 | `--chunk-size` | `int` | `512` | Size of the image chunks to process at once. |
-| `--jobs` | `int` | `-1` | Number of CPU cores to use. |
+| `--jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job (see [`zeit doctor`](#20-checking-a-computer-zeit-doctor)). |
 | `--prefix` | `str` | the command | Name of the output file, without extension. |
 
 ### 8. Phenology (`phenology`)
@@ -491,7 +491,7 @@ zeit landtrendr urls.txt lt_out/ --helpers                    # URLs, one per li
 | `--tiles` | `flag` | `False` | The input is a folder of tiles (its `.tif` files) or a quoted glob: run every tile. |
 | `--helpers` | `flag` | `False` | Also send tiles to the helpers of this computer's group (implies `--tiles`). |
 | `--no-local` | `flag` | `False` | With `--helpers`: process nothing here, only hand out the tiles and collect the results. |
-| `--local-cores` | `int` | `--jobs` | Cores for the tiles processed here (all but one by default). Each helper uses the cores it lends. |
+| `--local-cores` | `int` | `--jobs` | Cores for the tiles processed here (as `--jobs -1` by default: all but one, all of a cluster job's). Each helper uses the cores it lends. |
 | `--port` | `int` | `47801` | TCP port the helpers connect to. |
 
 - **Resumable.** Finished tiles are kept: running the same command again processes only the others. Running it with other options into the same output folder is refused rather than mixing results.
@@ -514,7 +514,7 @@ zeit worker --map "Z:\=/mnt/nas" # the NAS the coordinator sees as Z:\ is /mnt/n
 | Option | Type | Default | Description |
 | :--- | :---: | :---: | :--- |
 | `--join` | `str` | *None* | The invitation code, the first time only. |
-| `--cores` | `int` | all but one | Cores to lend. |
+| `--cores` | `int` | as `--jobs -1` | Cores to lend. |
 | `--connect` | `HOST[:PORT]` | *None* | The coordinator's address, when broadcasts do not reach it (another subnet, a VPN). |
 | `--map` | `SRC=DST` | *None* | A shared folder mounted elsewhere here (repeatable). Mapped Windows drives are sent as UNC paths (`\\nas\tiles`), which Windows helpers read without a map. |
 | `--cache-dir` | `dirpath` | the user's cache folder | Where received tiles are kept. |
@@ -530,6 +530,26 @@ A helper only opens outgoing connections (no firewall rule on it) and only runs 
 | `zeit helpers list [--seconds 5]` | The helpers waiting for work on the local network: name, address, cores, zeit version. Busy helpers do not show. |
 | `zeit helpers firewall` | On Windows, creates the inbound rules (TCP 47801 and UDP 47800, from the local subnet only), asking for administrator rights once. Needed on the computer that runs tiles, not on the helpers. |
 | `zeit helpers leave` | Takes this computer out of its group (forgets the group's secret). |
+
+## Clusters
+
+### 20. Checking a computer (`zeit doctor`)
+
+```bash
+zeit doctor                 # threads, job, caches, network, versions
+zeit doctor --no-network    # without checking the services
+```
+
+Prints what zeit finds where it runs: the threads `--jobs -1` uses and where that number comes from, the job of Slurm, PBS or LSF and its array task, the caches and whether they can be written, whether the services zeit downloads from answer, and the versions. Run it in a job (`srun zeit doctor`) to see what a job of yours gets:
+
+```text
+zeit 2.3.0 (Python 3.12.8, Linux x86_64, glibc 2.28)
+Threads (n_jobs=-1): 16 threads (16 of 128 processors available to this process; Slurm job 123456)
+  SLURM_CPUS_PER_TASK=16
+...
+```
+
+See [Threads](api/parallel.md#threads-n_jobs) for how the count is made.
 
 ---
 

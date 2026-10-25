@@ -33,7 +33,7 @@ Mann-Kendall trend test and Theil-Sen slope for every pixel, a Rust port of `pym
 | `band` | `str` or `int` | `None` | The index to use in a `(time, band, y, x)` cube or a `Dataset`. |
 | `nodata` | `"auto"`, `float` or `None` | `"auto"` | Value marking a missing observation besides NaN, as in [`bfast_monitor`](change-detection.md#bfast_monitor). |
 | `chunks` | `"auto"`, `dict` | `None` | Inputs read from disk: `None` reads into memory; `"auto"` or a dict keeps them lazy. |
-| `n_jobs` | `int` | `-1` | Threads. `-1` uses all cores but one. |
+| `n_jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job ([how they are counted](parallel.md#threads-n_jobs)). |
 
 </div>
 
@@ -90,7 +90,7 @@ Linear trend with AR(1) errors, fitted by REML, for every pixel: remotePARTS's `
 | `band` | `str` or `int` | `None` | The index to use in a `(time, band, y, x)` cube or a `Dataset`. |
 | `nodata` | `"auto"`, `float` or `None` | `"auto"` | Value marking a missing observation besides NaN. |
 | `chunks` | `"auto"`, `dict` | `None` | Inputs read from disk: `None` reads into memory; `"auto"` or a dict keeps them lazy. |
-| `n_jobs` | `int` | `-1` | Threads. `-1` uses all cores but one. |
+| `n_jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job ([how they are counted](parallel.md#threads-n_jobs)). |
 
 </div>
 
@@ -149,7 +149,7 @@ Distances are in the cube's units: give a cube in projected coordinates. The res
 | `dates` | list | `None` | Date of each time step. |
 | `band` | `str` or `int` | `None` | The index to use in a `(time, band, y, x)` cube or a `Dataset`. |
 | `nodata` | `"auto"`, `float` or `None` | `"auto"` | Value marking a missing observation besides NaN. |
-| `n_jobs` | `int` | `-1` | Threads. `-1` uses all cores but one. |
+| `n_jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job ([how they are counted](parallel.md#threads-n_jobs)). |
 
 </div>
 
@@ -204,7 +204,7 @@ The Gi* equals sfdep 0.2.5's (`include_gi = TRUE`, queen neighbours, `k` the lag
 | `trend` | `str` | `"hamed_rao"` | The trend test of the Gi* series: `"hamed_rao"` (the Gi* of consecutive dates share neighbours, so their series are autocorrelated), `"original"` Mann-Kendall (ESRI's and sfdep's) or `"yue_wang"`. |
 | `band` | `str` or `int` | `None` | The index to use in a `(time, band, y, x)` cube or a `Dataset`. |
 | `nodata` | `"auto"`, `float` or `None` | `"auto"` | Value marking a missing observation besides NaN. |
-| `n_jobs` | `int` | `-1` | Threads. `-1` uses all cores but one. |
+| `n_jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job ([how they are counted](parallel.md#threads-n_jobs)). |
 
 </div>
 
@@ -260,7 +260,7 @@ The day numbering of the core (days since January 1st of the first year) and the
 | `band` | `str` or `int` | `None` | The index to use in a `(time, band, y, x)` cube or a `Dataset`. |
 | `nodata` | `"auto"`, `float` or `None` | `"auto"` | Value marking a missing observation besides NaN, as in [`bfast_monitor`](change-detection.md#bfast_monitor). |
 | `chunks` | `"auto"`, `dict` | `None` | Inputs read from disk: `None` reads into memory; `"auto"` or a dict keeps them lazy. |
-| `n_jobs` | `int` | `-1` | Threads. `-1` uses all cores but one. |
+| `n_jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job ([how they are counted](parallel.md#threads-n_jobs)). |
 
 </div>
 
@@ -320,7 +320,7 @@ Patterns are `{name: series}`: a `pandas.Series` indexed by dates, a `DataFrame`
 | `max_elapsed` | `float` | `None` | Pairs farther apart than this many days are never matched. `None`: no limit. |
 | `nodata` | `"auto"`, `float` or `None` | `"auto"` | Value marking a missing observation: the raster's NoData (`0` for integer data without one), a number, or `None`. |
 | `chunks` | `"auto"`, `dict` | `None` | Inputs read from disk: `None` reads into memory; otherwise the result is lazy. |
-| `n_jobs` | `int` | `-1` | Threads. `-1` uses all cores but one. |
+| `n_jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job ([how they are counted](parallel.md#threads-n_jobs)). |
 
 </div>
 

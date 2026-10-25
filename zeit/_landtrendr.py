@@ -120,9 +120,8 @@ def run_landtrendr_batch(years: np.ndarray, values: np.ndarray, max_segments: in
     params.min_observations_needed = min_observations_needed
     params.modifier = modifier
 
-    import os as _os
-    if n_jobs <= 0:
-        n_jobs = max(1, _os.cpu_count() or 1)
+    from ._threads import resolve
+    n_jobs = resolve(n_jobs)
 
     years = np.ascontiguousarray(years, dtype=np.int32)
     values = np.ascontiguousarray(values, dtype=np.float64)

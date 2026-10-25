@@ -44,7 +44,7 @@ Runs a command of the [zeit command line](../cli.md) on every tile, writing `<ou
 | `output_dir` | path | required | Where the per-tile folders are written. |
 | `helpers` | `bool` | `False` | Also send tiles to the computers of this computer's group running `zeit worker`. |
 | `local` | `bool` | `True` | Process tiles here too. `False` (with `helpers=True`): only hand out tiles and collect the results, leaving this computer free. |
-| `local_cores` | `int` | `None` | Cores for the tiles processed here; `None`: all but one. |
+| `local_cores` | `int` | `None` | Cores for the tiles processed here; `None`: as [`n_jobs=-1`](#threads-n_jobs), all but one, or all of a cluster job's. |
 | `port` | `int` | `47801` | TCP port the helpers connect to. |
 | `compress_transfers` | `bool` | `True` | Send a tile stored without compression as a lossless ZSTD copy: the same values, fewer bytes on the network (1.43× fewer for Landsat NBR in float32, made at ~300 MB/s). |
 | `verbose` | `bool` | `True` | Print the progress, the helpers that join or leave, and the warnings. |
@@ -158,7 +158,7 @@ Both computers need the same zeit: a helper with another version (or other code,
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `cores` | `int` | `None` | Cores to lend; `None`: all but one. |
+| `cores` | `int` | `None` | Cores to lend; `None`: as [`n_jobs=-1`](#threads-n_jobs). |
 | `connect` | `str` | `None` | The coordinator's address, `"192.168.1.10"` or `"host:port"`, when the broadcasts of the local network do not reach it (another subnet, a VPN). |
 | `join` | `str` | `None` | The invitation code shown by `invite_helpers` / `zeit helpers invite` on a computer of the group, the first time only. |
 | `maps` | list of `str` | `()` | Where shared folders are mounted here, as `"SRC=DST"`: a tile the coordinator sees under SRC is read under DST, e.g. `"Z:\\=/mnt/nas"` or `"\\\\nas\\tiles=/Volumes/tiles"`. Mapped Windows drives are sent as their UNC paths, which Windows helpers read without a map. |
@@ -187,3 +187,32 @@ Shows an invitation code (such as `K7QM-2XDP`) and, for `minutes`, lets other co
 
 !!! note "Security"
     The code is only an invitation: it authenticates one pairing (over TLS, with a key stretched by scrypt; ten wrong codes close the invitation), in which the newcomer receives the group's random 256-bit secret. Every later connection proves the secret both ways, bound to the coordinator's TLS certificate, so another machine of the network can neither pose as a member nor read the tiles. The secret is kept in the user's configuration folder (`%APPDATA%\zeit` on Windows, `~/.config/zeit` elsewhere); `zeit helpers leave` forgets it.
+
+## Threads (`n_jobs`)
+
+Every function with `n_jobs` counts the threads of `n_jobs=-1` (the default) with one rule, the same in Python and in the compiled core. A positive `n_jobs` is the count. Otherwise, the first that applies:
+
+1. `ZEIT_NUM_THREADS`, as it is. Tile runs set it for each tile's process.
+2. `OMP_NUM_THREADS`, as it is.
+3. `SLURM_CPUS_PER_TASK`, when the processors this process may run on are more: a cluster that does not confine its jobs.
+4. The processors this process may run on: its affinity (`taskset`, `srun --cpu-bind`) and the cgroup quota a scheduler or a container sets. On a desktop one is kept free, so the computer stays responsive; in a job of Slurm, PBS or LSF (`SLURM_JOB_ID`, `PBS_JOBID`, `LSB_JOBID`), or when the process is confined to fewer than the machine has, all of them are used: they were given to it.
+
+On a node of 128 cores, a job of `--cpus-per-task=16` gets 16 threads, without `--jobs`. Clusters' modules often export `OMP_NUM_THREADS=1` (for MPI programs): zeit then warns once that it leaves the job's other processors idle, and `ZEIT_NUM_THREADS`, read first, sets zeit's count without touching the other programs'.
+
+### `doctor` { .api }
+
+<!-- sig: zeit.doctor -->
+```python
+zeit.doctor(network=True)
+```
+
+Prints what zeit finds on this computer: the threads of `n_jobs=-1` and where the number comes from (`16 threads (16 of 128 processors available to this process; Slurm job 123456)`), the job and array task it runs in, the [caches](../getting-started/installation.md#caches) and whether they can be written, whether the services zeit downloads from answer (STAC, Earth Engine, Hugging Face, the embeddings), the Earth Engine credentials and the versions. The same as `zeit doctor` in a terminal: the first thing to run on a new cluster, and to paste in an issue.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `network` | `bool` | `True` | Check the services (a few seconds without internet access). |
+
+</div>
+

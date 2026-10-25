@@ -13,7 +13,8 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from ._ccdc_api import _as_ccdc_cube, _band_indices, _missing_values, _threads, _where
+from ._ccdc_api import _as_ccdc_cube, _band_indices, _missing_values, _where
+from ._threads import resolve
 from ._time import ordinal_days
 
 COEFS = ["a0", "c1", "a1", "b1", "a2", "b2"]
@@ -158,7 +159,7 @@ def sccd(
         values, qa_values = _clean(values, qa_block, (t, rows, cols))
         out = _core.sccd.sccd_batch(
             np.ascontiguousarray(values.transpose(2, 3, 1, 0)), np.ascontiguousarray(qa_values.transpose(1, 2, 0)),
-            days, max_segments=max_segments, n_jobs=_threads(n_jobs), **params)
+            days, max_segments=max_segments, n_jobs=resolve(n_jobs), **params)
         return out.reshape(rows, cols, width).transpose(2, 0, 1)
 
     if cube.chunks is not None or (qa_cube is not None and qa_cube.chunks is not None):

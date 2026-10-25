@@ -15,6 +15,8 @@ from typing import Any, List, Optional
 import numpy as np
 import xarray as xr
 
+from ._threads import resolve
+
 
 @dataclass
 class TrainDI:
@@ -121,7 +123,7 @@ def train_di(train: Any = None, *, model: Any = None, weights: Any = None, folds
     values = values[keep]
     from ._core import aoa as core
 
-    r = core.train_di(np.ascontiguousarray(values), w, f, int(n_jobs))
+    r = core.train_di(np.ascontiguousarray(values), w, f, resolve(n_jobs))
     return TrainDI(features=names, center=r["center"], scale=r["scale"], weight=r["weight"], train=r["train"],
                    mean_distance=float(r["mean_distance"]), train_di=r["train_di"], threshold=float(r["threshold"]))
 
@@ -151,7 +153,7 @@ def aoa(data: Any, train: Any = None, *, model: Any = None, weights: Any = None,
 
     def run(values: np.ndarray):
         d, l = core.di(np.ascontiguousarray(values, dtype=np.float64), td.center, td.scale, td.weight, td.train,
-                       td.mean_distance, td.threshold, bool(lpd), int(n_jobs))
+                       td.mean_distance, td.threshold, bool(lpd), resolve(n_jobs))
         return d, (l if lpd else None)
 
     attrs = {"threshold": td.threshold, "mean_distance": td.mean_distance}

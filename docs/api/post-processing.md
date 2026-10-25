@@ -236,7 +236,7 @@ Where a model can be applied (Meyer & Pebesma 2021): the dissimilarity index (DI
 | `folds` | list | `None` | Each training point's cross-validation fold (any labels; `None`/NaN: in none). Spatially clustered samples should be given their clusters, or the threshold is too strict. |
 | `lpd` | `bool` | `False` | Also the local point density: how many training points are within the threshold's DI. |
 | `date` | date | `None` | CCDC segments: the date whose models are the features. |
-| `n_jobs` | `int` | `-1` | Threads (`-1`: all). |
+| `n_jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job ([how they are counted](parallel.md#threads-n_jobs)). |
 
 </div>
 
@@ -272,7 +272,7 @@ The dissimilarity of the training data to itself and the AOA's threshold, as CAS
 | `model` | classifier | `None` | As in `aoa`. |
 | `weights` | `str`, `dict` or list | `None` | As in `aoa`. |
 | `folds` | list | `None` | As in `aoa`. |
-| `n_jobs` | `int` | `-1` | Threads (`-1`: all). |
+| `n_jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job ([how they are counted](parallel.md#threads-n_jobs)). |
 
 </div>
 

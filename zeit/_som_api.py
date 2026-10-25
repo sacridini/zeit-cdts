@@ -12,6 +12,8 @@ from typing import Any, Optional
 import numpy as np
 import xarray as xr
 
+from ._threads import resolve
+
 _NEIGHBORHOODS = ("gaussian", "mexican_hat", "bubble", "triangle")
 _DECAYS = ("linear_decay_to_zero", "asymptotic_decay", "inverse_decay_to_zero")
 
@@ -221,7 +223,7 @@ def som(
         out[1] = np.nan
         if ok.any():
             good = np.ascontiguousarray(flat[ok])
-            bmu = np.asarray(_core.som.predict_bmus(good, weights, n_jobs))
+            bmu = np.asarray(_core.som.predict_bmus(good, weights, resolve(n_jobs)))
             out[0, ok] = bmu + 1
             out[1, ok] = np.linalg.norm(good - codebook[bmu], axis=1)
         return out.reshape(2, r, c)

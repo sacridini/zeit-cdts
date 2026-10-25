@@ -9,6 +9,8 @@ import pandas as pd
 import xarray as xr
 from scipy.signal import savgol_filter
 
+from ._threads import resolve
+
 _METHODS = ("whittaker", "savgol")
 
 
@@ -128,7 +130,7 @@ def smooth(
 
             wflat = np.empty((0, 0)) if w is None else np.ascontiguousarray(
                 np.asarray(w, dtype=np.float64).reshape(flat.shape))
-            out = np.asarray(_core.smooth.whittaker_batch(flat, days, wflat, float(lmbda), n_jobs))
+            out = np.asarray(_core.smooth.whittaker_batch(flat, days, wflat, float(lmbda), resolve(n_jobs)))
         else:
             out = _savgol_rows(flat, days, window, polyorder)
         out = out.reshape(values.shape)
