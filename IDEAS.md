@@ -2032,6 +2032,97 @@ fazer, em vez de um travamento ou um timeout.
   `:<versão>-gpu` a cada tag.
 - **20f:** `docs/tutorials/hpc-slurm.md`.
 
+## Fase 21: threads justas numa máquina compartilhada
+
+Pedida em 2026-10-25. Depois da Fase 20, `n_jobs=-1` está certo no desktop (todos os
+processadores menos um) e num job de cluster (todos os que o job recebeu: com
+`--cpus-per-task=8`, 8). Falta o caso do meio: uma máquina que várias pessoas usam ao mesmo
+tempo, fora de um scheduler. Um servidor Windows acessado por Remote Desktop, um servidor
+Linux por SSH, o nó de login de um cluster. Ali `-1` toma a máquina inteira para uma pessoa
+só. A meta é que o padrão divida a máquina com quem está nela, sem permissão de admin, e
+diga o que fez.
+
+### O que já está certo (não muda)
+
+- **Num job, `-1` é o que o job pediu.** Com cgroup ou afinidade (o comum), o processo só
+  vê os processadores do job; sem eles, vale o `SLURM_CPUS_PER_TASK`. Ninguém reserva um
+  processador num job.
+- **A ordem:** `n_jobs` > `ZEIT_NUM_THREADS` > threads de um worker do `distributed` >
+  `OMP_NUM_THREADS` > o job. A heurística nova entra só depois de tudo isso, no lugar do
+  "todos menos um" do desktop.
+
+### Buracos pequenos do 20a
+
+- **Job sem `--cpus-per-task`:** num cluster sem cgroup, `--ntasks=8` não define
+  `SLURM_CPUS_PER_TASK`, e o zeit usaria o nó inteiro. Ler `SLURM_CPUS_ON_NODE` como reserva
+  (ou `SLURM_JOB_CPUS_PER_NODE`), quando for menor que os processadores visíveis.
+- **PBS e LSF:** `NCPUS` (PBS Pro; ele também exporta `OMP_NUM_THREADS`) e
+  `LSB_DJOB_NUMPROC` (LSF), com a mesma regra do `SLURM_CPUS_PER_TASK`.
+
+### Detectar a máquina compartilhada, sem admin
+
+| | Sinal | Sem admin? |
+| :--- | :--- | :--- |
+| Windows | Sessão remota: `GetSystemMetrics(SM_REMOTESESSION)` | sim |
+| Windows | Edição Server: `wProductType` de `RtlGetVersion` | sim |
+| Windows | Sessões **ativas** de outros usuários: `WTSEnumerateSessions` (o que o `quser` usa) | **conferir** num host RDS real |
+| Linux/macOS | Usuários logados: `/var/run/utmp` (o que o `who` lê) | sim, legível por todos |
+| Linux/macOS | Sessão por SSH: `SSH_CONNECTION` | sim |
+| Cluster | Slurm instalado (`sbatch` no PATH, `/etc/slurm`) e fora de um job: nó de login | sim |
+| Todos | Carga dos outros processos: load average, `GetSystemTimes` | sim |
+
+### A regra proposta
+
+- **Divisão pelos usuários ativos, não fração fixa.** Processadores ÷ usuários distintos
+  ativos (pelo menos 1): 48 processadores e 3 pessoas dão 16 cada; de madrugada, sozinho,
+  fica o padrão do desktop. Uma fração fixa (1/3) desperdiça a máquina quando ela está vazia.
+  Decidir entre as duas antes de implementar; a divisão é a recomendada.
+- **Só sessões ativas.** No Windows, sessões RDP desconectadas ficam abertas por dias e não
+  contam (`WTSActive`, não `WTSDisconnected`). No Linux, usuários distintos do utmp.
+- **Usuários distintos, não sessões.** O mesmo usuário em duas janelas conta uma vez. Uma
+  máquina pessoal acessada por RDP, com só o dono nela, não é limitada.
+- **Nó de login:** compartilhado por definição (muitas vezes com limites do próprio cluster):
+  um padrão modesto (por exemplo, 4 threads ou a divisão, o que for menor), e a mensagem
+  sugere rodar num job (`srun`, `zeit slurm`).
+- **Dizer sempre.** Um aviso uma vez por processo, como o do `OMP_NUM_THREADS`: "máquina
+  compartilhada (3 usuários ativos): 16 de 48 processadores; `ZEIT_NUM_THREADS` ou `n_jobs`
+  mudam isso". E uma linha no `zeit doctor` com os usuários contados e o motivo. Sem isso, a
+  mesma análise fica 3× mais lenta sem ninguém saber por quê. O resultado não muda, só a
+  velocidade.
+- **Configuração persistente por usuário:** `zeit config threads 12` (ou `auto`), guardada no
+  `ZEIT_CONFIG_DIR`, para quem não quer depender de variável de ambiente (no Windows, a
+  variável de sistema precisa de admin; a de usuário, não). Entra na ordem logo depois do
+  `ZEIT_NUM_THREADS`.
+- **No core em Rust** (`parallel::decide`), para Python e core continuarem concordando: a
+  contagem de usuários entra como mais uma entrada da função pura (testável com valores
+  fixos), e a leitura (utmp, WTS) fica em `detect()`, uma vez por processo ou com cache de
+  alguns segundos.
+
+### Para uma segunda etapa: a carga da máquina
+
+Limitar aos processadores livres (load average menos o que o próprio zeit usa) é tentador,
+mas o zeit veria as próprias threads como concorrência e encolheria sozinho; descontar o
+próprio processo (`os.times`, `GetProcessTimes`) é mais frágil. Primeiro a contagem de
+usuários; a carga só se a contagem não bastar.
+
+### Riscos
+
+- **A heurística errar** e deixar uma análise mais lenta sem motivo: por isso usuários
+  distintos e ativos, o aviso e o `zeit doctor`.
+- **Contas de serviço** (no Linux, `who` só lista logins interativos, o que é o certo; no
+  Windows, conferir que sessões de serviço não aparecem como ativas).
+- **`/proc` com `hidepid`** e `utmp` ausente em contêineres: sem o sinal, vale o padrão de
+  hoje.
+
+### Etapas
+
+- **21a:** os buracos do 20a (`SLURM_CPUS_ON_NODE`, `NCPUS`, `LSB_DJOB_NUMPROC`): correção,
+  numa patch.
+- **21b:** conferir `WTSEnumerateSessions` sem admin num servidor Windows com RDS e o utmp
+  num servidor Linux; decidir divisão ou fração.
+- **21c:** a regra no core, o aviso, o `zeit doctor`, `zeit config threads`, a documentação
+  (a seção Threads da API, o tutorial de HPC sobre o nó de login).
+
 ## Para depois
 
 - Fase 19: `zeit.ai.predict` com fp16 na GPU (2,4× no Siamese, medido) vale para todos os
