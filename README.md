@@ -57,11 +57,13 @@ Built on a compiled core written in Rust (parallel across all cores, outside the
 ```bash
 pip install zeit-cdts
 ```
-*(Note: Wheels are provided for Windows, Linux, and macOS, Python 3.9 and newer, multi-threaded on all three. Building from source needs a Rust toolchain; see [Installation](https://sacridini.github.io/zeit-cdts/getting-started/installation/).)*
+*(Note: Wheels are provided for Windows, Linux (x86_64 and aarch64), and macOS, Python 3.9 and newer, multi-threaded on all three. Building from source needs a Rust toolchain; see [Installation](https://sacridini.github.io/zeit-cdts/getting-started/installation/).)*
+
+**New in 2.3:** PyTorch is optional. `zeit.ai` needs `pip install "zeit-cdts[ai]"`; everything else installs without its gigabytes. And zeit on a cluster: a Slurm job uses every processor it is given without `--jobs`, `zeit slurm` writes a job array over a folder of tiles (resubmitting what failed, requeueing at the time limit), `zeit fetch` downloads beforehand for nodes without internet access, `zeit doctor` says what zeit finds, and container images for Apptainer are published at each version. See [Zeit on a Cluster](https://sacridini.github.io/zeit-cdts/tutorials/hpc-slurm/).
 
 **New in 2.0:** the compiled core is written in Rust; up to 1.7 it was C++. Every function takes the same arguments and returns the same results (bit for bit in the tests each algorithm went through against the C++ one, on Windows, Linux and macOS, before the C++ was removed), and most run faster. Nothing changes in your code.
 
-For `zeit.plot` (matplotlib and anywidget), install the `plot` extra: `pip install zeit-cdts[plot]`. The TESSERA and AlphaEarth embeddings need nothing extra (TESSERA's reader, `geotessera`, comes with zeit on Python 3.12+).
+For `zeit.ai` (PyTorch), install the `ai` extra: `pip install "zeit-cdts[ai]"`. For `zeit.plot` (matplotlib and anywidget), the `plot` extra: `pip install zeit-cdts[plot]`. The TESSERA and AlphaEarth embeddings need nothing extra (TESSERA's reader, `geotessera`, comes with zeit on Python 3.12+).
 
 ---
 

@@ -2,6 +2,17 @@
 
 <p class="lead">Ready-made container images with Zeit, GDAL, PyTorch and JupyterLab. Use them to share an identical environment across a team, or to run Zeit workers on a cluster.</p>
 
+## Published images
+
+Each zeit version is published on the GitHub Container Registry, built from the two Dockerfiles below, with `zeit.ai` and JupyterLab:
+
+```bash
+docker pull ghcr.io/sacridini/zeit-cdts:2.3.0        # CPU, amd64 and arm64 (also :latest)
+docker pull ghcr.io/sacridini/zeit-cdts:2.3.0-gpu    # CUDA, amd64 (also :latest-gpu)
+```
+
+On a cluster, Apptainer runs them without root: `apptainer pull zeit.sif docker://ghcr.io/sacridini/zeit-cdts:2.3.0`, then `apptainer exec zeit.sif zeit doctor` (`--nv` for the GPU image). See [Zeit on a Cluster](../tutorials/hpc-slurm.md#with-apptainer).
+
 ## Official Docker Images
 
 We provide two Dockerfiles, built the same way but on different base images:

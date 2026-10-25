@@ -4,13 +4,20 @@
 
 ## Standard Installation
 
-The easiest way to install Zeit is via Python's package manager, `pip`. We provide pre-compiled binaries (wheels) for Windows, macOS, and Linux, supporting Python 3.9 and newer. Because we distribute pre-compiled binaries, **you do not need a compiler** (Rust or any other) installed on your machine for the standard installation. The wheels run the compiled core on all your cores on every system, macOS included.
+The easiest way to install Zeit is via Python's package manager, `pip`. We provide pre-compiled binaries (wheels) for Windows, macOS, and Linux (x86_64 and aarch64, glibc 2.28 or newer), supporting Python 3.9 and newer. Because we distribute pre-compiled binaries, **you do not need a compiler** (Rust or any other) installed on your machine for the standard installation. The wheels run the compiled core on all your cores on every system, macOS included.
 
 ```bash
 pip install zeit-cdts
 ```
 
-This command automatically installs all required Python dependencies, including `xarray`, `dask`, `scikit-learn`, `rasterio`, `torch`, and `pystac-client`.
+This command automatically installs all required Python dependencies, including `xarray`, `dask`, `scikit-learn`, `rasterio`, and `pystac-client`. The deep learning of [`zeit.ai`](../tutorials/ai.md) needs PyTorch, a large download, which comes with the `ai` extra:
+
+```bash
+pip install "zeit-cdts[ai]"
+```
+
+!!! note "Since 2.3, PyTorch is optional"
+    Up to zeit 2.2, `pip install zeit-cdts` installed PyTorch too. Code that uses `zeit.ai` now needs `pip install "zeit-cdts[ai]"` (or PyTorch installed by other means, such as the build for a GPU's CUDA from [pytorch.org](https://pytorch.org)); without it, `import zeit.ai` says so. Everything else needs no PyTorch.
 
 !!! note "macOS: Apple Silicon vs. Intel"
     Prebuilt wheels are published for whichever architecture GitHub Actions' `macos-latest` runner uses at build time, which is Apple Silicon (`arm64`) as of this writing. If `pip install zeit-cdts` on an Intel Mac reports no matching distribution, pip will fall back to building from source automatically — see [Installing from Source](#installing-from-source) below for the Rust toolchain that requires.
@@ -54,6 +61,8 @@ What zeit downloads is kept in one folder, with a subfolder per kind: `weights` 
 
 On a cluster, point `ZEIT_CACHE_DIR` at the scratch space (`export ZEIT_CACHE_DIR=/scratch/$USER/zeit-cache`): the home directory's quota is small, and some compute nodes see it read-only. `zeit doctor` shows each folder and whether it can be written. A cache that zeit 2.2 or older filled in `~/.cache/zeit` keeps being used there until `ZEIT_CACHE_DIR` is set.
 
+On a computer without internet access (the compute nodes of many clusters), fill the cache beforehand where there is access, with [`zeit fetch`](../cli.md#23-downloading-beforehand-zeit-fetch): `zeit fetch weights`, `zeit fetch tiles urls.txt`, `zeit fetch embeddings ...`. Without it, zeit says what it could not reach and which `zeit fetch` downloads it. The weights can also come from a folder of copies, named by `ZEIT_WEIGHTS`.
+
 ## Installing from Source
 
 If you need to modify the Rust core, use the latest unreleased features, or build the package on an unsupported architecture, you will need to install Zeit from the source.
@@ -96,7 +105,7 @@ The core is multi-threaded on every system, macOS included, with no extra librar
 
 The deep learning models in `zeit.ai` (`UTAE`, `LTAE`/`LightTAE`, `TempCNN`, `Presto`, `Siamese Change Detector`, `Prithvi`) are plain PyTorch `nn.Module`s and run on whatever device you move them to — none of them hard-code CUDA.
 
-*   **NVIDIA GPUs (Linux/Windows):** the standard `pip install zeit-cdts` installs a `torch` build with CUDA support where available. Use `torch.device("cuda")` as usual.
+*   **NVIDIA GPUs (Linux/Windows):** `pip install "zeit-cdts[ai]"` installs PyTorch's build with CUDA support on Linux; on Windows, and for a given CUDA version, install `torch` first as [pytorch.org](https://pytorch.org) says. Use `torch.device("cuda")` as usual.
 *   **Apple Silicon (any M-series chip):** PyTorch's Metal (`mps`) backend gives you native GPU acceleration on macOS — no CUDA or extra install needed, since it ships in the same `torch` package:
     ```python
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
@@ -104,6 +113,8 @@ The deep learning models in `zeit.ai` (`UTAE`, `LTAE`/`LightTAE`, `TempCNN`, `Pr
     ```
     Every tutorial in [AI & Deep Learning](../tutorials/ai.md) picks `"cuda"` vs. `"cpu"` in its example — swap in the snippet above on macOS to use the GPU.
 *   **CPU fallback:** works everywhere, just slower.
+
+On a cluster, see [Zeit on a Cluster](../tutorials/hpc-slurm.md#gpus-for-zeitai) (`--gres=gpu:1`, and the GPU container image with Apptainer's `--nv`).
 
 !!! note "Docker and MPS"
     The [Docker image](docker.md) is built on a CUDA base image and has no access to Apple's Metal APIs. To use `mps` acceleration on macOS, install Zeit natively with `pip` rather than through Docker.

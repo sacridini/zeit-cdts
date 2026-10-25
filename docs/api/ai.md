@@ -2,6 +2,9 @@
 
 <p class="lead">PyTorch models in <code>zeit.ai</code>, and the functions that take them from a cube to a map: <code>samples</code>, <code>train</code> and <code>predict</code>. The models are ordinary <code>nn.Module</code>s, which can also be trained with a loop of your own. Tutorials: <a href="../../tutorials/ai/">Deep Learning</a>.</p>
 
+!!! note "Install"
+    `zeit.ai` needs PyTorch, which comes with the `ai` extra: `pip install "zeit-cdts[ai]"` (since zeit 2.3; for a GPU, see [GPU Acceleration](../getting-started/installation.md#gpu-acceleration-for-zeitai)).
+
 ## From a cube to a map
 
 The same path as [`train_classifier`](post-processing.md#train_classifier) and [`classify`](post-processing.md#classify), with the deep learning models: labelled points or polygons and a cube give the samples, `train` fits a model with a ready-made loop, and `predict` classifies every pixel into a georeferenced map. What prediction has to check (bands, dates, classes, normalization, patch size) travels with the model.

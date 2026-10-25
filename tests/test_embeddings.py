@@ -450,6 +450,7 @@ def test_classifier_remembers_the_embeddings():
 
 
 def test_samples_for_zeit_ai_remember_the_embeddings():
+    pytest.importorskip("torch")
     import geopandas as gpd
     from shapely.geometry import Point
 

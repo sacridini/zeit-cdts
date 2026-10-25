@@ -31,7 +31,6 @@ dependencies = [
     "pystac-client",
     "stackstac",
     "geopandas",
-    "torch",
     "planetary-computer",
     "earthengine-api",
     "requests",
@@ -43,11 +42,15 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+ai = [
+    "torch"
+]
 plot = [
     "matplotlib",
     "anywidget>=0.9"
 ]
 dev = [
+    "torch",
     "pytest",
     "pytest-cov",
     "pymannkendall",

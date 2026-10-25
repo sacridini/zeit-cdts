@@ -1,3 +1,10 @@
+try:
+    import torch  # noqa: F401
+except ImportError as e:
+    raise ImportError("zeit.ai needs PyTorch, which zeit installs only when asked since 2.3: pip install "
+                      "\"zeit-cdts[ai]\" (for a GPU, install torch first as pytorch.org says for its CUDA "
+                      "version)") from e
+
 from .siamese import SiameseChangeDetector
 from .utae import UTAE, LTAE, LightTAE
 from .tempcnn import TempCNN

@@ -1,4 +1,6 @@
-import torch
+import pytest
+
+torch = pytest.importorskip("torch")
 from zeit.ai.tempcnn import TempCNN
 from zeit.ai.utae import LTAE, LightTAE, UTAE
 

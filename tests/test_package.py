@@ -1,6 +1,9 @@
 """The top-level package: fast to import, heavy parts loaded on first use."""
+import importlib.util
 import subprocess
 import sys
+
+import pytest
 
 
 def _run(code):
@@ -15,6 +18,18 @@ def test_import_does_not_load_heavy_dependencies():
     assert out == "[]"
 
 
+def test_zeit_ai_without_torch_says_how_to_install_it():
+    out = _run("import sys\n"
+               "class NoTorch:\n"
+               "    def find_spec(self, name, path=None, target=None):\n"
+               "        if name.split('.')[0] == 'torch':\n"
+               "            raise ImportError(name)\n"
+               "sys.meta_path.insert(0, NoTorch())\n"
+               "import zeit\ntry:\n    zeit.ai\nexcept ImportError as e:\n    print(e)")
+    assert 'pip install "zeit-cdts[ai]"' in out
+
+
+@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="zeit.ai needs torch")
 def test_lazy_names_load_on_first_use():
     out = _run("import zeit; from zeit import ai; from zeit.ai import SOM; "
                "print(zeit.build_time_series.__module__, zeit.classify.__module__, "

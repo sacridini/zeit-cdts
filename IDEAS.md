@@ -1792,7 +1792,7 @@ tempo), Clay, DOFA, AnySat e difusão (pixels gerados que viram quebras falsas) 
   `compare_prithvi.py`): o código oficial de cada um rodando lado a lado, com stubs do Earth
   Engine para o pacote do Presto.
 
-## Fase 20: HPC e Slurm sem configuração
+## Fase 20: HPC e Slurm sem configuração — **Feito** (2.3.0)
 
 Pedida em 2026-10-23. Hoje o zeit roda num nó de cluster, mas quem usa precisa saber
 coisas que a biblioteca deveria resolver sozinha: passar `--jobs $SLURM_CPUS_PER_TASK`
@@ -1984,12 +1984,53 @@ fazer, em vez de um travamento ou um timeout.
 ### Etapas
 
 - **20a + a pasta parcial por tarefa do 20c:** são correções (a segunda perde trabalho);
-  primeiro, numa patch. Junto, o `zeit doctor`.
-- **20c:** job array, `--shard`, `SIGTERM`, `zeit tiles status`, `zeit slurm`.
-- **20d** e **20f**.
-- **20b**, depois da medição.
+  primeiro, numa patch. Junto, o `zeit doctor`. — **Feito** (2.3.0: ficou num commit só,
+  sem patch publicada, porque o resto da fase veio logo atrás)
+- **20c:** job array, `--shard`, `SIGTERM`, `zeit tiles status`, `zeit slurm`. — **Feito** (2.3.0)
+- **20d** e **20f**. — **Feito** (2.3.0)
+- **20b**, depois da medição. — **Feito** (2.3.0; a medição mudou o plano, ver abaixo)
 - **20e:** o `torch` opcional é a quebra; vai com a minor que juntar o resto ou sozinho,
-  com aviso.
+  com aviso. — **Feito** (2.3.0, com nota no README e na instalação)
+
+### O que foi feito, e onde fugiu do plano
+
+- **20a:** uma regra só, no core (`parallel::decide`), que o Python lê (`_core.parallel.detect`,
+  `zeit/_threads.py`): `ZEIT_NUM_THREADS` > `OMP_NUM_THREADS` > `SLURM_CPUS_PER_TASK` (só onde
+  o processo vê mais processadores: cluster sem cgroup) > afinidade e cota; um processador
+  livre só no desktop. O aviso fica só para o `OMP_NUM_THREADS` num job (o `ZEIT_NUM_THREADS`
+  é o que os tiles definem para cada processo) e sugere os processadores do job, não os do
+  nó. `zeit doctor` / `zeit.doctor()`, e a raiz dos caches (`ZEIT_CACHE_DIR`, XDG,
+  `%LOCALAPPDATA%`), com o cache antigo em `~/.cache/zeit` ainda usado.
+- **20b, medido** (LandTrendr, 2048 × 2048 × 40 anos, 20 processadores): dividir as threads
+  pelos blocos no scheduler de threads é **2,3× mais lento** (10,1 s contra 4,3 s), porque o
+  core tem um pool por número de threads, por processo: blocos simultâneos com `-1` já
+  dividem o mesmo pool, sem aninhar nada. O problema real era outro: o nanny do
+  `distributed` exporta `OMP_NUM_THREADS=1` (para o BLAS), e o zeit obedecia: com poucos
+  blocos por worker, processadores parados (6,0 s contra 4,3 s). Então, no lugar da divisão:
+  dentro de um worker do `distributed`, `-1` é o `nthreads` do worker (antes do
+  `OMP_NUM_THREADS`, depois do `ZEIT_NUM_THREADS`); BEAST, EWMACD e recovery passaram a
+  resolver as threads dentro do bloco (antes, no cliente). Os conselhos de `n_jobs=1` com o
+  Dask saíram da documentação. Achado de passagem: o `LocalCluster` deixa
+  `OMP_NUM_THREADS=1` no processo que o criou (documentado).
+- **20c:** PBS e LSF não dizem quantas tarefas o array tem: lá é `--shard I/N` (no Slurm, sem
+  nada). A divisão fica em `.zeit-tiles/split.json`, para o reenvio de `--array=3,17` pegar
+  os mesmos tiles. O `--mem` do `zeit slurm` foi medido: o `save_raster` escreve uma faixa de
+  blocos por vez, então a memória segue os blocos de uma faixa (no máximo um por
+  processador) e a largura do tile, não as threads: LandTrendr 1,6 GB (2048 colunas, 40
+  anos), CCDC **19,2 GB** num tile de 1024 colunas com 200 datas × 6 bandas (≈ 31 bytes por
+  valor de entrada de um bloco: o histórico em float64, as cópias contíguas e os
+  coeficientes). O script diz como chegou ao número e que `--chunk-size` menor pede menos.
+- **20d:** `zeit fetch weights|tiles|embeddings` (`zeit.fetch_weights`, `zeit.fetch_tiles`);
+  o registro dos pesos saiu de `zeit.ai` para `zeit/_weights.py` (sem torch). Mensagens de
+  sem internet nos pesos, embeddings, STAC e Earth Engine; `initialize_gee` aceita conta de
+  serviço e, sem terminal, explica em vez de esperar.
+- **20e:** todas as dependências (numpy, numba, rasterio, pyarrow, scikit-learn, torch) só
+  publicam manylinux_2_28 (x86_64 e aarch64): um wheel manylinux2014 do zeit não instalaria
+  em glibc 2.17 de qualquer jeito. Ficou documentado (Apptainer, ou Rust sem root). ARM:
+  `ubuntu-24.04-arm` na matriz. Imagens: `.github/workflows/containers.yml` publica
+  `ghcr.io/sacridini/zeit-cdts:<versão>` (CPU, amd64 e arm64, construídas nativas) e
+  `:<versão>-gpu` a cada tag.
+- **20f:** `docs/tutorials/hpc-slurm.md`.
 
 ## Para depois
 
@@ -2005,7 +2046,7 @@ fazer, em vez de um travamento ou um timeout.
   refazer o L2A.
 - Depois da Fase 18: o modo Dask para um cubo único maior que uma máquina (`zeit.cluster()`
   sobre o mesmo pareamento, leitura presa à máquina que tem os arquivos, escrita do
-  `save_raster` sem a espera entre faixas; o `n_jobs` dentro de um worker foi para o 20b);
+  `save_raster` sem a espera entre faixas; o `n_jobs` dentro de um worker foi feito no 20b);
   depois da Fase 20, o mesmo cubo em vários nós de um cluster com o `dask-jobqueue`
   (`SLURMCluster`, com as threads do 20a em cada worker); pausar o ajudante quando o usuário
   volta a usar a máquina; nuvem.

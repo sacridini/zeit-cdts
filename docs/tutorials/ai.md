@@ -2,6 +2,9 @@
 
 <p class="lead">When you have labelled examples, neural networks usually give the most accurate land-cover and change maps. <code>zeit.ai</code> provides PyTorch implementations of the architectures most used for satellite image time series, ported layer for layer from their reference code so that trained weights are interchangeable.</p>
 
+!!! note "Install"
+    `zeit.ai` needs PyTorch, which comes with the `ai` extra: `pip install "zeit-cdts[ai]"` (since zeit 2.3; for a GPU, see [GPU Acceleration](../getting-started/installation.md#gpu-acceleration-for-zeitai)).
+
 <figure markdown>
   ![TempCNN trained on four synthetic land-cover classes: samples, accuracy per epoch and confusion matrix](../assets/figures/tempcnn_training.png)
   <figcaption><strong>A typical result.</strong> A TempCNN trained for 30 epochs on noisy, cloud-contaminated NDVI series of four classes. Forest and pasture are separated perfectly; the remaining errors are between single and double cropping, whose second season is weak in many samples. See the <a href="../tempcnn/">TempCNN tutorial</a>.</figcaption>

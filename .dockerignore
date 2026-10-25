@@ -1,0 +1,18 @@
+# Only what building zeit needs goes into the image (see Dockerfile, Dockerfile.cpu)
+.git/
+rust/target/
+build/
+dist/
+site/
+scratch/
+tmp/
+*.egg-info/
+__pycache__/
+*.py[cod]
+*.so
+*.pyd
+.pytest_cache/
+.venv/
+venv/
+examples/data/
+Claude outputs/

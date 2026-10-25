@@ -30,8 +30,8 @@ RUN pip install torch --index-url https://download.pytorch.org/whl/cpu
 # Install JupyterLab for interactive data science
 RUN pip install jupyterlab
 
-# Install the package in editable mode (compiles the Rust core)
-RUN pip install -e .
+# Install the package in editable mode (compiles the Rust core), with zeit.ai's extra
+RUN pip install -e ".[ai]"
 
 # Expose Jupyter port for interactive sessions
 EXPOSE 8888

@@ -15,8 +15,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Cria máquinas para Linux, Windows e macOS
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # Cria máquinas para Linux (x86_64 e aarch64, este nativo, sem QEMU: os clusters
+        # com Grace ou Graviton), Windows e macOS
+        os: [ubuntu-latest, ubuntu-24.04-arm, windows-latest, macos-latest]
 
     steps:
       - uses: actions/checkout@v4
