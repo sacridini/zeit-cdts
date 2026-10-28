@@ -6,6 +6,7 @@ size, the machine's description with them).
 Each method's script (``python benchmarks/vs_originals/<method>.py``) writes its inputs to a temporary folder, runs
 the original and Zeit on them, checks that they agree and prints the timings.
 """
+import ctypes
 import datetime
 import json
 import os
@@ -26,15 +27,45 @@ def workdir(name):
     return d
 
 
+def no_power_throttling(pid=None):
+    """Takes a process (this one by default) out of Windows' power throttling; nothing elsewhere.
+
+    Windows 11 slows the processes it deems in the background (power throttling, "EcoQoS": on a hybrid processor,
+    the efficiency cores at a low clock) after a few seconds of work, and a benchmark run from a terminal is one:
+    zeit's threads ran up to 2.4 times slower for it.
+    """
+    if os.name != "nt":
+        return
+    from ctypes import wintypes
+
+    class State(ctypes.Structure):
+        _fields_ = [("Version", wintypes.ULONG), ("ControlMask", wintypes.ULONG), ("StateMask", wintypes.ULONG)]
+
+    k = ctypes.WinDLL("kernel32", use_last_error=True)
+    k.OpenProcess.restype = wintypes.HANDLE
+    k.GetCurrentProcess.restype = wintypes.HANDLE
+    k.SetProcessInformation.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+    h = k.GetCurrentProcess() if pid is None else k.OpenProcess(0x0200, False, pid)  # PROCESS_SET_INFORMATION
+    s = State(1, 1 | 4, 0)  # execution speed and timer resolution: not throttled
+    if not k.SetProcessInformation(h, 4, ctypes.byref(s), ctypes.sizeof(s)):  # ProcessPowerThrottling
+        raise OSError(ctypes.get_last_error(), "SetProcessInformation")
+    if pid is not None:
+        k.CloseHandle(h)
+
+
 def run_r(script, *args):
-    """Runs an R script of this folder; it prints ``SECONDS <s>`` for the timed call (and anything else)."""
-    out = subprocess.run([RSCRIPT, str(HERE / script), *map(str, args)], capture_output=True, text=True)
-    if out.returncode != 0:
-        raise RuntimeError(f"{script} failed:\n{out.stderr[-3000:]}")
-    for line in out.stdout.splitlines():
+    """Runs an R script of this folder, taken out of power throttling as soon as it starts (before its timed call);
+    it prints ``SECONDS <s>`` for the timed call (and anything else)."""
+    p = subprocess.Popen([RSCRIPT, str(HERE / script), *map(str, args)], stdout=subprocess.PIPE,
+                         stderr=subprocess.PIPE, stdin=subprocess.DEVNULL, text=True)
+    no_power_throttling(p.pid)
+    out, err = p.communicate()
+    if p.returncode != 0:
+        raise RuntimeError(f"{script} failed:\n{err[-3000:]}")
+    for line in out.splitlines():
         if line.startswith("SECONDS "):
             return float(line.split()[1])
-    raise RuntimeError(f"{script} printed no SECONDS line:\n{out.stdout[-2000:]}")
+    raise RuntimeError(f"{script} printed no SECONDS line:\n{out[-2000:]}")
 
 
 def threads_label(n_jobs):

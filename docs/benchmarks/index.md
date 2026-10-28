@@ -14,14 +14,14 @@ Earth Observation (EO) time-series analysis has historically suffered from fragm
 - **Deep learning models** for satellite time-series (TempCNN, LightTAE, U-TAE) were scattered between R `sits` and standalone PyTorch repositories.
 - Researchers have frequently relied on cloud platforms like **Google Earth Engine (GEE)**, trading off local control, customization, and queue times for scalability.
 
-**Zeit** was engineered to unify these algorithms into a modern, cloud-native architecture written in a **high-performance compiled core** (C++ with `Eigen3` and OpenMP up to 1.7, **Rust** from 2.0) and **PyTorch** (`zeit.ai`), exposed through Python, Dask, and Xarray. The timings in this section were taken with the C++ core; the Rust core gives the same results and is faster on most workloads (see [Performance](performance.md)).
+**Zeit** was engineered to unify these algorithms into a modern, cloud-native architecture written in a **high-performance compiled core** (C++ with `Eigen3` and OpenMP up to 1.7, **Rust** from 2.0) and **PyTorch** (`zeit.ai`), exposed through Python, Dask, and Xarray. The compiled core's timings in this section were taken with the Rust core of zeit 2.3, which gives the same results as the C++ one (see [Performance](performance.md)).
 
 ### The Validation Mandate
 
 To verify that Zeit can serve as a drop-in, scientifically reliable replacement for these reference implementations, we subjected Zeit to a rigorous battery of **13 benchmark comparisons** (plus one bonus architectural verification). Every algorithm was evaluated against the **authentic reference tool** across millions of observations, testing:
 
 1. **Numerical and Statistical Fidelity:** Do Zeit outputs match the reference tools down to floating-point tolerance, identical breakpoint positions, and matching model categories?
-2. **Execution Efficiency:** How much faster is Zeit on a single core, how effectively does it scale across 20 threads, and how does local desktop processing compare against distributed cloud platforms like Google Earth Engine?
+2. **Execution Efficiency:** How much faster is Zeit on a single core, how effectively does it scale across threads, and how does local desktop processing compare against distributed cloud platforms like Google Earth Engine?
 
 ---
 
@@ -42,14 +42,14 @@ To verify that Zeit can serve as a drop-in, scientifically reliable replacement 
 
   <div class="bm-kpi-card">
     <div class="bm-kpi-label">Max Single-Core Speedup</div>
-    <div class="bm-kpi-value">244×</div>
+    <div class="bm-kpi-value">370×</div>
     <div class="bm-kpi-sub">Phenology vs R <code>phenofit</code> on real 25-yr EVI raster</div>
   </div>
 
   <div class="bm-kpi-card">
     <div class="bm-kpi-label">Vs. Google Earth Engine</div>
-    <div class="bm-kpi-value">20.4×</div>
-    <div class="bm-kpi-sub">Compute throughput on full 54.7M px Landsat tile (0 queue delay)</div>
+    <div class="bm-kpi-value">19.4×</div>
+    <div class="bm-kpi-sub">Compute throughput on full 54.7M px Landsat tile, 8 threads (0 queue delay)</div>
   </div>
 </div>
 
@@ -89,18 +89,18 @@ The table below summarizes the scope of our validation suite. Each comparison re
 
 | Algorithm | Reference Implementation | Language / Engine | Test Scope | Primary Fidelity Metric | Single-Core Speedup | Status |
 |:---|:---|:---|:---|:---|:---:|:---:|
-| **LandTrendr** | Kennedy *et al.* (2010) `LandTrendr-2012` | Original IDL (via GDL) | 330 synthetic series + 54.7M px tile | **100%** identical vertex years (330/330) | **168×** | <span class="bm-pill bm-pill--compared">compared</span> |
-| **CCDC** | Zhu & Woodcock (2014) GERSL `CCDC` | Original MATLAB (GNU Octave) | 200 synthetic + 150 real Landsat px | **100%** full model match (dates, categories, coeffs) | **84×–105×** | <span class="bm-pill bm-pill--compared">compared</span> |
+| **LandTrendr** | Kennedy *et al.* (2010) `LandTrendr-2012` | Original IDL (via GDL) | 330 synthetic series + 54.7M px tile | **100%** identical vertex years (330/330) | **232×** | <span class="bm-pill bm-pill--compared">compared</span> |
+| **CCDC** | Zhu & Woodcock (2014) GERSL `CCDC` | Original MATLAB (GNU Octave) | 200 synthetic + 150 real Landsat px | **100%** full model match (dates, categories, coeffs) | **218×–260×** | <span class="bm-pill bm-pill--compared">compared</span> |
 | **SNIC (Superpixels)** | Achanta & Süsstrunk (2017) CVPR | C reference (`snic.c`) | Reference test fixtures (f32/f64) | **100%** identical segment labels (bitwise) | **1.8×–3.5×** | <span class="bm-pill bm-pill--compared">compared</span> |
-| **SOM** | Vettigli `minisom` (online & batch Kohonen SOM) | Python (`minisom`) | 1,500 + 20,000 samples, 6 scenarios | **max weight diff = 0.0** (exact codebook match) | **37×–126× tr / 33×–104× pred** | <span class="bm-pill bm-pill--compared">compared</span> |
-| **Phenology (Beck)** | R `phenofit` (Zheng *et al.* 2021) | R (`nloptr` curve fitting) | Real EVI raster (638 px × 25 yrs) | **MAE 3.7d** on Start-of-Season (99.1% within 15d) | **244×** | <span class="bm-pill bm-pill--compared">compared</span> |
-| **TWDTW** | Maus *et al.* (2016) `dtwSat` / `twdtw` | R (`twdtw` C core) | 45 multi-class temporal series | **Distances identical** to R (1e-12) | **43.9×** | <span class="bm-pill bm-pill--compared">compared</span> |
-| **Mann-Kendall** | `pymannkendall` (3 variants) | Python (pure Python) | 270 scenarios (90 series × 3 variants) | **100%** trend agreement (mean diff p-val = 0.0) | **33×–41×** | <span class="bm-pill bm-pill--compared">compared</span> |
-| **BFAST Monitor** | Verbesselt *et al.* (2012) `bfast` | R (`bfast::bfastmonitor`) | 40 scenarios (breaks, noise, NaN gaps) | **100%** break agreement (mag. corr = 1.0) | **15.8×** | <span class="bm-pill bm-pill--compared">compared</span> |
+| **SOM** | Vettigli `minisom` (online & batch Kohonen SOM) | Python (`minisom`) | 1,500 + 20,000 samples, 6 scenarios | **max weight diff = 0.0** (exact codebook match) | **41×–67×** (training) | <span class="bm-pill bm-pill--compared">compared</span> |
+| **Phenology (Beck)** | R `phenofit` (Zheng *et al.* 2021) | R (`nloptr` curve fitting) | Real EVI raster (638 px × 25 yrs) | **MAE 3.7d** on Start-of-Season (99.1% within 15d) | **370×** | <span class="bm-pill bm-pill--compared">compared</span> |
+| **TWDTW** | Maus *et al.* (2016) `dtwSat` / `twdtw` | R (`twdtw` C core) | 45 multi-class temporal series | **Distances identical** to R (1e-12) | **71.5×** | <span class="bm-pill bm-pill--compared">compared</span> |
+| **Mann-Kendall** | `pymannkendall` (3 variants) | Python (pure Python) | 270 scenarios (90 series × 3 variants) | **100%** trend agreement (mean diff p-val = 0.0) | **65×–75×** | <span class="bm-pill bm-pill--compared">compared</span> |
+| **BFAST Monitor** | Verbesselt *et al.* (2012) `bfast` | R (`bfast::bfastmonitor`) | 40 scenarios (breaks, noise, NaN gaps) | **100%** break agreement (mag. corr = 1.0) | **16.9×** | <span class="bm-pill bm-pill--compared">compared</span> |
 | **TempCNN** | Pelletier *et al.* (2019) via R `sits` | R `torch` (LibTorch backend) | 1:1 weight-ported forward passes | **max abs diff = 5.6e-9** (corr = 1.000000) | **11.1×** | <span class="bm-pill bm-pill--compared">compared</span> |
 | **LightTAE (LTAE)** | Sainte Fare Garnot *et al.* via R `sits` | R `torch` (LibTorch backend) | 1:1 weight-ported forward passes | **max abs diff = 8.9e-8** (corr = 1.000000) | **5.8×** | <span class="bm-pill bm-pill--compared">compared</span> |
-| **BFAST (Classic)** | Verbesselt *et al.* (2010) `bfast` | R (`bfast::bfast`) | 40 scenarios (trend/season breaks) | **87.5%** break count match (100% pos. match) | **4.3×** | <span class="bm-pill bm-pill--compared">compared</span> |
-| **BFAST Lite** | Jan Hackman *et al.* `bfast` | R (`bfast::bfastlite`) | 40 scenarios (single/multi breaks) | **100%** break count match (80% exact index) | **2.5×** | <span class="bm-pill bm-pill--compared">compared</span> |
+| **BFAST (Classic)** | Verbesselt *et al.* (2010) `bfast` | R (`bfast::bfast`) | 40 scenarios (trend/season breaks) | **87.5%** break count match (100% pos. match) | **13.2×** | <span class="bm-pill bm-pill--compared">compared</span> |
+| **BFAST Lite** | Jan Hackman *et al.* `bfast` | R (`bfast::bfastlite`) | 40 scenarios (single/multi breaks) | **100%** break count match (80% exact index) | **5.2×** | <span class="bm-pill bm-pill--compared">compared</span> |
 | **Official U-TAE** | Garnot & Landrieu (2021) `utae-paps` | Python (official PyTorch repo) | Regular and padded sequence paths | **max abs diff = 0.0** (exact numerical match) | **1.08×** | <span class="bm-pill bm-pill--compared">compared</span> |
 | **Siamese CNN (FC-Siam-diff)** | Daudt *et al.* (2018) `fully_convolutional_change_detection` | Python (official PyTorch code) | 40 same-weight cases (odd sizes too) + 5 training seeds | **max abs diff = 5.6e-16** (float64); trained F1 0.979 vs 0.971 | **1.07×–1.16×** | <span class="bm-pill bm-pill--compared">compared</span> |
 | **Presto** | Tseng *et al.* (2023) `nasaharvest/presto` | Python (official PyTorch code) | 2,560 pixel series in 5 cases (clouds, missing sensors, 3–24 dates) | **max abs diff = 1.2e-6** (identical in 3 of 5 cases) | **1.17×** | <span class="bm-pill bm-pill--compared">compared</span> |
@@ -144,7 +144,7 @@ Empirical validation demonstrates that reproducing published remote sensing algo
 - **LandTrendr:** Replicating Kennedy *et al.* (2010) with 100% vertex year agreement (330/330 series) required reproducing subtle source behaviors: fitting on the despiked series, in-place `take_out_weakest2` mutation, whole-ladder Levenberg-Marquardt fallback, flat-line non-significance fallback, and single-precision F-test p-value tie-breaking.
 - **CCDC:** Matching Zhu & Woodcock (2014) across 350 pixels (599 models, 249 breaks) required a native float32 port of Fortran GLMnet lasso, MATLAB `datenum` coordinate alignment, and bisquare Tmask outlier detection.
 - **SNIC:** Achieving bit-for-bit label parity with Achanta & Süsstrunk (2017) required reproducing priority queue heap tie-breaking order, while resolving upstream heap underflow crashes on edge-case inputs.
-- **SOM:** Reproducing Python `minisom` codebooks bit-for-bit required matching its `RandomState` draw sequence, NumPy's pairwise summation inside the distance norm, `argmin` tie-breaking on square-rooted distances, and sample-order accumulation in the batch update. An earlier Zeit variant that only *resembled* the batch algorithm (different decay, no learning rate, epoch-based `num_iters`) agreed with `minisom` at just ARI = 0.39 and ran 6–10× slower on the same call; the exact port is identical and 37–198× faster.
+- **SOM:** Reproducing Python `minisom` codebooks bit-for-bit required matching its `RandomState` draw sequence, NumPy's pairwise summation inside the distance norm, `argmin` tie-breaking on square-rooted distances, and sample-order accumulation in the batch update. An earlier Zeit variant that only *resembled* the batch algorithm (different decay, no learning rate, epoch-based `num_iters`) agreed with `minisom` at just ARI = 0.39 and ran 6–10× slower on the same call; the exact port is identical and 41–67× faster on one core.
 
 Across all families, Zeit delivers **100% bitwise and statistical parity** with the authoritative reference implementations.
 
@@ -152,15 +152,15 @@ Across all families, Zeit delivers **100% bitwise and statistical parity** with 
 
 The prevailing assumption in remote sensing has been that massive spatial workflows require distributed cloud infrastructure like Google Earth Engine. Our full Landsat tile benchmark demonstrates otherwise:
 
-- **Zeit processing 54,731,482 pixels (41 years)** on a single desktop PC completed in **98.44 seconds** (556,007 pixels/sec) on 20 threads.
+- **Zeit processing 54,731,482 pixels (41 years)** on a single desktop PC completed in **103.92 seconds** (526,693 pixels/sec) on 8 of its 20 threads.
 - **Google Earth Engine's distributed cluster** executed active server compute on ~38M pixels in **1,396 seconds** (27,213 pixels/sec), with an additional **5.08 hours of cloud queue latency**.
-- Zeit delivered **20.4× higher compute throughput** than GEE's server cluster, with zero queue overhead and zero network egress costs.
+- Zeit delivered **19.4× higher compute throughput** than GEE's server cluster, with zero queue overhead and zero network egress costs.
 
 <div class="bm-chart-card">
 <p class="bm-chart-title">LandTrendr on a full Landsat tile: a desktop PC against Google Earth Engine</p>
 <p class="bm-chart-sub">54.7 million pixels × 41 years on an Intel Core i5-13600K; about 38 million active pixels on Earth Engine's batch workers. Top: throughput while computing. Bottom: the time from submitting the job to having the result.</p>
 <div class="bm-chart-legend">
-<span><i style="background:var(--bm-zeit)"></i>Zeit, 20 threads</span>
+<span><i style="background:var(--bm-zeit)"></i>Zeit, 8 threads</span>
 <span><i style="background:var(--bm-gpu-lo)"></i>Zeit, 1 thread</span>
 <span><i style="background:var(--bm-ref)"></i>Google Earth Engine</span>
 <span><i style="background:var(--bm-grid)"></i>Waiting in Earth Engine's queue</span>
@@ -170,13 +170,13 @@ The prevailing assumption in remote sensing has been that massive spatial workfl
 </div>
 </div>
 
-When both sides use every core, the gap stays wide for the statistical tools, whose reference implementations pay for each worker with an interpreter, and closes for the deep-learning models, which run on the same tensor libraries:
+When both sides run in parallel, the gap stays wide for the statistical tools, whose reference implementations pay for each worker with an interpreter, and closes for the deep-learning models, which run on the same tensor libraries:
 
 <div class="bm-chart-card">
-<p class="bm-chart-title">Who finishes first with every core</p>
-<p class="bm-chart-sub">Wall-clock time of Zeit with 20 threads and of the reference with its own parallel framework (19 R or Python workers, or intra-op threads for the neural networks). Each row is its own workload; log scale.</p>
+<p class="bm-chart-title">Who finishes first in parallel</p>
+<p class="bm-chart-sub">Wall-clock time of Zeit with 8 threads (20 for the neural networks, which run on PyTorch) and of the reference with its own parallel framework (19 R or Python workers, or intra-op threads for the neural networks). Each row is its own workload; log scale.</p>
 <div class="bm-chart-legend">
-<span><i class="dot" style="background:var(--bm-zeit)"></i>Zeit, 20 threads</span>
+<span><i class="dot" style="background:var(--bm-zeit)"></i>Zeit, 8 threads</span>
 <span><i class="dot" style="background:var(--bm-ref)"></i>Reference, all workers</span>
 </div>
 <div class="bm-chart-scroll">

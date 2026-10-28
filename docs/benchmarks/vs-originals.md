@@ -1,6 +1,6 @@
 # Against the Original Implementations
 
-Eight of Zeit's newer methods were checked against published implementations: emerging hot spots, recovery metrics, EWMACD, spectral unmixing, Bayesian smoothing of class probabilities, the area of applicability and BEAST against their R originals, and S-CCD against pyxccd, its authors' Python package. This page times each port against that original on the same inputs, and records how the results were checked to agree. Every number comes from `benchmarks/results/vs-originals.json`, written by the scripts in `benchmarks/vs_originals/`, one per method.
+Nine of Zeit's newer methods were checked against published implementations: emerging hot spots, recovery metrics, EWMACD, spectral unmixing, Bayesian smoothing of class probabilities, the area of applicability, BEAST and the AR(1) trends with their regional test (PARTS) against their R originals, and S-CCD against pyxccd, its authors' Python package. This page times each port against that original on the same inputs, and records how the results were checked to agree. Every number comes from `benchmarks/results/vs-originals.json`, written by the scripts in `benchmarks/vs_originals/`, one per method.
 
 ---
 
@@ -12,7 +12,7 @@ Eight of Zeit's newer methods were checked against published implementations: em
 <div class="bm-chart-legend">
 <span><i style="background:var(--bm-ref)"></i>Original</span>
 <span><i style="background:var(--bm-gpu-lo)"></i>Zeit, 1 thread</span>
-<span><i style="background:var(--bm-zeit)"></i>Zeit, 19 threads</span>
+<span><i style="background:var(--bm-zeit)"></i>Zeit, 19 threads (8 for the AR(1) trends and PARTS)</span>
 </div>
 <div class="bm-chart-scroll">
 --8<-- "docs/assets/charts/vs_originals.svg"
@@ -25,7 +25,7 @@ On one thread, Zeit is 3× (the area of applicability with 8 predictors) to 30,0
 
 ## Results
 
-Times of the call alone (see [Protocol](#protocol)); "1 thread" and "19 threads" are Zeit's, and the speedups are the original's time over Zeit's. The agreement is checked by the script on every run, which fails if it does not hold.
+Times of the call alone (see [Protocol](#protocol)); "1 thread" and "19 threads" (8 for the AR(1) trends and PARTS) are Zeit's, and the speedups are the original's time over Zeit's. The agreement is checked by the script on every run, which fails if it does not hold.
 
 ### Emerging hot spots vs sfdep
 
@@ -139,13 +139,33 @@ Most of that gap is Rbeast's own. Zeit fits each pixel as `beast()` fits one ser
 !!! note "Windows' power throttling"
     Windows 11 slows down the processes it considers to be in the background (power throttling, or EcoQoS): after a few seconds of work, it moves them to the efficiency cores of a hybrid processor and lowers their clock. A benchmark run from a terminal is such a process. Zeit's unpinned threads ran 2.4 times slower for it. Rbeast's threads, which it pins to processors, were slowed less. The script takes both processes out of power throttling, so the times are of the computation. Zeit's one-thread runs are pinned to the first processor, as Rbeast pins its own.
 
+### AR(1) trends and PARTS vs remotePARTS
+
+`zeit.ar_trend` and `zeit.parts` against the R package **remotePARTS 1.0.4**: `fitAR_map`, the trend of every pixel's series with AR(1) errors, and `fitGLS_partition`, the test of the region's mean trend by generalized least squares on partitions of the pixels, with an exponential spatial correlation (range 8 pixels), its nugget estimated in each partition, and 6 pairs of partitions crossed. The series are annual, 30 years, with a slope that changes across the map and AR(1) errors whose innovations are spatially correlated. Zeit ran these on 1 thread and on 8 of the 20 logical processors, not on 19.
+
+| Workload | fitAR_map | Zeit, 1 thread | Zeit, 8 threads | Speedup (1 / 8) | Agreement |
+|:---|---:|---:|---:|:---:|:---|
+| 50 × 50 px × 30 years | 4.09 s | 7.2 ms | 4.1 ms | 568× / 1,007× | slope max diff 5.3e-8 of the largest, ρ 1.0e-6 |
+| 100 × 100 px × 30 years | 16.6 s | 20.2 ms | 8.5 ms | 821× / 1,960× | slope 6.9e-8, ρ 3.4e-6 |
+| 200 × 200 px × 30 years | 66.8 s | 71.8 ms | 23.1 ms | 931× / 2,888× | slope 1.1e-7, ρ 7.7e-6 |
+
+| Workload | fitGLS_partition | Zeit, 1 thread | Zeit, 8 threads | Speedup (1 / 8) | Agreement |
+|:---|---:|---:|---:|:---:|:---|
+| 2,500 px in 5 partitions of 500 | 2.47 s | 0.120 s | 0.030 s | 21× / 84× | partitions max rel. diff 2.7e-11; overall t 0.85% apart |
+| 10,000 px in 6 partitions of 1500 | 72.5 s | 3.61 s | 1.15 s | 20× / 63× | partitions 1.6e-10; overall t 0.97% apart |
+| 40,000 px in 26 partitions of 1500 | 262 s (4.4 min) | 12.8 s | 3.51 s | 20× / 75× | partitions 4.7e-15; overall t 0.028% apart |
+
+Each partition is a GLS on a dense 1500 × 1500 correlation matrix, so the cost is the same linear algebra on both sides; Zeit's gain on one thread (20×) is smaller than on the per-pixel AR fits, and its threads share the partitions.
+
+**How they were checked.** The AR(1) fits agree to the tolerance of the two optimizers (the script requires 1e-3 of the largest slope and 1e-2 on ρ; the largest differences were 1.1e-7 and 7.7e-6). The GLS is checked on remotePARTS' own slopes and partitions, read back from R (Zeit's timed runs draw their own partitions of the same size): every partition's estimate, standard error and nugget, and the overall estimate, must agree to 1e-6 (the largest difference was 1.6e-10). The overall t statistic is 0.03% to 1% apart because remotePARTS 1.0.4 computes the correlation between pairs of partitions after the first without their nugget, and Zeit with it (see [Fidelity](fidelity.md)).
+
 ---
 
 ## Protocol
 
 - **The same inputs.** Each script draws its inputs with a fixed seed, writes them to a temporary folder (CSV or raw float64), runs the original on the files from `Rscript`, and runs Zeit on the same arrays in memory.
 - **The original's own timing.** Each R script (`benchmarks/vs_originals/<method>.R`) times only the call it benchmarks with `system.time` (elapsed), after reading the inputs and loading the packages, and prints it; starting R, loading the packages and reading and writing files are not counted. Each original is timed once, with its defaults otherwise, in one R process.
-- **Zeit's timing.** A warm-up call, then the best of three (`best_of` in `benchmarks/vs_originals/common.py`, `time.perf_counter`), on 1 thread and on all the processors but one (`n_jobs=-1`: 19 here).
+- **Zeit's timing.** A warm-up call, then the best of three (`best_of` in `benchmarks/vs_originals/common.py`, `time.perf_counter`), on 1 thread and on all the processors but one (`n_jobs=-1`: 19 here; the AR(1) trends and PARTS, timed later, on 8).
 - **The check.** After timing, each script compares the outputs (the tolerances above) and stops with an error if they disagree, so no timing is recorded for a result that differs.
 - **The record.** `record` in `common.py` writes one entry per method, original, workload and thread count to `benchmarks/results/vs-originals.json`, with the date and the machine, replacing an older entry of the same key.
 
@@ -155,9 +175,9 @@ Most of that gap is Rbeast's own. Zeit fits each pixel as `beast()` fits one ser
 |:---|:---|
 | Platform | Windows 11 (`Windows-11-10.0.26300-SP0`) |
 | Processor | `Intel64 Family 6 Model 183 Stepping 1, GenuineIntel` (the Intel Core i5-13600K of the other benchmarks), 20 logical processors |
-| R | 4.4.2, with sfdep 0.2.5, RecoverMetricsR 0.1.0, RStoolbox 1.0.2.2, sits 1.5.4, CAST 1.0.4 and Rbeast 1.0.2 |
+| R | 4.4.2, with sfdep 0.2.5, RecoverMetricsR 0.1.0, RStoolbox 1.0.2.2, sits 1.5.4, CAST 1.0.4, Rbeast 1.0.2 and remotePARTS 1.0.4 |
 | Python | pyxccd 1.1.0, in a virtual environment of its own |
-| Date | 2026-10-24 |
+| Date | 2026-10-24 (the AR(1) trends and PARTS: 2026-10-28) |
 
 ---
 
@@ -172,6 +192,7 @@ python benchmarks/vs_originals/unmix.py
 python benchmarks/vs_originals/smooth_probs.py
 python benchmarks/vs_originals/aoa.py
 python benchmarks/vs_originals/beast.py
+python benchmarks/vs_originals/parts.py               # sides 50, 100, 200; ZEIT_BENCH_THREADS=8 by default
 python benchmarks/vs_originals/ewmacd.py "path/to/EWMACD v1.3.0.r"   # Brooks' script, not distributed
 PYXCCD_PYTHON=path/to/pyxccd-env/python python benchmarks/vs_originals/sccd.py CCDC_Stack_Rondonia.tif CCDC_Stack_Rondonia_Dates.csv
 ```
@@ -179,4 +200,4 @@ PYXCCD_PYTHON=path/to/pyxccd-env/python python benchmarks/vs_originals/sccd.py C
 The scripts look for `Rscript` at `C:\Program Files\R\R-4.4.2\bin\Rscript.exe` on Windows and on the `PATH` elsewhere; set the `RSCRIPT` environment variable to use another. Brooks' script is in `EWMACD v1.3.0.7z` at [VTechWorks](https://vtechworks.lib.vt.edu/items/version/7). `hotspots.py` runs sfdep with 199 permutations only up to 20 × 20 cells (the 50 × 50 run above took sfdep 13 minutes), and with 9 on every grid. Each script prints its rows as it records them; the chart above is redrawn from the JSON by `python docs/scripts/make_vs_originals_chart.py`.
 
 !!! note "What is not here"
-    These are the benchmarks of the Zeit library. Janus, the desktop application built on it, runs the same core; the comparison of its tools with the originals is kept with Janus, not on this page. The earlier ports (LandTrendr, CCDC, BFAST, TWDTW, SOM, the deep learning models...) are compared in [Performance](performance.md) and [Fidelity](fidelity.md), on the C++ core of Zeit 1.x.
+    These are the benchmarks of the Zeit library. Janus, the desktop application built on it, runs the same core; the comparison of its tools with the originals is kept with Janus, not on this page. The earlier ports (LandTrendr, CCDC, BFAST, TWDTW, SOM, the deep learning models...) are compared in [Performance](performance.md) and [Fidelity](fidelity.md).

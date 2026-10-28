@@ -1,12 +1,15 @@
 """Timings of the compiled core (zeit._core, in Rust).
 
 Every workload calls the core the way zeit's wrappers do, on deterministic
-synthetic data, with one thread and with all of them. The result is a JSON file
+synthetic data, with one thread and with ``--threads`` of them (all with -1;
+ZEIT_NUM_THREADS is set to the same, so that the functions without an n_jobs
+keep to it too). The result is a JSON file
 that ``--compare`` puts side by side with another: before and after a change,
 or against the C++ core of zeit 1.x, whose timings are kept in
 benchmarks/results/ (the "cpp" backend of those files).
 
     python benchmarks/bench_core.py --out benchmarks/results/new.json
+    python benchmarks/bench_core.py --threads 8 --out benchmarks/results/new.json
     python benchmarks/bench_core.py --only mann_kendall
     python benchmarks/bench_core.py --compare benchmarks/results/win-i5-13600k-rust.json:cpp benchmarks/results/new.json
 """
@@ -190,8 +193,135 @@ def _(core, rng, n_jobs):
 @workload("medoid", "utils")
 def _(core, rng, n_jobs):
     v = np.ascontiguousarray(rng.random((256, 256, 24, 6)))
-    # compute_medoid has no n_jobs: it always uses every processor
+    # compute_medoid has no n_jobs: it uses every processor ZEIT_NUM_THREADS allows
     return lambda: core.utils.compute_medoid(v, -9999.0)
+
+
+@workload("ar_trend", "parts")
+def _(core, rng, n_jobs):
+    # remotePARTS' fitAR, per pixel: REML of the AR(1) parameter, then its GLS
+    t = np.arange(1, 31, dtype=float)
+    v = seasonal(rng, t, 100000, period=7.0, amp=0.05, base=0.5, noise=0.05)
+    v = np.ascontiguousarray(v + rng.normal(0, 0.002, (100000, 1)) * t[None, :])
+    design = np.column_stack([np.ones_like(t), t])
+    return lambda: core.parts.fit_ar_batch(v, design, n_jobs=n_jobs)
+
+
+@workload("parts", "parts")
+def _(core, rng, n_jobs):
+    # the partitioned GLS of 20 partitions of 500 pixels, exponential correlation of a known range
+    n = 10000
+    x, y = rng.uniform(0, 100, n), rng.uniform(0, 100, n)
+    response = 0.01 * x + rng.normal(0, 0.1, n)
+    design = np.column_stack([np.ones(n), x / 100])
+    pm = core.parts.sample_partitions(n, 500, 20, 7)
+    return lambda: core.parts.fit_parts(x, y, response, design, np.ones((n, 1)), pm, range=10.0, n_jobs=n_jobs)
+
+
+@workload("recovery", "recovery")
+def _(core, rng, n_jobs):
+    n, years = 1000 * 1000, np.arange(2000, 2021, dtype=np.int32)
+    after = years[None, :] - 2010
+    pre, low, rate = rng.uniform(0.4, 0.7, (n, 1)), rng.uniform(0, 0.2, (n, 1)), rng.uniform(0.02, 0.15, (n, 1))
+    v = np.ascontiguousarray(np.where(after < 0, pre + rng.normal(0, 0.01, (n, len(years))),
+                                      np.minimum(low + rate * after, pre)))
+    starts, troughs = np.full(n, 2009, np.int32), np.full(n, 2010, np.int32)
+    return lambda: core.recovery.recovery_batch(v, years, starts, troughs, n_jobs=n_jobs)
+
+
+@workload("ewmacd", "ewmacd")
+def _(core, rng, n_jobs):
+    days = np.sort(rng.choice(np.arange(0, 10 * 365), 120, replace=False))
+    dates = np.datetime64("2000-01-01") + days.astype("timedelta64[D]")
+    years = dates.astype("datetime64[Y]").astype(int).astype(np.int32) + 1970
+    doys = (dates - dates.astype("datetime64[Y]")).astype(float) + 1
+    t = years + (doys - 1) / 365.25
+    v = np.ascontiguousarray(seasonal(rng, days.astype(float), 20000, amp=0.15, base=0.55, noise=0.02))
+    return lambda: core.ewmacd.ewmacd_batch(v, years, doys, t, 2000, 2004, n_jobs=n_jobs)
+
+
+@workload("hotspots", "hotspots")
+def _(core, rng, n_jobs):
+    # emerging hot spots: Gi* of every cell and date (square window of radius 1, lag 1), Mann-Kendall of each series
+    y, x = np.mgrid[0:300, 0:300] / 300.0
+    trend = np.arange(12.0)[:, None, None] * 0.05 * np.exp(-((x - 0.3) ** 2 + (y - 0.6) ** 2) / 0.02)[None]
+    v = np.ascontiguousarray(trend + rng.normal(0, 0.5, (12, 300, 300)))
+    return lambda: core.hotspots.emerging(v, n_jobs=n_jobs)
+
+
+@workload("beast", "beast")
+def _(core, rng, n_jobs):
+    # Rbeast's defaults (3 chains of 8000 samples) on 10 series of 6 years of 23 observations
+    v = np.ascontiguousarray(seasonal(rng, np.arange(23 * 6.0), 10, period=23.0))
+    return lambda: core.beast.beast_batch(v, start=1.0, dt=1.0, period=23.0, n_jobs=n_jobs)
+
+
+@workload("sccd", "sccd")
+def _(core, rng, n_jobs):
+    dates = np.arange(730120, 730120 + 20 * 365, 16, dtype=np.int32)
+    n = 32 * 32
+    bands = np.stack([seasonal(rng, dates.astype(float), n, amp=0.08, base=0.25, noise=0.01) * 10000
+                      for _ in range(6)], axis=1)
+    qa = np.where(rng.random((n, len(dates))) < 0.2, 4, 0).astype(np.int32)
+    v = np.ascontiguousarray(bands.reshape(32, 32, 6, len(dates)))
+    qa = np.ascontiguousarray(qa.reshape(32, 32, len(dates)))
+    return lambda: core.sccd.sccd_batch(v, qa, dates, n_jobs=n_jobs)
+
+
+@workload("aoa_train_di", "aoa")
+def _(core, rng, n_jobs):
+    train = np.ascontiguousarray(rng.normal(size=(5000, 8)))
+    folds = rng.integers(0, 10, 5000).astype(np.int64)
+    return lambda: core.aoa.train_di(train, np.ones(8), folds, n_jobs)
+
+
+@workload("aoa_di", "aoa")
+def _(core, rng, n_jobs):
+    # the DI of 100,000 pixels against 2000 training points (8 predictors: the k-d tree), and their LPD
+    td = core.aoa.train_di(np.ascontiguousarray(rng.normal(size=(2000, 8))), np.ones(8), None, 1)
+    data = np.ascontiguousarray(rng.normal(size=(100000, 8)) * 1.2)
+    return lambda: core.aoa.di(data, td["center"], td["scale"], td["weight"], td["train"], td["mean_distance"],
+                               td["threshold"], True, n_jobs)
+
+
+def class_map(rng, side, classes=5):
+    """A (side, side) map of classes in patches, a tenth of its pixels noise."""
+    blocks = rng.integers(0, classes, (side // 16 + 1, side // 16 + 1))
+    m = np.kron(blocks, np.ones((16, 16)))[:side, :side]
+    noise = rng.random((side, side)) < 0.1
+    m[noise] = rng.integers(0, classes, noise.sum())
+    return np.ascontiguousarray(m.astype(np.float64))
+
+
+@workload("smooth_probs", "postproc")
+def _(core, rng, n_jobs):
+    # sits' Bayesian smoothing: 4 classes, a 9 x 9 window
+    p = rng.dirichlet(np.ones(4), (500, 500)).transpose(2, 0, 1)
+    p = np.ascontiguousarray(p)
+    return lambda: core.postproc.smooth_probs(p, 9, np.full(4, 20.0), 0.5, n_jobs)
+
+
+@workload("majority", "postproc")
+def _(core, rng, n_jobs):
+    m = class_map(rng, 2000)
+    return lambda: core.postproc.majority(m, 3, 1, n_jobs)
+
+
+@workload("sieve", "postproc")
+def _(core, rng, n_jobs):
+    # sequential by nature: n_jobs is not used
+    m = class_map(rng, 2000)
+    return lambda: core.postproc.sieve(m, 11, True)
+
+
+@workload("desawtooth", "postproc")
+def _(core, rng, n_jobs):
+    # temporal consistency of 1,000,000 class series of 20 dates
+    runs = np.repeat(rng.integers(0, 4, (1000000, 5)), 4, axis=1).astype(np.float64)
+    flip = rng.random(runs.shape) < 0.05
+    runs[flip] = rng.integers(0, 4, flip.sum())
+    runs = np.ascontiguousarray(runs)
+    return lambda: core.postproc.desawtooth(runs, 1, n_jobs)
 
 
 def _warp_args(src, method, scales, gt, kind, nodata, region, lattice=None):
@@ -292,9 +422,32 @@ def set_affinity(cpus):
     return False
 
 
+def no_power_throttling():
+    """Takes this process out of Windows' power throttling ("EcoQoS"), where it is supported.
+
+    Windows 11 moves a process it deems in the background, as a benchmark run from a
+    terminal is, to the efficiency cores at a low clock after a few seconds of work:
+    one-thread timings came out up to 2.4 times slower for it.
+    """
+    if sys.platform != "win32":
+        return False
+    import ctypes
+    from ctypes import wintypes
+
+    class State(ctypes.Structure):
+        _fields_ = [("Version", wintypes.ULONG), ("ControlMask", wintypes.ULONG), ("StateMask", wintypes.ULONG)]
+
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.GetCurrentProcess.restype = wintypes.HANDLE
+    k32.SetProcessInformation.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+    s = State(1, 1 | 4, 0)  # execution speed and timer resolution: not throttled
+    return bool(k32.SetProcessInformation(k32.GetCurrentProcess(), 4, ctypes.byref(s), ctypes.sizeof(s)))
+
+
 def run(args):
+    no_power_throttling()
     cores = {b: load_backend(b) for b in args.backend}
-    threads = {"1": 1, "all": -1}
+    threads = {"1": 1, ("all" if args.threads <= 0 else str(args.threads)): args.threads}
     pinned = args.cpu >= 0
     results = {b: {} for b in cores}
     for name, (module, build) in WORKLOADS.items():
@@ -305,7 +458,8 @@ def run(args):
             if b not in present:
                 print(f"{name:14s} (not in the {b} backend)")
         for label, n_jobs in threads.items():
-            if not present or (name == "medoid" and label == "1") or (name == "som_online" and label == "all"):
+            sequential = name in ("som_online", "sieve")
+            if not present or (name == "medoid" and n_jobs == 1) or (sequential and n_jobs != 1):
                 continue
             fns = {b: build(cores[b], np.random.default_rng(42), n_jobs) for b in present}
             if pinned:
@@ -331,6 +485,7 @@ def run(args):
         "machine": {"platform": platform.platform(), "processor": platform.processor(),
                     "cpus": os.cpu_count(), "python": sys.version.split()[0]},
         "single_thread_cpu": args.cpu if pinned else None,
+        "threads": args.threads,
         "results": results,
     }
     if args.out:
@@ -352,14 +507,19 @@ def load_results(spec):
 def compare(a_spec, b_spec):
     (la, a), (lb, b) = load_results(a_spec), load_results(b_spec)
     print(f"A = {la}\nB = {lb}\n")
-    print(f"{'workload':14s} {'thr':>4s} {'A':>12s} {'B':>12s} {'B/A':>7s}")
+    print(f"{'workload':14s} {'thr':>6s} {'A':>12s} {'B':>12s} {'B/A':>7s}")
     for name, ra in a.items():
         rb = b.get(name, {})
         for label, ta in ra.items():
             tb = rb.get(label)
+            if tb is None and label != "1":
+                # the many-thread timings of two runs with different thread counts ("all", "8")
+                other = [k for k in rb if k != "1"]
+                tb = rb[other[0]] if other else None
+                label = f"{label}/{other[0]}" if other else label
             ratio = f"{tb / ta:7.2f}" if tb else "      -"
             tbs = f"{tb * 1e3:10.2f}ms" if tb else "           -"
-            print(f"{name:14s} {label:>4s} {ta * 1e3:10.2f}ms {tbs} {ratio}")
+            print(f"{name:14s} {label:>6s} {ta * 1e3:10.2f}ms {tbs} {ratio}")
 
 
 def main():
@@ -367,6 +527,8 @@ def main():
     ap.add_argument("--backend", nargs="+", default=["rust"], choices=["rust"],
                     help="the core measured (the name its timings take in the JSON file)")
     ap.add_argument("--only", nargs="*", help="workloads to run (default: all)")
+    ap.add_argument("--threads", type=int, default=-1,
+                    help="threads of the many-thread timings (-1: all the processors zeit would use)")
     ap.add_argument("--min-time", type=float, default=1.0, help="seconds of repetitions per timing")
     ap.add_argument("--rounds", type=int, default=3, help="turns of the backends, with several")
     ap.add_argument("--cpu", type=int, default=0,
@@ -377,6 +539,8 @@ def main():
     if args.compare:
         compare(*args.compare)
     else:
+        if args.threads > 0:
+            os.environ["ZEIT_NUM_THREADS"] = str(args.threads)
         run(args)
 
 

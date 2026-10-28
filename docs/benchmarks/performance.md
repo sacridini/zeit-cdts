@@ -2,29 +2,55 @@
 
 This page documents the **computational performance** of `zeit` across single-core CPU execution, multi-core CPU scaling, and distributed cloud comparison (Google Earth Engine), measured on an **Intel Core i5-13600K** workstation (20 logical threads).
 
-!!! note "Measured with the C++ core of zeit 1.x; from 2.0 the core is Rust"
-    The timings on this page were taken with zeit 1.x, whose compiled core was C++ (Eigen and OpenMP). From 2.0 the core is Rust: it gives the same results bit for bit (every module was checked against the C++ one on Windows, Linux and macOS before the C++ was removed), and it is faster on most workloads. Rust time over C++ time, on the same i5-13600K (Windows; `benchmarks/bench_core.py`):
+!!! note "Measured with the Rust core of zeit 2.3"
+    Zeit's side of every table on this page was measured with the Rust core of zeit 2.3, in October 2026, on the same workloads as before. Two kinds of rows keep their earlier numbers: the deep-learning models (TempCNN, LightTAE, U-TAE), which run on PyTorch and not on the compiled core, and SNIC, whose published workload could not be rebuilt exactly. The reference tools (R, GDL, Octave, `snic.c`) were timed on this same machine in September 2026 and not again; `minisom`, first timed on another computer, was timed again here. The multi-thread runs use **8 of the 20 logical processors**, leaving the rest to the machine; the reference tools' parallel runs use 19 workers. The scripts are in `benchmarks/vs_references/` and the results in `benchmarks/results/vs-references-rust.json`.
 
-    | Module | 1 thread | All threads |
-    |:---|:---:|:---:|
-    | TWDTW | 0.13 | 0.30 |
-    | SMA (unmixing) | 0.26 | 0.16 |
-    | BFAST (classic) | 0.27 | 0.12 |
-    | CODED | 0.32 | 0.32 |
-    | CCDC | 0.33 | 0.28 |
-    | BFAST Lite | 0.47 | 0.46 |
-    | Mann-Kendall | 0.48 | 0.48 |
-    | Phenology | 0.59 | 0.49 |
-    | Medoid | – | 0.61 |
-    | SOM (batch) | 0.70 | 0.80 |
-    | LandTrendr | 0.73 | 0.61 |
-    | Tmask | 0.75 | 0.73 |
-    | BFAST Monitor | 0.79 | 0.76 |
-    | Warp (bilinear, lanczos, average) | 0.84–0.89 | 0.77–0.93 |
-    | SNIC | 0.86 | 0.81 |
-    | Whittaker | 0.91 | 0.73 |
+---
 
-    On Linux, where the C++ was built by GCC, and on macOS (Apple Silicon), most modules are faster in Rust too; in the last measurements of the migration on GitHub's runners a few (warp, BFAST Monitor, Whittaker, SOM) were level with the C++ or slower by up to about a fifth. The speedups over the reference tools below are therefore those of 1.x, about the same or larger in 2.0. Details in `RUST_MIGRATION.md`.
+## The Compiled Core, Module by Module
+
+Every module of the Rust core timed alone, on deterministic synthetic data, the way Zeit's functions call it: on 1 thread (pinned to a performance core) and on 8 of the 20 logical processors. The methods added since 2.0 are marked ¹. Best of at least three runs after a warm-up, zeit 2.3, `python benchmarks/bench_core.py --threads 8` (the results in `benchmarks/results/win-i5-13600k-rust-2.3.json`).
+
+| Module | Workload | 1 thread | 8 threads | Gain |
+|:---|:---|---:|---:|:---:|
+| LandTrendr | 150 × 150 px × 40 years | 238 ms | 34.0 ms | 7.0× |
+| CCDC | 16 × 16 px × 6 bands × 457 dates | 110 ms | 15.5 ms | 7.1× |
+| TWDTW | 100 × 100 px × 46 dates, 1 pattern | 15.4 ms | 2.25 ms | 6.9× |
+| SOM, batch training | 20,000 × 8, 10 × 10, 20 iterations | 180 ms | 28.7 ms | 6.3× |
+| SOM, winners | 200,000 × 8, 10 × 10 | 46.2 ms | 8.12 ms | 5.7× |
+| SOM, online training | 20,000 steps (sequential) | 12.0 ms | – | – |
+| Phenology | 300 series × 137 dates | 79.1 ms | 11.5 ms | 6.9× |
+| Mann-Kendall | 50,000 series × 40 | 291 ms | 40.2 ms | 7.2× |
+| BFAST Monitor | 20,000 series × 184 | 69.5 ms | 10.1 ms | 6.9× |
+| BFAST Lite | 200 series × 138 | 717 ms | 112 ms | 6.4× |
+| BFAST | 200 series × 138 | 175 ms | 25.4 ms | 6.9× |
+| SNIC | 1024 × 1024 × 4 bands, 4096 seeds | 120 ms | 20.7 ms | 5.8× |
+| Unmixing (SMA) | 200,000 px × 6 bands, 4 endmembers | 245 ms | 35.2 ms | 6.9× |
+| CODED | 20,000 px × 260 dates | 40.8 ms | 6.09 ms | 6.7× |
+| Tmask | 10,000 px × 274 dates | 634 ms | 91.8 ms | 6.9× |
+| Whittaker | 100,000 series × 219 | 632 ms | 93.0 ms | 6.8× |
+| Medoid | 256 × 256 px × 24 dates × 6 bands | – | 9.51 ms | – |
+| AR(1) trend ¹ | 100,000 series × 30 | 151 ms | 22.5 ms | 6.7× |
+| PARTS ¹ | 10,000 px, 20 partitions of 500 | 843 ms | 164 ms | 5.2× |
+| Recovery metrics ¹ | 1000 × 1000 px × 21 years | 69.8 ms | 35.3 ms | 2.0× |
+| EWMACD ¹ | 20,000 px × 120 dates | 140 ms | 22.5 ms | 6.2× |
+| Emerging hot spots ¹ | 300 × 300 cells × 12 dates | 158 ms | 40.1 ms | 3.9× |
+| BEAST ¹ | 10 series × 138, 3 chains of 8000 samples | 1,141 ms | 213 ms | 5.4× |
+| S-CCD ¹ | 32 × 32 px × 6 bands × 457 dates | 157 ms | 23.2 ms | 6.8× |
+| Area of applicability, training DI ¹ | 5000 points × 8 predictors, 10 folds | 87.7 ms | 12.5 ms | 7.0× |
+| Area of applicability, new points ¹ | 100,000 × 8 against 2000, with LPD | 904 ms | 135 ms | 6.7× |
+| Bayesian smoothing ¹ | 500 × 500 px × 4 classes, 9 × 9 window | 365 ms | 55.8 ms | 6.5× |
+| Majority filter ¹ | 2000 × 2000, 3 × 3 window | 87.9 ms | 52.3 ms | 1.7× |
+| Sieve ¹ | 2000 × 2000, 11 px (sequential) | 183 ms | – | – |
+| Temporal consistency ¹ | 1,000,000 series × 20 | 74.5 ms | 18.6 ms | 4.0× |
+| Warp, bilinear | 4 × 1024 × 1024 float32 | 53.3 ms | 7.79 ms | 6.8× |
+| Warp, Lanczos | 3 × 1000 × 1000 uint8 | 97.6 ms | 14.2 ms | 6.9× |
+| Warp, average | 3 × 700 × 700 from 2000 × 2000 int16 | 58.0 ms | 8.56 ms | 6.8× |
+
+Most modules gain 6–7× on 8 threads. The recovery metrics, the majority filter, the temporal consistency and the emerging hot spots gain least: their work per pixel is a few comparisons or sums, so reading and writing memory, not the processors, sets their pace. The sieve and SOM's online training are sequential by nature.
+
+!!! note "Windows' power throttling"
+    Windows 11 moves a process it deems in the background, as a benchmark run from a terminal is, to the efficiency cores at a low clock after a few seconds of work (power throttling, or EcoQoS). One-thread timings came out up to 2.4 times slower for it. The benchmark scripts take their processes out of power throttling, so the times are of the computation.
 
 ---
 
@@ -34,7 +60,7 @@ Single-core execution evaluates algorithmic efficiency without the confounding f
 
 <div class="bm-chart-card">
 <p class="bm-chart-title">Single-core speedup over the reference tool</p>
-<p class="bm-chart-sub">Log scale; the dark line at 1× is break-even. LandTrendr (168×) and CCDC (84×) time the algorithm inside the interpreter (interpreter start-up and compilation excluded). The fidelity column is explained in the <a href="../#speed-and-fidelity-at-a-glance">overview</a>. Hover over a row for the exact numbers.</p>
+<p class="bm-chart-sub">Log scale; the dark line at 1× is break-even. LandTrendr (232×) and CCDC (218×) time the algorithm inside the interpreter (interpreter start-up and compilation excluded). The fidelity column is explained in the <a href="../#speed-and-fidelity-at-a-glance">overview</a>. Hover over a row for the exact numbers.</p>
 <div class="bm-chart-scroll">
 --8<-- "docs/assets/charts/speedup_overview.svg"
 </div>
@@ -44,73 +70,64 @@ Single-core execution evaluates algorithmic efficiency without the confounding f
 
 | Algorithm | Reference Package | Input Scale | Zeit Time (ms) | Reference Time (ms) | Speedup | Architectural Rationale |
 |:---|:---|:---|:---:|:---:|:---:|:---|
-| **Phenology** | R `phenofit` | Real EVI raster (638 px) | **3.37 ms / px** | 823.50 ms / px | **244.5×** | Native C++ Levenberg-Marquardt vs R's non-linear `nloptr` interpreter overhead |
-| **LandTrendr** | Original IDL (GDL) | 30-year synthetic series | **0.026 ms / call** | 4.33 ms / call | **168.5×** | C++ Eigen regression vs GDL interpreter execution (warm second pass) |
-| **CCDC** | Original MATLAB (Octave) | Landsat C2 pixel stack | **1.69 ms / px** | 141.51 ms / px | **83.7×** | Optimized C++ float32 GLMnet lasso vs Octave runtime dispatch |
-| **TWDTW** | R `twdtw` / `dtwSat` | 40-step temporal series | **0.029 ms / call** | 1.29 ms / call | **43.9×** | Pre-allocated dynamic programming tables vs R data.frame boxing |
-| **SOM (Training)** | Python `minisom` | 1,500 samples, 5×5 grid (500 online iters) | **0.42 ms / fit** | 15.58 ms / fit | **37.2×** | Bit-exact C++ port of `MiniSom.train`; per-sample Python/NumPy dispatch replaced by a native loop (batch SOM: 44×–126×). Measured on a Ryzen 7 7730U laptop |
-| **Mann-Kendall** | Python `pymannkendall` | 30-obs series (3 tests) | **0.021 ms / call** | 0.77 ms / call | **36.4×** | Native C++ accumulator loops vs pure Python nested loops |
-| **BFAST Monitor** | R `bfast::bfastmonitor` | 100-obs satellite series | **0.093 ms / call** | 1.47 ms / call | **15.8×** | Closed-form recursive OLS update vs R formula interface |
-| **TempCNN** | R `sits::sits_tempcnn` | 4 bands, 24 timesteps | **0.212 ms / pass** | 2.34 ms / pass | **11.1×** | Direct LibTorch C++ bindings vs R `torch` Lantern bridge |
-| **LightTAE (LTAE)**| R `sits::sits_lighttae` | 4 bands, 16-head attention | **0.736 ms / pass** | 4.28 ms / pass | **5.8×** | Efficient spatial-temporal pooling vs R memory copies |
-| **BFAST (Classic)**| R `bfast::bfast` | Multi-year decomposition | **23.60 ms / call** | 100.67 ms / call | **4.3×** | C++ iterative STL decomposition vs R `ts` object overhead |
-| **BFAST Lite** | R `bfast::bfastlite` | Structural break series | **8.74 ms / call** | 22.22 ms / call | **2.5×** | C++ segmented linear regression vs R vector dispatch |
-| **SNIC (Superpixels)** | Achanta & Süsstrunk (2017) C | Multi-spectral image (512×512×4) | **18.4 ms / pass** | 42.3 ms / pass | **2.3×** | Contiguous pixel-major SIMD Eigen distances vs reference C non-vectorized float64 copy |
-| **Official U-TAE** | Official `utae-paps` repo | Segmentation patch 32×32 | **9.26 ms / pass** | 9.96 ms / pass | **1.08×** | Both run on PyTorch CPU backend (parity validation) |
+| **Phenology** | R `phenofit` | Real EVI raster (638 px) | **2.22 ms / px** | 823.50 ms / px | **370.3×** | Compiled Levenberg-Marquardt fits vs R's non-linear `nloptr` interpreter overhead |
+| **LandTrendr** | Original IDL (GDL) | 30-year synthetic series | **0.0187 ms / call** | 4.33 ms / call | **231.7×** | Compiled segmented regression vs GDL interpreter execution (warm second pass) |
+| **CCDC** | Original MATLAB (Octave) | Landsat C2 pixel stack | **0.650 ms / px** | 141.51 ms / px | **217.9×** | Compiled float32 GLMnet lasso vs Octave runtime dispatch (real 150-pixel stack: 259.9×) |
+| **TWDTW** | R `twdtw` / `dtwSat` | 40-step temporal series | **0.0180 ms / call** | 1.29 ms / call | **71.5×** | Pre-allocated dynamic programming tables vs R data.frame boxing |
+| **Mann-Kendall** | Python `pymannkendall` | 30-obs series (3 tests) | **0.0111 ms / call** | 0.77 ms / call | **68.9×** | Compiled accumulator loops vs pure Python nested loops (the variants: 64.6×–75.0×) |
+| **SOM (Training)** | Python `minisom` | 1,500 samples, 5×5 grid (500 online iters) | **0.104 ms / fit** | 6.92 ms / fit | **66.6×** | Bit-exact port of `MiniSom.train`; per-sample Python/NumPy dispatch replaced by a native loop (batch SOM: 41.5× on 1 thread) |
+| **BFAST Monitor** | R `bfast::bfastmonitor` | 100-obs satellite series | **0.0870 ms / call** | 1.47 ms / call | **16.9×** | Closed-form recursive OLS update vs R formula interface |
+| **BFAST (Classic)**| R `bfast::bfast` | Multi-year decomposition | **7.62 ms / call** | 100.67 ms / call | **13.2×** | Compiled iterative STL decomposition vs R `ts` object overhead |
+| **TempCNN** † | R `sits::sits_tempcnn` | 4 bands, 24 timesteps | **0.212 ms / pass** | 2.34 ms / pass | **11.1×** | PyTorch (LibTorch) vs R `torch` Lantern bridge |
+| **LightTAE (LTAE)** †| R `sits::sits_lighttae` | 4 bands, 16-head attention | **0.736 ms / pass** | 4.28 ms / pass | **5.8×** | Efficient spatial-temporal pooling vs R memory copies |
+| **BFAST Lite** | R `bfast::bfastlite` | Structural break series | **4.29 ms / call** | 22.22 ms / call | **5.2×** | Compiled segmented linear regression vs R vector dispatch |
+| **SNIC (Superpixels)** † | Achanta & Süsstrunk (2017) C | Multi-spectral image (512×512×4) | **18.4 ms / pass** | 42.3 ms / pass | **2.3×** | Contiguous pixel-major distances vs the reference C's float64 copy |
+| **Official U-TAE** † | Official `utae-paps` repo | Segmentation patch 32×32 | **9.26 ms / pass** | 9.96 ms / pass | **1.08×** | Both run on PyTorch CPU backend (parity validation) |
+
+† Earlier measurements, kept: the deep-learning models run on PyTorch, not on the compiled core, and SNIC's workload could not be rebuilt exactly (see the note at the top).
 
 ---
 
 ## Multi-Core CPU Scaling
 
-Zeit implements parallel execution in its compiled core (`n_jobs=-1`; OpenMP in the C++ core these numbers were measured with, the core's own threads in Rust), avoiding Python Global Interpreter Lock (GIL) contention and inter-process communication (IPC) overhead.
-
-The chart below shows the speedup achieved when scaling from **1 thread to all 20 threads** on an Intel Core i5-13600K:
-
-<div class="bm-chart-card">
-  <div class="bm-legend">
-    <span class="bm-legend-item"><i class="bm-legend-swatch" style="background:var(--bm-zeit);"></i> Zeit</span>
-    <span class="bm-legend-item"><i class="bm-legend-swatch" style="background:var(--bm-ref);"></i> Reference Tool (multiprocessing / PSOCK / doParallel)</span>
-  </div>
-  <img src="../../assets/benchmarks_parallel.svg" alt="Multi-Core Scaling" class="benchmark-chart" />
-  <p class="bm-kpi-sub" style="margin-top: 10px;">
-    Relative parallel scaling factor (T₁ / T_multi) on 20 threads. Notice the Python IPC penalty on Mann-Kendall, where Python <code>multiprocessing.Pool</code> ran 5× slower than sequential execution (0.20×) due to serialization overhead.
-  </p>
-</div>
+Zeit implements parallel execution in its compiled core (`n_jobs`, the Rust core's own threads), avoiding Python Global Interpreter Lock (GIL) contention and inter-process communication (IPC) overhead. Going from 1 thread to 8 on an Intel Core i5-13600K, most modules run 6–7× faster (the per-module gains are in [the table above](#the-compiled-core-module-by-module)).
 
 ### Relative Gain vs. Absolute Time
 
 A common benchmarking pitfall is looking only at relative gain (T₁ / T_multi). Reference tools running in R or Python often show high relative scaling simply because their single-threaded baselines are slow.
 
-The table below lines up **absolute wall-clock times** to show who finishes first when both sides utilize all available CPU cores:
+The table below lines up **absolute wall-clock times** to show who finishes first when both sides run in parallel. Zeit uses 8 of the machine's 20 logical processors; the reference tools use 19 workers:
 
 <div class="bm-chart-card">
 <div class="bm-chart-legend">
-<span><i class="dot" style="background:var(--bm-zeit)"></i>Zeit, 20 threads</span>
-<span><i class="dot" style="background:var(--bm-ref)"></i>Reference, all workers</span>
+<span><i class="dot" style="background:var(--bm-zeit)"></i>Zeit, 8 threads</span>
+<span><i class="dot" style="background:var(--bm-ref)"></i>Reference, 19 workers</span>
 </div>
 <div class="bm-chart-scroll">
 --8<-- "docs/assets/charts/finish_first.svg"
 </div>
 </div>
 
-| Algorithm | Workload Scale | Reference Parallel Framework | Zeit (1 Thread) | Zeit (20 Threads) | Zeit Gain | Reference (1 Thread) | Reference (Multi-Worker) | Reference Gain | **Who Finishes First (Multi-Core)** |
+| Algorithm | Workload Scale | Reference Parallel Framework | Zeit (1 Thread) | Zeit (8 Threads) | Zeit Gain | Reference (1 Thread) | Reference (Multi-Worker) | Reference Gain | **Who Finishes First (Multi-Core)** |
 |:---|:---|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **LandTrendr** | **54.7M px** × 41 yrs | — (GDL has no native parallel) | 904.77 s | **98.44 s** | **9.19×** | — | — | — | **Zeit finishes tile in 1.6 min** |
-| **CCDC** | **2.83M px** × 125 dates | — (Octave has no native parallel) | 442.02 s | **50.66 s** | **8.73×** | — | — | — | **Zeit finishes stack in 50.7 s** |
-| **SNIC (Tiled)** | 2048×2048 × 6 bands (16 tiles) | — (`snic.c` has no parallel mode) | 482 ms | **59 ms** | **8.17×** | — | — | — | **Zeit finishes scene in 59 ms** |
-| **Phenology** | 638 px × 25 yrs | R `foreach` + `doParallel` (19w) | 2,200 ms | **341 ms** | **6.46×** | 525,395 ms | 93,504 ms | 5.62× | **Zeit 274× faster** (0.34s vs 93.5s) |
-| **Mann-Kendall** | 5,000 series | Python `multiprocessing.Pool` (19w) | 31.09 ms | **7.29 ms** | **4.26×** | 4,058 ms | 20,109 ms | 0.20× | **Zeit 2,758× faster** (7ms vs 20.1s) |
-| **BFAST Monitor**| 20,000 series | R `parallel` PSOCK cluster (19w) | 81.14 ms | **14.54 ms** | **5.58×** | 26,872 ms | 5,003 ms | 5.37× | **Zeit 344× faster** (14.5ms vs 5.0s) |
-| **BFAST Lite** | 2,000 series | R `parallel` PSOCK cluster (19w) | 17,029 ms | **2,019 ms** | **8.43×** | 42,463 ms | 4,551 ms | 9.33× | **Zeit 2.25× faster** (2.0s vs 4.5s) |
-| **BFAST (Classic)**| 400 series | R `parallel` PSOCK cluster (19w) | 5,208 ms | **909 ms** | **5.73×** | 25,119 ms | 3,335 ms | 7.53× | **Zeit 3.67× faster** (0.9s vs 3.3s) |
-| **TWDTW** | 3,000 series × 1 pat | R `parallel` PSOCK cluster (19w) | 91.67 ms | **13.35 ms** | **6.87×** | 1,406 ms | 188.67 ms | 7.45× | **Zeit 14.1× faster** (13ms vs 188ms) |
-| **SOM (Batch)** | 20,000 samples, 10×10, 200 iters | — (`minisom` has no parallel mode)| 3,077 ms | **664 ms** | **4.64×** | — | — | — | **Zeit finishes in 0.66 s** (re-measured with 15 threads on a 16-thread Ryzen 7 7730U laptop after the bit-exact `minisom` port; `minisom` `train_batch_offline` ≈ 126 s, extrapolated from 10 iterations) |
-| **TempCNN** | Batch = 512 | R `torch` intra-op threads | 15.68 ms | **3.94 ms** | **3.98×** | 15.06 ms | 7.78 ms | 1.94× | **Zeit 1.97× faster** (3.9ms vs 7.8ms) |
-| **Official U-TAE** | Batch = 32 | PyTorch CPU intra-op threads | 317.66 ms | **126.00 ms** | **2.52×** | 324.40 ms | 124.67 ms | 2.60× | **Tied** (both PyTorch backend) |
-| **LightTAE** | Batch = 512 | R `torch` intra-op threads | 32.77 ms | **14.61 ms** | **2.24×** | 42.08 ms | 26.98 ms | 1.56× | **Zeit 1.85× faster** (14.6ms vs 27.0ms) |
+| **LandTrendr** | **54.7M px** × 41 yrs | — (GDL has no native parallel) | 643.35 s | **103.92 s** | **6.19×** | — | — | — | **Zeit finishes tile in 1.7 min** |
+| **CCDC** | **2.83M px** × 125 dates | — (Octave has no native parallel) | 147.09 s | **28.50 s** | **5.16×** | — | — | — | **Zeit finishes stack in 28.5 s** |
+| **SNIC (Tiled)** † | 2048×2048 × 6 bands (16 tiles) | — (`snic.c` has no parallel mode) | 482 ms | **59 ms** (20 threads) | **8.17×** | — | — | — | **Zeit finishes scene in 59 ms** |
+| **Phenology** | 638 px × 25 yrs | R `foreach` + `doParallel` (19w) | 1,158 ms | **209 ms** | **5.54×** | 525,395 ms | 93,504 ms | 5.62× | **Zeit 447× faster** (0.21s vs 93.5s) |
+| **Mann-Kendall** | 5,000 series | Python `multiprocessing.Pool` (19w) | 17.65 ms | **3.62 ms** | **4.87×** | 4,058 ms | 20,109 ms | 0.20× | **Zeit 5,552× faster** (3.6ms vs 20.1s) |
+| **BFAST Monitor**| 20,000 series | R `parallel` PSOCK cluster (19w) | 63.16 ms | **10.03 ms** | **6.30×** | 26,872 ms | 5,003 ms | 5.37× | **Zeit 499× faster** (10.0ms vs 5.0s) |
+| **BFAST Lite** | 2,000 series | R `parallel` PSOCK cluster (19w) | 8,595 ms | **1,485 ms** | **5.79×** | 42,463 ms | 4,551 ms | 9.33× | **Zeit 3.06× faster** (1.5s vs 4.6s) |
+| **BFAST (Classic)**| 400 series | R `parallel` PSOCK cluster (19w) | 1,413 ms | **239 ms** | **5.91×** | 25,119 ms | 3,335 ms | 7.53× | **Zeit 13.9× faster** (0.24s vs 3.3s) |
+| **TWDTW** | 3,000 series × 1 pat | R `parallel` PSOCK cluster (19w) | 10.16 ms | **2.13 ms** | **4.78×** | 1,406 ms | 188.67 ms | 7.45× | **Zeit 88.8× faster** (2.1ms vs 188.7ms) |
+| **SOM (Batch)** | 20,000 samples, 10×10, 200 iters | — (`minisom` has no parallel mode)| 1,530 ms | **256 ms** | **5.98×** | 63.5 s | — | — | **Zeit 248× faster** (0.26 s vs `minisom` `train_batch_offline` on 1 thread, 63.5 s) |
+| **TempCNN** † | Batch = 512 | R `torch` intra-op threads | 15.68 ms | **3.94 ms** | **3.98×** | 15.06 ms | 7.78 ms | 1.94× | **Zeit 1.97× faster** (3.9ms vs 7.8ms) |
+| **Official U-TAE** † | Batch = 32 | PyTorch CPU intra-op threads | 317.66 ms | **126.00 ms** | **2.52×** | 324.40 ms | 124.67 ms | 2.60× | **Tied** (both PyTorch backend) |
+| **LightTAE** † | Batch = 512 | R `torch` intra-op threads | 32.77 ms | **14.61 ms** | **2.24×** | 42.08 ms | 26.98 ms | 1.56× | **Zeit 1.85× faster** (14.6ms vs 27.0ms) |
+
+† Earlier measurements on 20 threads, kept (see the note at the top).
 
 !!! warning "The Python IPC Penalty on Mann-Kendall"
-    On a batch of 5,000 short time series, running Python's standard `multiprocessing.Pool(19)` caused execution time to explode from **4.06 seconds** (sequential) to **20.11 seconds** (parallel) — a **5× slowdown** (0.20× speedup). The operating system overhead of pickling objects, IPC socket transfers, and process synchronization dwarfed the actual statistical computation. In contrast, Zeit's threads (OpenMP in the C++ core measured here; the Rust core's own since 2.0) share memory with sub-microsecond synchronization overhead, achieving a true **4.26× speedup** (down to **7.29 milliseconds**).
+    On a batch of 5,000 short time series, running Python's standard `multiprocessing.Pool(19)` caused execution time to explode from **4.06 seconds** (sequential) to **20.11 seconds** (parallel) — a **5× slowdown** (0.20× speedup). The operating system overhead of pickling objects, IPC socket transfers, and process synchronization dwarfed the actual statistical computation. In contrast, Zeit's threads share memory with sub-microsecond synchronization overhead, achieving a true **4.87× speedup** on 8 threads (down to **3.62 milliseconds**).
 
 ---
 
@@ -119,12 +136,12 @@ The table below lines up **absolute wall-clock times** to show who finishes firs
 A central design goal of Zeit is eliminating cloud lock-in for regional and continental-scale analyses. We evaluated LandTrendr performance on an entire Landsat tile:
 
 - **Workload:** Full Landsat Tile 215_067 (South America), covering **54,731,482 pixels × 41 annual observations** (1985–2025).
-- **Environment:** Intel Core i5-13600K (desktop PC, 20 threads, 64 GB RAM).
+- **Environment:** Intel Core i5-13600K (desktop PC, 20 logical processors, 64 GB RAM); Zeit on 1 thread and on 8.
 - **Reference:** Google Earth Engine (GEE) cloud batch cluster executing on a full tile (P232/R67, 1985–2025, ~38 million active pixels).
 
 <div class="bm-chart-card">
 <div class="bm-chart-legend">
-<span><i style="background:var(--bm-zeit)"></i>Zeit, 20 threads</span>
+<span><i style="background:var(--bm-zeit)"></i>Zeit, 8 threads</span>
 <span><i style="background:var(--bm-gpu-lo)"></i>Zeit, 1 thread</span>
 <span><i style="background:var(--bm-ref)"></i>Google Earth Engine</span>
 <span><i style="background:var(--bm-grid)"></i>Waiting in Earth Engine's queue</span>
@@ -138,13 +155,13 @@ A central design goal of Zeit is eliminating cloud lock-in for regional and cont
 
 | Processing Platform | Execution Mode | Active Compute Time | Throughput | Cloud Queue Wait Time | Total Turnaround Time | Speedup vs. GEE |
 |:---|:---|:---:|:---:|:---:|:---:|:---:|
-| **Zeit (Local PC)** | **Multi-Thread (20 cores, OpenMP)** | **98.44 s** (1.64 min) | **556,007 px / s** | **0.0 s** | **1.64 min** | **20.4× compute throughput** |
-| **Zeit (Local PC)** | Single-Thread (1 core) | 904.77 s (15.08 min) | 60,492 px / s | 0.0 s | 15.08 min | **2.22× compute throughput** |
+| **Zeit (Local PC)** | **Multi-Thread (8 threads)** | **103.92 s** (1.73 min) | **526,693 px / s** | **0.0 s** | **1.73 min** | **19.4× compute throughput** |
+| **Zeit (Local PC)** | Single-Thread (1 core) | 643.35 s (10.72 min) | 85,072 px / s | 0.0 s | 10.72 min | **3.13× compute throughput** |
 | **Google Earth Engine** | Cloud Cluster (EECU batch workers) | 1,396.39 s (23.27 min) | 27,213 px / s | 18,308 s (5.08 hours) | 5.47 hours | 1.0× baseline |
 
 !!! success "Takeaways from the GEE Benchmark"
-    1. **Throughput Advantage:** Zeit on a single standard desktop workstation achieves **20.4× the active compute throughput** of GEE's cloud server cluster.
-    2. **Even Single-Thread Beats GEE:** Running Zeit on a single core (60,492 px/s) is **2.22× faster** than GEE's distributed cluster active execution.
+    1. **Throughput Advantage:** Zeit on a single standard desktop workstation achieves **19.4× the active compute throughput** of GEE's cloud server cluster, on 8 of its 20 logical processors.
+    2. **Even Single-Thread Beats GEE:** Running Zeit on a single core (85,072 px/s) is **3.13× faster** than GEE's distributed cluster active execution.
     3. **Zero Queue Latency:** Under standard GEE quotas, large batch export tasks regularly wait hours in the queue (5.08 hours in this benchmark). Zeit begins processing immediately and finishes in under two minutes.
 
 

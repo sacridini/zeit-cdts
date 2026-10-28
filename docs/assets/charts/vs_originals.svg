@@ -1,16 +1,16 @@
-<svg class="zc" viewBox="0 0 720 488" role="img" aria-label="Time of each original implementation and of Zeit on 1 and 19 threads, on the largest workload of each benchmark" xmlns="http://www.w3.org/2000/svg">
+<svg class="zc" viewBox="0 0 720 580" role="img" aria-label="Time of each original implementation and of Zeit on 1 thread and on many, on the largest workload of each benchmark" xmlns="http://www.w3.org/2000/svg">
 <text class="zc-head" x="0" y="20">Method · workload</text>
 <text class="zc-head" x="215" y="20">Time of the call (log scale)</text>
-<text class="zc-head" x="720" y="20" text-anchor="end">Faster, 1 / 19 threads</text>
-<line class="zc-grid" x1="243.9" x2="243.9" y1="44" y2="474"/>
+<text class="zc-head" x="720" y="20" text-anchor="end">Faster, 1 thread / many</text>
+<line class="zc-grid" x1="243.9" x2="243.9" y1="44" y2="566"/>
 <text class="zc-tick" x="243.9" y="38" text-anchor="middle">10 ms</text>
-<line class="zc-grid" x1="299.1" x2="299.1" y1="44" y2="474"/>
+<line class="zc-grid" x1="299.1" x2="299.1" y1="44" y2="566"/>
 <text class="zc-tick" x="299.1" y="38" text-anchor="middle">100 ms</text>
-<line class="zc-grid" x1="354.3" x2="354.3" y1="44" y2="474"/>
+<line class="zc-grid" x1="354.3" x2="354.3" y1="44" y2="566"/>
 <text class="zc-tick" x="354.3" y="38" text-anchor="middle">1 s</text>
-<line class="zc-grid" x1="409.6" x2="409.6" y1="44" y2="474"/>
+<line class="zc-grid" x1="409.6" x2="409.6" y1="44" y2="566"/>
 <text class="zc-tick" x="409.6" y="38" text-anchor="middle">10 s</text>
-<line class="zc-grid" x1="464.8" x2="464.8" y1="44" y2="474"/>
+<line class="zc-grid" x1="464.8" x2="464.8" y1="44" y2="566"/>
 <text class="zc-tick" x="464.8" y="38" text-anchor="middle">100 s</text>
 <g class="zc-row" data-tip="Emerging hot spots, 100 × 100 cells × 12 dates: sfdep, 9 permutations 8.7 min; Zeit 17 ms on 1 thread (30,481× faster), 6.0 ms on 19 (86,056×). Agreement: Gi* max diff 2.0e-14." tabindex="0">
 <rect class="zc-hit" x="0" y="56" width="720" height="46"/>
@@ -119,5 +119,29 @@
 <text class="zc-val zc-val--soft" x="412.8" y="451.0" text-anchor="end">18.1 s</text>
 <text class="zc-val zc-val--soft" x="504.3" y="451.0">5.5 min</text>
 <text class="zc-val" x="720" y="451.0" text-anchor="end">2× / 2×</text>
+</g>
+<g class="zc-row" data-tip="AR(1) trend, 200 × 200 px × 30 years: remotePARTS fitAR_map 1.1 min; Zeit 72 ms on 1 thread (931× faster), 23 ms on 8 (2,888×). Agreement: slope max diff 1.1e-07 of the largest, rho max diff 7.7e-06." tabindex="0">
+<rect class="zc-hit" x="0" y="470" width="720" height="46"/>
+<text class="zc-name" x="0" y="490.0">AR(1) trend</text>
+<text class="zc-sub" x="0" y="506.0">200 × 200 px × 30 years</text>
+<line class="zc-link" x1="264.0" x2="455.1" y1="493.0" y2="493.0"/>
+<circle class="zc-dot zc-dot--ref" cx="455.1" cy="493.0" r="6"/>
+<circle class="zc-dot zc-bar--zeit-lo" cx="291.2" cy="493.0" r="6"/>
+<circle class="zc-dot zc-dot--zeit" cx="264.0" cy="493.0" r="6"/>
+<text class="zc-val zc-val--soft" x="253.0" y="497.0" text-anchor="end">23 ms</text>
+<text class="zc-val zc-val--soft" x="466.1" y="497.0">1.1 min</text>
+<text class="zc-val" x="720" y="497.0" text-anchor="end">931× / 2,888×</text>
+</g>
+<g class="zc-row" data-tip="PARTS, 40,000 px in 26 partitions of 1500: remotePARTS fitGLS_partition 4.4 min; Zeit 12.8 s on 1 thread (20× faster), 3.5 s on 8 (75×). Agreement: partitions&#x27; estimates, SEs and nuggets max rel. diff 4.7e-15, overall estimate 1.4e-16; overall t 0.028% apart (cross-partition nugget)." tabindex="0">
+<rect class="zc-hit" x="0" y="516" width="720" height="46"/>
+<text class="zc-name" x="0" y="536.0">PARTS</text>
+<text class="zc-sub" x="0" y="552.0">40,000 px in 26 partitions of 1500</text>
+<line class="zc-link" x1="384.4" x2="487.9" y1="539.0" y2="539.0"/>
+<circle class="zc-dot zc-dot--ref" cx="487.9" cy="539.0" r="6"/>
+<circle class="zc-dot zc-bar--zeit-lo" cx="415.6" cy="539.0" r="6"/>
+<circle class="zc-dot zc-dot--zeit" cx="384.4" cy="539.0" r="6"/>
+<text class="zc-val zc-val--soft" x="373.4" y="543.0" text-anchor="end">3.5 s</text>
+<text class="zc-val zc-val--soft" x="498.9" y="543.0">4.4 min</text>
+<text class="zc-val" x="720" y="543.0" text-anchor="end">20× / 75×</text>
 </g>
 </svg>

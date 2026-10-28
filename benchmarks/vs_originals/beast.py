@@ -15,14 +15,11 @@ pinned there too.
     python benchmarks/vs_originals/beast.py
 """
 import contextlib
-import ctypes
-import os
-import subprocess
 
 import numpy as np
 
 from zeit import _core
-from common import HERE, RSCRIPT, best_of, record, threads_label, workdir
+from common import best_of, no_power_throttling, record, run_r, threads_label, workdir
 
 KW = dict(period=12.0, seed=42)
 
@@ -42,41 +39,6 @@ def series(n, n_dates, rng):
         y[rng.random(n_dates) < 0.05] = np.nan
         v[k] = y
     return v
-
-
-def no_power_throttling(pid=None):
-    """Takes a process (this one by default) out of Windows' power throttling; nothing elsewhere."""
-    if os.name != "nt":
-        return
-    from ctypes import wintypes
-
-    class State(ctypes.Structure):
-        _fields_ = [("Version", wintypes.ULONG), ("ControlMask", wintypes.ULONG), ("StateMask", wintypes.ULONG)]
-
-    k = ctypes.WinDLL("kernel32", use_last_error=True)
-    k.OpenProcess.restype = wintypes.HANDLE
-    k.GetCurrentProcess.restype = wintypes.HANDLE
-    k.SetProcessInformation.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
-    h = k.GetCurrentProcess() if pid is None else k.OpenProcess(0x0200, False, pid)  # PROCESS_SET_INFORMATION
-    s = State(1, 1 | 4, 0)  # execution speed and timer resolution: not throttled
-    if not k.SetProcessInformation(h, 4, ctypes.byref(s), ctypes.sizeof(s)):  # ProcessPowerThrottling
-        raise OSError(ctypes.get_last_error(), "SetProcessInformation")
-    if pid is not None:
-        k.CloseHandle(h)
-
-
-def run_r(script, *args):
-    """common.run_r, the R process taken out of power throttling as soon as it starts (before its timed call)."""
-    p = subprocess.Popen([RSCRIPT, str(HERE / script), *map(str, args)], stdout=subprocess.PIPE,
-                         stderr=subprocess.PIPE, stdin=subprocess.DEVNULL, text=True)
-    no_power_throttling(p.pid)
-    out, err = p.communicate()
-    if p.returncode != 0:
-        raise RuntimeError(f"{script} failed:\n{err[-3000:]}")
-    for line in out.splitlines():
-        if line.startswith("SECONDS "):
-            return float(line.split()[1])
-    raise RuntimeError(f"{script} printed no SECONDS line:\n{out[-2000:]}")
 
 
 @contextlib.contextmanager

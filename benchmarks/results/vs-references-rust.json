@@ -1,0 +1,807 @@
+{
+ "results": [
+  {
+   "table": "single-core",
+   "row": "Phenology",
+   "order": 1,
+   "workload": "real EVI raster, 638 px x 575 dates, Beck, n_jobs=1",
+   "unit": "ms/px",
+   "published_cpp_1t": 3.3687,
+   "rust_1t": 2.2235887147281663,
+   "rust_1t_warm_best3": 1.8152547021953718,
+   "ratio_rust_cpp_1t": 0.6600732373699547,
+   "reference_1t": 823.5039,
+   "reference_tool": "R phenofit::curvefits(methods='Beck')/get_pheno",
+   "speedup_vs_reference_1t": 370.3490193781962,
+   "published_speedup": 244.46,
+   "agreement": {
+    "vs_cpp_output": {
+     "rows_rust": 545112,
+     "rows_cpp": 545112,
+     "rows_only_rust": 0,
+     "rows_only_cpp": 0,
+     "values_identical_rate": 1.0,
+     "max_abs_diff_days": 0.0
+    },
+    "vs_phenofit": {
+     "beck": {
+      "n": 178710,
+      "MAE_days_all_metrics": 17.017,
+      "within_15_days_pct": 84.39,
+      "stored_n": 178710,
+      "stored_MAE": 17.017,
+      "stored_within_15": 84.39
+     },
+     "elmore": {
+      "n": 179805,
+      "MAE_days_all_metrics": 18.484,
+      "within_15_days_pct": 82.42,
+      "stored_n": 179805,
+      "stored_MAE": 18.484,
+      "stored_within_15": 82.42
+     },
+     "gu": {
+      "n": 177983,
+      "MAE_days_all_metrics": 35.375,
+      "within_15_days_pct": 61.48,
+      "stored_n": 177983,
+      "stored_MAE": 35.375,
+      "stored_within_15": 61.48
+     },
+     "beck_TRS5.sos_MAE": 3.717
+    }
+   },
+   "notes": "published and reference: results/phenology.csv (beck). One run, as benchmark_phenology_real_timing_cdts.py; warm best of 3 also given.",
+   "core": {
+    "file": "_core.cp312-win_amd64.pyd",
+    "bytes": 9004544,
+    "modified": "2026-10-28T10:30:57",
+    "commit": "00d0e0b"
+   },
+   "date": "2026-10-28"
+  },
+  {
+   "table": "single-core",
+   "row": "LandTrendr",
+   "order": 2,
+   "workload": "30 synthetic 30-year series (x1000), run_landtrendr per series",
+   "unit": "ms/call",
+   "published_cpp_1t": 0.02572,
+   "rust_1t": 0.018703333140971758,
+   "rust_1t_warm_best3": 0.011677666673980031,
+   "ratio_rust_cpp_1t": 0.7271902465385598,
+   "reference_1t": 4.33327,
+   "reference_tool": "original LandTrendr-2012 IDL under GDL 1.1.2 (in-interpreter, warm)",
+   "speedup_vs_reference_1t": 231.6843723703709,
+   "published_speedup": 168.5,
+   "agreement": {
+    "scenarios30": {
+     "vertex_years_exact_match_rate": 1.0,
+     "vertex_values_match_rate_trunc_tol1": 1.0,
+     "n": 30
+    },
+    "broad300": {
+     "vertex_years_exact_match_rate": 1.0,
+     "vertex_values_match_rate_trunc_tol1": 0.9966666666666667,
+     "n": 300
+    },
+    "inputs_equal_stored_csv": true
+   },
+   "agreement_stored": {
+    "scenarios30": {
+     "vertex_years_exact_match_rate": 1.0,
+     "vertex_values_match_rate_trunc_tol1": 1.0
+    },
+    "broad300": {
+     "vertex_years_exact_match_rate": 1.0,
+     "vertex_values_match_rate_trunc_tol1": 0.9967
+    }
+   },
+   "notes": "published and reference: results/landtrendr.csv; one pass of the 30 series (the original protocol), warm best of 3 runs of 10 passes also given. Broad battery (300 series): published C++ 0.019 ms/call, GDL 1.96293.",
+   "core": {
+    "file": "_core.cp312-win_amd64.pyd",
+    "bytes": 9004544,
+    "modified": "2026-10-28T10:30:57",
+    "commit": "00d0e0b"
+   },
+   "date": "2026-10-28"
+  },
+  {
+   "table": "single-core",
+   "row": "CCDC",
+   "order": 3,
+   "workload": "200 synthetic Landsat-like pixels (7 bands, 2000-2019 16-day), run_ccdc per pixel",
+   "unit": "ms/px",
+   "published_cpp_1t": 1.69091,
+   "rust_1t": 0.6494939999902272,
+   "rust_1t_warm_best3": 0.6154895000145189,
+   "ratio_rust_cpp_1t": 0.38410914832263526,
+   "reference_1t": 141.51481,
+   "reference_tool": "original CCDC MATLAB under GNU Octave 11.3 (in-interpreter, warm)",
+   "speedup_vs_reference_1t": 217.8847071753232,
+   "published_speedup": 83.691,
+   "real150": {
+    "published_cpp_1t": 1.05597,
+    "rust_1t": 0.4281700000380321,
+    "reference_1t": 111.26809,
+    "speedup_vs_reference_1t": 259.8689538970891
+   },
+   "agreement": {
+    "synthetic200": {
+     "model_dates_exact_match_rate": 1.0,
+     "full_model_match_rate": 1.0,
+     "max_coef_rel_diff": 4.864650621568527e-10,
+     "n": 200
+    },
+    "real150": {
+     "model_dates_exact_match_rate": 1.0,
+     "full_model_match_rate": 1.0,
+     "max_coef_rel_diff": 4.933492835949125e-10,
+     "n": 150
+    }
+   },
+   "agreement_stored": {
+    "synthetic200": {
+     "model_dates_exact_match_rate": 1.0,
+     "full_model_match_rate": 1.0
+    },
+    "real150": {
+     "model_dates_exact_match_rate": 1.0,
+     "full_model_match_rate": 1.0
+    }
+   },
+   "notes": "published and reference: results/ccdc.csv (synthetic row; the real 150 px row in real150, timed by one pass after the synthetic ones). One pass, as compare_ccdc.py; warm best of 3 also given.",
+   "core": {
+    "file": "_core.cp312-win_amd64.pyd",
+    "bytes": 9004544,
+    "modified": "2026-10-28T10:30:57",
+    "commit": "00d0e0b"
+   },
+   "date": "2026-10-28"
+  },
+  {
+   "table": "single-core",
+   "row": "TWDTW",
+   "order": 4,
+   "workload": "45 series x 3 patterns (doy, 1 band), run_twdtw per pair",
+   "unit": "ms/call (series-pattern pair)",
+   "published_cpp_1t": 0.02928,
+   "rust_1t": 0.017988148169091868,
+   "rust_1t_warm_best3": 0.01662881481698369,
+   "ratio_rust_cpp_1t": 0.6143493227148862,
+   "reference_1t": 1.28657,
+   "reference_tool": "R dtwSat/twdtw (Maus et al. 2016 original TWDTW)",
+   "speedup_vs_reference_1t": 71.52320449587182,
+   "published_speedup": 43.94,
+   "agreement": {
+    "classification_agreement_vs_R": 1.0,
+    "pearson_correlation_raw_distances": 0.9381006570125565,
+    "accuracy_vs_truth": 1.0
+   },
+   "agreement_stored": {
+    "classification_agreement_vs_R": 1.0,
+    "pearson_correlation_raw_distances": 0.9381,
+    "accuracy_vs_truth": 1.0
+   },
+   "notes": "published and reference: results/twdtw.csv; agreement against data/twdtw/r_twdtw_results.csv. The time includes the Python wrapper's list conversions, as the original's did.",
+   "core": {
+    "file": "_core.cp312-win_amd64.pyd",
+    "bytes": 9004544,
+    "modified": "2026-10-28T10:30:57",
+    "commit": "00d0e0b"
+   },
+   "date": "2026-10-28"
+  },
+  {
+   "table": "single-core",
+   "row": "SOM (training)",
+   "order": 5,
+   "workload": "1,500 samples x 6 features, 5x5 map, 500 online iterations (train only)",
+   "unit": "ms/fit",
+   "published_cpp_1t": 0.42,
+   "rust_1t": 0.1039199996739626,
+   "rust_1t_best": 0.09439999848837033,
+   "ratio_rust_cpp_1t": 0.2474285706522919,
+   "reference_1t": 6.923169999936363,
+   "reference_1t_best": 6.658999998762738,
+   "reference_published": 15.58,
+   "reference_tool": "Python minisom 2.3.6 MiniSom.train (re-run here)",
+   "speedup_vs_reference_1t": 66.62018881502152,
+   "published_speedup": 37.2,
+   "agreement": {
+    "max_abs_weight_diff_vs_minisom": 0.0
+   },
+   "notes": "both sides re-run on this machine (the published row was measured on a Ryzen 7 7730U laptop, so ratio_rust_cpp_1t mixes machines; the speedup vs minisom is same-machine). Mean of 20 fits after a warm-up, pinned to CPU 0; workload rebuilt (the producing script is not kept).",
+   "core": {
+    "file": "_core.cp312-win_amd64.pyd",
+    "bytes": 9004544,
+    "modified": "2026-10-28T10:30:57",
+    "commit": "00d0e0b"
+   },
+   "date": "2026-10-28"
+  },
+  {
+   "table": "single-core",
+   "row": "Mann-Kendall",
+   "order": 6,
+   "workload": "30-obs series (3 tests): mean per call over the 3 x 90 series",
+   "unit": "ms/call",
+   "published_cpp_1t": 0.021,
+   "rust_1t": 0.011144444336726641,
+   "rust_1t_warm_best3": 0.005170000001305231,
+   "ratio_rust_cpp_1t": 0.5306878255584114,
+   "reference_1t": 0.77,
+   "reference_tool": "Python pymannkendall",
+   "speedup_vs_reference_1t": 68.85164573029843,
+   "published_speedup": 36.4,
+   "notes": "the table's row: the mean of the three tests (published 0.021 ms vs 0.77 ms; per-test rows above). pymannkendall re-run for agreement: 0.646 ms/call fresh.",
+   "core": {
+    "file": "_core.cp312-win_amd64.pyd",
+    "bytes": 9004544,
+    "modified": "2026-10-28T10:30:57",
+    "commit": "00d0e0b"
+   },
+   "date": "2026-10-28"
+  },
+  {
+   "table": "single-core",
+   "row": "Mann-Kendall (hamed_rao)",
+   "order": 6,
+   "workload": "90 series of 25-50 obs (6 kinds x 15 seeds), mk_test_single per call",
+   "unit": "ms/call",
+   "published_cpp_1t": 0.0221,
+   "rust_1t": 0.01213444451827349,
+   "rust_1t_warm_best3": 0.005813777776590238,
+   "ratio_rust_cpp_1t": 0.5490698877046828,
+   "reference_1t": 0.90982,
+   "reference_tool": "pymannkendall hamed_rao_modification_test",
+   "speedup_vs_reference_1t": 74.97829823440907,
+   "published_speedup": 41.17,
+   "agreement": {
+    "trend_direction_exact_match_rate": 1.0,
+    "mean_abs_diff_p_value": 4.4408920985006264e-17,
+    "mean_abs_diff_slope": 0.0
+   },
+   "agreement_stored": {
+    "trend_direction_exact_match_rate": 1.0,
+    "mean_abs_diff_p_value": 0.0
+   },
+   "notes": "published value: results/mann_kendall.csv (mann_kendall_hamed_rao); pymannkendall re-run here only for the agreement check, its fresh time 0.7095 ms/call (stored 0.90982 kept).",
+   "core": {
+    "file": "_core.cp312-win_amd64.pyd",
+    "bytes": 9004544,
+    "modified": "2026-10-28T10:30:57",
+    "commit": "00d0e0b"
+   },
+   "date": "2026-10-28"
+  },
+  {
+   "table": "single-core",
+   "row": "Mann-Kendall (original)",
+   "order": 6,
+   "workload": "90 series of 25-50 obs (6 kinds x 15 seeds), mk_test_single per call",
+   "unit": "ms/call",
+   "published_cpp_1t": 0.02003,
+   "rust_1t": 0.010435555547398204,
+   "rust_1t_warm_best3": 0.0046515555570497075,
+   "ratio_rust_cpp_1t": 0.5209962829454919,
+   "reference_1t": 0.69013,
+   "reference_tool": "pymannkendall original_test",
+   "speedup_vs_reference_1t": 66.132559676908,
+   "published_speedup": 34.46,
+   "agreement": {
+    "trend_direction_exact_match_rate": 1.0,
+    "mean_abs_diff_p_value": 3.947459643111668e-17,
+    "mean_abs_diff_slope": 0.0
+   },
+   "agreement_stored": {
+    "trend_direction_exact_match_rate": 1.0,
+    "mean_abs_diff_p_value": 0.0
+   },
+   "notes": "published value: results/mann_kendall.csv (mann_kendall_original); pymannkendall re-run here only for the agreement check, its fresh time 0.5801 ms/call (stored 0.69013 kept).",
+   "core": {
+    "file": "_core.cp312-win_amd64.pyd",
+    "bytes": 9004544,
+    "modified": "2026-10-28T10:30:57",
+    "commit": "00d0e0b"
+   },
+   "date": "2026-10-28"
+  },
+  {
+   "table": "single-core",
+   "row": "Mann-Kendall (yue_wang)",
+   "order": 6,
+   "workload": "90 series of 25-50 obs (6 kinds x 15 seeds), mk_test_single per call",
+   "unit": "ms/call",
+   "published_cpp_1t": 0.02099,
+   "rust_1t": 0.010863332944508228,
+   "rust_1t_warm_best3": 0.005044666670275749,
+   "ratio_rust_cpp_1t": 0.5175480202243081,
+   "reference_1t": 0.70199,
+   "reference_tool": "pymannkendall yue_wang_modification_test",
+   "speedup_vs_reference_1t": 64.62013118679926,
+   "published_speedup": 33.45,
+   "agreement": {
+    "trend_direction_exact_match_rate": 1.0,
+    "mean_abs_diff_p_value": 8.388351741612294e-17,
+    "mean_abs_diff_slope": 0.0
+   },
+   "agreement_stored": {
+    "trend_direction_exact_match_rate": 1.0,
+    "mean_abs_diff_p_value": 0.0
+   },
+   "notes": "published value: results/mann_kendall.csv (mann_kendall_yue_wang); pymannkendall re-run here only for the agreement check, its fresh time 0.6482 ms/call (stored 0.70199 kept).",
+   "core": {
+    "file": "_core.cp312-win_amd64.pyd",
+    "bytes": 9004544,
+    "modified": "2026-10-28T10:30:57",
+    "commit": "00d0e0b"
+   },
+   "date": "2026-10-28"
+  },
+  {
+   "table": "single-core",
+   "row": "BFAST Monitor",
+   "order": 7,
+   "workload": "40 series of 150 obs (23/yr), history 'all', bfast_monitor per call",
+   "unit": "ms/call",
+   "published_cpp_1t": 0.0926,
+   "rust_1t": 0.08695249998709187,
+   "rust_1t_warm_best3": 0.0841927500005113,
+   "ratio_rust_cpp_1t": 0.9390118789102794,
+   "reference_1t": 1.4674,
+   "reference_tool": "R bfast::bfastmonitor()",
+   "speedup_vs_reference_1t": 16.875880511978796,
+   "published_speedup": 15.84,
+   "agreement": {
+    "has_break_agreement_rate": 1.0,
+    "magnitude_mean_abs_diff": 2.0540481208281003e-14,
+    "magnitude_correlation": 1.0,
+    "n_both_break": 32
+   },
+   "agreement_stored": {
+    "has_break_agreement_rate": 1.0,
+    "magnitude_mean_abs_diff": 0.0
+   },
+   "notes": "published and reference: results/bfast_monitor.csv; agreement against data/bfast_monitor_r_results.csv.",
+   "core": {
+    "file": "_core.cp312-win_amd64.pyd",
+    "bytes": 9004544,
+    "modified": "2026-10-28T10:30:57",
+    "commit": "00d0e0b"
+   },
+   "date": "2026-10-28"
+  },
+  {
+   "table": "single-core",
+   "row": "BFAST (classic)",
+   "order": 8,
+   "workload": "40 series of 300 obs (23/yr), iterative STL + breakpoints, bfast per call",
+   "unit": "ms/call",
+   "published_cpp_1t": 23.5997,
+   "rust_1t": 7.619737500317569,
+   "rust_1t_warm_best3": 7.464832500045304,
+   "ratio_rust_cpp_1t": 0.32287433739910126,
+   "reference_1t": 100.6658,
+   "reference_tool": "R bfast::bfast()",
+   "speedup_vs_reference_1t": 13.21119001747823,
+   "published_speedup": 4.27,
+   "agreement": {
+    "n_trend_breaks_exact_match_rate": 0.875,
+    "magnitude_mean_abs_diff": 0.00015765922140537902,
+    "n_season_breaks_exact_match_rate": 1.0,
+    "n_iter_exact_match_rate": 0.875,
+    "magnitude_correlation": 0.998121757908704,
+    "trend_breakpoint_idx_exact_match_rate": 0.75,
+    "n_both_trend_break": 20
+   },
+   "agreement_stored": {
+    "n_trend_breaks_exact_match_rate": 0.875,
+    "magnitude_mean_abs_diff": 0.000158,
+    "notes": "n_season_breaks 1.0, n_iter 0.875, magnitude_correlation 0.998122, trend_bp exact 0.75 on 20"
+   },
+   "notes": "published and reference: results/bfast.csv; agreement against data/bfast_r_results.csv.",
+   "core": {
+    "file": "_core.cp312-win_amd64.pyd",
+    "bytes": 9004544,
+    "modified": "2026-10-28T10:30:57",
+    "commit": "00d0e0b"
+   },
+   "date": "2026-10-28"
+  },
+  {
+   "table": "single-core",
+   "row": "BFAST Lite",
+   "order": 9,
+   "workload": "40 series of 150 obs (23/yr), LWZ breaks, bfast_lite per call",
+   "unit": "ms/call",
+   "published_cpp_1t": 8.7404,
+   "rust_1t": 4.28554999998596,
+   "rust_1t_warm_best3": 4.141942500064033,
+   "ratio_rust_cpp_1t": 0.4903150885526933,
+   "reference_1t": 22.2209,
+   "reference_tool": "R bfast::bfastlite()",
+   "speedup_vs_reference_1t": 5.185075427908389,
+   "published_speedup": 2.54,
+   "agreement": {
+    "n_breaks_exact_match_rate": 1.0,
+    "first_breakpoint_idx_exact_match_rate": 0.8,
+    "breakpoint_idx_mean_abs_diff": 1.6,
+    "n_both_break": 25
+   },
+   "agreement_stored": {
+    "n_breaks_exact_match_rate": 1.0,
+    "first_breakpoint_idx_exact_match_rate": 0.8
+   },
+   "notes": "published and reference: results/bfast_lite.csv; agreement against data/bfast_lite_r_results.csv.",
+   "core": {
+    "file": "_core.cp312-win_amd64.pyd",
+    "bytes": 9004544,
+    "modified": "2026-10-28T10:30:57",
+    "commit": "00d0e0b"
+   },
+   "date": "2026-10-28"
+  },
+  {
+   "table": "single-core",
+   "row": "SNIC",
+   "order": 10,
+   "workload": "512x512x4 float64 (rebuilt), 2601 grid seeds, compactness 10, one pass, run_snic",
+   "unit": "ms/pass",
+   "published_cpp_1t": 18.4,
+   "rust_1t": 46.10850000026403,
+   "rust_1t_best": 44.00869999517454,
+   "ratio_rust_cpp_1t": 2.5058967391447844,
+   "reference_1t": 42.3,
+   "reference_tool": "Achanta & Susstrunk snic.c",
+   "speedup_vs_reference_1t": 0.9174013468180005,
+   "published_speedup": 2.3,
+   "reference_calibration": {
+    "snic_c_mean_ms": 78.68563999800244,
+    "snic_c_best_ms": 74.46868000115501,
+    "snic_c_labels": 2601,
+    "zeit_over_snic_c": 0.5859836687028861
+   },
+   "agreement": {
+    "labelled_px": 262144,
+    "segments": 2601
+   },
+   "notes": "the producing script of the published row is not kept: workload rebuilt from the table's description, so the ratio to the published C++ value is indicative only; reference_calibration (with --reference) times snic.c on this same image: if snic.c takes much longer than the recorded 42.3 ms, the rebuilt image is heavier than the published one and zeit_over_snic_c (against the published 18.4/42.3 = 0.435) is the comparable figure. Label parity with snic.c is covered by tests/test_snic.py.",
+   "core": {
+    "file": "_core.cp312-win_amd64.pyd",
+    "bytes": 9004544,
+    "modified": "2026-10-28T10:30:57",
+    "commit": "00d0e0b"
+   },
+   "date": "2026-10-28"
+  },
+  {
+   "table": "multi-core",
+   "row": "LandTrendr (tile)",
+   "order": 1,
+   "workload": "tile 215_067, 54,731,482 px x 41 yrs, run_landtrendr_batch, I/O excluded",
+   "unit": "s",
+   "published_cpp_1t": 904.77,
+   "published_cpp_multi": 98.44,
+   "published_threads": 20,
+   "rust_1t": 643.3510838000075,
+   "rust_8t": 103.91537209998933,
+   "ratio_rust_cpp_1t": 0.7110658883473231,
+   "ratio_rust8_cpp19": 1.0556214150750642,
+   "rust_px_per_s_1t": 85072.49521788924,
+   "rust_px_per_s_8t": 526692.8356599285,
+   "io_s": 1591.800188899986,
+   "agreement": {
+    "outputs_1t_equal_8t_every_block": true,
+    "total_vertices": 138478021
+   },
+   "notes": "published: scratch/cdts_benchmark_results.json (cdts 0.18.0, 20 threads). Same blocks and order (multi-thread then single per block); no reference tool on this row (GEE's 1,396 s was another tile on Google's cluster).",
+   "core": {
+    "file": "_core.cp312-win_amd64.pyd",
+    "bytes": 9004544,
+    "modified": "2026-10-28T10:30:57",
+    "commit": "00d0e0b"
+   },
+   "date": "2026-10-28"
+  },
+  {
+   "table": "multi-core",
+   "row": "CCDC (stack)",
+   "order": 2,
+   "workload": "Rondonia stack, 2,830,750 px x 125 dates, run_ccdc_batch, I/O excluded",
+   "unit": "s",
+   "published_cpp_1t": 442.02150269998674,
+   "published_cpp_multi": 50.65626240000711,
+   "published_threads": 20,
+   "rust_1t": 147.0913007999916,
+   "rust_8t": 28.503827300010016,
+   "ratio_rust_cpp_1t": 0.33276955962892796,
+   "ratio_rust8_cpp19": 0.562691085949642,
+   "rust_px_per_s_1t": 19244.849862665447,
+   "rust_px_per_s_8t": 99311.2247771374,
+   "io_s": 13.272853099988424,
+   "prep_s": 38.74683000000368,
+   "agreement": {
+    "outputs_1t_equal_8t_every_block": true,
+    "models": 740104,
+    "breaks": 389555,
+    "stored_models": 740104,
+    "stored_breaks": 389555
+   },
+   "notes": "published: data/ccdc_compare/tile_benchmark.json (cdts 0.19.0, 20 threads). Same blocks and order (multi-thread then single per block); no reference tool on this row.",
+   "core": {
+    "file": "_core.cp312-win_amd64.pyd",
+    "bytes": 9004544,
+    "modified": "2026-10-28T10:30:57",
+    "commit": "00d0e0b"
+   },
+   "date": "2026-10-28"
+  },
+  {
+   "table": "multi-core",
+   "row": "SNIC (tiled)",
+   "order": 3,
+   "workload": "2048x2048x6 float64 (rebuilt), 41616 grid seeds, tile_size 512 (16 tiles)",
+   "unit": "ms",
+   "published_cpp_1t": 482.0,
+   "published_cpp_multi": 59.0,
+   "published_threads": 20,
+   "rust_1t": 853.4044999978505,
+   "rust_8t": 240.2626999974018,
+   "rust_1t_warm_best3": 797.9372999980114,
+   "rust_8t_warm_best3": 225.58310000022175,
+   "ratio_rust_cpp_1t": 1.7705487551822625,
+   "ratio_rust8_cpp19": 4.072249152498336,
+   "agreement": {
+    "labels_1t_equal_8t": true
+   },
+   "notes": "workload rebuilt (see the single-core row); the published thread count is given as 20 in the table. rust_1t / rust_8t: one cold run each, then the warm best of 3. No reference tool (snic.c has no parallel mode).",
+   "core": {
+    "file": "_core.cp312-win_amd64.pyd",
+    "bytes": 9004544,
+    "modified": "2026-10-28T10:30:57",
+    "commit": "00d0e0b"
+   },
+   "date": "2026-10-28"
+  },
+  {
+   "table": "multi-core",
+   "row": "Phenology",
+   "order": 4,
+   "workload": "real EVI raster, 638 px x 25 yrs (575 dates), Beck",
+   "unit": "ms",
+   "published_cpp_1t": 2200.27,
+   "published_cpp_multi": 340.81,
+   "published_threads": 19,
+   "rust_1t": 1158.3026000007521,
+   "rust_8t": 209.11760000308277,
+   "rust_1t_warm_best3": 1158.1325000006473,
+   "rust_8t_warm_best3": 203.05139999982202,
+   "ratio_rust_cpp_1t": 0.5264365736935704,
+   "ratio_rust8_cpp19": 0.6135899768289744,
+   "reference_1t": 525395.49,
+   "reference_multi": 93503.52,
+   "reference_workers": 19,
+   "reference_tool": "R phenofit, doParallel (19 workers)",
+   "speedup_vs_reference_1t": 453.5908751302629,
+   "speedup_vs_reference_multi": 447.13367023445943,
+   "notes": "published and reference: results/parallel_phenology.csv. One run each, n_jobs=1 first, the raster loaded afresh each time (parallel_phenology.py); warm best of 3 also given. Published: n_jobs=-1 = 19 threads; here 8.",
+   "core": {
+    "file": "_core.cp312-win_amd64.pyd",
+    "bytes": 9004544,
+    "modified": "2026-10-28T10:30:57",
+    "commit": "00d0e0b"
+   },
+   "date": "2026-10-28"
+  },
+  {
+   "table": "multi-core",
+   "row": "Mann-Kendall",
+   "order": 5,
+   "workload": "5,000 series x 30 obs, fit_mann_kendall_batch (Hamed-Rao)",
+   "unit": "ms (batch)",
+   "published_cpp_1t": 31.087,
+   "published_cpp_multi": 7.294,
+   "published_threads": 19,
+   "rust_1t": 17.64510000066366,
+   "rust_8t": 3.621500000008382,
+   "rust_1t_warm_best3": 17.312599993601907,
+   "rust_8t_warm_best3": 2.5782000011531636,
+   "ratio_rust_cpp_1t": 0.5676038215544652,
+   "ratio_rust8_cpp19": 0.49650397587172773,
+   "reference_1t": 4057.76,
+   "reference_multi": 20109.368,
+   "reference_workers": 19,
+   "reference_tool": "pymannkendall, multiprocessing.Pool(19)",
+   "speedup_vs_reference_1t": 229.96525946848595,
+   "speedup_vs_reference_multi": 5552.773160279844,
+   "agreement": {
+    "outputs_1t_equal_8t": true
+   },
+   "notes": "rust_1t / rust_8t: one cold run each, n_jobs=1 first (the original protocol); warm best of 3 also given. Published multi-core: n_jobs=-1 = 19 threads; here 8.",
+   "core": {
+    "file": "_core.cp312-win_amd64.pyd",
+    "bytes": 9004544,
+    "modified": "2026-10-28T10:30:57",
+    "commit": "00d0e0b"
+   },
+   "date": "2026-10-28"
+  },
+  {
+   "table": "multi-core",
+   "row": "BFAST Monitor",
+   "order": 6,
+   "workload": "20,000 series x 150 obs, fit_bfast_monitor_batch",
+   "unit": "ms (batch)",
+   "published_cpp_1t": 81.14,
+   "published_cpp_multi": 14.54,
+   "published_threads": 19,
+   "rust_1t": 63.16220000007888,
+   "rust_8t": 10.026099997048732,
+   "rust_1t_warm_best3": 62.77679999766406,
+   "rust_8t_warm_best3": 8.924299996579066,
+   "ratio_rust_cpp_1t": 0.7784348040433681,
+   "ratio_rust8_cpp19": 0.6895529571560338,
+   "reference_1t": 26871.99,
+   "reference_multi": 5002.68,
+   "reference_workers": 19,
+   "reference_tool": "R bfast, PSOCK cluster (19 workers, setup excluded)",
+   "speedup_vs_reference_1t": 425.4441738882819,
+   "speedup_vs_reference_multi": 498.96569967111657,
+   "agreement": {
+    "outputs_1t_equal_8t": true
+   },
+   "notes": "published and reference: results/parallel_bfast_monitor.csv. rust_1t / rust_8t: one cold run each, n_jobs=1 first (the original protocol); warm best of 3 also given. Published: n_jobs=-1 = 19 threads; here 8.",
+   "core": {
+    "file": "_core.cp312-win_amd64.pyd",
+    "bytes": 9004544,
+    "modified": "2026-10-28T10:30:57",
+    "commit": "00d0e0b"
+   },
+   "date": "2026-10-28"
+  },
+  {
+   "table": "multi-core",
+   "row": "BFAST Lite",
+   "order": 7,
+   "workload": "2,000 series x 150 obs, fit_bfast_lite_batch",
+   "unit": "ms (batch)",
+   "published_cpp_1t": 17029.18,
+   "published_cpp_multi": 2018.98,
+   "published_threads": 19,
+   "rust_1t": 8595.199700001103,
+   "rust_8t": 1485.337400001299,
+   "rust_1t_warm_best3": 8377.93189999502,
+   "rust_8t_warm_best3": 1501.0603999980958,
+   "ratio_rust_cpp_1t": 0.5047336219360593,
+   "ratio_rust8_cpp19": 0.7356870300851416,
+   "reference_1t": 42462.81,
+   "reference_multi": 4551.19,
+   "reference_workers": 19,
+   "reference_tool": "R bfast, PSOCK cluster (19 workers, setup excluded)",
+   "speedup_vs_reference_1t": 4.940293592014453,
+   "speedup_vs_reference_multi": 3.0640782356897627,
+   "agreement": {
+    "outputs_1t_equal_8t": true
+   },
+   "notes": "published and reference: results/parallel_bfast_lite.csv. rust_1t / rust_8t: one cold run each, n_jobs=1 first (the original protocol); warm best of 3 also given. Published: n_jobs=-1 = 19 threads; here 8.",
+   "core": {
+    "file": "_core.cp312-win_amd64.pyd",
+    "bytes": 9004544,
+    "modified": "2026-10-28T10:30:57",
+    "commit": "00d0e0b"
+   },
+   "date": "2026-10-28"
+  },
+  {
+   "table": "multi-core",
+   "row": "BFAST (classic)",
+   "order": 8,
+   "workload": "400 series x 300 obs, fit_bfast_batch",
+   "unit": "ms (batch)",
+   "published_cpp_1t": 5207.58,
+   "published_cpp_multi": 909.12,
+   "published_threads": 19,
+   "rust_1t": 1412.9102000006242,
+   "rust_8t": 239.20790000556735,
+   "rust_1t_warm_best3": 1417.6474000050803,
+   "rust_8t_warm_best3": 223.13849999773083,
+   "ratio_rust_cpp_1t": 0.2713180018359054,
+   "ratio_rust8_cpp19": 0.2631202701574791,
+   "reference_1t": 25118.86,
+   "reference_multi": 3334.96,
+   "reference_workers": 19,
+   "reference_tool": "R bfast, PSOCK cluster (19 workers, setup excluded)",
+   "speedup_vs_reference_1t": 17.778100830462478,
+   "speedup_vs_reference_multi": 13.941680019440753,
+   "agreement": {
+    "outputs_1t_equal_8t": true
+   },
+   "notes": "published and reference: results/parallel_bfast.csv. rust_1t / rust_8t: one cold run each, n_jobs=1 first (the original protocol); warm best of 3 also given. Published: n_jobs=-1 = 19 threads; here 8.",
+   "core": {
+    "file": "_core.cp312-win_amd64.pyd",
+    "bytes": 9004544,
+    "modified": "2026-10-28T10:30:57",
+    "commit": "00d0e0b"
+   },
+   "date": "2026-10-28"
+  },
+  {
+   "table": "multi-core",
+   "row": "TWDTW",
+   "order": 9,
+   "workload": "3,000 series x 40 steps x 1 pattern, run_twdtw_batch",
+   "unit": "ms (batch)",
+   "published_cpp_1t": 91.674,
+   "published_cpp_multi": 13.348,
+   "published_threads": 19,
+   "rust_1t": 10.163200000533834,
+   "rust_8t": 2.1249999990686774,
+   "rust_1t_warm_best3": 9.830500006501097,
+   "rust_8t_warm_best3": 1.5096999995876104,
+   "ratio_rust_cpp_1t": 0.1108624037407971,
+   "ratio_rust8_cpp19": 0.1591998800620825,
+   "reference_1t": 1405.748,
+   "reference_multi": 188.673,
+   "reference_workers": 19,
+   "reference_tool": "R twdtw, PSOCK cluster (19 workers, setup excluded)",
+   "speedup_vs_reference_1t": 138.3174590607448,
+   "speedup_vs_reference_multi": 88.78729415655982,
+   "agreement": {
+    "outputs_1t_equal_8t": true,
+    "input_equals_stored_series_csv": true
+   },
+   "notes": "published and reference: results/parallel_twdtw.csv. rust_1t / rust_8t: one cold run each, n_jobs=1 first (the original protocol); warm best of 3 also given. Published: n_jobs=-1 = 19 threads; here 8.",
+   "core": {
+    "file": "_core.cp312-win_amd64.pyd",
+    "bytes": 9004544,
+    "modified": "2026-10-28T10:30:57",
+    "commit": "00d0e0b"
+   },
+   "date": "2026-10-28"
+  },
+  {
+   "table": "multi-core",
+   "row": "SOM (batch)",
+   "order": 10,
+   "workload": "20,000 samples x 6 features, 10x10 map, 200 batch iterations",
+   "unit": "ms",
+   "published_cpp_1t": 3077.0,
+   "published_cpp_multi": 664.0,
+   "published_threads": 15,
+   "rust_1t": 1530.4738000049838,
+   "rust_8t": 255.83850000111852,
+   "rust_1t_warm_best3": 1526.6276000038488,
+   "rust_8t_warm_best3": 250.25930000265362,
+   "ratio_rust_cpp_1t": 0.4973915502128644,
+   "ratio_rust8_cpp19": 0.38529894578481705,
+   "reference_1t": 63463.39920000173,
+   "reference_1t_extrapolated_10x20": 63486.10599990934,
+   "reference_published": 126000.0,
+   "reference_tool": "Python minisom 2.3.6 train_batch_offline, 1 thread (re-run here)",
+   "speedup_vs_reference_1t": 41.46650481687114,
+   "speedup_vs_reference_multi": 248.06039434926436,
+   "agreement": {
+    "max_abs_weight_diff_vs_minisom": 0.0,
+    "outputs_1t_equal_8t": true
+   },
+   "notes": "published: Ryzen 7 7730U laptop, 15 threads (ratio_rust_* mixes machines; the minisom speedup is same-machine). minisom has no parallel mode: speedup_vs_reference_multi is minisom on 1 thread over zeit on 8. rust_1t / rust_8t: one cold run each, then the warm best of 3.",
+   "core": {
+    "file": "_core.cp312-win_amd64.pyd",
+    "bytes": 9004544,
+    "modified": "2026-10-28T10:30:57",
+    "commit": "00d0e0b"
+   },
+   "date": "2026-10-28"
+  }
+ ],
+ "description": "Zeit's side of docs/benchmarks/performance.md re-timed with the Rust core (benchmarks/vs_references). published_cpp_*: the C++ core of zeit 1.x as published (i5-13600K, except SOM: Ryzen 7 7730U laptop); rust_*: this run; reference_*: the stored timings of the reference tools (not run again, except minisom). Multi-core: the published numbers used 19-20 threads (15 for SOM), these runs 8 (ZEIT_NUM_THREADS=8). ratio_rust_cpp < 1: Rust faster.",
+ "machine": {
+  "platform": "Windows-11-10.0.26300-SP0",
+  "processor": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel",
+  "cpus": 20,
+  "python": "3.12.8",
+  "threads_multi": 8,
+  "single_thread_cpu": 0
+ }
+}

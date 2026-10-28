@@ -243,8 +243,8 @@ The same analysis in three styles. Pick the one that fits your data:
 
 <div class="stats" markdown>
 <div><span class="n">100%</span><span class="l">vertex-for-vertex agreement with the original LandTrendr IDL code, and model-for-model with CCDC MATLAB</span></div>
-<div><span class="n">168×</span><span class="l">faster than the reference LandTrendr on one core, with more from its threads</span></div>
-<div><span class="n">20×</span><span class="l">higher throughput than Google Earth Engine on a full Landsat tile, with no queue</span></div>
+<div><span class="n">232×</span><span class="l">faster than the reference LandTrendr on one core, with more from its threads</span></div>
+<div><span class="n">19×</span><span class="l">higher throughput than Google Earth Engine on a full Landsat tile, with no queue</span></div>
 <div><span class="n">0</span><span class="l">compilers needed. Pre-built wheels for Windows, macOS and Linux</span></div>
 </div>
 

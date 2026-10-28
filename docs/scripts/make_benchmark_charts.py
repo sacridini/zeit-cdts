@@ -28,17 +28,17 @@ TIERS = {
     "analog": ("Analog", "No reference with the same architecture; compared to a conceptual analog"),
 }
 SINGLE_CORE = [
-    ("Phenology", "R phenofit", (244.5, None), "close", "Start of season within 3.7 days (MAE), 99.1% within 15 days"),
-    ("LandTrendr", "IDL original (GDL)", (168.5, None), "same", "100% identical vertex years (330/330 series)"),
-    ("CCDC", "MATLAB original (Octave)", (83.7, 105), "same", "100% model match: dates, categories, coefficients"),
-    ("TWDTW", "R twdtw / dtwSat", (43.9, None), "float", "Distances identical to R within 1e-12"),
-    ("SOM", "Python minisom", (37.2, 126), "same", "Bit-exact codebooks (max weight difference 0.0)"),
-    ("Mann-Kendall", "Python pymannkendall", (33, 41), "same", "100% trend agreement, mean p-value difference 0.0"),
-    ("BFAST Monitor", "R bfast::bfastmonitor", (15.8, None), "same", "100% break agreement, magnitude correlation 1.0"),
+    ("Phenology", "R phenofit", (370.3, None), "close", "Start of season within 3.7 days (MAE), 99.1% within 15 days"),
+    ("LandTrendr", "IDL original (GDL)", (231.7, None), "same", "100% identical vertex years (330/330 series)"),
+    ("CCDC", "MATLAB original (Octave)", (217.9, 259.9), "same", "100% model match: dates, categories, coefficients"),
+    ("TWDTW", "R twdtw / dtwSat", (71.5, None), "float", "Distances identical to R within 1e-12"),
+    ("Mann-Kendall", "Python pymannkendall", (64.6, 75.0), "same", "100% trend agreement, mean p-value difference 0.0"),
+    ("SOM", "Python minisom", (41.5, 66.6), "same", "Bit-exact codebooks (max weight difference 0.0)"),
+    ("BFAST Monitor", "R bfast::bfastmonitor", (16.9, None), "same", "100% break agreement, magnitude correlation 1.0"),
+    ("BFAST", "R bfast::bfast", (13.2, None), "close", "87.5% same break count, 100% same positions"),
     ("TempCNN", "R sits (torch)", (11.1, None), "float", "Max absolute difference 5.6e-9"),
     ("LightTAE", "R sits (torch)", (5.8, None), "float", "Max absolute difference 8.9e-8"),
-    ("BFAST", "R bfast::bfast", (4.3, None), "close", "87.5% same break count, 100% same positions"),
-    ("BFAST Lite", "R bfast::bfastlite", (2.5, None), "close", "100% same break count, 80% same index"),
+    ("BFAST Lite", "R bfast::bfastlite", (5.2, None), "close", "100% same break count, 80% same index"),
     ("SNIC", "C reference (snic.c)", (1.8, 3.5), "same", "Bitwise-identical segment labels"),
     ("Presto", "Official nasaharvest/presto", (1.17, None), "float", "Encodings within 1.2e-6 (identical in 3 of 5 cases)"),
     ("U-TAE", "Official utae-paps", (1.08, None), "same", "Max absolute difference 0.0"),
@@ -46,14 +46,14 @@ SINGLE_CORE = [
      "Same outputs with the same weights (5.6e-16 in float64)"),
 ]
 
-# name, workload, Zeit 20 threads (ms), reference multi-worker (ms), reference framework
+# name, workload, Zeit 8 threads (ms; the deep-learning rows: 20 threads, PyTorch), reference multi-worker (ms), reference framework
 FINISH_FIRST = [
-    ("Mann-Kendall", "5,000 series", 7.29, 20109, "Python multiprocessing, 19 workers"),
-    ("BFAST Monitor", "20,000 series", 14.54, 5003, "R PSOCK cluster, 19 workers"),
-    ("Phenology", "638 px × 25 years", 341, 93504, "R foreach + doParallel, 19 workers"),
-    ("TWDTW", "3,000 series", 13.35, 188.67, "R PSOCK cluster, 19 workers"),
-    ("BFAST", "400 series", 909, 3335, "R PSOCK cluster, 19 workers"),
-    ("BFAST Lite", "2,000 series", 2019, 4551, "R PSOCK cluster, 19 workers"),
+    ("Mann-Kendall", "5,000 series", 3.622, 20109, "Python multiprocessing, 19 workers"),
+    ("BFAST Monitor", "20,000 series", 10.03, 5003, "R PSOCK cluster, 19 workers"),
+    ("Phenology", "638 px × 25 years", 209.1, 93504, "R foreach + doParallel, 19 workers"),
+    ("TWDTW", "3,000 series", 2.125, 188.67, "R PSOCK cluster, 19 workers"),
+    ("BFAST", "400 series", 239.2, 3335, "R PSOCK cluster, 19 workers"),
+    ("BFAST Lite", "2,000 series", 1485, 4551, "R PSOCK cluster, 19 workers"),
     ("TempCNN", "batch of 512", 3.94, 7.78, "R torch intra-op threads"),
     ("LightTAE", "batch of 512", 14.61, 26.98, "R torch intra-op threads"),
     ("U-TAE", "batch of 32", 126.0, 124.67, "PyTorch intra-op threads"),
@@ -61,8 +61,8 @@ FINISH_FIRST = [
 
 GEE = [
     ("Google Earth Engine", "batch workers (EECU)", 27213, 1396.39, 18308, "ref"),
-    ("Zeit, 1 thread", "desktop PC", 60492, 904.77, 0, "zeit-lo"),
-    ("Zeit, 20 threads", "desktop PC", 556007, 98.44, 0, "zeit"),
+    ("Zeit, 1 thread", "desktop PC", 85072, 643.35, 0, "zeit-lo"),
+    ("Zeit, 8 threads", "desktop PC", 526693, 103.92, 0, "zeit"),
 ]
 
 
@@ -150,12 +150,12 @@ def chart_overview():
 
 
 # ---------------------------------------------------------------------------
-# 2. Who finishes first when both use every core
+# 2. Who finishes first when both run in parallel
 # ---------------------------------------------------------------------------
 def chart_finish_first():
     W, row_h, top = 720, 42, 56
     x0, x1 = 190, 580
-    lo, hi = math.log10(2), math.log10(200000)
+    lo, hi = math.log10(1), math.log10(200000)
 
     def X(v):
         return x0 + (math.log10(v) - lo) / (hi - lo) * (x1 - x0)
@@ -164,7 +164,7 @@ def chart_finish_first():
     H = top + row_h * len(rows) + 18
     b = []
     b.append('<text class="zc-head" x="0" y="20">Algorithm · workload</text>')
-    b.append(f'<text class="zc-head" x="{x0}" y="20">Wall-clock time, every core (log scale)</text>')
+    b.append(f'<text class="zc-head" x="{x0}" y="20">Wall-clock time, in parallel (log scale)</text>')
     b.append(f'<text class="zc-head" x="{W}" y="20" text-anchor="end">Zeit finishes</text>')
     for v, label in [(10, "10 ms"), (100, "100 ms"), (1000, "1 s"), (10000, "10 s"), (100000, "100 s")]:
         b.append(f'<line class="zc-grid" x1="{X(v):.1f}" x2="{X(v):.1f}" y1="{top - 12}" y2="{H - 14}"/>')
@@ -173,8 +173,9 @@ def chart_finish_first():
         y = top + i * row_h
         cy = y + row_h / 2
         ratio = r / z
+        zt = 20 if "torch" in fw.lower() else 8
         verdict = "tied" if 0.9 < ratio < 1.1 else (f"{ratio:,.0f}× sooner" if ratio >= 10 else f"{ratio:.1f}× sooner")
-        text = (f"{name}, {work}: Zeit with 20 threads {fmt_ms(z)}; reference ({fw}) {fmt_ms(r)}. "
+        text = (f"{name}, {work}: Zeit with {zt} threads {fmt_ms(z)}; reference ({fw}) {fmt_ms(r)}. "
                 f"{'Both run on the PyTorch backend: tied.' if verdict == 'tied' else 'Zeit finishes ' + verdict + '.'}")
         b.append(f'<g class="zc-row" {tip(text)}>')
         b.append(f'<rect class="zc-hit" x="0" y="{y}" width="{W}" height="{row_h}"/>')
@@ -188,7 +189,7 @@ def chart_finish_first():
         b.append(f'<text class="zc-val zc-val--soft" x="{X(r) + 11:.1f}" y="{cy + 4:.1f}">{fmt_ms(r)}</text>')
         b.append(f'<text class="zc-val" x="{W}" y="{cy + 4:.1f}" text-anchor="end">{verdict}</text>')
         b.append("</g>")
-    write("finish_first", svg(W, H, "Wall-clock time of Zeit with 20 threads and of each reference tool "
+    write("finish_first", svg(W, H, "Wall-clock time of Zeit with 8 threads and of each reference tool "
                                     "with its parallel framework", b))
 
 

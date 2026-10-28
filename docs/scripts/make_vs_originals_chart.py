@@ -40,6 +40,10 @@ ROWS = [
     # Rbeast's beast123 has threads: its time on 1 thread is drawn; the speedups are against it on as many.
     ("BEAST", "beast", "Rbeast 1.0.2 (R)", "10000 px x 144 months",
      "Rbeast (beast123, AVX2) on 1 thread", "10,000 px × 144 months"),
+    ("AR(1) trend", "ar_trend", "remotePARTS 1.0.4 fitAR_map (R)", "200x200 px x 30 years",
+     "remotePARTS fitAR_map", "200 × 200 px × 30 years"),
+    ("PARTS", "parts", "remotePARTS 1.0.4 fitGLS_partition (R)", "200x200 px x 30 years, 26 x 1500",
+     "remotePARTS fitGLS_partition", "40,000 px in 26 partitions of 1500"),
 ]
 
 
@@ -61,25 +65,27 @@ def chart_vs_originals():
         return x0 + (math.log10(v) - lo) / (hi - lo) * (x1 - x0)
 
     def find(method, original, size, threads):
-        for r in data:
-            if (r["method"], r["original"], r["size"], r["threads"]) == (method, original, size, threads):
-                return r
-        raise KeyError((method, original, size, threads))
+        """The entry on `threads`, or with None the one on the most threads above 1 (19, or 10 for the later)."""
+        found = [r for r in data if (r["method"], r["original"], r["size"]) == (method, original, size)
+                 and (r["threads"] == threads if threads else r["threads"] > 1)]
+        if not found:
+            raise KeyError((method, original, size, threads))
+        return max(found, key=lambda r: r["threads"])
 
     H = top + row_h * len(ROWS) + 18
     b = ['<text class="zc-head" x="0" y="20">Method · workload</text>',
          f'<text class="zc-head" x="{x0}" y="20">Time of the call (log scale)</text>',
-         f'<text class="zc-head" x="{W}" y="20" text-anchor="end">Faster, 1 / 19 threads</text>']
+         f'<text class="zc-head" x="{W}" y="20" text-anchor="end">Faster, 1 thread / many</text>']
     for v, label in [(0.01, "10 ms"), (0.1, "100 ms"), (1, "1 s"), (10, "10 s"), (100, "100 s")]:
         b.append(f'<line class="zc-grid" x1="{X(v):.1f}" x2="{X(v):.1f}" y1="{top - 12}" y2="{H - 14}"/>')
         b.append(f'<text class="zc-tick" x="{X(v):.1f}" y="{top - 18}" text-anchor="middle">{label}</text>')
     for i, (name, method, original, size, ref, work) in enumerate(ROWS):
-        one, many = find(method, original, size, 1), find(method, original, size, 19)
+        one, many = find(method, original, size, 1), find(method, original, size, None)
         r, z1, z19 = one["original_s"], one["zeit_s"], many["zeit_s"]
         y = top + i * row_h
         cy = y + row_h / 2
         text = (f"{name}, {work}: {ref} {fmt_s(r)}; Zeit {fmt_s(z1)} on 1 thread ({one['speedup']:,.0f}× faster), "
-                f"{fmt_s(z19)} on 19 ({many['speedup']:,.0f}×). Agreement: {one['note']}.")
+                f"{fmt_s(z19)} on {many['threads']} ({many['speedup']:,.0f}×). Agreement: {one['note']}.")
         b.append(f'<g class="zc-row" {tip(text)}>')
         b.append(f'<rect class="zc-hit" x="0" y="{y}" width="{W}" height="{row_h}"/>')
         b.append(f'<text class="zc-name" x="0" y="{cy - 3:.1f}">{escape(name)}</text>')
@@ -94,7 +100,7 @@ def chart_vs_originals():
         b.append(f'<text class="zc-val" x="{W}" y="{cy + 4:.1f}" text-anchor="end">'
                  f'{one["speedup"]:,.0f}× / {many["speedup"]:,.0f}×</text>')
         b.append("</g>")
-    write("vs_originals", svg(W, H, "Time of each original implementation and of Zeit on 1 and 19 threads, "
+    write("vs_originals", svg(W, H, "Time of each original implementation and of Zeit on 1 thread and on many, "
                                     "on the largest workload of each benchmark", b))
 
 

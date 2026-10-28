@@ -220,7 +220,7 @@ pheno_results = zeit.phenology(
 
 ## Performance
 
-The whole pipeline runs in Rust outside the Python GIL, every pixel in parallel. On a real 25-year EVI raster the C++ core of zeit 1.7 was 244 times faster than R `phenofit` on one core, with a mean start-of-season difference of 3.7 days. See [Benchmarks](../benchmarks/fidelity.md#4-phenology-extraction-vs-r-phenofit).
+The whole pipeline runs in Rust outside the Python GIL, every pixel in parallel. On a real 25-year EVI raster it is 370 times faster than R `phenofit` on one core, with a mean start-of-season difference of 3.7 days. See [Benchmarks](../benchmarks/fidelity.md#4-phenology-extraction-vs-r-phenofit).
 
 
 ## References
