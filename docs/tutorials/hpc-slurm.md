@@ -70,6 +70,16 @@ Network:
 
 Each line says what it found and where from. Here a module set `OMP_NUM_THREADS=1`, which zeit would obey, and the node has no internet access: the next sections deal with both.
 
+### On the login node
+
+The login node is everyone's. Outside a job, where Slurm, PBS or LSF is installed, zeit uses at most 4 threads (fewer when many people are logged in: it divides the processors among them), says so once, and suggests a job:
+
+```text
+RuntimeWarning: this looks like a login node of a Slurm cluster (outside a job), which everyone shares: zeit uses 4 of its 64 processors. Run the analysis in a job (srun, sbatch, `zeit slurm`). To change it, pass n_jobs (--jobs on the command line), set ZEIT_NUM_THREADS, or run `zeit config threads N` once.
+```
+
+Small things (looking at a cube, `zeit fetch`, `zeit slurm`) are fine there; an analysis goes in a job, `srun --cpus-per-task=16 zeit ...` for one that you watch.
+
 ## One node
 
 Every algorithm already runs on all the processors a job is given: `n_jobs=-1` (the default, `--jobs` on the command line) counts the job's processors (`--cpus-per-task`, the cgroup Slurm confines the job to), not the node's. There is nothing to set:
@@ -147,7 +157,7 @@ A task that reaches its time limit would be killed in the middle of a tile. With
 
 ### Other schedulers
 
-PBS and LSF arrays do not tell a task how many there are: give the part with `--shard`, `zeit landtrendr tiles/ out/ --shard $PBS_ARRAY_INDEX/50` for an array of 50. Everything else (the split, the record, `zeit tiles status`, SIGTERM) is the same.
+PBS and LSF arrays do not tell a task how many there are: give the part with `--shard`, `zeit landtrendr tiles/ out/ --shard $PBS_ARRAY_INDEX/50` for an array of 50. Everything else (the split, the record, `zeit tiles status`, SIGTERM) is the same. On a node that does not confine its jobs, the threads follow the job's processors from `NCPUS` (PBS Pro), `PBS_NUM_PPN` (Torque) or `LSB_DJOB_NUMPROC` (LSF), as they follow `SLURM_CPUS_PER_TASK` (or, without `--cpus-per-task`, `SLURM_CPUS_ON_NODE`) on Slurm.
 
 ## Compute nodes without internet access
 

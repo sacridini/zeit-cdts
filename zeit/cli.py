@@ -816,6 +816,13 @@ def build_parser() -> argparse.ArgumentParser:
     dr_parser = subparsers.add_parser("doctor", help="What zeit finds here: threads and where their number comes "
                                                      "from, the job, the caches, the network, the versions")
     dr_parser.add_argument("--no-network", action="store_true", help="Do not check the services zeit downloads from")
+
+    cf_parser = subparsers.add_parser("config", help="The settings zeit keeps for this user (config.toml): "
+                                                     "`zeit config threads 12`, `zeit config threads auto`")
+    cf_parser.add_argument("key", nargs="?", default=None, help="threads: the threads of n_jobs=-1 outside a "
+                           "batch job (after ZEIT_NUM_THREADS); without it, every setting")
+    cf_parser.add_argument("value", nargs="?", default=None, help="A number of threads, or auto (zeit decides); "
+                           "without it, the current value")
     return parser
 
 
@@ -879,6 +886,10 @@ def main(argv: Optional[List[str]] = None) -> None:
         from ._doctor import doctor
 
         doctor(network=not args.no_network)
+    elif args.command == "config":
+        from ._config import run
+
+        run(args.key, args.value)
     else:
         parser.print_help()
 

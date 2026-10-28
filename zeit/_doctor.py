@@ -18,8 +18,10 @@ SERVICES: Tuple[Tuple[str, str], ...] = (
     ("AlphaEarth embeddings (Source Cooperative)", "https://s3.us-west-2.amazonaws.com"),
 )
 
-VARIABLES = ("ZEIT_NUM_THREADS", "OMP_NUM_THREADS", "SLURM_CPUS_PER_TASK", "ZEIT_CACHE_DIR", "ZEIT_WEIGHTS",
-             "XDG_CACHE_HOME")
+# The variables of the threads (zeit's, OpenMP's, a job's processors), then of the caches.
+THREAD_VARIABLES = ("ZEIT_NUM_THREADS", "OMP_NUM_THREADS", "SLURM_CPUS_PER_TASK", "SLURM_CPUS_ON_NODE",
+                    "SLURM_JOB_CPUS_PER_NODE", "NCPUS", "PBS_NUM_PPN", "LSB_DJOB_NUMPROC")
+VARIABLES = THREAD_VARIABLES + ("ZEIT_CACHE_DIR", "ZEIT_WEIGHTS", "XDG_CACHE_HOME")
 
 
 def _versions() -> List[str]:
@@ -39,16 +41,31 @@ def _versions() -> List[str]:
 
 
 def _threads() -> List[str]:
-    from ._threads import detect
+    from ._config import config_file, threads as configured
+    from ._threads import CONFIG, detect
 
     found = detect()
     lines = [f"Threads (n_jobs=-1): {found.describe()}"]
-    given = [f"{v}={os.environ[v]}" for v in VARIABLES[:3] if os.environ.get(v)]
+    given = [f"{v}={os.environ[v]}" for v in THREAD_VARIABLES if os.environ.get(v)]
     if given:
         lines.append("  " + ", ".join(given))
+    setting = configured()
+    if setting is not None:
+        unused = "" if found.variable == CONFIG else (
+            ", not used in a job" if found.job is not None else ", not used: ZEIT_NUM_THREADS comes first")
+        lines.append(f"  {CONFIG} {setting} ({config_file()}{unused})")
+    if found.job is not None:
+        pass                         # the job's processors are the job's, whoever is logged in
+    elif found.users is None:
+        lines.append("  users with a session: not known here (the processors are not shared among them)")
+    else:
+        share = f": shared, {found.threads} of {found.machine} processors each" if found.shared else ""
+        lines.append(f"  users with a session: {found.users} ({found.users_from}){share}")
+    if found.login_node is not None:
+        lines.append(f"  ! {found.lowered()}; or set the threads (n_jobs, ZEIT_NUM_THREADS, `zeit config threads N`)")
     if found.idle():
         lines.append(f"  ! OMP_NUM_THREADS={found.all} leaves {found.idle()} of this job's processors idle (cluster "
-                     f"modules often set it for MPI programs): set ZEIT_NUM_THREADS={found.job_processors()}, which "
+                     f"modules often set it for MPI programs): set ZEIT_NUM_THREADS={found.job_processors}, which "
                      "zeit reads first")
     return lines
 

@@ -14,15 +14,21 @@ import pytest
 from zeit import _cache, _core, _network, _threads
 from zeit._tiles import _tasks
 
-THREAD_VARIABLES = ("ZEIT_NUM_THREADS", "OMP_NUM_THREADS", "SLURM_CPUS_PER_TASK", "SLURM_JOB_ID", "PBS_JOBID",
-                    "LSB_JOBID")
+THREAD_VARIABLES = ("ZEIT_NUM_THREADS", "OMP_NUM_THREADS", "SLURM_CPUS_PER_TASK", "SLURM_CPUS_ON_NODE",
+                    "SLURM_JOB_CPUS_PER_NODE", "NCPUS", "PBS_NUM_PPN", "LSB_DJOB_NUMPROC", "SLURM_JOB_ID",
+                    "PBS_JOBID", "LSB_JOBID")
 
 
 @pytest.fixture(autouse=True)
-def clean_environment(monkeypatch):
+def clean_environment(monkeypatch, tmp_path):
     for name in THREAD_VARIABLES + ("ZEIT_CACHE_DIR", "XDG_CACHE_HOME", "SLURM_ARRAY_TASK_ID"):
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("ZEIT_CONFIG_DIR", str(tmp_path / "config"))   # not the user's settings
+    _core.parallel.refresh()
     monkeypatch.setattr(_threads, "_warned", False)
+    monkeypatch.setattr(_threads, "_warned_shared", False)
+    yield
+    _core.parallel.refresh()
 
 
 # ---------------------------------------------------------------------------- threads
@@ -90,11 +96,120 @@ def test_a_job_slowed_by_omp_num_threads_is_warned_once(monkeypatch):
     monkeypatch.setattr(_threads, "_warned", False)
     monkeypatch.setenv("SLURM_CPUS_PER_TASK", "2")
     found = _threads.detect()
-    assert found.job_processors() == 2 and found.idle() == 1
+    assert found.job_processors == 2 and found.idle() == 1
     with pytest.warns(RuntimeWarning, match="ZEIT_NUM_THREADS=2 "):
         _threads.resolve(-1)
     monkeypatch.setenv("OMP_NUM_THREADS", "2")
     assert _threads.detect().idle() == 0
+
+
+def test_a_job_without_cpus_per_task_uses_its_scheduler_variables(monkeypatch):
+    available = _threads.detect().available
+    if available < 3:
+        pytest.skip("fewer than three processors")
+    monkeypatch.setenv("SLURM_JOB_ID", "1")
+    monkeypatch.setenv("SLURM_CPUS_ON_NODE", "1")          # --ntasks=1, on a node that does not confine it
+    assert _threads.resolve(-1) == _core.parallel.threads(-1) == 1
+    assert _threads.detect().variable == "SLURM_CPUS_ON_NODE"
+    monkeypatch.delenv("SLURM_CPUS_ON_NODE")
+    monkeypatch.setenv("SLURM_JOB_CPUS_PER_NODE", "1(x4)")
+    assert _threads.resolve(-1) == 1
+    monkeypatch.delenv("SLURM_JOB_ID")
+    monkeypatch.setenv("PBS_JOBID", "7.pbs")
+    monkeypatch.setenv("NCPUS", "1")
+    assert _threads.resolve(-1) == _core.parallel.threads(-1) == 1
+    assert "NCPUS=1" in _threads.detect().describe()
+    monkeypatch.delenv("PBS_JOBID")
+    monkeypatch.setenv("LSB_JOBID", "9")
+    monkeypatch.setenv("LSB_DJOB_NUMPROC", "1")
+    assert _threads.resolve(-1) == 1
+    monkeypatch.delenv("LSB_JOBID")                       # outside a job, they mean nothing
+    assert _threads.detect().variable is None
+
+
+def test_zeit_config_threads(monkeypatch, capsys):
+    from zeit import _config, cli
+
+    cli.main(["config", "threads", "3"])
+    assert "threads = 3" in capsys.readouterr().out
+    assert _config.config_file().read_text() == "threads = 3\n"
+    assert _config.threads() == 3
+    assert _threads.resolve(-1) == _core.parallel.threads(-1) == 3
+    found = _threads.detect()
+    assert found.variable == _threads.CONFIG and "zeit config threads 3" in found.describe()
+    monkeypatch.setenv("OMP_NUM_THREADS", "1")            # the setting comes first
+    assert _threads.resolve(-1) == 3
+    monkeypatch.setenv("ZEIT_NUM_THREADS", "2")           # and after ZEIT_NUM_THREADS
+    assert _threads.resolve(-1) == 2
+    monkeypatch.delenv("ZEIT_NUM_THREADS")
+    monkeypatch.delenv("OMP_NUM_THREADS")
+    monkeypatch.setenv("SLURM_JOB_ID", "1")               # a job's processors are the job's
+    assert _threads.detect().variable is None
+    monkeypatch.delenv("SLURM_JOB_ID")
+    cli.main(["config"])
+    assert "threads = 3" in capsys.readouterr().out
+    cli.main(["config", "threads", "auto"])
+    assert _config.threads() is None and _threads.detect().variable is None
+    cli.main(["config", "threads"])
+    assert capsys.readouterr().out.splitlines()[-1] == "auto"
+    for bad in (["config", "threads", "0"], ["config", "threads", "many"], ["config", "colour", "red"]):
+        with pytest.raises(SystemExit):
+            cli.main(bad)
+
+
+def test_other_settings_in_config_toml_are_kept():
+    from zeit import _config
+
+    _config.config_file().parent.mkdir(parents=True)
+    _config.config_file().write_text("# mine\nother = 1\nthreads = 9\n")
+    _core.parallel.refresh()
+    assert _core.parallel.threads(-1) == 9
+    _config.set_setting("threads", "4")
+    assert _config.config_file().read_text() == "# mine\nother = 1\nthreads = 4\n"
+    assert _core.parallel.threads(-1) == 4
+
+
+def _found(**changes):
+    values = dict(threads=16, all=16, variable=None, available=48, machine=48, scheduler=None, job=None,
+                  job_processors=48, reserved=False, users=3, users_from="WTS", shared=True, login_node=None)
+    values.update(changes)
+    return _threads.Threads(**values)
+
+
+def test_a_shared_machine_is_said_once(monkeypatch):
+    found = _found()
+    monkeypatch.setattr(_threads, "detect", lambda: found)
+    assert found.describe() == "16 threads (48 processors; shared by 3 users with a session)"
+    with pytest.warns(RuntimeWarning, match="shared by 3 users with an active session .WTS.: zeit uses 16 of its "
+                                            "48 processors.*zeit config threads N"):
+        assert _threads.resolve(-1) == 16
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        _threads.resolve(-1)                       # once
+        _threads.resolve(4)
+
+
+def test_a_login_node_is_said_once(monkeypatch):
+    found = _found(threads=4, all=4, shared=False, users=40, users_from="utmp", login_node="Slurm")
+    monkeypatch.setattr(_threads, "detect", lambda: found)
+    assert "a Slurm login node: at most 4" in found.describe()
+    with pytest.warns(RuntimeWarning, match="login node of a Slurm cluster.*zeit slurm"):
+        assert _threads.resolve(-1) == 4
+
+
+def test_a_machine_of_ones_own_says_nothing(monkeypatch):
+    monkeypatch.setattr(_threads, "detect", lambda: _found(threads=47, shared=False, users=1, reserved=True))
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert _threads.resolve(-1) == 47
+
+
+def test_the_users_of_this_machine_are_read():
+    found = _threads.detect()
+    if sys.platform == "win32":
+        assert found.users_from == "WTS" and found.users >= 1    # the session running this, at least
+    elif found.users is not None:
+        assert found.users_from in ("utmp", "logind") and found.users >= 1
 
 
 @pytest.mark.skipif(not hasattr(os, "sched_setaffinity"), reason="Linux only")
@@ -196,6 +311,21 @@ def test_doctor_points_at_an_idle_job(monkeypatch):
     monkeypatch.setenv("SLURM_JOB_ID", "1")
     monkeypatch.setenv("OMP_NUM_THREADS", "1")
     assert "set ZEIT_NUM_THREADS" in _doctor.report(network=False)
+
+
+def test_doctor_says_how_the_machine_is_shared(monkeypatch):
+    from zeit import _config, _doctor
+
+    monkeypatch.setattr(_threads, "detect", lambda: _found())
+    assert "users with a session: 3 (WTS): shared, 16 of 48 processors each" in _doctor.report(network=False)
+    monkeypatch.setattr(_threads, "detect", lambda: _found(threads=4, all=4, shared=False, login_node="Slurm"))
+    assert "! this looks like a login node of a Slurm cluster" in _doctor.report(network=False)
+    monkeypatch.setattr(_threads, "detect", lambda: _found(users=None, users_from=None, shared=False))
+    assert "users with a session: not known here" in _doctor.report(network=False)
+    _config.set_setting("threads", "6")
+    monkeypatch.setattr(_threads, "detect", lambda: _found(job="1", scheduler="Slurm", shared=False))
+    text = _doctor.report(network=False)
+    assert "zeit config threads 6 (" in text and "not used in a job" in text
 
 
 def test_doctor_on_the_command_line():

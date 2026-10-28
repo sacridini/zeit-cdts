@@ -17,24 +17,16 @@ import os
 import re
 import secrets
 import socket
-import sys
 from pathlib import Path
 from typing import Optional, Tuple
+
+from .._config import config_dir
 
 PROTOCOL = 1
 TCP_PORT = 47801
 UDP_PORT = 47800
 
 _ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"   # Crockford's base32: no I, L, O, U
-
-
-def config_dir() -> Path:
-    env = os.environ.get("ZEIT_CONFIG_DIR")
-    if env:
-        return Path(env)
-    if sys.platform == "win32":
-        return Path(os.environ.get("APPDATA") or Path.home()) / "zeit"
-    return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "zeit"
 
 
 def _group_file() -> Path:

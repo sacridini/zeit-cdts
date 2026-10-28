@@ -2032,7 +2032,7 @@ fazer, em vez de um travamento ou um timeout.
   `:<versão>-gpu` a cada tag.
 - **20f:** `docs/tutorials/hpc-slurm.md`.
 
-## Fase 21: threads justas numa máquina compartilhada
+## Fase 21: threads justas numa máquina compartilhada — **Feito** (2.4.0; 21b em parte)
 
 Pedida em 2026-10-25. Depois da Fase 20, `n_jobs=-1` está certo no desktop (todos os
 processadores menos um) e num job de cluster (todos os que o job recebeu: com
@@ -2122,6 +2122,50 @@ usuários; a carga só se a contagem não bastar.
   num servidor Linux; decidir divisão ou fração.
 - **21c:** a regra no core, o aviso, o `zeit doctor`, `zeit config threads`, a documentação
   (a seção Threads da API, o tutorial de HPC sobre o nó de login).
+
+### O que foi feito, e onde fugiu do plano
+
+- **21a:** os processadores do job saem das variáveis do scheduler dele (só dentro de um job
+  daquele scheduler, e só quando o processo vê mais processadores, como antes): Slurm
+  `SLURM_CPUS_PER_TASK` > `SLURM_CPUS_ON_NODE` > `SLURM_JOB_CPUS_PER_NODE` (só na forma
+  uniforme, `8` ou `8(x2)`: `8(x2),4` não diz qual é este nó); PBS `NCPUS` (Pro) e
+  `PBS_NUM_PPN` (Torque, a mais); LSF `LSB_DJOB_NUMPROC` (o total do job: num job de vários
+  hosts sem cgroup, pode passar do deste nó). A primeira que existe decide. O core passou a dar
+  `job_processors`, e o Python não lê mais o `SLURM_CPUS_PER_TASK` por conta própria (o aviso
+  do `OMP_NUM_THREADS` usa os dele). Mudança pequena: o `SLURM_CPUS_PER_TASK` fora de um job
+  deixou de contar.
+- **21b, conferido:** `WTSEnumerateSessionsW` + `WTSQuerySessionInformationW` (nome e
+  domínio) funcionam sem admin num Windows 11 Pro (conta só em `BUILTIN\Users`, token Medium),
+  e batem com o `quser` (1 usuário, `console`, Active). **Falta conferir num Windows Server com
+  RDS e várias sessões de verdade.** No Linux (Ubuntu no WSL), o utmp é legível por todos e dá
+  o mesmo que o `who`; o `/run/systemd/sessions` também, mas cada sessão tem ao lado um FIFO
+  (`1.ref`) que trava quem o abre: o leitor pula o que não é arquivo comum (há teste com
+  `mkfifo`). **Falta conferir num servidor Linux com vários usuários por SSH.** Decidido: a
+  divisão pelos usuários ativos, não a fração fixa.
+- **21c:** a regra no core (`decide` recebe um `Host`: processadores, usuários e de onde vieram,
+  scheduler instalado, `zeit config threads`); a leitura fica em `host()`, guardada por 30 s
+  (`_core.parallel.refresh()` a descarta). Fora de um job, sem variável e sem confinamento:
+  mais de um usuário distinto ativo divide os processadores (48 e 3 dão 16, nenhum reservado);
+  um só, o desktop de antes. Usuários: utmp (`USER_PROCESS`, usuários distintos), sem ele as
+  sessões do logind de classe `user*` que não estão `closing`; no Windows, sessões `WTSActive`
+  por `domínio\usuário`. Nó de login: Slurm, PBS ou LSF instalado (`SLURM_CONF`,
+  `PBS_CONF_FILE`, `LSF_ENVDIR` ou os arquivos de sempre em `/etc`) e fora de um job: no máximo
+  4 threads (`LOGIN_THREADS`), ou a divisão se der menos. Aviso uma vez por processo
+  (`_warn_shared`), uma linha `users with a session` no `zeit doctor` (fora de um job) e a
+  configuração quando existe.
+- **`zeit config threads N|auto`** (`zeit/_config.py`, o `config_dir` saiu de `_tiles/_group.py`
+  para lá): `config.toml` com linhas `chave = valor`, lido pelo core também. **Fugiu do plano
+  na ordem:** fica depois das threads de um worker do `distributed` (que é mais específico) e
+  **não vale dentro de um job** (com o home compartilhado do cluster, um `threads = 4` posto
+  no nó de login cortaria todos os jobs). Ordem final: `n_jobs` > `ZEIT_NUM_THREADS` > worker >
+  `zeit config threads` (fora de job) > `OMP_NUM_THREADS` > variáveis do job > a regra nova.
+- **Fica de fora:** macOS não conta usuários (o utmpx tem outro formato; vale o padrão de
+  antes). Uma sessão RDP desconectada não conta, mesmo com um processo dela ainda rodando
+  (como planejado). Um processo sem sessão (serviço, tarefa agendada) divide pelos outros,
+  sem contar a si mesmo. A carga da máquina (segunda etapa) não foi feita.
+- Documentação: a seção Threads da API (a ordem nova e "A machine several people use at
+  once"), `zeit config` no `cli.md` (seção 24), o nó de login e as variáveis de PBS/LSF no
+  tutorial de HPC, o README.
 
 ## Para depois
 

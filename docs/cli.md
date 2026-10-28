@@ -41,7 +41,7 @@ zeit landtrendr <input> <output_dir> [OPTIONS]
 | :--- | :---: | :---: | :--- |
 | `--start-year` | `int` | read from the file | The calendar year of the first band. By default the years are read from the band descriptions (e.g. `yr1985`), as `zeit.load_raster` does; pass it for stacks whose bands are not named by year. |
 | `--max-segments`| `int` | `6` | The maximum number of line segments the algorithm can fit per pixel. |
-| `--jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job (see [`zeit doctor`](#20-checking-a-computer-zeit-doctor)). |
+| `--jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, a share of them on a machine several users are logged in to, or every core of a cluster job (see [`zeit doctor`](#20-checking-a-computer-zeit-doctor)). |
 | `--chunk-size` | `int` | `512` | Size of the image chunks (in pixels) processed simultaneously to manage RAM. |
 | `--save-vertices`| `flag` | `False` | If provided, saves the raw multi-band GeoTIFF containing all fitted vertices. |
 | `--no-data-value` | `float` | the raster's NoData, or `0` | Value marking a missing year. By default the raster's NoData value, or `0` for integer stacks without one (how Earth Engine exports masked pixels). NaN is always missing. |
@@ -99,7 +99,7 @@ zeit ccdc <input> <output_dir> [OPTIONS]
 | `--max-segments`| `int` | `6` | The maximum number of segments to retain per pixel. |
 | `--conse` | `int` | `6` | Consecutive anomalous observations that confirm a break (`conseq_anom`), as in the original CCDC. |
 | `--chunk-size` | `int` | `512` | Size of the image blocks (in pixels) processed at once. |
-| `--jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job (see [`zeit doctor`](#20-checking-a-computer-zeit-doctor)). |
+| `--jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, a share of them on a machine several users are logged in to, or every core of a cluster job (see [`zeit doctor`](#20-checking-a-computer-zeit-doctor)). |
 | `--cold` | `flag` | `False` | Deprecated: the same as `--conse 6`, now the default. |
 | `--prefix` | `str` | `ccdc` | Prefix added to all output GeoTIFF files. |
 
@@ -163,7 +163,7 @@ zeit bfast-monitor <input> <output_dir> --monitor-start-time <year or date> [OPT
 | `--alpha` | `float` | `0.05` | Significance level for the monitoring boundary. |
 | `--min-valid` | `int` | `10` | Minimum valid (non-NaN) history observations per pixel. |
 | `--chunk-size` | `int` | `512` | Size of the image chunks to process simultaneously. |
-| `--jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job (see [`zeit doctor`](#20-checking-a-computer-zeit-doctor)). |
+| `--jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, a share of them on a machine several users are logged in to, or every core of a cluster job (see [`zeit doctor`](#20-checking-a-computer-zeit-doctor)). |
 | `--prefix` | `str` | `bfast_monitor` | Filename (without extension) for the output GeoTIFF. |
 
 Output bands (in order): `breakpoint`, `breakpoint_idx`, `magnitude`, `sigma`, `n_history`, `has_break`, `valid` (see [`zeit.bfast_monitor`](api/change-detection.md#bfast_monitor)).
@@ -200,7 +200,7 @@ zeit bfast-lite <input> <output_dir> [OPTIONS]
 | `--max-breaks-output` | `int` | `5` | Maximum number of breakpoints to report per pixel (`max_breaks` in Python). |
 | `--min-valid` | `int` | `20` | Minimum valid observations per pixel. |
 | `--chunk-size` | `int` | `512` | Size of the image chunks to process simultaneously. |
-| `--jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job (see [`zeit doctor`](#20-checking-a-computer-zeit-doctor)). |
+| `--jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, a share of them on a machine several users are logged in to, or every core of a cluster job (see [`zeit doctor`](#20-checking-a-computer-zeit-doctor)). |
 | `--prefix` | `str` | `bfast_lite` | Filename (without extension) for the output GeoTIFF. |
 
 Output bands: `n_breaks`, `rss`, `lwz`, `n_valid`, `valid`, `breakpoint_idx_1..N` (see [`zeit.bfast_lite`](api/change-detection.md#bfast_lite)).
@@ -234,7 +234,7 @@ zeit bfast <input> <output_dir> [OPTIONS]
 | `--level` | `float` | `0.05` | Significance threshold for the preliminary structural-stability pre-check. |
 | `--min-valid` | `int` | `20` | Minimum valid observations per pixel. |
 | `--chunk-size` | `int` | `512` | Size of the image chunks to process simultaneously. |
-| `--jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job (see [`zeit doctor`](#20-checking-a-computer-zeit-doctor)). |
+| `--jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, a share of them on a machine several users are logged in to, or every core of a cluster job (see [`zeit doctor`](#20-checking-a-computer-zeit-doctor)). |
 | `--prefix` | `str` | `bfast` | Filename (without extension) for the output GeoTIFF. |
 
 Output bands: `n_trend_breaks`, `n_season_breaks`, `magnitude`, `break_time`, `n_iter`, `n_valid`, `valid`, `trend_breakpoint_idx_1..N`, `season_breakpoint_idx_1..N` (see [`zeit.bfast`](api/change-detection.md#bfast)).
@@ -264,7 +264,7 @@ zeit mann-kendall <input> <output_dir> [OPTIONS]
 | `--period` | `int` | `1` | Season slots for `--method seasonal` (e.g. `23` for MODIS 16-day cycles), letting a raw sub-annual series be tested directly. |
 | `--min-valid` | `int` | `4` | Minimum valid observations per pixel. |
 | `--chunk-size` | `int` | `512` | Size of the image chunks to process simultaneously. |
-| `--jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job (see [`zeit doctor`](#20-checking-a-computer-zeit-doctor)). |
+| `--jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, a share of them on a machine several users are logged in to, or every core of a cluster job (see [`zeit doctor`](#20-checking-a-computer-zeit-doctor)). |
 | `--prefix` | `str` | `mann_kendall` | Filename (without extension) for the output GeoTIFF. |
 
 Output bands: `trend`, `h`, `p`, `z`, `tau`, `s`, `var_s`, `slope`, `intercept`. `slope`/`intercept` are per time step (per band), so one observation per year gives a directly interpretable per-year trend.
@@ -314,7 +314,7 @@ zeit <command> <input> <output_dir> [OPTIONS]
 | Option | Type | Default | Description |
 | :--- | :---: | :---: | :--- |
 | `--chunk-size` | `int` | `512` | Size of the image chunks to process at once. |
-| `--jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job (see [`zeit doctor`](#20-checking-a-computer-zeit-doctor)). |
+| `--jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, a share of them on a machine several users are logged in to, or every core of a cluster job (see [`zeit doctor`](#20-checking-a-computer-zeit-doctor)). |
 | `--prefix` | `str` | the command | Name of the output file, without extension. |
 
 ### 8. Phenology (`phenology`)
@@ -542,7 +542,7 @@ zeit doctor                 # threads, job, caches, network, versions
 zeit doctor --no-network    # without checking the services
 ```
 
-Prints what zeit finds where it runs: the threads `--jobs -1` uses and where that number comes from, the job of Slurm, PBS or LSF and its array task, the caches and whether they can be written, whether the services zeit downloads from answer, and the versions. Run it in a job (`srun zeit doctor`) to see what a job of yours gets:
+Prints what zeit finds where it runs: the threads `--jobs -1` uses and where that number comes from (on a machine several users are logged in to, how many it counted), the job of Slurm, PBS or LSF and its array task, the caches and whether they can be written, whether the services zeit downloads from answer, and the versions. Run it in a job (`srun zeit doctor`) to see what a job of yours gets:
 
 ```text
 zeit 2.3.0 (Python 3.12.8, Linux x86_64, glibc 2.28)
@@ -607,6 +607,17 @@ The compute nodes of many clusters have no internet access. On the login node, w
 - **`embeddings`**: the same as `zeit embeddings` (one GeoTIFF of the region, which `zeit.load_raster` reads), with the same options.
 
 Without network access, zeit says so and names the `zeit fetch` command that downloads what is missing, instead of a connection error.
+
+### 24. This user's settings (`zeit config`)
+
+```bash
+zeit config                   # every setting, and the file
+zeit config threads 12        # the threads of --jobs -1 / n_jobs=-1, for this user
+zeit config threads           # the current value
+zeit config threads auto      # back to what zeit decides
+```
+
+Keeps settings for the user in `config.toml` of the config folder (`ZEIT_CONFIG_DIR`, or `%APPDATA%\zeit` on Windows, `~/.config/zeit` elsewhere), for those who would rather not set an environment variable: on a shared Windows server, a variable for the whole system needs an administrator. `threads` comes after `ZEIT_NUM_THREADS` and before `OMP_NUM_THREADS`, and is not used in a batch job, whose processors are the job's (see [Threads](api/parallel.md#threads-n_jobs)). Processes already running see a change within 30 seconds.
 
 ---
 
