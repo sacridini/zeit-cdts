@@ -180,11 +180,11 @@ zeit.save_raster(applicable, "results/aoa")          # DI.tif, AOA.tif
 | `model` | `None` | A model from `train_classifier`: its training data and importance. |
 | `train` | `None` | Otherwise the training data, a table of points × predictors, or a `train_di` result to reuse. |
 | `weights` | `None` | The model's importance, else all 1; `"importance"`, a dict by name or a list. |
-| `folds` | `None` | Each training point's cross-validation fold. Give clustered samples their clusters (see below). |
+| `folds` | `None` | Each training point's cross-validation fold, or a `spatial_folds` result; with a model trained with `folds`, its own (see below). |
 | `lpd` | `False` | Also the local point density: how many training points are within the threshold's DI. |
 | `n_jobs` | -1 | Threads. |
 
-**Folds.** The threshold measures each training point against the nearest point of another fold, the way the model's cross-validation saw it. Without folds, each point is measured against its nearest other point. When the samples come in clusters (sites, polygons of one field), that nearest point is usually in the same cluster, every training DI is small, and the threshold is too strict. In the script, 200 points drawn in 10 clusters gave a threshold of 0.516 and 5.0% of the scene outside; with the clusters as folds (`folds=samples["site"]`), 0.599 and 3.3%. Use the same folds as the model's spatial cross-validation.
+**Folds.** The threshold measures each training point against the nearest point of another fold, the way the model's cross-validation saw it. Without folds, each point is measured against its nearest other point. When the samples come in clusters (sites, polygons of one field), that nearest point is usually in the same cluster, every training DI is small, and the threshold is too strict. In the script, 200 points drawn in 10 clusters gave a threshold of 0.516 and 5.0% of the scene outside; with the clusters as folds (`folds=samples["site"]`), 0.599 and 3.3%. Use the same folds as the model's spatial cross-validation: with `train_classifier(..., folds=...)` (step 6), `aoa` takes them from the model.
 
 **Several images.** `train_di` computes the training side once, to apply to other years or tiles:
 
@@ -195,6 +195,29 @@ for name, tile in tiles.items():                     # the same predictors, othe
 ```
 
 The predictors are matched by name: the features of a cube are its dates (`1990-01-01`…), so the composites of other years must be given the training's dates (or their features renamed) before `aoa` can compare them.
+
+### 6. Validate by spatial folds, and map the error to expect
+
+A random k-fold validation tests a model on points next to its training points, and says it is better than it is where it will be applied. `spatial_folds` holds out whole regions, as blockCV (Valavi et al. 2019): hexagons or squares as large as the predictors' spatial autocorrelation, a point with its neighbours within a buffer, clusters of the points, or kNNDM (Linnenbrink et al. 2024), the folds whose distances from test to training points are distributed like those from the map to the training points.
+
+```python
+folds = zeit.spatial_folds(samples, data=ndvi, k=5, label="class")  # hexagons, size from the autocorrelation
+folds.plot()
+matched = zeit.spatial_folds(samples, method="knndm", data=ndvi)     # like the map's distances to the samples
+matched.plot(kind="distances")
+
+rf = zeit.train_classifier(ndvi, samples, label="class", folds=matched)
+rf.zeit_cv_                                       # each sample predicted by a forest trained without its fold
+applicable = zeit.aoa(ndvi, model=rf)              # the threshold from the same folds
+profile = zeit.error_profile(rf)                   # the accuracy against the DI (CAST's errorProfiles)
+expected = profile.predict(applicable)             # the accuracy to expect in each pixel, inside the AOA
+profile.plot()
+profile.save("results/error_profile.json")
+```
+
+`autocorrelation_range(ndvi)` gives the range of each band's autocorrelation (a semivariogram of a sample of pixels, the model that fits best of the spherical, exponential and Gaussian, as blockCV's `cv_spatial_autocor`); blocks with `size=None` take its median. The folds are a scikit-learn splitter as well, for `cross_val_predict` or `GridSearchCV`.
+
+The error profile sorts the cross-validated samples within the AOA's threshold by their DI, measures the accuracy (the RMSE for values) in a moving window of 5, and fits a curve that only falls as the DI grows (only grows, for an error). Applied to the map's DI, it says where inside the AOA the map is likely weaker. It is not the map's accuracy: that comes from a probability sample ([Accuracy & Area](accuracy.md); Wadoux et al. 2021). A model of any kind can have one: give `train=`, `observed=`, `predicted=` (its predictions out of fold) and `folds=`.
 
 ## Reading the results
 
@@ -219,15 +242,21 @@ For a table of points (predictors in columns), `aoa` returns a `DataFrame` of `D
     - **NaN probabilities.** A pixel with a missing predictor has no probabilities; `smooth_probs` keeps it missing (sits fills it with its neighbours' mean), and `argmax` needs `fillna(-1)`.
     - **The AOA is about the predictors, not the classes.** A pixel inside can be misclassified, and the AOA cannot see a class the samples never had if its predictors look like a sampled class.
     - **The weights matter.** With a model's importance, a predictor the model hardly uses hardly counts in the DI. Pass `weights=None` with `train=` (all 1) to measure dissimilarity in every predictor.
+    - **Spatial folds are for choosing and calibrating, not for the map's accuracy.** They keep the validation from looking better than it is near the samples, but the points still come from where the samples are; the accuracy of the map, and its areas, need a probability sample.
+    - **kNNDM needs the area to predict.** The folds mimic the distances from `data`'s cells (or `prediction_points`) to the samples: give the whole area the map will cover, not just where the samples are.
     - **Correlated predictors count twice in the Euclidean distance.** Eight years of NDVI count the same information several times; `distance="mahalanobis"` (CAST's `method = "MD"`) whitens them first. The weights then only choose the predictors, as the Mahalanobis distance does not change with their scale.
 
 !!! tip "Checked against sits and CAST, and faster"
-    `zeit.smooth_probs` gives sits 1.5.4's smoothing to 1e-15 (except that a missing pixel stays missing). On 1000 × 1000 pixels and 4 classes, sits takes 10.7 s; Zeit 1.1 s on one thread and 0.15 s on 19. `zeit.aoa` gives CAST 1.0.4's DI to 1e-13. With 2000 training points and 100,000 pixels, CAST takes 1.2 s with 8 predictors and 5.8 s with 64; Zeit 0.45 s and 1 s on one thread, 0.04 s and 0.3 s on 19. The nearest training points are found in a k-d tree up to 9 predictors and by a matrix product beyond, the distances exact either way. See [Against the Original Implementations](../benchmarks/vs-originals.md).
+    `zeit.smooth_probs` gives sits 1.5.4's smoothing to 1e-15 (except that a missing pixel stays missing). On 1000 × 1000 pixels and 4 classes, sits takes 10.7 s; Zeit 1.1 s on one thread and 0.15 s on 19. `zeit.aoa` gives CAST 1.0.4's DI to 1e-13. With 2000 training points and 100,000 pixels, CAST takes 1.2 s with 8 predictors and 5.8 s with 64; Zeit 0.45 s and 1 s on one thread, 0.04 s and 0.3 s on 19. The nearest training points are found in a k-d tree up to 9 predictors and by a matrix product beyond, the distances exact either way. With the Mahalanobis distance, 500 training points and 10,000 new ones, CAST takes 20.8 s; Zeit 0.015 s on one thread, the same DI to 1e-13. kNNDM's W statistic is CAST's on CAST's own folds; on 5000 clustered points CAST's `knndm` takes 40 s and Zeit's 0.57 s, its folds matching as well (W 0.267 against 0.269). The error profile's windows are CAST's `errorProfiles`' to 1e-14 (but where five points of one class are all predicted right: accuracy 1 here, 0 in CAST), its curve within 1.2% of `scam`'s. See [Against the Original Implementations](../benchmarks/vs-originals.md).
 
-The full parameters are in the API reference: [`smooth_probs`](../api/post-processing.md#smooth_probs), [`mmu_sieve`](../api/post-processing.md#mmu_sieve), [`apply_majority_filter`](../api/post-processing.md#apply_majority_filter), [`desawtooth_classes`](../api/post-processing.md#desawtooth_classes), [`aoa`](../api/post-processing.md#aoa) and [`train_di`](../api/post-processing.md#train_di). To assess the cleaned map and estimate areas from it, see [Accuracy & Area](accuracy.md).
+The full parameters are in the API reference: [`smooth_probs`](../api/post-processing.md#smooth_probs), [`mmu_sieve`](../api/post-processing.md#mmu_sieve), [`apply_majority_filter`](../api/post-processing.md#apply_majority_filter), [`desawtooth_classes`](../api/post-processing.md#desawtooth_classes), [`aoa`](../api/post-processing.md#aoa), [`train_di`](../api/post-processing.md#train_di), [`error_profile`](../api/post-processing.md#error_profile), [`spatial_folds`](../api/post-processing.md#spatial_folds) and [`autocorrelation_range`](../api/post-processing.md#autocorrelation_range). To assess the cleaned map and estimate areas from it, see [Accuracy & Area](accuracy.md).
 
 ## References
 
 - Câmara, G., Simoes, R., et al. *Satellite Image Time Series Analysis on Earth Observation Data Cubes* (the sits book), chapter on Bayesian smoothing. [e-sensing.github.io/sitsbook](https://e-sensing.github.io/sitsbook/)
 - Meyer, H., & Pebesma, E. (2021). Predicting into unknown space? Estimating the area of applicability of spatial prediction models. *Methods in Ecology and Evolution*, 12(9), 1620–1633.
 - Meyer, H., et al. CAST: Caret Applications for Spatial-Temporal Models. R package, version 1.0.4. [CRAN](https://CRAN.R-project.org/package=CAST)
+- Valavi, R., Elith, J., Lahoz-Monfort, J. J., & Guillera-Arroita, G. (2019). blockCV: An R package for generating spatially or environmentally separated folds for k-fold cross-validation of species distribution models. *Methods in Ecology and Evolution*, 10(2), 225–232.
+- Linnenbrink, J., Milà, C., Ludwig, M., & Meyer, H. (2024). kNNDM CV: k-fold nearest-neighbour distance matching cross-validation for map accuracy estimation. *Geoscientific Model Development*, 17, 5897–5912.
+- Bollaerts, K., Eilers, P. H. C., & van Mechelen, I. (2006). Simple and multiple P-splines regression with shape constraints. *British Journal of Mathematical and Statistical Psychology*, 59(2), 451–469.
+- Wadoux, A. M. J.-C., Heuvelink, G. B. M., de Bruin, S., & Brus, D. J. (2021). Spatial cross-validation is not the right way to evaluate map accuracy. *Ecological Modelling*, 457, 109692.

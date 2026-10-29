@@ -9,7 +9,7 @@ whose distances from test to training points match those from the area to predic
 choose a model and calibrate its area of applicability
 (``zeit.train_di``); the accuracy of a map is still that of a probability sample (``zeit.accuracy``; Wadoux et al.
 2021). The size of a block comes from the range of the predictors' spatial autocorrelation
-(``zeit.autocorrelation_range``: an exponential semivariogram fitted to a sample of pixels, in the core).
+(``zeit.autocorrelation_range``: a semivariogram fitted to a sample of pixels, in the core).
 """
 
 from dataclasses import dataclass, field
@@ -514,16 +514,21 @@ def spatial_folds(samples: Any, *, method: str = "blocks", k: int = 5, size: Opt
     return SpatialFolds("clusters", folds, points)
 
 
-def autocorrelation_range(data: Any, *, sample: int = 5000, bins: int = 15, cutoff: Optional[float] = None,
-                          seed: int = 0, n_jobs: int = -1) -> pd.DataFrame:
+def autocorrelation_range(data: Any, *, sample: int = 5000, cutoff: Optional[float] = None,
+                          boundaries: Any = None, model: str = "best", seed: int = 0,
+                          n_jobs: int = -1) -> pd.DataFrame:
     """The range of each band's spatial autocorrelation, as blockCV's ``cv_spatial_autocor``: the empirical
-    semivariogram of ``sample`` pixels with a value, in ``bins`` bands of distance up to ``cutoff`` (default a third
-    of the map's diagonal, as gstat), and an exponential model fitted to it (in the core).
+    semivariogram of ``sample`` pixels with a value, in bands of distance up to ``cutoff`` (default 0.35 of the
+    map's diagonal) whose upper ends are ``boundaries`` (default automap's: 2, 4, 6, 9, 12, 15, 25, 35, 50, 65, 80
+    and 100% of the cutoff, finer at short distances, where a short range shows), and the model fitted to it (in the core) that fits best of the spherical,
+    exponential and Gaussian (``model="best"``, as automap's ``autofitVariogram``, which blockCV calls), or the one
+    ``model`` names.
 
     data: anything ``zeit.classify`` takes; a geographic CRS's pixels are measured in their UTM zone.
 
-    Returns a ``DataFrame`` by band: ``range`` (the practical range, where the model reaches 95% of its sill above
-    the nugget: 3 ``scale``), ``scale``, ``nugget``, ``sill`` (above the nugget) and ``pixels``; in ``attrs``, the
+    Returns a ``DataFrame`` by band: ``range`` (where the points are about independent: the spherical's range, where
+    it reaches its sill; the exponential's and the Gaussian's practical range, where they reach 95% of it, 3 and 1.73
+    times their ``scale``), ``model``, ``scale``, ``nugget``, ``sill`` (above the nugget) and ``pixels``; in ``attrs``, the
     median ``range`` (the blocks' size of ``zeit.spatial_folds``) and each band's semivariogram (``variograms``: a
     ``DataFrame`` of ``distance``, ``gamma`` and ``pairs``).
     """
@@ -544,16 +549,17 @@ def autocorrelation_range(data: Any, *, sample: int = 5000, bins: int = 15, cuto
         pts = pts.to_crs(pts.estimate_utm_crs())
         gx, gy = pts.x.to_numpy(), pts.y.to_numpy()
     if cutoff is None:
-        cutoff = float(np.hypot(gx.max() - gx.min(), gy.max() - gy.min()) / 3)
+        cutoff = float(np.hypot(gx.max() - gx.min(), gy.max() - gy.min()) * 0.35)
     rng = np.random.default_rng(seed)
     rows, variograms = [], {}
     values = np.asarray(feats.values, dtype=np.float64).reshape(feats.sizes["feature"], ny * nx)
     for name, v in zip([str(f) for f in feats.feature.values], values):
         good = np.flatnonzero(np.isfinite(v))
         pick = good if good.size <= sample else rng.choice(good, size=int(sample), replace=False)
-        r = core.fit(gx[pick], gy[pick], v[pick], bins=int(bins), cutoff=float(cutoff), n_jobs=resolve(n_jobs))
+        r = core.fit(gx[pick], gy[pick], v[pick], cutoff=float(cutoff), n_jobs=resolve(n_jobs), model=model,
+                     boundaries=None if boundaries is None else [float(b) for b in boundaries])
         variograms[name] = pd.DataFrame({"distance": r["distance"], "gamma": r["gamma"], "pairs": r["pairs"]})
-        rows.append({"band": name, "range": r["range"], "scale": r["scale"], "nugget": r["nugget"],
+        rows.append({"band": name, "range": r["range"], "model": r["model"], "scale": r["scale"], "nugget": r["nugget"],
                      "sill": r["sill"], "pixels": int(pick.size)})
     out = pd.DataFrame(rows).set_index("band").astype({"range": float, "scale": float, "nugget": float,
                                                         "sill": float})

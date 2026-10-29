@@ -1,6 +1,6 @@
 # Against the Original Implementations
 
-Nine of Zeit's newer methods were checked against published implementations: emerging hot spots, recovery metrics, EWMACD, spectral unmixing, Bayesian smoothing of class probabilities, the area of applicability, BEAST and the AR(1) trends with their regional test (PARTS) against their R originals, and S-CCD against pyxccd, its authors' Python package. This page times each port against that original on the same inputs, and records how the results were checked to agree. Every number comes from `benchmarks/results/vs-originals.json`, written by the scripts in `benchmarks/vs_originals/`, one per method.
+Twelve of Zeit's newer methods were checked against published implementations: emerging hot spots, recovery metrics, EWMACD, spectral unmixing, Bayesian smoothing of class probabilities, the area of applicability, BEAST, the AR(1) trends with their regional test (PARTS), the range of a map's autocorrelation, kNNDM's spatial folds and the error profile against their R originals, and S-CCD against pyxccd, its authors' Python package. This page times each port against that original on the same inputs, and records how the results were checked to agree. Every number comes from `benchmarks/results/vs-originals.json`, written by the scripts in `benchmarks/vs_originals/`, one per method.
 
 ---
 
@@ -12,7 +12,7 @@ Nine of Zeit's newer methods were checked against published implementations: eme
 <div class="bm-chart-legend">
 <span><i style="background:var(--bm-ref)"></i>Original</span>
 <span><i style="background:var(--bm-gpu-lo)"></i>Zeit, 1 thread</span>
-<span><i style="background:var(--bm-zeit)"></i>Zeit, 19 threads (8 for the AR(1) trends and PARTS)</span>
+<span><i style="background:var(--bm-zeit)"></i>Zeit, 19 threads (8 for the AR(1) trends, PARTS and the spatial cross-validation)</span>
 </div>
 <div class="bm-chart-scroll">
 --8<-- "docs/assets/charts/vs_originals.svg"
@@ -25,7 +25,7 @@ On one thread, Zeit is 3× (the area of applicability with 8 predictors) to 30,0
 
 ## Results
 
-Times of the call alone (see [Protocol](#protocol)); "1 thread" and "19 threads" (8 for the AR(1) trends and PARTS) are Zeit's, and the speedups are the original's time over Zeit's. The agreement is checked by the script on every run, which fails if it does not hold.
+Times of the call alone (see [Protocol](#protocol)); "1 thread" and "19 threads" (8 for the AR(1) trends, PARTS and the spatial cross-validation) are Zeit's, and the speedups are the original's time over Zeit's. The agreement is checked by the script on every run, which fails if it does not hold.
 
 ### Emerging hot spots vs sfdep
 
@@ -159,13 +159,37 @@ Each partition is a GLS on a dense 1500 × 1500 correlation matrix, so the cost 
 
 **How they were checked.** The AR(1) fits agree to the tolerance of the two optimizers (the script requires 1e-3 of the largest slope and 1e-2 on ρ; the largest differences were 1.1e-7 and 7.7e-6). The GLS is checked on remotePARTS' own slopes and partitions, read back from R (Zeit's timed runs draw their own partitions of the same size): every partition's estimate, standard error and nugget, and the overall estimate, must agree to 1e-6 (the largest difference was 1.6e-10). The overall t statistic is 0.03% to 1% apart because remotePARTS 1.0.4 computes the correlation between pairs of partitions after the first without their nugget, and Zeit with it (see [Fidelity](fidelity.md)).
 
+### Spatial cross-validation vs blockCV and CAST
+
+[`zeit.autocorrelation_range`](../api/post-processing.md#autocorrelation_range) against the R package **blockCV 4.0.1**'s `cv_spatial_autocor` (5000 pixels, which fits its variograms with automap); [`zeit.spatial_folds`](../api/post-processing.md#spatial_folds) with `method="knndm"` against **CAST 1.0.4**'s `knndm` (k = 5, its example's clustered points in a square of 100, 1000 regular prediction points); [`zeit.error_profile`](../api/post-processing.md#error_profile) against CAST's `errorProfiles` (with **scam 1.2.23**) of a linear model cross-validated in 5 folds by caret; and the Mahalanobis distance of `train_di` and `aoa` against CAST's `trainDI` and `aoa` with `method = "MD"`. The maps are white noise of 2 bands averaged over windows of 3, 7 and 15 pixels of 100 m, so correlated up to 300, 700 and 1500 m. Zeit ran on 1 thread and on 8.
+
+| Workload | Original | Zeit, 1 thread | Zeit, 8 threads | Speedup (1 / 8) | Agreement |
+|:---|---:|---:|---:|:---:|:---|
+| `autocorrelation_range`, 300 × 300 px, range 300 m | 2.74 s | 287 ms | 50 ms | 10× / 55× | range 0.89–0.99 × blockCV's |
+| `autocorrelation_range`, 300 × 300 px, range 700 m | 1.87 s | 282 ms | 49 ms | 7× / 38× | range 1.00–1.02 × blockCV's |
+| `autocorrelation_range`, 300 × 300 px, range 1500 m | 1.63 s | 278 ms | 50 ms | 6× / 33× | range 0.98–1.01 × blockCV's |
+| kNNDM, 1000 clustered points | 1.81 s | 80 ms | 73 ms | 23× / 25× | W 0.572 (CAST's folds: 0.685) |
+| kNNDM, 5000 clustered points | 40.2 s | 565 ms | 529 ms | 71× / 76× | W 0.267 (CAST's folds: 0.269) |
+| `error_profile`, 2000 points, 5 folds | 0.45 s | 22.7 ms | 10.2 ms | 20× / 44× | windows max diff 5.3e-15; curve within 1.2% |
+| Mahalanobis DI, 500 training × 10,000 new | 20.8 s | 15.3 ms | 3.0 ms | 1,359× / 6,867× | DI max diff 3.0e-14 |
+| Mahalanobis DI, 2000 × 100,000 | 909 s (15.1 min) | 437 ms | 68 ms | 2,082× / 13,294× | DI max diff 3.3e-13 |
+
+**How they were checked.**
+
+- **The range.** blockCV and Zeit each draw their own 5000 pixels, so the ranges agree only to the sample: within 2% at 700 and 1500 m, and 1–11% shorter at 300 m, three pixels. The bands are automap's on both sides (2% to 100% of 0.35 of the map's diagonal), and the model is the one that fits best of the spherical, exponential and Gaussian (automap also tries Stein's Matérn). blockCV chose the spherical on every map, Zeit the Gaussian at 300 m. With an exponential or a Gaussian, blockCV reports gstat's range parameter, Zeit's `scale`, where Zeit's `range` is the practical range.
+- **kNNDM.** The two draw different folds (each side clusters its own candidates), so the folds are not compared one by one. The script measures CAST's own folds with Zeit's W, which must equal CAST's to 1e-9, and records the W of each side's folds: smaller is better, closer to the distances from the area to predict. 8 threads gain little: they share only the core's distances, not the clustering of the candidates.
+- **The error profile.** The windows of the DI and their RMSE, from CAST's predictions and variable weights, must equal CAST's to 1e-9 (the largest difference was 5.3e-15). The monotone curve is Zeit's own P-spline, not scam's: within 1.2% of the range of the metric, on 200 DI values.
+- **The Mahalanobis distance.** The DI of every new point, to 1e-9. CAST takes 750 times as long with the Mahalanobis distance as with the Euclidean on the same 2000 × 100,000 points (909 s against 1.2 s); Zeit whitens the predictors once and searches the same k-d tree as for the Euclidean distance.
+
+The kNNDM rows are the best of two runs, not three.
+
 ---
 
 ## Protocol
 
 - **The same inputs.** Each script draws its inputs with a fixed seed, writes them to a temporary folder (CSV or raw float64), runs the original on the files from `Rscript`, and runs Zeit on the same arrays in memory.
 - **The original's own timing.** Each R script (`benchmarks/vs_originals/<method>.R`) times only the call it benchmarks with `system.time` (elapsed), after reading the inputs and loading the packages, and prints it; starting R, loading the packages and reading and writing files are not counted. Each original is timed once, with its defaults otherwise, in one R process.
-- **Zeit's timing.** A warm-up call, then the best of three (`best_of` in `benchmarks/vs_originals/common.py`, `time.perf_counter`), on 1 thread and on all the processors but one (`n_jobs=-1`: 19 here; the AR(1) trends and PARTS, timed later, on 8).
+- **Zeit's timing.** A warm-up call, then the best of three (`best_of` in `benchmarks/vs_originals/common.py`, `time.perf_counter`), on 1 thread and on all the processors but one (`n_jobs=-1`: 19 here; the AR(1) trends, PARTS and the spatial cross-validation, timed later, on 8).
 - **The check.** After timing, each script compares the outputs (the tolerances above) and stops with an error if they disagree, so no timing is recorded for a result that differs.
 - **The record.** `record` in `common.py` writes one entry per method, original, workload and thread count to `benchmarks/results/vs-originals.json`, with the date and the machine, replacing an older entry of the same key.
 
@@ -175,9 +199,9 @@ Each partition is a GLS on a dense 1500 × 1500 correlation matrix, so the cost 
 |:---|:---|
 | Platform | Windows 11 (`Windows-11-10.0.26300-SP0`) |
 | Processor | `Intel64 Family 6 Model 183 Stepping 1, GenuineIntel` (the Intel Core i5-13600K of the other benchmarks), 20 logical processors |
-| R | 4.4.2, with sfdep 0.2.5, RecoverMetricsR 0.1.0, RStoolbox 1.0.2.2, sits 1.5.4, CAST 1.0.4, Rbeast 1.0.2 and remotePARTS 1.0.4 |
+| R | 4.4.2, with sfdep 0.2.5, RecoverMetricsR 0.1.0, RStoolbox 1.0.2.2, sits 1.5.4, CAST 1.0.4, Rbeast 1.0.2, remotePARTS 1.0.4, blockCV 4.0.1 (with automap 1.1.20) and scam 1.2.23 |
 | Python | pyxccd 1.1.0, in a virtual environment of its own |
-| Date | 2026-10-24 (the AR(1) trends and PARTS: 2026-10-28) |
+| Date | 2026-10-24 (the AR(1) trends and PARTS: 2026-10-28; the spatial cross-validation: 2026-10-29) |
 
 ---
 
@@ -193,6 +217,7 @@ python benchmarks/vs_originals/smooth_probs.py
 python benchmarks/vs_originals/aoa.py
 python benchmarks/vs_originals/beast.py
 python benchmarks/vs_originals/parts.py               # sides 50, 100, 200; ZEIT_BENCH_THREADS=8 by default
+python benchmarks/vs_originals/folds.py               # autocor knndm profile mahalanobis (CAST's MD takes 15 min)
 python benchmarks/vs_originals/ewmacd.py "path/to/EWMACD v1.3.0.r"   # Brooks' script, not distributed
 PYXCCD_PYTHON=path/to/pyxccd-env/python python benchmarks/vs_originals/sccd.py CCDC_Stack_Rondonia.tif CCDC_Stack_Rondonia_Dates.csv
 ```

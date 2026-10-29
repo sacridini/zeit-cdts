@@ -2306,6 +2306,23 @@ o do blockCV), e contra os dois no R.
   nada ali), `outside=True` para tudo. **Fica para depois:** `variable="LPD"` (pede o LPD do
   treino) e o `multiCV` (refazer a validação com agrupamentos no espaço das variáveis de 3 até
   leave-one-out).
+- **22f:** `benchmarks/vs_originals/folds.py` e `folds.R` (partes `autocor`, `knndm`,
+  `profile`, `mahalanobis`), em 1 e 8 threads, no `vs-originals.json`, na página e no gráfico.
+  **O alcance, resolvido contra o blockCV:** o `cv_spatial_autocor` chama o `autofitVariogram`
+  do automap e devolve o parâmetro `range` do gstat (`var_model[2, 3]`), que no esférico é o
+  alcance e no exponencial e no gaussiano é a escala. Nos três mapas de teste ele escolheu
+  sempre o esférico; o zeit devolve o alcance prático (3a, 1,73a), mais útil como tamanho de
+  bloco, e a escala na coluna `scale`. **Fugiu do plano:** com 15 bandas iguais até o corte o
+  alcance curto (3 pixels) dava 1,2 a 1,3 vez o do blockCV; com as bandas do automap (2, 4, 6,
+  9, 12, 15, 25, 35, 50, 65, 80 e 100% de 0,35 da diagonal, agora o padrão, `boundaries` no
+  lugar de `bins`) e a escolha do modelo entre esférico, exponencial e gaussiano, dá 0,89 a
+  1,02 vez (o Stein/Matérn do automap não entrou). Tempos: blockCV 1,6–2,7 s, zeit 0,28 s em 1
+  thread e 0,05 s em 8; kNNDM 5000 pontos 40 s contra 0,57 s (as 8 threads quase não ajudam: o
+  agrupamento dos candidatos é do SciPy, numa thread), com W 0,267 contra 0,269 (1000 pontos:
+  0,572 contra 0,685); `errorProfiles` 0,45 s contra 0,023 s, as janelas a 5e-15 e a curva a
+  1,2% da do scam; o Mahalanobis do CAST, 2000 × 100.000 pontos, 909 s contra 0,44 s (1
+  thread) e 0,07 s (8), o DI a 3e-13. O `cv_spatial` e o `cv_buffer` do blockCV não foram
+  cronometrados: os blocos e o buffer são geometria simples, conferidos à mão nos testes.
 
 ## Para depois
 

@@ -388,11 +388,12 @@ matched.plot(kind="distances")
 <!-- sig: zeit.autocorrelation_range -->
 ```python
 zeit.autocorrelation_range(
-    data, *, sample=5000, bins=15, cutoff=None, seed=0, n_jobs=-1,
+    data, *, sample=5000, cutoff=None, boundaries=None, model="best",
+    seed=0, n_jobs=-1,
 )
 ```
 
-The range of each band's spatial autocorrelation, as blockCV's `cv_spatial_autocor`: the empirical semivariogram of a sample of pixels and an exponential model fitted to it, γ(h) = nugget + sill (1 − e<sup>−h/scale</sup>), by weighted least squares (weights N<sub>h</sub>/h², as gstat). The pairs are counted in the core, in parallel: 5000 pixels take 0.03 s.
+The range of each band's spatial autocorrelation, as blockCV's `cv_spatial_autocor`: the empirical semivariogram of a sample of pixels and the model fitted to it that fits best (as automap's `autofitVariogram`, which blockCV calls) of the spherical, exponential and Gaussian, γ(h) = nugget + sill f(h/scale), by weighted least squares (weights N<sub>h</sub>/h², as gstat). The pairs are counted in the core, in parallel: 5000 pixels take 0.05 s on 8 threads (blockCV: 1.6–2.7 s). On white noise averaged over windows of 300, 700 and 1500 m (correlated up to that distance), the ranges are 0.98–1.02 times blockCV 4.0.1's at 700 and 1500 m, and 0.89–0.99 times at 300 m (a range of three pixels, where Zeit's best model was the Gaussian). blockCV chose the spherical on every map, whose range both report alike.
 
 <div class="params" markdown>
 
@@ -400,14 +401,15 @@ The range of each band's spatial autocorrelation, as blockCV's `cv_spatial_autoc
 | :--- | :--- | :--- | :--- |
 | `data` | `DataArray`, `Dataset` or path | required | Anything `classify` takes; a geographic CRS's pixels are measured in their UTM zone. |
 | `sample` | `int` | `5000` | Pixels with a value drawn per band. |
-| `bins` | `int` | `15` | Bands of distance of the semivariogram. |
-| `cutoff` | `float` | `None` | The largest distance of a pair; default a third of the map's diagonal (as gstat). |
+| `cutoff` | `float` | `None` | The largest distance of a pair; default 0.35 of the map's diagonal (as automap). |
+| `boundaries` | list | `None` | The upper ends of the bands of distance; default automap's, 2, 4, 6, 9, 12, 15, 25, 35, 50, 65, 80 and 100% of `cutoff`: finer at short distances, where a short range shows. |
+| `model` | `str` | `"best"` | `"best"` (the least weighted squared error of the three), `"spherical"`, `"exponential"` or `"gaussian"`. |
 | `seed` | `int` | `0` | The sample's seed. |
 | `n_jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job ([how they are counted](parallel.md#threads-n_jobs)). |
 
 </div>
 
-**Returns** a `DataFrame` by band: `range` (the practical range, where the model reaches 95% of its sill above the nugget: 3 `scale`), `scale`, `nugget`, `sill` (above the nugget) and `pixels`; in `attrs`, the median `range` and each band's semivariogram (`variograms`, a `DataFrame` of `distance`, `gamma` and `pairs`).
+**Returns** a `DataFrame` by band: `range` (where the points are about independent: the spherical's range, where it reaches its sill; the exponential's and the Gaussian's practical range, where they reach 95% of it, 3 and 1.73 times their `scale`; blockCV reports gstat's range parameter, which for those two is the `scale`, and it also tries Stein's Matérn, which Zeit does not), `model`, `scale`, `nugget`, `sill` (above the nugget) and `pixels`; in `attrs`, the median `range` and each band's semivariogram (`variograms`, a `DataFrame` of `distance`, `gamma` and `pairs`).
 
 ## Masks
 

@@ -44,6 +44,14 @@ ROWS = [
      "remotePARTS fitAR_map", "200 × 200 px × 30 years"),
     ("PARTS", "parts", "remotePARTS 1.0.4 fitGLS_partition (R)", "200x200 px x 30 years, 26 x 1500",
      "remotePARTS fitGLS_partition", "40,000 px in 26 partitions of 1500"),
+    ("Autocorrelation range", "autocorrelation_range", "blockCV 4.0.1 (R)", "300x300 px, range 300 m",
+     "blockCV cv_spatial_autocor", "300 × 300 px, 2 bands"),
+    ("kNNDM folds", "knndm", "CAST 1.0.4 (R)", "5000 clustered points, k=5",
+     "CAST knndm", "5000 points, k = 5"),
+    ("Error profile", "error_profile", "CAST 1.0.4 + scam (R)", "2000 points, 5 folds",
+     "CAST errorProfiles", "2000 cross-validated points"),
+    ("AOA, Mahalanobis", "aoa (Mahalanobis)", "CAST 1.0.4 (R)", "2000 train x 100000 new, 8 pred.",
+     "CAST, method MD", "2000 × 100,000 points, 8 predictors"),
 ]
 
 

@@ -1,12 +1,14 @@
 //! The range of a map's spatial autocorrelation, the size blockCV's `cv_spatial_autocor` gives the blocks of a
 //! spatial cross-validation (Valavi et al. 2019, doi:10.1111/2041-210X.13107): the empirical semivariogram of its
-//! values at sampled pixels, and an exponential model fitted to it.
+//! values at sampled pixels, and the model fitted to it that fits best, of the spherical, exponential and Gaussian
+//! (as automap's `autofitVariogram`, which blockCV calls, picks among its models).
 //!
-//! The semivariogram of the pairs of points in each band of distance is half their mean squared difference. The
-//! model is γ(h) = c0 + c1 (1 - exp(-h / a)): for a fixed scale `a` it is linear in the nugget c0 and the partial sill
-//! c1, so those come from weighted least squares (weights N_h / h², gstat's default fit), kept non-negative, and the
-//! scale from a search over its logarithm. The range is the practical one, where the model reaches 95% of its sill
-//! above the nugget: a ln 20 (about 3a).
+//! The semivariogram of the pairs of points in each band of distance is half their mean squared difference. Each
+//! model is γ(h) = c0 + c1 f(h / a): for a fixed scale `a` it is linear in the nugget c0 and the partial sill c1, so
+//! those come from weighted least squares (weights N_h / h², gstat's default fit), kept non-negative, and the scale
+//! from a search over its logarithm. The range is the distance beyond which the points are about independent: the
+//! spherical's a (where it reaches its sill), the exponential's and the Gaussian's practical range (where they
+//! reach 95% of it, a ln 20 and a √ln 20).
 
 use crate::parallel;
 
@@ -19,24 +21,78 @@ pub struct Empirical {
     pub pairs: Vec<f64>,
 }
 
-/// An exponential semivariogram.
+/// A model of semivariogram, f(u) of u = h / a.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
+    /// 1.5 u - 0.5 u³ up to u = 1, then 1
+    Spherical,
+    /// 1 - exp(-u)
+    Exponential,
+    /// 1 - exp(-u²)
+    Gaussian,
+}
+
+impl Kind {
+    pub const ALL: [Kind; 3] = [Kind::Spherical, Kind::Exponential, Kind::Gaussian];
+
+    fn f(self, u: f64) -> f64 {
+        match self {
+            Kind::Spherical if u >= 1.0 => 1.0,
+            Kind::Spherical => 1.5 * u - 0.5 * u * u * u,
+            Kind::Exponential => 1.0 - (-u).exp(),
+            Kind::Gaussian => 1.0 - (-u * u).exp(),
+        }
+    }
+
+    /// The range, from the scale.
+    fn range(self, a: f64) -> f64 {
+        match self {
+            Kind::Spherical => a,
+            Kind::Exponential => a * 20f64.ln(),
+            Kind::Gaussian => a * 20f64.ln().sqrt(),
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Kind::Spherical => "spherical",
+            Kind::Exponential => "exponential",
+            Kind::Gaussian => "gaussian",
+        }
+    }
+}
+
+/// A fitted semivariogram.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Exponential {
+pub struct Model {
+    pub kind: Kind,
     pub nugget: f64,
     /// the partial sill (the sill above the nugget)
     pub sill: f64,
-    /// a, in exp(-h / a)
+    /// a, in f(h / a)
     pub scale: f64,
-    /// the practical range, a ln 20
+    /// where the points are about independent (see the module)
     pub range: f64,
+    /// the weighted sum of squared errors of the fit
+    pub error: f64,
 }
 
-/// The semivariogram of the values `v` at the points (`x`, `y`), in `bins` equal bands of distance up to `cutoff`
-/// (pairs farther left out).
-pub fn empirical(x: &[f64], y: &[f64], v: &[f64], bins: usize, cutoff: f64, n_jobs: i32) -> Empirical {
+/// The bands of distance of automap's `autofitVariogram` (which blockCV calls): their upper ends at 2, 4, 6, 9, 12,
+/// 15, 25, 35, 50, 65, 80 and 100% of `cutoff`, finer at short distances, where a short range shows.
+pub fn automap_boundaries(cutoff: f64) -> Vec<f64> {
+    [2.0, 4.0, 6.0, 9.0, 12.0, 15.0, 25.0, 35.0, 50.0, 65.0, 80.0, 100.0]
+        .iter()
+        .map(|f| f / 100.0 * cutoff)
+        .collect()
+}
+
+/// The semivariogram of the values `v` at the points (`x`, `y`), in the bands of distance whose upper ends are
+/// `boundaries` (increasing; pairs beyond the last left out).
+pub fn empirical(x: &[f64], y: &[f64], v: &[f64], boundaries: &[f64], n_jobs: i32) -> Empirical {
     let n = v.len();
     assert!(x.len() == n && y.len() == n, "x, y and v must have the same length");
-    if n < 2 || bins == 0 || !(cutoff > 0.0) {
+    let bins = boundaries.len();
+    if n < 2 || bins == 0 || !(boundaries[0] > 0.0) || boundaries.windows(2).any(|w| !(w[1] > w[0])) {
         return Empirical::default();
     }
     // each point's sums over the points after it, per band: distance, squared difference, count
@@ -50,10 +106,10 @@ pub fn empirical(x: &[f64], y: &[f64], v: &[f64], bins: usize, cutoff: f64, n_jo
         |_, i, out| {
             for j in i + 1..n {
                 let d = ((x[i] - x[j]).powi(2) + (y[i] - y[j]).powi(2)).sqrt();
-                if d >= cutoff {
+                let b = boundaries.partition_point(|&e| e <= d);
+                if b == bins {
                     continue;
                 }
-                let b = ((d / cutoff * bins as f64) as usize).min(bins - 1);
                 out[3 * b] += d;
                 out[3 * b + 1] += (v[i] - v[j]).powi(2);
                 out[3 * b + 2] += 1.0;
@@ -79,8 +135,8 @@ pub fn empirical(x: &[f64], y: &[f64], v: &[f64], bins: usize, cutoff: f64, n_jo
 }
 
 /// For a fixed scale, the nugget and partial sill of least weighted squared error, both >= 0, and that error.
-fn linear_part(e: &Empirical, w: &[f64], scale: f64) -> (f64, f64, f64) {
-    let f: Vec<f64> = e.distance.iter().map(|&h| 1.0 - (-h / scale).exp()).collect();
+fn linear_part(e: &Empirical, w: &[f64], kind: Kind, scale: f64) -> (f64, f64, f64) {
+    let f: Vec<f64> = e.distance.iter().map(|&h| kind.f(h / scale)).collect();
     let error = |c0: f64, c1: f64| -> f64 {
         e.gamma
             .iter()
@@ -124,8 +180,8 @@ fn linear_part(e: &Empirical, w: &[f64], scale: f64) -> (f64, f64, f64) {
     best
 }
 
-/// The exponential model fitted to `e`, or None without at least three bands of distance.
-pub fn fit_exponential(e: &Empirical) -> Option<Exponential> {
+/// The model `kind` fitted to `e`, or None without at least three bands of distance.
+pub fn fit(e: &Empirical, kind: Kind) -> Option<Model> {
     let k = e.gamma.len();
     if k < 3 {
         return None;
@@ -139,7 +195,7 @@ pub fn fit_exponential(e: &Empirical) -> Option<Exponential> {
     let (lo, hi) = (e.distance[0], e.distance[k - 1]);
     // the scale between a tenth of the first band and ten times the last: a grid of its log, then golden section
     let (a, b) = ((lo / 10.0).max(1e-12).ln(), (hi * 10.0).ln());
-    let err = |t: f64| linear_part(e, &w, t.exp()).2;
+    let err = |t: f64| linear_part(e, &w, kind, t.exp()).2;
     let steps = 200;
     let grid: Vec<f64> = (0..=steps).map(|i| a + (b - a) * i as f64 / steps as f64).collect();
     let best = (0..=steps).min_by(|&i, &j| err(grid[i]).total_cmp(&err(grid[j])))?;
@@ -156,13 +212,23 @@ pub fn fit_exponential(e: &Empirical) -> Option<Exponential> {
         d = l + g * (r - l);
     }
     let scale = ((l + r) / 2.0).exp();
-    let (nugget, sill, _) = linear_part(e, &w, scale);
-    Some(Exponential {
+    let (nugget, sill, error) = linear_part(e, &w, kind, scale);
+    Some(Model {
+        kind,
         nugget,
         sill,
         scale,
-        range: scale * 20f64.ln(),
+        range: kind.range(scale),
+        error,
     })
+}
+
+/// Of the spherical, exponential and Gaussian models fitted to `e`, the one of least weighted squared error.
+pub fn fit_best(e: &Empirical) -> Option<Model> {
+    Kind::ALL
+        .iter()
+        .filter_map(|&k| fit(e, k))
+        .min_by(|a, b| a.error.total_cmp(&b.error))
 }
 
 #[cfg(test)]
@@ -173,34 +239,30 @@ mod tests {
     fn empirical_by_hand() {
         // three points on a line, 0, 1 and 3 apart: pairs at 1, 2 and 3
         let (x, y, v) = ([0.0, 1.0, 3.0], [0.0; 3], [0.0, 2.0, 1.0]);
-        let e = empirical(&x, &y, &v, 3, 3.5, 1);
+        let e = empirical(&x, &y, &v, &[1.5, 2.5, 3.5], 1);
         assert_eq!(e.pairs, vec![1.0, 1.0, 1.0]);
         assert_eq!(e.distance, vec![1.0, 2.0, 3.0]);
         assert_eq!(e.gamma, vec![2.0, 0.5, 0.5]);
         // the last pair beyond the cutoff
-        let e = empirical(&x, &y, &v, 2, 2.5, 4);
+        let e = empirical(&x, &y, &v, &[1.25, 2.5], 4);
         assert_eq!(e.pairs, vec![1.0, 1.0]);
     }
 
     #[test]
     fn the_model_is_recovered() {
-        // a semivariogram drawn from the model itself, its pairs growing with distance
-        let truth = Exponential {
-            nugget: 0.2,
-            sill: 1.5,
-            scale: 120.0,
-            range: 120.0 * 20f64.ln(),
-        };
-        let distance: Vec<f64> = (1..=15).map(|i| i as f64 * 40.0).collect();
-        let gamma = distance
-            .iter()
-            .map(|&h| truth.nugget + truth.sill * (1.0 - (-h / truth.scale).exp()))
-            .collect();
-        let pairs = distance.iter().map(|&h| 100.0 * h).collect();
-        let fit = fit_exponential(&Empirical { distance, gamma, pairs }).unwrap();
-        assert!((fit.scale / truth.scale - 1.0).abs() < 1e-6, "{fit:?}");
-        assert!((fit.nugget - truth.nugget).abs() < 1e-6 && (fit.sill - truth.sill).abs() < 1e-6);
-        assert!((fit.range / truth.range - 1.0).abs() < 1e-6);
+        // a semivariogram drawn from each model itself, its pairs growing with distance: recovered, and chosen
+        for kind in Kind::ALL {
+            let (nugget, sill, scale) = (0.2, 1.5, 120.0);
+            let distance: Vec<f64> = (1..=15).map(|i| i as f64 * 25.0).collect();
+            let gamma = distance.iter().map(|&h| nugget + sill * kind.f(h / scale)).collect();
+            let pairs = distance.iter().map(|&h| 100.0 * h).collect();
+            let e = Empirical { distance, gamma, pairs };
+            let m = fit(&e, kind).unwrap();
+            assert!((m.scale / scale - 1.0).abs() < 1e-6, "{m:?}");
+            assert!((m.nugget - nugget).abs() < 1e-6 && (m.sill - sill).abs() < 1e-6);
+            assert!((m.range / kind.range(scale) - 1.0).abs() < 1e-6);
+            assert_eq!(fit_best(&e).unwrap().kind, kind);
+        }
     }
 
     #[test]
@@ -229,16 +291,24 @@ mod tests {
                 white.push(noise[i * g + j]);
             }
         }
-        let e = empirical(&x, &y, &smooth, 15, 400.0, 4);
-        assert_eq!(e, empirical(&x, &y, &smooth, 15, 400.0, 1));
-        let fit = fit_exponential(&e).unwrap();
-        // an exponential reaches 95% of its sill only at about 3a: its practical range is beyond the 100 units
+        let bands = automap_boundaries(400.0);
+        let e = empirical(&x, &y, &smooth, &bands, 4);
+        assert_eq!(e, empirical(&x, &y, &smooth, &bands, 1));
+        // the mean over a square is correlated as a tent, which reaches its sill: the best of the models with a range
+        // near the 100 units (the spherical or the Gaussian, both flatter at the end than the exponential)
+        let m = fit_best(&e).unwrap();
         assert!(
-            fit.scale > 40.0 && fit.scale < 120.0 && fit.range > 100.0 && fit.range < 350.0,
-            "{fit:?}"
+            m.kind != Kind::Exponential && m.range > 90.0 && m.range < 160.0,
+            "{m:?}"
+        );
+        // an exponential reaches 95% of its sill only at about 3a: its practical range is beyond
+        let m = fit(&e, Kind::Exponential).unwrap();
+        assert!(
+            m.scale > 40.0 && m.scale < 120.0 && m.range > 100.0 && m.range < 350.0,
+            "{m:?}"
         );
         // white noise: no structure beyond a pixel, all nugget
-        let fit = fit_exponential(&empirical(&x, &y, &white, 15, 400.0, 4)).unwrap();
+        let fit = fit_best(&empirical(&x, &y, &white, &bands, 4)).unwrap();
         assert!(fit.sill < 0.1 * fit.nugget || fit.range < 20.0, "{fit:?}");
     }
 }

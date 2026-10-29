@@ -648,6 +648,182 @@
    "threads": 8,
    "note": "partitions' estimates, SEs and nuggets max rel. diff 4.7e-15, overall estimate 1.4e-16; overall t 0.028% apart (cross-partition nugget)",
    "date": "2026-10-28"
+  },
+  {
+   "method": "knndm",
+   "original": "CAST 1.0.4 (R)",
+   "size": "1000 clustered points, k=5",
+   "original_s": 1.81,
+   "zeit_s": 0.07997880000039004,
+   "speedup": 22.630997214151414,
+   "threads": 1,
+   "note": "W 0.572 (CAST 0.685; CAST's W by zeit equal)",
+   "date": "2026-10-29"
+  },
+  {
+   "method": "knndm",
+   "original": "CAST 1.0.4 (R)",
+   "size": "1000 clustered points, k=5",
+   "original_s": 1.81,
+   "zeit_s": 0.07300709999981336,
+   "speedup": 24.79210926066954,
+   "threads": 8,
+   "note": "W 0.572 (CAST 0.685; CAST's W by zeit equal)",
+   "date": "2026-10-29"
+  },
+  {
+   "method": "knndm",
+   "original": "CAST 1.0.4 (R)",
+   "size": "5000 clustered points, k=5",
+   "original_s": 40.15,
+   "zeit_s": 0.5653128000012657,
+   "speedup": 71.02262676505839,
+   "threads": 1,
+   "note": "W 0.267 (CAST 0.269; CAST's W by zeit equal)",
+   "date": "2026-10-29"
+  },
+  {
+   "method": "knndm",
+   "original": "CAST 1.0.4 (R)",
+   "size": "5000 clustered points, k=5",
+   "original_s": 40.15,
+   "zeit_s": 0.5289025999991281,
+   "speedup": 75.91189757824255,
+   "threads": 8,
+   "note": "W 0.267 (CAST 0.269; CAST's W by zeit equal)",
+   "date": "2026-10-29"
+  },
+  {
+   "method": "error_profile",
+   "original": "CAST 1.0.4 + scam (R)",
+   "size": "2000 points, 5 folds",
+   "original_s": 0.45,
+   "zeit_s": 0.022715099999913946,
+   "speedup": 19.810610563092602,
+   "threads": 1,
+   "note": "windows max diff 5.3e-15; curve within 1.2% of the metric's range",
+   "date": "2026-10-29"
+  },
+  {
+   "method": "error_profile",
+   "original": "CAST 1.0.4 + scam (R)",
+   "size": "2000 points, 5 folds",
+   "original_s": 0.45,
+   "zeit_s": 0.01020059999973455,
+   "speedup": 44.115052056909434,
+   "threads": 8,
+   "note": "windows max diff 5.3e-15; curve within 1.2% of the metric's range",
+   "date": "2026-10-29"
+  },
+  {
+   "method": "aoa (Mahalanobis)",
+   "original": "CAST 1.0.4 (R)",
+   "size": "500 train x 10000 new, 8 pred.",
+   "original_s": 20.8,
+   "zeit_s": 0.015301700001145946,
+   "speedup": 1359.326087849212,
+   "threads": 1,
+   "note": "DI max diff 3.0e-14",
+   "date": "2026-10-29"
+  },
+  {
+   "method": "aoa (Mahalanobis)",
+   "original": "CAST 1.0.4 (R)",
+   "size": "500 train x 10000 new, 8 pred.",
+   "original_s": 20.8,
+   "zeit_s": 0.0030287999998108717,
+   "speedup": 6867.406233920636,
+   "threads": 8,
+   "note": "DI max diff 3.0e-14",
+   "date": "2026-10-29"
+  },
+  {
+   "method": "aoa (Mahalanobis)",
+   "original": "CAST 1.0.4 (R)",
+   "size": "2000 train x 100000 new, 8 pred.",
+   "original_s": 908.88,
+   "zeit_s": 0.43653830000039306,
+   "speedup": 2082.016629466834,
+   "threads": 1,
+   "note": "DI max diff 3.3e-13",
+   "date": "2026-10-29"
+  },
+  {
+   "method": "aoa (Mahalanobis)",
+   "original": "CAST 1.0.4 (R)",
+   "size": "2000 train x 100000 new, 8 pred.",
+   "original_s": 908.88,
+   "zeit_s": 0.06836590000057186,
+   "speedup": 13294.347035472327,
+   "threads": 8,
+   "note": "DI max diff 3.3e-13",
+   "date": "2026-10-29"
+  },
+  {
+   "method": "autocorrelation_range",
+   "original": "blockCV 4.0.1 (R)",
+   "size": "300x300 px, range 300 m",
+   "original_s": 2.74,
+   "zeit_s": 0.28733180000017455,
+   "speedup": 9.536013765264881,
+   "threads": 1,
+   "note": "range / blockCV's 0.89-0.99",
+   "date": "2026-10-29"
+  },
+  {
+   "method": "autocorrelation_range",
+   "original": "blockCV 4.0.1 (R)",
+   "size": "300x300 px, range 300 m",
+   "original_s": 2.74,
+   "zeit_s": 0.049702000000252156,
+   "speedup": 55.1285662545994,
+   "threads": 8,
+   "note": "range / blockCV's 0.89-0.99",
+   "date": "2026-10-29"
+  },
+  {
+   "method": "autocorrelation_range",
+   "original": "blockCV 4.0.1 (R)",
+   "size": "300x300 px, range 700 m",
+   "original_s": 1.87,
+   "zeit_s": 0.2816709999988234,
+   "speedup": 6.638951116756115,
+   "threads": 1,
+   "note": "range / blockCV's 1.00-1.02",
+   "date": "2026-10-29"
+  },
+  {
+   "method": "autocorrelation_range",
+   "original": "blockCV 4.0.1 (R)",
+   "size": "300x300 px, range 700 m",
+   "original_s": 1.87,
+   "zeit_s": 0.04864689999885741,
+   "speedup": 38.44027060396288,
+   "threads": 8,
+   "note": "range / blockCV's 1.00-1.02",
+   "date": "2026-10-29"
+  },
+  {
+   "method": "autocorrelation_range",
+   "original": "blockCV 4.0.1 (R)",
+   "size": "300x300 px, range 1500 m",
+   "original_s": 1.63,
+   "zeit_s": 0.2778916000006575,
+   "speedup": 5.865596513158884,
+   "threads": 1,
+   "note": "range / blockCV's 0.98-1.01",
+   "date": "2026-10-29"
+  },
+  {
+   "method": "autocorrelation_range",
+   "original": "blockCV 4.0.1 (R)",
+   "size": "300x300 px, range 1500 m",
+   "original_s": 1.63,
+   "zeit_s": 0.05005929999970249,
+   "speedup": 32.56138220090347,
+   "threads": 8,
+   "note": "range / blockCV's 0.98-1.01",
+   "date": "2026-10-29"
   }
  ],
  "machine": {
