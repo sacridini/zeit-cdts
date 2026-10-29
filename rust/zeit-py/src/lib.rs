@@ -35,6 +35,7 @@ mod som;
 mod tmask;
 mod twdtw;
 mod utils;
+mod variogram;
 mod warp;
 
 /// Adds `sub` to `parent` as `parent.name`, importable as `zeit._core.name` too
@@ -75,5 +76,6 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     add_submodule(m, &sccd::module(m.py())?)?;
     add_submodule(m, &beast::module(m.py())?)?;
     add_submodule(m, &parallel::module(m.py())?)?;
+    add_submodule(m, &variogram::module(m.py())?)?;
     Ok(())
 }

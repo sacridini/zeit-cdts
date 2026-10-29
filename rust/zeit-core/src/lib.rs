@@ -40,5 +40,6 @@ pub mod spatial;
 pub mod stl;
 pub mod tmask;
 pub mod twdtw;
+pub mod variogram;
 pub mod warp;
 pub mod whittaker;

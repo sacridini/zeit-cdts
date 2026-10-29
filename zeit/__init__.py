@@ -29,6 +29,7 @@ from ._twdtw_api import twdtw
 
 from .spatial import apply_mmu_filter, apply_majority_filter, desawtooth_classes, mmu_sieve, smooth_probs
 from ._aoa import TrainDI, aoa, train_di
+from ._folds import SpatialFolds, autocorrelation_range, spatial_folds
 from ._hotspots import emerging_hotspots
 from .segmentation import snic_grid, snic_to_polygons
 from ._snic_api import snic
@@ -103,6 +104,7 @@ __all__ = [
     "train_classifier", "classify",
     "apply_mmu_filter", "apply_majority_filter", "mmu_sieve", "smooth_probs", "desawtooth_classes",
     "aoa", "train_di", "TrainDI",
+    "spatial_folds", "SpatialFolds", "autocorrelation_range",
     "emerging_hotspots",
     "snic_grid", "snic_to_polygons",
     "extract_water_mask",

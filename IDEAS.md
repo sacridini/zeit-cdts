@@ -2251,6 +2251,27 @@ o do blockCV), e contra os dois no R.
   (`cv_spatial`, `cv_buffer`, `cv_spatial_autocor`) em `benchmarks/vs_originals/`; o tutorial e
   a API.
 
+### O que foi feito, e onde fugiu do plano
+
+- **22a:** `distance="mahalanobis"` no `train_di` / `aoa` (no core, o `whiten` do `TrainDi`:
+  L⁻¹ da covariância do treino padronizado, aplicado ao treino uma vez e a cada pixel ao
+  padronizar; uma variável combinação linear das outras é recusada, com o motivo) e o
+  `Exclude` (CSR) dos vizinhos tirados de cada ponto. Três casos novos no
+  `make_aoa_cast_fixtures.R` (MD sem folds, MD com folds e pesos, leave-one-out com buffer pelo
+  `CVtrain`): todos batem com o CAST 1.0.4 a ~1e-14, como os de antes.
+- **22b:** `zeit.spatial_folds` (`zeit/_folds.py`) com `"blocks"` (hexágonos de topo pontudo,
+  `size` a distância entre centros vizinhos, ou quadrados; a grade começa no canto dos pontos;
+  ao acaso fica o sorteio de menor qui-quadrado entre os folds e o k-ésimo dos pontos, de cada
+  classe com `label`), `"buffer"` (o `cKDTree` do SciPy) e `"clusters"` (k-means do
+  scikit-learn com as threads presas ao `n_jobs` pelo `threadpoolctl`). O kNNDM fica para o 22c,
+  como planejado. Um CRS geográfico vira a zona UTM. `zeit.autocorrelation_range` com o
+  variograma no core (`variogram.rs`: os pares por ponto em paralelo e somados em ordem, o mesmo
+  resultado com qualquer número de threads; para a escala fixa, pepita e patamar por mínimos
+  quadrados ponderados, ≥ 0, e a escala por grade + seção áurea no log). **Em aberto para o
+  22f:** num ruído suavizado por uma janela de L, o alcance prático (3a) dá 1,5 a 1,9 L e a
+  escala a dá 0,6 L; qual dos dois o blockCV chama de alcance (e qual usar como tamanho do
+  bloco) se decide contra ele.
+
 ## Para depois
 
 - Fase 19: `zeit.ai.predict` com fp16 na GPU (2,4× no Siamese, medido) vale para todos os

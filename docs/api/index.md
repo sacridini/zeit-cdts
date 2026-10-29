@@ -140,6 +140,7 @@
 | [`desawtooth_classes`](post-processing.md#desawtooth_classes) | Remove short excursions from class series (A B A → A A A) |
 | [`train_classifier`](post-processing.md#train_classifier) / [`classify`](post-processing.md#classify) | Train at sample points, classify any cube, metrics or CCDC models |
 | [`aoa`](post-processing.md#aoa) / [`train_di`](post-processing.md#train_di) | Area of applicability of a model: dissimilarity index to the training data (CAST) |
+| [`spatial_folds`](post-processing.md#spatial_folds) / [`autocorrelation_range`](post-processing.md#autocorrelation_range) | Spatial cross-validation folds: blocks, buffer, clusters (blockCV); the range of a map's autocorrelation |
 | [`extract_water_mask`](post-processing.md#extract_water_mask) | Water mask from CCDC |
 | **Validation** | |
 | [`sampling_design`](validation.md#sampling_design) | Sample size and allocation per stratum (Olofsson et al. 2014) |

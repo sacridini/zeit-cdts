@@ -233,7 +233,7 @@ Where a model can be applied (Meyer & Pebesma 2021): the dissimilarity index (DI
 | `train` | `DataFrame`, array or `TrainDI` | `None` | The training data (points × predictors), or a `train_di` result to reuse; none with `model`. |
 | `model` | classifier | `None` | A model from `train_classifier`: its training data (`zeit_train_`) and, unless `weights` says otherwise, its `feature_importances_` as the weights. |
 | `weights` | `str`, `dict` or list | `None` | The predictors' weights: `None` (the model's importance, else all 1), `"importance"`, a dict by name or a list. Negative weights count as 0; a predictor of weight 0 is ignored, even missing. |
-| `folds` | list | `None` | Each training point's cross-validation fold (any labels; `None`/NaN: in none). Spatially clustered samples should be given their clusters, or the threshold is too strict. |
+| `folds` | list or `SpatialFolds` | `None` | Each training point's cross-validation fold (any labels; `None`/NaN: in none), or a [`spatial_folds`](#spatial_folds) result (a buffer's neighbours are left out of each point's DI, as CAST's `CVtrain`). Spatially clustered samples should be given spatial folds, or the threshold is too strict. |
 | `distance` | `str` | `"euclidean"` | `"euclidean"` or `"mahalanobis"` (CAST's `method = "MD"`): the Euclidean distance once the scaled predictors are whitened by their covariance in the training data, so correlated predictors (eight years of NDVI) do not count the same information several times. The weights then only say which predictors are used (0: left out): the distance does not change with their scale. With a `TrainDI`, its own. |
 | `lpd` | `bool` | `False` | Also the local point density: how many training points are within the threshold's DI. |
 | `date` | date | `None` | CCDC segments: the date whose models are the features. |
@@ -280,6 +280,78 @@ The dissimilarity of the training data to itself and the AOA's threshold, as CAS
 </div>
 
 **Returns** a `TrainDI`: `features`, `center`, `scale`, `weight`, `train` (scaled and weighted; whitened for the Mahalanobis distance), `mean_distance`, `train_di` (each training point's DI), `threshold`, `distance` and `whiten` (the matrix that whitens a scaled point, or `None`).
+
+## Spatial cross-validation
+
+Points near each other are alike: a random k-fold validation tests a model on points next to its training points and says it is better than it is where it will be applied. Spatial folds hold out whole regions, as blockCV's (Valavi et al. 2019): blocks of a grid, a point and its neighbours within a buffer, or clusters of the points. They serve to choose a model and to calibrate its area of applicability (`train_di`, `aoa`); the accuracy of the map is still that of a probability sample ([`accuracy`](validation.md#accuracy); Wadoux et al. 2021).
+
+### `spatial_folds` { .api }
+
+<!-- sig: zeit.spatial_folds -->
+```python
+zeit.spatial_folds(
+    samples, *, method="blocks", k=5, size=None, shape="hexagon",
+    selection="random", label=None, iterations=100,
+    space="geographic", data=None, seed=0, n_jobs=-1,
+)
+```
+
+Cross-validation folds of sample points that keep the test points away from the training points, as blockCV's `cv_spatial`, `cv_buffer` and `cv_cluster`.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `samples` | `GeoDataFrame` or path | required | The points. Distances are in their CRS's units; a geographic CRS is replaced by its UTM zone (with `data`, the points are first taken to its CRS). |
+| `method` | `str` | `"blocks"` | `"blocks"`: the points in blocks of a grid, the blocks in `k` folds. `"buffer"`: leave-one-out, each point tested without its neighbours within `size` in the training. `"clusters"`: `k` clusters by k-means, of the coordinates or of the predictors (`space="feature"`). |
+| `k` | `int` | `5` | The number of folds (not for the buffer). |
+| `size` | `float` | `None` | The blocks' size (a square's side; for hexagons, the distance between neighbouring centres) or the buffer's radius, in the CRS's units. For blocks, `None` takes the median range of `data`'s spatial autocorrelation (`autocorrelation_range`). |
+| `shape` | `str` | `"hexagon"` | `"hexagon"` or `"square"`. |
+| `selection` | `str` | `"random"` | How blocks go to folds: `"random"` (the most balanced of `iterations` draws), `"systematic"` (in rows) or `"checkerboard"` (squares, `k=2`). |
+| `label` | `str` | `None` | A column of `samples` with the classes: the random draws then balance each class across the folds. |
+| `iterations` | `int` | `100` | Random draws of the blocks' folds; the one closest to a k-th of the points (of each class) in every fold is kept. |
+| `space` | `str` | `"geographic"` | For clusters: `"geographic"` (the coordinates) or `"feature"` (the predictors in `data` at the points, standardised). |
+| `data` | `DataArray`, `Dataset` or path | `None` | The predictors (anything `classify` takes), for `size=None` and `space="feature"`. |
+| `seed` | `int` | `0` | The random draws' seed. |
+| `n_jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job ([how they are counted](parallel.md#threads-n_jobs)). |
+
+</div>
+
+**Returns** a `SpatialFolds`: `folds` (each point's fold, `-1` in none: never tested, always trained on), `points`, `size`, `blocks` (the blocks' polygons and folds, for `"blocks"`) and `exclude` (each point's neighbours, for `"buffer"`). It is a scikit-learn splitter (`split`, `get_n_splits`), for `cross_val_predict` or `GridSearchCV`, and `train_di` and `aoa` take it as `folds` (the buffer's neighbours left out of each point's DI, as CAST's `CVtrain`). `.plot()` draws the points by fold.
+
+```python
+folds = zeit.spatial_folds(samples, data=stack, k=5, label="class")    # hexagons as large as the autocorrelation
+folds.plot()
+from sklearn.model_selection import cross_val_predict
+predicted = cross_val_predict(rf, x, y, cv=folds)
+applicable = zeit.aoa(stack, model=rf, folds=folds)
+```
+
+### `autocorrelation_range` { .api }
+
+<!-- sig: zeit.autocorrelation_range -->
+```python
+zeit.autocorrelation_range(
+    data, *, sample=5000, bins=15, cutoff=None, seed=0, n_jobs=-1,
+)
+```
+
+The range of each band's spatial autocorrelation, as blockCV's `cv_spatial_autocor`: the empirical semivariogram of a sample of pixels and an exponential model fitted to it, γ(h) = nugget + sill (1 − e<sup>−h/scale</sup>), by weighted least squares (weights N<sub>h</sub>/h², as gstat). The pairs are counted in the core, in parallel: 5000 pixels take 0.03 s.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `data` | `DataArray`, `Dataset` or path | required | Anything `classify` takes; a geographic CRS's pixels are measured in their UTM zone. |
+| `sample` | `int` | `5000` | Pixels with a value drawn per band. |
+| `bins` | `int` | `15` | Bands of distance of the semivariogram. |
+| `cutoff` | `float` | `None` | The largest distance of a pair; default a third of the map's diagonal (as gstat). |
+| `seed` | `int` | `0` | The sample's seed. |
+| `n_jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job ([how they are counted](parallel.md#threads-n_jobs)). |
+
+</div>
+
+**Returns** a `DataFrame` by band: `range` (the practical range, where the model reaches 95% of its sill above the nugget: 3 `scale`), `scale`, `nugget`, `sill` (above the nugget) and `pixels`; in `attrs`, the median `range` and each band's semivariogram (`variograms`, a `DataFrame` of `distance`, `gamma` and `pairs`).
 
 ## Masks
 
