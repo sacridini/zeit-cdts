@@ -100,7 +100,8 @@ def _ccdc_features(segments: xr.Dataset, date: Any) -> xr.DataArray:
     return out
 
 
-def train_classifier(data: Any, samples: Any, *, label: str = "class", model: Any = None, date: Any = None) -> Any:
+def train_classifier(data: Any, samples: Any, *, label: str = "class", model: Any = None, date: Any = None,
+                     folds: Any = None) -> Any:
     """Train a classifier on the features of ``data`` at sample points.
 
     Parameters
@@ -120,12 +121,23 @@ def train_classifier(data: Any, samples: Any, *, label: str = "class", model: An
         forest of 100 trees (``random_state=42``).
     date
         CCDC segments: the date whose models are the features.
+    folds
+        A cross-validation: a ``zeit.spatial_folds`` of the samples, each sample's fold
+        (labels, or a column of ``samples``), or a method of ``zeit.spatial_folds``
+        (``"blocks"``, ``"buffer"``, ``"clusters"``, ``"knndm"``, run with ``data``; the
+        blocks balanced by ``label``). Each sample is predicted by a copy of ``model``
+        fitted without its fold.
 
     Returns
     -------
     The fitted model, with the feature names in ``zeit_features_`` (``zeit.classify``
-    checks them), the training features in ``zeit_train_`` (``zeit.aoa``) and, for a cube of embeddings (``zeit.load_embeddings``), which ones in
-    ``zeit_embedding_`` (``zeit.classify`` refuses other embeddings).
+    checks them), the training features in ``zeit_train_`` (``zeit.aoa``), their classes
+    in ``zeit_y_``, the samples' coordinates in ``zeit_xy_`` (their CRS in ``zeit_crs_``)
+    and, for a cube of embeddings (``zeit.load_embeddings``), which ones in
+    ``zeit_embedding_`` (``zeit.classify`` refuses other embeddings). With ``folds``, the
+    folds of the samples kept in ``zeit_folds_`` (``zeit.train_di`` and ``zeit.aoa`` use
+    them) and the cross-validation in ``zeit_cv_``: a ``DataFrame`` of ``observed``,
+    ``predicted`` and ``fold``, indexed as the samples (``zeit.error_profile``).
 
     Examples
     --------
@@ -145,9 +157,22 @@ def train_classifier(data: Any, samples: Any, *, label: str = "class", model: An
         from sklearn.ensemble import RandomForestClassifier
 
         model = RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1)
+    cv = None
+    if folds is not None:
+        from ._folds import as_folds
+
+        cv = as_folds(folds, points, kept, data=feats, label=label)
     model.fit(x, y)
     model.zeit_features_ = [str(f) for f in feats.feature.values]
     model.zeit_train_ = x
+    model.zeit_y_ = y
+    model.zeit_xy_ = np.column_stack([points.geometry.x.to_numpy(), points.geometry.y.to_numpy()])[kept]
+    model.zeit_crs_ = points.crs
+    if cv is not None:
+        from ._folds import cross_validate
+
+        model.zeit_folds_ = cv
+        model.zeit_cv_ = cross_validate(model, x, y, cv, index=points.index[kept])
     from ._embeddings import embedding_meta
 
     model.zeit_embedding_ = embedding_meta(data)

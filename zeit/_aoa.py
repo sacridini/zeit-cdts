@@ -122,7 +122,8 @@ def train_di(train: Any = None, *, model: Any = None, weights: Any = None, folds
     train: the training data, ``(points, predictors)``: a DataFrame (the columns named) or an array; or none with
         ``model`` from ``zeit.train_classifier`` (its training data, ``zeit_train_``). Points with a missing value
         are left out.
-    model: a model from ``zeit.train_classifier``: its training data and, unless ``weights`` says otherwise, its
+    model: a model from ``zeit.train_classifier``: its training data, its folds (``zeit_folds_``, when it was
+        trained with ``folds``; CAST's ``useCV``) and, unless ``weights`` says otherwise, its
         ``feature_importances_`` as the weights (CAST weights by the model's variable importance).
     weights: the predictors' weights: ``None`` (the model's importance if it has one, else all 1), ``"importance"``,
         a dict by name or a list. Negative weights count as 0.
@@ -141,6 +142,8 @@ def train_di(train: Any = None, *, model: Any = None, weights: Any = None, folds
             raise ValueError("give the training data, or a model from zeit.train_classifier")
         train = model.zeit_train_
         features = list(model.zeit_features_)
+        if folds is None:
+            folds = getattr(model, "zeit_folds_", None)
     values, names = _table(train, features)
     w = _weights(weights, model, names)
     f = _folds(folds, len(values))

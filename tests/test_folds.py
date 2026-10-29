@@ -234,3 +234,50 @@ def test_knndm_options_and_the_area_from_a_map():
     assert feat.k == 5 and np.isfinite(feat.W)
     ax = feat.plot(kind="distances")
     assert len(ax.get_lines()) == 3
+
+
+# ---------------------------------------------------------------------------- folds in train_classifier and train_di
+
+def test_train_classifier_cross_validates_by_spatial_folds():
+    pytest.importorskip("sklearn")
+    from sklearn.ensemble import RandomForestClassifier
+
+    stack = _smooth_map(n=80, bands=2)
+    rng = np.random.default_rng(7)
+    xy = np.column_stack([rng.uniform(300_000, 308_000, 200), rng.uniform(492_000, 500_000, 200)])
+    xy[:10] += 50_000                                   # ten samples off the map: left out
+    b1 = stack.sel(band="b1")
+    inside = np.arange(200) >= 10
+    value = np.full(200, np.nan)
+    value[inside] = b1.sel(x=xr.DataArray(xy[inside, 0]), y=xr.DataArray(xy[inside, 1]), method="nearest").values
+    samples = _points(xy, cls=np.where(value > 0, "high", "low"))
+    rf = RandomForestClassifier(n_estimators=20, random_state=0, n_jobs=2)
+
+    folds = zeit.spatial_folds(samples, size=2000, k=4, label="cls")
+    model = zeit.train_classifier(stack, samples, label="cls", model=rf, folds=folds)
+    assert model.zeit_train_.shape == (190, 2) and model.zeit_xy_.shape == (190, 2)
+    assert model.zeit_crs_.to_epsg() == 32722 and list(model.zeit_y_) == list(samples["cls"][10:])
+    cv = model.zeit_cv_
+    assert list(cv.index) == list(range(10, 200)) and list(cv.columns) == ["observed", "predicted", "fold"]
+    assert cv["predicted"].notna().all() and cv["predicted"].dtype == cv["observed"].dtype
+    np.testing.assert_array_equal(cv["fold"], folds.folds[10:])
+    # a smooth map and its sign: the classes are predictable
+    assert (cv["observed"] == cv["predicted"]).mean() > 0.7
+    # the folds by a column, as labels, and by a method's name
+    by_column = zeit.train_classifier(stack, samples.assign(f=folds.folds), label="cls", model=rf, folds="f")
+    assert by_column.zeit_cv_["predicted"].tolist() == cv["predicted"].tolist()
+    by_name = zeit.train_classifier(stack, samples, label="cls", model=rf, folds="clusters")
+    assert by_name.zeit_folds_.method == "clusters" and by_name.zeit_folds_.k == 5
+    # train_di with the model: its folds (CAST's useCV)
+    td = zeit.train_di(model=model)
+    same = zeit.train_di(model.zeit_train_, weights=model.feature_importances_, folds=model.zeit_folds_)
+    assert td.threshold == same.threshold
+    assert td.threshold != zeit.train_di(model.zeit_train_, weights=model.feature_importances_).threshold
+    # a buffer: its neighbours among the samples kept
+    buffered = zeit.train_classifier(stack, samples, label="cls", model=rf,
+                                     folds=zeit.spatial_folds(samples, method="buffer", size=600))
+    direct = zeit.spatial_folds(samples[inside], method="buffer", size=600)
+    assert [e.tolist() for e in buffered.zeit_folds_.exclude] == [e.tolist() for e in direct.exclude]
+    assert buffered.zeit_cv_["predicted"].notna().all()
+    with pytest.raises(ValueError, match="neither a method"):
+        zeit.train_classifier(stack, samples, label="cls", model=rf, folds="nope")

@@ -2283,6 +2283,14 @@ o do blockCV), e contra os dois no R.
   (hierárquico) e 0,53 (k-means) contra 0,69 do CAST, q 69 contra 65, em 0,18 s contra 2 s; nos
   pontos ao acaso, os dois dão uma k-fold aleatória (W 0,15 e 0,13, o sorteio). O k-means é
   um ajuste por q (4,6 s ali); o hierárquico é um só, mas a memória cresce com N².
+- **22d:** `train_classifier(folds=)` aceita um `SpatialFolds` de todas as amostras (recortado
+  às que caem num pixel com todas as features, os vizinhos do buffer renumerados), rótulos,
+  uma coluna das amostras ou o nome de um método (rodado só nas amostras mantidas: as de fora
+  formariam folds próprios, o que o teste pegou). A validação é um laço próprio sobre o
+  `split`, com `clone` do modelo, e não o `cross_val_predict`: ele recusa folds que não são
+  partição (pontos em nenhum fold). Sempre guarda `zeit_y_`, `zeit_xy_` e `zeit_crs_`; com folds,
+  `zeit_folds_` e `zeit_cv_`. O `train_di(model=)` usa os folds do modelo quando não recebe
+  outros e o treino vem dele.
 
 ## Para depois
 

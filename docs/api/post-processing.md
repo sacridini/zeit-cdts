@@ -159,6 +159,7 @@ Temporal consistency of yearly (or any) classifications: in each pixel's series,
 ```python
 zeit.train_classifier(
     data, samples, *, label="class", model=None, date=None,
+    folds=None,
 )
 ```
 
@@ -173,10 +174,11 @@ Trains a classifier on the features of `data` at sample points. The features of 
 | `label` | `str` | `"class"` | The column holding the class (names or numbers). |
 | `model` | classifier | `None` | Any scikit-learn classifier; default a random forest of 100 trees (`random_state=42`). |
 | `date` | date | `None` | CCDC segments: the date whose models are the features. |
+| `folds` | `SpatialFolds`, list, `str` | `None` | A cross-validation: a [`spatial_folds`](#spatial_folds) of the samples, each sample's fold (labels, or a column of `samples`), or a method of `spatial_folds` (`"blocks"`, `"buffer"`, `"clusters"`, `"knndm"`, run on the samples kept with `data`; blocks balanced by `label`). Each sample is predicted by a copy of `model` fitted without its fold (and a buffer's neighbours). |
 
 </div>
 
-**Returns** the fitted model, with the feature names in `zeit_features_` and the training features in `zeit_train_` (for [`aoa`](#aoa)).
+**Returns** the fitted model, with the feature names in `zeit_features_`, the training features in `zeit_train_` (for [`aoa`](#aoa)), their classes in `zeit_y_` and the samples' coordinates in `zeit_xy_` (their CRS in `zeit_crs_`). With `folds`, the folds of the samples kept in `zeit_folds_` (`train_di` and `aoa` use them) and the cross-validation in `zeit_cv_`: a `DataFrame` of `observed`, `predicted` and `fold`, indexed as the samples.
 
 ### `classify` { .api }
 
@@ -231,7 +233,7 @@ Where a model can be applied (Meyer & Pebesma 2021): the dissimilarity index (DI
 | :--- | :--- | :--- | :--- |
 | `data` | `DataArray`, `Dataset`, `DataFrame` or array | required | What the model is applied to: anything `classify` takes, its features matched to the training's by name, or a table of points (predictors in columns). |
 | `train` | `DataFrame`, array or `TrainDI` | `None` | The training data (points × predictors), or a `train_di` result to reuse; none with `model`. |
-| `model` | classifier | `None` | A model from `train_classifier`: its training data (`zeit_train_`) and, unless `weights` says otherwise, its `feature_importances_` as the weights. |
+| `model` | classifier | `None` | A model from `train_classifier`: its training data (`zeit_train_`), its folds when it was trained with `folds` (`zeit_folds_`; CAST's `useCV`) and, unless `weights` says otherwise, its `feature_importances_` as the weights. |
 | `weights` | `str`, `dict` or list | `None` | The predictors' weights: `None` (the model's importance, else all 1), `"importance"`, a dict by name or a list. Negative weights count as 0; a predictor of weight 0 is ignored, even missing. |
 | `folds` | list or `SpatialFolds` | `None` | Each training point's cross-validation fold (any labels; `None`/NaN: in none), or a [`spatial_folds`](#spatial_folds) result (a buffer's neighbours are left out of each point's DI, as CAST's `CVtrain`). Spatially clustered samples should be given spatial folds, or the threshold is too strict. |
 | `distance` | `str` | `"euclidean"` | `"euclidean"` or `"mahalanobis"` (CAST's `method = "MD"`): the Euclidean distance once the scaled predictors are whitened by their covariance in the training data, so correlated predictors (eight years of NDVI) do not count the same information several times. The weights then only say which predictors are used (0: left out): the distance does not change with their scale. With a `TrainDI`, its own. |

@@ -66,11 +66,25 @@ class SpatialFolds:
     def get_n_splits(self, X: Any = None, y: Any = None, groups: Any = None) -> int:
         return self.k
 
+    def subset(self, keep: Any) -> "SpatialFolds":
+        """The folds of the points ``keep`` says (a boolean per point), a buffer's neighbours among them."""
+        import dataclasses
+
+        keep = np.asarray(keep, dtype=bool)
+        if keep.size != len(self.folds):
+            raise ValueError(f"{keep.size} values to subset folds of {len(self.folds)} points")
+        exclude = None
+        if self.exclude is not None:
+            new = np.cumsum(keep) - 1
+            exclude = [new[e[keep[e]]] for e, k in zip(self.exclude, keep) if k]
+        return dataclasses.replace(self, folds=self.folds[keep], points=self.points[keep].reset_index(drop=True),
+                                   exclude=exclude)
+
     def __len__(self) -> int:
         return len(self.folds)
 
     def __repr__(self) -> str:
-        sizes = np.bincount(self.folds[self.folds >= 0])
+        sizes = np.unique(self.folds[self.folds >= 0], return_counts=True)[1]
         what = f"{self.k} folds of {sizes.min()}-{sizes.max()} points" if self.method != "buffer" else (
             f"leave-one-out, {np.mean([len(e) for e in self.exclude]):.3g} neighbours left out on average")
         none = int((self.folds < 0).sum())
@@ -314,6 +328,58 @@ def _knndm(train: np.ndarray, pred: np.ndarray, k: int, clustering: str, maxp: f
 
 
 # ------------------------------------------------------------------------------------------------- the API
+
+def as_folds(folds: Any, points, kept: np.ndarray, *, data: Any = None, label: Optional[str] = None) -> SpatialFolds:
+    """``folds`` of every sample point (a ``SpatialFolds``, labels, a column of ``points``, or the name of a
+    method of ``spatial_folds``, run with ``data``) as the ``SpatialFolds`` of the points ``kept``."""
+    from ._aoa import _folds
+
+    n = len(points)
+    if isinstance(folds, str) and folds in METHODS:
+        # on the points kept only: those left out would make folds of their own
+        return spatial_folds(points[kept].reset_index(drop=True), method=folds, data=data,
+                             label=label if folds == "blocks" else None)
+    if isinstance(folds, str):
+        if folds not in points.columns:
+            raise ValueError(f"folds={folds!r} is neither a method of spatial_folds {METHODS} nor a column of the "
+                             f"samples ({list(points.columns)})")
+        folds = points[folds].to_numpy()
+    if not isinstance(folds, SpatialFolds):
+        labels = _folds(folds, len(np.asarray(folds, dtype=object).ravel()))
+        if labels.size == n:
+            return SpatialFolds("labels", labels[kept], points[kept].reset_index(drop=True))
+        if labels.size == kept.sum():
+            return SpatialFolds("labels", labels, points[kept].reset_index(drop=True))
+        raise ValueError(f"{labels.size} folds for {n} samples ({kept.sum()} on a pixel with every feature)")
+    if len(folds) == n:
+        return folds.subset(kept)
+    if len(folds) == kept.sum():
+        return folds
+    raise ValueError(f"folds of {len(folds)} points for {n} samples ({kept.sum()} on a pixel with every feature)")
+
+
+def cross_validate(model: Any, x: np.ndarray, y: np.ndarray, folds: SpatialFolds, index: Any = None) -> pd.DataFrame:
+    """Each point's prediction by a copy of ``model`` fitted without its fold (and, for a buffer, its neighbours):
+    a ``DataFrame`` of ``observed``, ``predicted`` (missing for a point in no fold) and ``fold``."""
+    import copy
+
+    try:
+        from sklearn.base import clone
+
+        fresh = lambda: clone(model)  # noqa: E731
+        fresh()
+    except TypeError:
+        fresh = lambda: copy.deepcopy(model)  # noqa: E731
+    predicted = np.full(len(y), None, dtype=object)
+    for train, test in folds.split(x):
+        if len(train) == 0:
+            continue
+        predicted[test] = fresh().fit(x[train], y[train]).predict(x[test])
+    out = pd.DataFrame({"observed": y, "predicted": predicted, "fold": folds.folds}, index=index)
+    if not pd.isna(predicted).any():
+        out["predicted"] = out["predicted"].astype(np.asarray(y).dtype)
+    return out
+
 
 def spatial_folds(samples: Any, *, method: str = "blocks", k: int = 5, size: Optional[float] = None,
                   shape: str = "hexagon", selection: str = "random", label: Optional[str] = None,
