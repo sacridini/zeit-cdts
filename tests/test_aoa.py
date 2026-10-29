@@ -28,9 +28,24 @@ def _nan(values):
     return np.array([np.nan if v is None else v for v in values], dtype=float)
 
 
+class _Buffered:
+    """Folds as zeit.spatial_folds gives them: a fold each, and the neighbours each point's DI leaves out."""
+
+    def __init__(self, folds, exclude):
+        self.folds = np.asarray(folds)
+        self.exclude = [np.atleast_1d(np.asarray(e, dtype=np.int64)) for e in exclude]
+
+
+def _options(case):
+    """The folds and the distance of a CAST case, as zeit takes them."""
+    folds = case["folds"] if case.get("exclude") is None else _Buffered(case["folds"], case["exclude"])
+    return {"weights": case["weight"], "folds": folds,
+            "distance": "mahalanobis" if case.get("method") == "MD" else "euclidean"}
+
+
 def test_train_di_equals_cast():
     for case, train, _ in _cases():
-        td = zeit.train_di(train, weights=case["weight"], folds=case["folds"], n_jobs=2)
+        td = zeit.train_di(train, **_options(case), n_jobs=2)
         assert td.features == list(train.columns)
         assert td.threshold == pytest.approx(case["threshold"], rel=1e-13)
         assert td.mean_distance == pytest.approx(case["mean_distance"], rel=1e-13)
@@ -39,7 +54,7 @@ def test_train_di_equals_cast():
 
 def test_aoa_of_points_equals_cast():
     for case, train, new in _cases():
-        out = zeit.aoa(new, train, weights=case["weight"], folds=case["folds"], lpd=True, n_jobs=2)
+        out = zeit.aoa(new, train, **_options(case), lpd=True, n_jobs=2)
         di = _nan(case["di"])
         np.testing.assert_allclose(out["DI"].to_numpy(), di, rtol=1e-12, atol=1e-14)
         known = ~np.isnan(di)

@@ -219,7 +219,7 @@ classes = zeit.classify(stack, zeit.train_classifier(stack, points))
 ```python
 zeit.aoa(
     data, train=None, *, model=None, weights=None, folds=None,
-    lpd=False, date=None, n_jobs=-1,
+    distance="euclidean", lpd=False, date=None, n_jobs=-1,
 )
 ```
 
@@ -234,13 +234,14 @@ Where a model can be applied (Meyer & Pebesma 2021): the dissimilarity index (DI
 | `model` | classifier | `None` | A model from `train_classifier`: its training data (`zeit_train_`) and, unless `weights` says otherwise, its `feature_importances_` as the weights. |
 | `weights` | `str`, `dict` or list | `None` | The predictors' weights: `None` (the model's importance, else all 1), `"importance"`, a dict by name or a list. Negative weights count as 0; a predictor of weight 0 is ignored, even missing. |
 | `folds` | list | `None` | Each training point's cross-validation fold (any labels; `None`/NaN: in none). Spatially clustered samples should be given their clusters, or the threshold is too strict. |
+| `distance` | `str` | `"euclidean"` | `"euclidean"` or `"mahalanobis"` (CAST's `method = "MD"`): the Euclidean distance once the scaled predictors are whitened by their covariance in the training data, so correlated predictors (eight years of NDVI) do not count the same information several times. The weights then only say which predictors are used (0: left out): the distance does not change with their scale. With a `TrainDI`, its own. |
 | `lpd` | `bool` | `False` | Also the local point density: how many training points are within the threshold's DI. |
 | `date` | date | `None` | CCDC segments: the date whose models are the features. |
 | `n_jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job ([how they are counted](parallel.md#threads-n_jobs)). |
 
 </div>
 
-**Returns**, for a map, an `xarray.Dataset` georeferenced as the data: `DI (y, x)` float32; `AOA (y, x)`, `1` inside, `0` outside, `255` where a feature is missing; `LPD (y, x)` with `lpd=True`; the `threshold` and `mean_distance` in its attributes. For points, a `DataFrame` of `DI`, `AOA` (NaN where a predictor is missing; CAST calls those inside) and `LPD`. Distances are Euclidean (CAST's Mahalanobis option is not ported); the DI is computed by blocks of pixels against every training point, the nearest ones exactly.
+**Returns**, for a map, an `xarray.Dataset` georeferenced as the data: `DI (y, x)` float32; `AOA (y, x)`, `1` inside, `0` outside, `255` where a feature is missing; `LPD (y, x)` with `lpd=True`; the `threshold`, `mean_distance` and `distance` in its attributes. For points, a `DataFrame` of `DI`, `AOA` (NaN where a predictor is missing; CAST calls those inside) and `LPD`. With either distance the DI is CAST's to 1e-13; it is computed by blocks of pixels against every training point, the nearest ones exactly.
 
 ```python
 rf = zeit.train_classifier(stack, "samples.gpkg", label="class")
@@ -258,7 +259,8 @@ applicable = zeit.aoa(stack, model=rf, folds=samples["site"], lpd=True)
 <!-- sig: zeit.train_di -->
 ```python
 zeit.train_di(
-    train=None, *, model=None, weights=None, folds=None, n_jobs=-1,
+    train=None, *, model=None, weights=None, folds=None,
+    distance="euclidean", n_jobs=-1,
 )
 ```
 
@@ -272,11 +274,12 @@ The dissimilarity of the training data to itself and the AOA's threshold, as CAS
 | `model` | classifier | `None` | As in `aoa`. |
 | `weights` | `str`, `dict` or list | `None` | As in `aoa`. |
 | `folds` | list | `None` | As in `aoa`. |
+| `distance` | `str` | `"euclidean"` | As in `aoa`. |
 | `n_jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job ([how they are counted](parallel.md#threads-n_jobs)). |
 
 </div>
 
-**Returns** a `TrainDI`: `features`, `center`, `scale`, `weight`, `train` (scaled and weighted), `mean_distance`, `train_di` (each training point's DI) and `threshold`.
+**Returns** a `TrainDI`: `features`, `center`, `scale`, `weight`, `train` (scaled and weighted; whitened for the Mahalanobis distance), `mean_distance`, `train_di` (each training point's DI), `threshold`, `distance` and `whiten` (the matrix that whitens a scaled point, or `None`).
 
 ## Masks
 

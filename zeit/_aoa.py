@@ -6,7 +6,8 @@ A training point's dissimilarity index (DI) is its distance to the nearest train
 cross-validation fold over the mean distance between training points; the threshold is the upper whisker of those
 (75% quantile + 1.5 IQR, at most their largest). A new point's DI is its distance to the nearest training point over
 the same mean: it is in the area of applicability (AOA) when its DI is not above the threshold, and its local point
-density (LPD) is how many training points are that near.
+density (LPD) is how many training points are that near. The distance is Euclidean, or Mahalanobis (the Euclidean
+once the scaled data are whitened by the training data's covariance, as CAST's ``method = "MD"``).
 """
 
 from dataclasses import dataclass, field
@@ -30,10 +31,13 @@ class TrainDI:
     mean_distance: float
     train_di: np.ndarray = field(repr=False)
     threshold: float
+    distance: str = "euclidean"
+    whiten: Optional[np.ndarray] = field(default=None, repr=False)
 
     def __repr__(self) -> str:
         n, p = self.train.shape
-        return (f"TrainDI({n} training points, {p} predictors, mean distance {self.mean_distance:.6g}, "
+        how = "" if self.distance == "euclidean" else f", {self.distance} distance"
+        return (f"TrainDI({n} training points, {p} predictors{how}, mean distance {self.mean_distance:.6g}, "
                 f"threshold {self.threshold:.6g})")
 
 
@@ -77,9 +81,12 @@ def _weights(weights: Any, model: Any, names: List[str]) -> np.ndarray:
 
 
 def _folds(folds: Any, n: int) -> Optional[np.ndarray]:
-    """Each point's fold as integers (negative: in none), from labels of any kind (NaN / None: none)."""
+    """Each point's fold as integers (negative: in none), from labels of any kind (NaN / None: none) or the
+    ``folds`` of a ``zeit.spatial_folds``."""
     if folds is None:
         return None
+    if hasattr(folds, "folds"):
+        folds = folds.folds
     labels = np.asarray(folds, dtype=object).ravel()
     if labels.size != n:
         raise ValueError(f"{labels.size} folds for {n} training points")
@@ -92,8 +99,24 @@ def _folds(folds: Any, n: int) -> Optional[np.ndarray]:
     return out
 
 
+def _exclude(folds: Any, keep: np.ndarray):
+    """The neighbours each kept point's DI leaves out besides its fold's (a ``zeit.spatial_folds`` buffer: its
+    ``exclude``, one array of point indices each) as CSR over the kept points, or (None, None)."""
+    exclude = getattr(folds, "exclude", None)
+    if exclude is None:
+        return None, None
+    if len(exclude) != keep.size:
+        raise ValueError(f"the folds' exclude has {len(exclude)} points, the training data {keep.size}")
+    new = np.cumsum(keep) - 1
+    rows = [np.asarray(exclude[i], dtype=np.int64) for i in np.flatnonzero(keep)]
+    rows = [new[r[keep[r]]] for r in rows]
+    indptr = np.concatenate([[0], np.cumsum([r.size for r in rows])]).astype(np.int64)
+    indices = np.concatenate(rows).astype(np.int64) if rows else np.zeros(0, np.int64)
+    return indptr, indices
+
+
 def train_di(train: Any = None, *, model: Any = None, weights: Any = None, folds: Any = None,
-             n_jobs: int = -1) -> TrainDI:
+             distance: str = "euclidean", n_jobs: int = -1) -> TrainDI:
     """The dissimilarity of the training data to itself and the AOA's threshold (CAST's ``trainDI``).
 
     train: the training data, ``(points, predictors)``: a DataFrame (the columns named) or an array; or none with
@@ -103,10 +126,14 @@ def train_di(train: Any = None, *, model: Any = None, weights: Any = None, folds
         ``feature_importances_`` as the weights (CAST weights by the model's variable importance).
     weights: the predictors' weights: ``None`` (the model's importance if it has one, else all 1), ``"importance"``,
         a dict by name or a list. Negative weights count as 0.
-    folds: each training point's cross-validation fold (any labels; None/NaN: in none, its DI missing): a point's
-        DI is then its distance to the nearest point of another fold, as the model's validation saw it. Without
-        folds, its nearest other point (spatially clustered samples then give a threshold too strict: give the
-        clusters as folds).
+    folds: each training point's cross-validation fold (any labels; None/NaN: in none, its DI missing), or a
+        ``zeit.spatial_folds``: a point's DI is then its distance to the nearest point of another fold (and, for a
+        buffer, beyond it), as the model's validation saw it. Without folds, its nearest other point (spatially
+        clustered samples then give a threshold too strict: give the clusters as folds).
+    distance: ``"euclidean"`` or ``"mahalanobis"`` (CAST's ``method = "MD"``): the Euclidean once the scaled
+        predictors are whitened by their covariance in the training data, so correlated predictors do not count
+        twice. The weights then only say which predictors are used (0: left out), as the distance does not change
+        with their scale.
     """
     features = None
     if train is None:
@@ -118,18 +145,21 @@ def train_di(train: Any = None, *, model: Any = None, weights: Any = None, folds
     w = _weights(weights, model, names)
     f = _folds(folds, len(values))
     keep = np.isfinite(values).all(axis=1)
+    indptr, indices = _exclude(folds, keep)
     if f is not None:
         f = f[keep]
     values = values[keep]
     from ._core import aoa as core
 
-    r = core.train_di(np.ascontiguousarray(values), w, f, resolve(n_jobs))
+    r = core.train_di(np.ascontiguousarray(values), w, f, resolve(n_jobs), exclude_indptr=indptr,
+                      exclude_indices=indices, distance=distance)
     return TrainDI(features=names, center=r["center"], scale=r["scale"], weight=r["weight"], train=r["train"],
-                   mean_distance=float(r["mean_distance"]), train_di=r["train_di"], threshold=float(r["threshold"]))
+                   mean_distance=float(r["mean_distance"]), train_di=r["train_di"], threshold=float(r["threshold"]),
+                   distance=distance, whiten=r["whiten"])
 
 
 def aoa(data: Any, train: Any = None, *, model: Any = None, weights: Any = None, folds: Any = None,
-        lpd: bool = False, date: Any = None, n_jobs: int = -1) -> Any:
+        distance: str = "euclidean", lpd: bool = False, date: Any = None, n_jobs: int = -1) -> Any:
     """The area of applicability of a model (Meyer & Pebesma 2021; CAST's ``aoa``): where the data are like the
     training data, by the dissimilarity index of each pixel to them.
 
@@ -137,26 +167,26 @@ def aoa(data: Any, train: Any = None, *, model: Any = None, weights: Any = None,
         segments with ``date``), its features matched to the training's by name; or a table of new points
         ``(points, predictors)`` (a DataFrame, or an array in the training's order).
     train: the training data (see ``zeit.train_di``), or a ``TrainDI`` already computed; none with ``model``.
-    model, weights, folds: as ``zeit.train_di``.
+    model, weights, folds, distance: as ``zeit.train_di`` (with a ``TrainDI``, its own distance).
     lpd: also the local point density: how many training points are within the threshold's dissimilarity.
 
     Returns, for a map, an ``xarray.Dataset`` georeferenced as the data: ``DI (y, x)``; ``AOA (y, x)``, 1 inside,
     0 outside, 255 where a feature is missing; ``LPD (y, x)`` with ``lpd=True``; its ``threshold`` and
     ``mean_distance`` in the attributes. For a table: a DataFrame of ``DI``, ``AOA`` (NaN where missing) and
-    ``LPD``. The DI equals CAST 1.0.4's to 1e-13 (Euclidean distances; CAST's Mahalanobis option is not ported).
+    ``LPD``. The DI equals CAST 1.0.4's to 1e-13, with either distance.
     """
     import pandas as pd
 
     td = train if isinstance(train, TrainDI) else train_di(train, model=model, weights=weights, folds=folds,
-                                                            n_jobs=n_jobs)
+                                                            distance=distance, n_jobs=n_jobs)
     from ._core import aoa as core
 
     def run(values: np.ndarray):
         d, l = core.di(np.ascontiguousarray(values, dtype=np.float64), td.center, td.scale, td.weight, td.train,
-                       td.mean_distance, td.threshold, bool(lpd), resolve(n_jobs))
+                       td.mean_distance, td.threshold, bool(lpd), resolve(n_jobs), whiten=td.whiten)
         return d, (l if lpd else None)
 
-    attrs = {"threshold": td.threshold, "mean_distance": td.mean_distance}
+    attrs = {"threshold": td.threshold, "mean_distance": td.mean_distance, "distance": td.distance}
     if isinstance(data, pd.DataFrame) or (isinstance(data, np.ndarray) and data.ndim <= 2):
         if isinstance(data, pd.DataFrame):
             missing = [n for n in td.features if n not in data.columns]
