@@ -22,6 +22,7 @@ pub mod eigen;
 pub mod ewmacd;
 pub mod gls;
 pub mod hotspots;
+pub mod knndm;
 pub mod landtrendr;
 pub mod mann_kendall;
 pub mod medoid;

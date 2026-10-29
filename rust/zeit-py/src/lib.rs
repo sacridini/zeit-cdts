@@ -20,6 +20,7 @@ mod ccdc;
 mod coded;
 mod ewmacd;
 mod hotspots;
+mod knndm;
 mod landtrendr;
 mod mannkendall;
 mod parallel;
@@ -77,5 +78,6 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     add_submodule(m, &beast::module(m.py())?)?;
     add_submodule(m, &parallel::module(m.py())?)?;
     add_submodule(m, &variogram::module(m.py())?)?;
+    add_submodule(m, &knndm::module(m.py())?)?;
     Ok(())
 }

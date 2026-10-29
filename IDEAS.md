@@ -2271,6 +2271,18 @@ o do blockCV), e contra os dois no R.
   22f:** num ruído suavizado por uma janela de L, o alcance prático (3a) dá 1,5 a 1,9 L e a
   escala a dá 0,6 L; qual dos dois o blockCV chama de alcance (e qual usar como tamanho do
   bloco) se decide contra ele.
+- **22c:** `method="knndm"`. No core (`knndm.rs`): Gij, Gj* (o vizinho mais próximo de outro
+  fold, pelo k-d tree do `aoa` com um filtro nas folhas, que não muda a poda) e o W (∫|F₁ − F₂|,
+  um Wasserstein de ordem 1). **O W é o do CAST:** medido pelo zeit nos folds do CAST, dá o W
+  dele (`tests/data/make_knndm_cast_fixtures.R`, os dois exemplos da documentação, a 1e-12).
+  **Fugiu do plano, ou a documentação não dizia:** (1) os q tentados são até 100, em
+  progressão geométrica de k a N (`candidates`), não todos; (2) os q grupos viram k folds pelo
+  maior primeiro no fold com menos pontos (ao acaso entre tamanhos iguais), descartando o que
+  passa de `maxp`; (3) não há o teste "Gij ≤ Gj, então CV aleatória" do CAST: q = N já é uma
+  k-fold aleatória, e o W decide. No exemplo agrupado de 1000 pontos o zeit chega a W 0,57
+  (hierárquico) e 0,53 (k-means) contra 0,69 do CAST, q 69 contra 65, em 0,18 s contra 2 s; nos
+  pontos ao acaso, os dois dão uma k-fold aleatória (W 0,15 e 0,13, o sorteio). O k-means é
+  um ajuste por q (4,6 s ali); o hierárquico é um só, mas a memória cresce com N².
 
 ## Para depois
 

@@ -283,7 +283,7 @@ The dissimilarity of the training data to itself and the AOA's threshold, as CAS
 
 ## Spatial cross-validation
 
-Points near each other are alike: a random k-fold validation tests a model on points next to its training points and says it is better than it is where it will be applied. Spatial folds hold out whole regions, as blockCV's (Valavi et al. 2019): blocks of a grid, a point and its neighbours within a buffer, or clusters of the points. They serve to choose a model and to calibrate its area of applicability (`train_di`, `aoa`); the accuracy of the map is still that of a probability sample ([`accuracy`](validation.md#accuracy); Wadoux et al. 2021).
+Points near each other are alike: a random k-fold validation tests a model on points next to its training points and says it is better than it is where it will be applied. Spatial folds hold out whole regions, as blockCV's (Valavi et al. 2019): blocks of a grid, a point and its neighbours within a buffer, or clusters of the points; or they mimic the area to predict, as CAST's kNNDM (Linnenbrink et al. 2024). They serve to choose a model and to calibrate its area of applicability (`train_di`, `aoa`); the accuracy of the map is still that of a probability sample ([`accuracy`](validation.md#accuracy); Wadoux et al. 2021).
 
 ### `spatial_folds` { .api }
 
@@ -292,32 +292,41 @@ Points near each other are alike: a random k-fold validation tests a model on po
 zeit.spatial_folds(
     samples, *, method="blocks", k=5, size=None, shape="hexagon",
     selection="random", label=None, iterations=100,
-    space="geographic", data=None, seed=0, n_jobs=-1,
+    space="geographic", data=None, prediction_points=None,
+    samplesize=1000, clustering="hierarchical", maxp=0.5,
+    candidates=100, seed=0, n_jobs=-1,
 )
 ```
 
-Cross-validation folds of sample points that keep the test points away from the training points, as blockCV's `cv_spatial`, `cv_buffer` and `cv_cluster`.
+Cross-validation folds of sample points that keep the test points away from the training points, as blockCV's `cv_spatial`, `cv_buffer` and `cv_cluster`, and CAST's `knndm`.
+
+kNNDM puts the points in q clusters, merges them into `k` folds of about equal size, and keeps the q (of up to `candidates`, from k to the number of points: q = n is a random k-fold) whose distances from each point to the nearest point of another fold (Gj\*) are distributed most like those from the area to predict to the nearest point (Gij), by the W statistic (the integral of the absolute difference of their distribution functions). On CAST's own example (500 clustered points), zeit's W is CAST's when measured on CAST's folds, and its own folds match better (W 0.57 against CAST's 0.69 on 1000 points, in 0.18 s against 2 s); the distances are searched in the k-d tree of `aoa`, in the core.
 
 <div class="params" markdown>
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `samples` | `GeoDataFrame` or path | required | The points. Distances are in their CRS's units; a geographic CRS is replaced by its UTM zone (with `data`, the points are first taken to its CRS). |
-| `method` | `str` | `"blocks"` | `"blocks"`: the points in blocks of a grid, the blocks in `k` folds. `"buffer"`: leave-one-out, each point tested without its neighbours within `size` in the training. `"clusters"`: `k` clusters by k-means, of the coordinates or of the predictors (`space="feature"`). |
+| `method` | `str` | `"blocks"` | `"blocks"`: the points in blocks of a grid, the blocks in `k` folds. `"buffer"`: leave-one-out, each point tested without its neighbours within `size` in the training. `"clusters"`: `k` clusters by k-means, of the coordinates or of the predictors (`space="feature"`). `"knndm"`: kNNDM, for the area in `data` or `prediction_points`. |
 | `k` | `int` | `5` | The number of folds (not for the buffer). |
 | `size` | `float` | `None` | The blocks' size (a square's side; for hexagons, the distance between neighbouring centres) or the buffer's radius, in the CRS's units. For blocks, `None` takes the median range of `data`'s spatial autocorrelation (`autocorrelation_range`). |
 | `shape` | `str` | `"hexagon"` | `"hexagon"` or `"square"`. |
 | `selection` | `str` | `"random"` | How blocks go to folds: `"random"` (the most balanced of `iterations` draws), `"systematic"` (in rows) or `"checkerboard"` (squares, `k=2`). |
 | `label` | `str` | `None` | A column of `samples` with the classes: the random draws then balance each class across the folds. |
 | `iterations` | `int` | `100` | Random draws of the blocks' folds; the one closest to a k-th of the points (of each class) in every fold is kept. |
-| `space` | `str` | `"geographic"` | For clusters: `"geographic"` (the coordinates) or `"feature"` (the predictors in `data` at the points, standardised). |
-| `data` | `DataArray`, `Dataset` or path | `None` | The predictors (anything `classify` takes), for `size=None` and `space="feature"`. |
+| `space` | `str` | `"geographic"` | For clusters and kNNDM: `"geographic"` (the coordinates) or `"feature"` (the predictors in `data`, standardised by the points'). |
+| `data` | `DataArray`, `Dataset` or path | `None` | The predictors (anything `classify` takes), for `size=None`, `space="feature"` and kNNDM's area (its cells with every predictor). |
+| `prediction_points` | `GeoDataFrame` or path | `None` | kNNDM's prediction points, instead of a sample of `data`'s cells. |
+| `samplesize` | `int` | `1000` | kNNDM: about how many of `data`'s cells, on a regular grid, are the area to predict. |
+| `clustering` | `str` | `"hierarchical"` | kNNDM: Ward's `"hierarchical"` clustering (once for every q; its memory grows as the square of the points) or `"kmeans"` (one fit per q, slower). |
+| `maxp` | `float` | `0.5` | kNNDM: the largest share of the points a fold may hold. |
+| `candidates` | `int` | `100` | kNNDM: how many numbers of clusters q are tried, spaced geometrically from `k` to the number of points. |
 | `seed` | `int` | `0` | The random draws' seed. |
 | `n_jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job ([how they are counted](parallel.md#threads-n_jobs)). |
 
 </div>
 
-**Returns** a `SpatialFolds`: `folds` (each point's fold, `-1` in none: never tested, always trained on), `points`, `size`, `blocks` (the blocks' polygons and folds, for `"blocks"`) and `exclude` (each point's neighbours, for `"buffer"`). It is a scikit-learn splitter (`split`, `get_n_splits`), for `cross_val_predict` or `GridSearchCV`, and `train_di` and `aoa` take it as `folds` (the buffer's neighbours left out of each point's DI, as CAST's `CVtrain`). `.plot()` draws the points by fold.
+**Returns** a `SpatialFolds`: `folds` (each point's fold, `-1` in none: never tested, always trained on), `points`, `size`, `blocks` (the blocks' polygons and folds, for `"blocks"`) `exclude` (each point's neighbours, for `"buffer"`) and, for kNNDM, `W`, `q` and `distances` (`Gij`, `Gj`, `Gjstar`). It is a scikit-learn splitter (`split`, `get_n_splits`), for `cross_val_predict` or `GridSearchCV`, and `train_di` and `aoa` take it as `folds` (the buffer's neighbours left out of each point's DI, as CAST's `CVtrain`). `.plot()` draws the points by fold; `.plot(kind="distances")`, kNNDM's distributions of the distances.
 
 ```python
 folds = zeit.spatial_folds(samples, data=stack, k=5, label="class")    # hexagons as large as the autocorrelation
@@ -325,6 +334,9 @@ folds.plot()
 from sklearn.model_selection import cross_val_predict
 predicted = cross_val_predict(rf, x, y, cv=folds)
 applicable = zeit.aoa(stack, model=rf, folds=folds)
+
+matched = zeit.spatial_folds(samples, method="knndm", data=stack, k=10)   # like the map's distances
+matched.plot(kind="distances")
 ```
 
 ### `autocorrelation_range` { .api }

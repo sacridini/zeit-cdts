@@ -174,3 +174,63 @@ def test_geographic_points_are_measured_in_metres():
     assert f.points.crs.is_projected and f.points.crs.to_epsg() == 32723
     # points about 300 m apart along the line: the next ones on each side within 1 km
     assert 4 <= len(f.exclude[25]) <= 8
+
+
+# ---------------------------------------------------------------------------- kNNDM (against CAST 1.0.4's knndm)
+
+def _knndm_cases():
+    import json
+    from pathlib import Path
+
+    for case in json.loads((Path(__file__).parent / "data" / "knndm_cast.json").read_text())["cases"]:
+        yield case, np.array(case["train"], dtype=float), np.array(case["pred"], dtype=float)
+
+
+def test_knndm_w_is_casts_and_its_folds_match_as_well():
+    from zeit._core import knndm as core
+
+    for case, train, pred in _knndm_cases():
+        # CAST's folds measured by zeit: its W
+        gij = core.nearest(train, pred, 2)
+        w = core.wasserstein(core.nearest_other(train, np.array(case["folds"], dtype=np.int64), 2), gij)
+        assert w == pytest.approx(case["W"], rel=1e-12)
+        f = zeit.spatial_folds(_points(train, crs=None), method="knndm", k=5,
+                               prediction_points=_points(pred, crs=None), n_jobs=2)
+        assert f.method == "knndm" and f.k == 5 and (f.folds >= 0).all()
+        assert np.bincount(f.folds).max() <= 0.5 * len(train)
+        np.testing.assert_array_equal(f.distances["Gij"], gij)
+        assert f.W == pytest.approx(core.wasserstein(f.distances["Gjstar"], gij), rel=1e-15)
+        if case["clustered"]:
+            # spatial folds from fewer clusters than points, matching as well as CAST's or better
+            assert f.q < len(train) and f.W <= case["W"] * 1.05
+        else:
+            # points at random over the area: a random k-fold is as good as any (CAST returns one)
+            assert f.W <= case["W"] * 1.5
+    assert "SpatialFolds(knndm: 500 points, 5 folds" in repr(f) and "W " in repr(f)
+
+
+def test_knndm_options_and_the_area_from_a_map():
+    case, train, pred = next(_knndm_cases())
+    pts, pp = _points(train, crs=None), _points(pred, crs=None)
+    a = zeit.spatial_folds(pts, method="knndm", k=5, prediction_points=pp, n_jobs=1, seed=3)
+    b = zeit.spatial_folds(pts, method="knndm", k=5, prediction_points=pp, n_jobs=4, seed=3)
+    assert a.folds.tolist() == b.folds.tolist() and a.W == b.W
+    km = zeit.spatial_folds(pts, method="knndm", k=5, prediction_points=pp, clustering="kmeans", candidates=12,
+                            n_jobs=2)
+    assert km.W < case["W"] * 1.2
+    with pytest.raises(ValueError, match="maxp"):
+        zeit.spatial_folds(pts, method="knndm", k=2, prediction_points=pp, maxp=0.3)
+    with pytest.raises(ValueError, match="area to predict"):
+        zeit.spatial_folds(pts, method="knndm")
+    # the area from a map's cells with values: its west half
+    da = _smooth_map(n=100, bands=2)
+    da = da.where(da.x < da.x.mean())
+    rng = np.random.default_rng(0)
+    xy = np.column_stack([rng.uniform(300_000, 305_000, 150), rng.uniform(490_000, 500_000, 150)])
+    geo = zeit.spatial_folds(_points(xy), method="knndm", data=da, samplesize=500, n_jobs=2)
+    assert len(geo.distances["Gij"]) == pytest.approx(500, rel=0.3)
+    # in the space of the predictors
+    feat = zeit.spatial_folds(_points(xy), method="knndm", space="feature", data=da, samplesize=500, n_jobs=2)
+    assert feat.k == 5 and np.isfinite(feat.W)
+    ax = feat.plot(kind="distances")
+    assert len(ax.get_lines()) == 3

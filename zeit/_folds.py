@@ -3,22 +3,24 @@ from the training points, as blockCV's (Valavi et al. 2019, doi:10.1111/2041-210
 
 Points near each other are alike (spatial autocorrelation): a random k-fold validation tests a model on points next
 to its training points and says it is better than it is where it will be applied. Spatial folds hold out whole
-regions: blocks of a grid (squares or hexagons), a point and its neighbours within a buffer, or clusters of the
-points (in space or in the predictors). They choose a model and calibrate its area of applicability
+regions: blocks of a grid (squares or hexagons), a point and its neighbours within a buffer, clusters of the
+points (in space or in the predictors), or kNNDM's folds (Linnenbrink et al. 2024, doi:10.5194/gmd-17-5897-2024),
+whose distances from test to training points match those from the area to predict to the training points. They
+choose a model and calibrate its area of applicability
 (``zeit.train_di``); the accuracy of a map is still that of a probability sample (``zeit.accuracy``; Wadoux et al.
 2021). The size of a block comes from the range of the predictors' spatial autocorrelation
 (``zeit.autocorrelation_range``: an exponential semivariogram fitted to a sample of pixels, in the core).
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Iterator, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 
 from ._threads import resolve
 
-METHODS = ("blocks", "buffer", "clusters")
+METHODS = ("blocks", "buffer", "clusters", "knndm")
 
 
 @dataclass
@@ -27,7 +29,10 @@ class SpatialFolds:
 
     ``folds``: each point's fold (0 to k-1; -1: in none, never held out but used for training); ``exclude``: for a
     buffer, the points each one's training leaves out (its neighbours); ``blocks``: the blocks (polygons, with their
-    fold) for ``method="blocks"``; ``points``: the samples, in the CRS the distances were measured in.
+    fold) for ``method="blocks"``; ``points``: the samples, in the CRS the distances were measured in. For kNNDM,
+    ``W`` (the statistic the folds minimise), ``q`` (the clusters merged into them) and ``distances``: ``Gij``
+    (prediction points to the nearest training point), ``Gj`` (each training point to its nearest other) and
+    ``Gjstar`` (to the nearest of another fold).
     """
 
     method: str
@@ -36,6 +41,9 @@ class SpatialFolds:
     size: Optional[float] = None
     exclude: Optional[List[np.ndarray]] = field(default=None, repr=False)
     blocks: Any = field(default=None, repr=False)
+    W: Optional[float] = None
+    q: Optional[int] = None
+    distances: Optional[Dict[str, np.ndarray]] = field(default=None, repr=False)
 
     @property
     def k(self) -> int:
@@ -67,15 +75,31 @@ class SpatialFolds:
             f"leave-one-out, {np.mean([len(e) for e in self.exclude]):.3g} neighbours left out on average")
         none = int((self.folds < 0).sum())
         size = "" if self.size is None else f", size {self.size:.6g}"
-        return (f"SpatialFolds({self.method}: {len(self.folds)} points, {what}{size}"
+        w = "" if self.W is None else f", W {self.W:.6g} from {self.q} clusters"
+        return (f"SpatialFolds({self.method}: {len(self.folds)} points, {what}{size}{w}"
                 + (f", {none} in none" if none else "") + ")")
 
-    def plot(self, ax: Any = None, **kwargs: Any) -> Any:
-        """The points colored by fold (and the blocks); returns the matplotlib axes."""
+    def plot(self, ax: Any = None, kind: str = "points", **kwargs: Any) -> Any:
+        """The points colored by fold (and the blocks); with ``kind="distances"``, kNNDM's distributions of the
+        nearest-neighbour distances (Gij, Gj and Gj*). Returns the matplotlib axes."""
         import matplotlib.pyplot as plt
 
         if ax is None:
-            _, ax = plt.subplots(figsize=(6, 6))
+            _, ax = plt.subplots(figsize=(6, 6) if kind == "points" else (6, 4))
+        if kind == "distances":
+            if self.distances is None:
+                raise ValueError("kind='distances' is for method='knndm'")
+            labels = {"Gij": "prediction to training", "Gj": "leave-one-out", "Gjstar": "these folds"}
+            for key, label in labels.items():
+                d = np.sort(self.distances[key][np.isfinite(self.distances[key])])
+                ax.step(d, np.arange(1, d.size + 1) / d.size, where="post", label=f"{key}: {label}")
+            ax.set_xlabel("distance to the nearest training point")
+            ax.set_ylabel("cumulative share")
+            ax.set_title(f"kNNDM: W {self.W:.4g}")
+            ax.legend()
+            return ax
+        if kind != "points":
+            raise ValueError(f"kind must be 'points' or 'distances', got {kind!r}")
         if self.blocks is not None:
             self.blocks.plot(ax=ax, column="fold", categorical=True, cmap="tab10", alpha=0.25, edgecolor="0.4",
                              linewidth=0.5)
@@ -204,14 +228,100 @@ def _blocks(points, xy: np.ndarray, k: int, size: float, shape: str, selection: 
     return of_block[block].astype(np.int64), blocks
 
 
+# ------------------------------------------------------------------------------------------------- kNNDM
+
+def _prediction_cells(feats, samplesize: int, crs: Any):
+    """About ``samplesize`` cells of ``feats`` with every feature, on a regular grid: their coordinates (in
+    ``crs``) and values."""
+    values = np.asarray(feats.values, dtype=np.float64)
+    good = np.isfinite(values).all(axis=0)
+    ny, nx = good.shape
+    step = max(int(np.sqrt(good.sum() / max(samplesize, 1))), 1)
+    rows, cols = np.meshgrid(np.arange(step // 2, ny, step), np.arange(step // 2, nx, step), indexing="ij")
+    rows, cols = rows.ravel(), cols.ravel()
+    keep = good[rows, cols]
+    rows, cols = rows[keep], cols[keep]
+    x = np.asarray(feats.x.values, dtype=np.float64)[cols]
+    y = np.asarray(feats.y.values, dtype=np.float64)[rows]
+    if crs is not None and feats.rio.crs is not None and feats.rio.crs != crs:
+        import geopandas as gpd
+
+        pts = gpd.GeoSeries(gpd.points_from_xy(x, y), crs=feats.rio.crs).to_crs(crs)
+        x, y = pts.x.to_numpy(), pts.y.to_numpy()
+    return np.column_stack([x, y]), values[:, rows, cols].T
+
+
+def _merge(labels: np.ndarray, k: int, rng: np.random.Generator) -> np.ndarray:
+    """Clusters merged into k folds of about equal size: the largest first (at random among equal sizes), each to
+    the fold with the fewest points."""
+    sizes = np.bincount(labels)
+    order = rng.permutation(sizes.size)
+    order = order[np.argsort(-sizes[order], kind="stable")]
+    fold_of = np.empty(sizes.size, dtype=np.int64)
+    counts = np.zeros(k, dtype=np.int64)
+    for c in order:
+        f = int(np.argmin(counts))
+        fold_of[c] = f
+        counts[f] += sizes[c]
+    return fold_of[labels]
+
+
+def _knndm(train: np.ndarray, pred: np.ndarray, k: int, clustering: str, maxp: float, candidates: int,
+           rng: np.random.Generator, seed: int, n_jobs: int):
+    """kNNDM's folds of the points ``train`` (n, d) for the prediction points ``pred`` (m, d): (folds, W, q,
+    distances)."""
+    from ._core import knndm as core
+
+    n = len(train)
+    threads = resolve(n_jobs)
+    train = np.ascontiguousarray(train, dtype=np.float64)
+    gij = core.nearest(train, np.ascontiguousarray(pred, dtype=np.float64), threads)
+    gj = core.nearest_other(train, np.arange(n, dtype=np.int64), threads)
+    qs = np.unique(np.round(np.geomspace(k, n, max(int(candidates), 2))).astype(int))
+    if clustering == "hierarchical":
+        from scipy.cluster.hierarchy import fcluster, linkage
+
+        tree = linkage(train, method="ward")
+
+        def clusters(q):
+            return fcluster(tree, t=q, criterion="maxclust") - 1
+    elif clustering == "kmeans":
+        from sklearn.cluster import KMeans
+        from threadpoolctl import threadpool_limits
+
+        def clusters(q):
+            if q >= n:
+                return np.arange(n)
+            with threadpool_limits(threads):
+                return KMeans(n_clusters=int(q), n_init=1, random_state=seed).fit_predict(train)
+    else:
+        raise ValueError(f"clustering must be 'hierarchical' or 'kmeans', got {clustering!r}")
+    best = None
+    for q in qs:
+        labels = np.unique(clusters(q), return_inverse=True)[1].ravel()
+        folds = _merge(labels, k, rng)
+        if np.bincount(folds, minlength=k).max() > maxp * n:
+            continue
+        gjstar = core.nearest_other(train, folds, threads)
+        w = core.wasserstein(gjstar, gij)
+        if best is None or w < best[1]:
+            best = (folds, w, int(q), gjstar)
+    if best is None:
+        raise ValueError(f"every configuration has a fold with more than maxp={maxp} of the points: the points are "
+                         "too clustered for these folds; raise maxp or lower k")
+    folds, w, q, gjstar = best
+    return folds, float(w), q, {"Gij": gij, "Gj": gj, "Gjstar": gjstar}
+
+
 # ------------------------------------------------------------------------------------------------- the API
 
 def spatial_folds(samples: Any, *, method: str = "blocks", k: int = 5, size: Optional[float] = None,
                   shape: str = "hexagon", selection: str = "random", label: Optional[str] = None,
-                  iterations: int = 100, space: str = "geographic", data: Any = None, seed: int = 0,
-                  n_jobs: int = -1) -> SpatialFolds:
+                  iterations: int = 100, space: str = "geographic", data: Any = None,
+                  prediction_points: Any = None, samplesize: int = 1000, clustering: str = "hierarchical",
+                  maxp: float = 0.5, candidates: int = 100, seed: int = 0, n_jobs: int = -1) -> SpatialFolds:
     """Cross-validation folds of sample points that keep the test points away from the training points, as
-    blockCV's ``cv_spatial``, ``cv_buffer`` and ``cv_cluster``.
+    blockCV's ``cv_spatial``, ``cv_buffer`` and ``cv_cluster``, and CAST's ``knndm``.
 
     samples: the points (a ``GeoDataFrame`` or a vector file). Distances are in their CRS's units (a geographic CRS
         is replaced by its UTM zone; with ``data``, the points are taken to its CRS first).
@@ -224,10 +334,19 @@ def spatial_folds(samples: Any, *, method: str = "blocks", k: int = 5, size: Opt
         ``"buffer"``: leave-one-out, each point tested without its neighbours within ``size`` in the training.
         ``"clusters"``: ``k`` clusters of the points by k-means: of their coordinates, or of the predictors
         (``space="feature"``, their values in ``data`` at the points, standardised).
+        ``"knndm"``: kNNDM (Linnenbrink et al. 2024): the points in q clusters (``clustering``: Ward's
+        ``"hierarchical"`` or ``"kmeans"``), merged into ``k`` folds of about equal size, for up to ``candidates``
+        values of q from k to the number of points (q = n: a random k-fold), none with a fold above ``maxp`` of the
+        points; the folds kept are those whose distances from each point to the nearest point of another fold (Gj*)
+        are distributed most like those from the area to predict to the nearest point (Gij), by the W statistic
+        (the integral of the absolute difference of their distribution functions). The area is ``prediction_points``
+        or a regular sample of about ``samplesize`` cells of ``data`` with every predictor; in
+        ``space="feature"``, their predictors (standardised by the points').
     size: the blocks' size or the buffer's radius, in the CRS's units; for blocks, None takes the median range of
         the spatial autocorrelation of ``data``'s bands (``zeit.autocorrelation_range``).
     label: the column of ``samples`` with the classes, to balance them across random blocks.
-    data: the predictors (anything ``zeit.classify`` takes): for ``size=None`` and ``space="feature"``.
+    data: the predictors (anything ``zeit.classify`` takes): for ``size=None``, ``space="feature"`` and kNNDM's area.
+    prediction_points: kNNDM's prediction points, instead of a sample of ``data`` (geographic space).
 
     Returns a ``SpatialFolds``: ``.folds`` (each point's fold), a scikit-learn splitter (``split``,
     ``get_n_splits``) for ``cross_val_predict`` or ``GridSearchCV``, accepted by ``zeit.train_di`` and ``zeit.aoa``
@@ -274,6 +393,36 @@ def spatial_folds(samples: Any, *, method: str = "blocks", k: int = 5, size: Opt
         near = cKDTree(xy).query_ball_point(xy, r=float(size), workers=resolve(n_jobs))
         exclude = [np.array(sorted(set(row) - {i}), dtype=np.int64) for i, row in enumerate(near)]
         return SpatialFolds("buffer", np.arange(n, dtype=np.int64), points, size=float(size), exclude=exclude)
+
+    if method == "knndm":
+        folds = np.full(n, -1, dtype=np.int64)
+        if space == "geographic":
+            train, kept = xy, np.ones(n, dtype=bool)
+            if prediction_points is not None:
+                pred = _xy(_samples(prediction_points, points.crs))
+            elif feats is not None:
+                pred = _prediction_cells(feats, samplesize, points.crs)[0]
+            else:
+                raise ValueError("method='knndm' needs the area to predict: data= or prediction_points=")
+        elif space == "feature":
+            if feats is None:
+                raise ValueError("space='feature' needs data= (the predictors at the points and in the area)")
+            from ._classify_api import _values_at
+
+            train, kept = _values_at(feats, points)
+            pred = _prediction_cells(feats, samplesize, None)[1]
+            mean, sd = train.mean(axis=0), train.std(axis=0, ddof=1)
+            sd = np.where(sd > 0, sd, 1)
+            train, pred = (train - mean) / sd, (pred - mean) / sd
+        else:
+            raise ValueError(f"space must be 'geographic' or 'feature', got {space!r}")
+        if kept.sum() < k:
+            raise ValueError(f"only {kept.sum()} points have every predictor, fewer than the {k} folds")
+        if len(pred) == 0:
+            raise ValueError("the area to predict has no point")
+        f, w, q, distances = _knndm(train, pred, k, clustering, float(maxp), candidates, rng, seed, n_jobs)
+        folds[kept] = f
+        return SpatialFolds("knndm", folds, points, W=w, q=q, distances=distances)
 
     # clusters
     from sklearn.cluster import KMeans

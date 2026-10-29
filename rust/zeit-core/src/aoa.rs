@@ -60,7 +60,7 @@ fn quantile7(sorted: &[f64], q: f64) -> f64 {
     sorted[lo] + (h - lo as f64) * (sorted[hi] - sorted[lo])
 }
 
-fn distance2(a: &[f64], b: &[f64]) -> f64 {
+pub(crate) fn distance2(a: &[f64], b: &[f64]) -> f64 {
     a.iter().zip(b).map(|(x, y)| (x - y) * (x - y)).sum()
 }
 
@@ -264,13 +264,13 @@ const BLOCK: usize = 256;
 
 /// Up to this many predictors, the nearest training points are searched in a k-d tree (as CAST's FNN); beyond, the
 /// distances to all of them come from a matrix product.
-const KD_MAX_P: usize = 9;
+pub(crate) const KD_MAX_P: usize = 9;
 
 /// Training points a leaf of the k-d tree.
-const LEAF: usize = 12;
+pub(crate) const LEAF: usize = 12;
 
 /// A k-d tree of the training points: each node splits its points at the median of their widest predictor.
-struct KdTree<'a> {
+pub(crate) struct KdTree<'a> {
     pts: &'a [f64],
     p: usize,
     /// the points' indices, each node's a range of them
@@ -288,7 +288,7 @@ struct KdNode {
 }
 
 impl<'a> KdTree<'a> {
-    fn new(pts: &'a [f64], n: usize, p: usize) -> Self {
+    pub(crate) fn new(pts: &'a [f64], n: usize, p: usize) -> Self {
         let mut t = KdTree {
             pts,
             p,
@@ -339,7 +339,7 @@ impl<'a> KdTree<'a> {
     /// distance2, a subtree left out when the distance to its box
     /// is above `best` (Arya & Mount's incremental distance: `rd` the squared distance to the node's box, `off` its
     /// part along each predictor).
-    fn nearest(&self, x: &[f64], node: usize, rd: f64, off: &mut [f64], best: &mut f64) {
+    pub(crate) fn nearest(&self, x: &[f64], node: usize, rd: f64, off: &mut [f64], best: &mut f64) {
         let nd = &self.nodes[node];
         match nd.children {
             None => {
@@ -357,6 +357,38 @@ impl<'a> KdTree<'a> {
                 if rd_far * (1.0 - 1e-12) <= *best {
                     off[nd.dim] = diff;
                     self.nearest(x, far, rd_far, off, best);
+                    off[nd.dim] = old;
+                }
+            }
+        }
+    }
+
+    /// As `nearest`, among the points `keep` takes (the points of another fold, for kNNDM).
+    pub(crate) fn nearest_where(
+        &self,
+        x: &[f64],
+        node: usize,
+        rd: f64,
+        off: &mut [f64],
+        best: &mut f64,
+        keep: &dyn Fn(usize) -> bool,
+    ) {
+        let nd = &self.nodes[node];
+        match nd.children {
+            None => {
+                for &i in self.idx[nd.lo..nd.hi].iter().filter(|&&i| keep(i)) {
+                    *best = best.min(distance2(x, self.point(i)));
+                }
+            }
+            Some((left, right)) => {
+                let diff = x[nd.dim] - nd.split;
+                let (near, far) = if diff < 0.0 { (left, right) } else { (right, left) };
+                self.nearest_where(x, near, rd, off, best, keep);
+                let old = off[nd.dim];
+                let rd_far = rd - old * old + diff * diff;
+                if rd_far * (1.0 - 1e-12) <= *best {
+                    off[nd.dim] = diff;
+                    self.nearest_where(x, far, rd_far, off, best, keep);
                     off[nd.dim] = old;
                 }
             }
