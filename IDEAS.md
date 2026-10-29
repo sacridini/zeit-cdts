@@ -2167,6 +2167,90 @@ usuários; a carga só se a contagem não bastar.
   once"), `zeit config` no `cli.md` (seção 24), o nó de login e as variáveis de PBS/LSF no
   tutorial de HPC, o README.
 
+## Fase 22: folds espaciais (blockCV, kNNDM) e o perfil de erro pelo DI (CAST)
+
+Pedida em 2026-10-29 (anotada no mesmo dia, a partir do tutorial
+https://hannameyer.github.io/CAST/articles/cast02-AOA-tutorial.html). Hoje `zeit.train_di` /
+`zeit.aoa` (`zeit/_aoa.py`, `zeit-core/src/aoa.rs`) batem com o CAST 1.0.4 até 1e-13, com
+folds, LPD e pesos pela importância, mas os folds vêm prontos de quem chama, e o
+`train_classifier` não faz validação cruzada. A meta: folds espaciais numa função só (as
+formas do blockCV, Valavi et al. 2019, MEE 10:225, doi 10.1111/2041-210X.13107, e o kNNDM,
+Linnenbrink et al. 2024, GMD 17:5897), que entram no `train_classifier`, no `train_di` /
+`aoa` e no perfil de erro (o `errorProfiles` do CAST): o mapa do erro esperado. Como sempre,
+pelos artigos e pela documentação (o núcleo é GPL-2.0-only; não traduzir o código do CAST nem
+o do blockCV), e contra os dois no R.
+
+### O que se conferiu antes (CAST 1.0.4, como caixa-preta)
+
+- **Mahalanobis** (`method = "MD"`): é a euclidiana depois de branquear os dados padronizados
+  pela covariância do treino padronizado (Cholesky): o DI do treino e o dos pontos novos batem
+  com o CAST até 1e-14 num teste de 60 pontos e 4 variáveis com 5 folds. Os pesos não mudam
+  nada (a distância não muda com a escala das variáveis; o CAST dá o mesmo com e sem pesos).
+  Cabe no k-d tree de hoje: branquear uma vez, o resto igual.
+- **`errorProfiles`**: os pontos do treino ordenados pelo DI (o do treino, o de fora do fold), a
+  métrica (RMSE; acurácia para classes) numa janela móvel de `window.size = 5`, e uma curva
+  ajustada a ela: `scam` (monótona, `k = 6`, `m = 2`) ou `lm`. `multiCV` refaz a validação com
+  folds de agrupamentos no espaço das variáveis, de 3 até leave-one-out, para cobrir mais DI.
+- **`knndm`**: agrupa as coordenadas do treino (hierárquico Ward ou k-means) em q grupos, de k
+  até N, junta os grupos em k folds (nenhum com mais de `maxp = 0,5` dos pontos) e escolhe o q
+  que minimiza o W de Wasserstein entre a distribuição das distâncias ao vizinho mais próximo
+  na validação (teste até treino, Gj*) e a da predição (área a predizer até o treino, Gij). A
+  área vem de pontos dados ou de uma amostra regular de 1000 dentro dela. Também no espaço das
+  variáveis.
+- No R: CAST 1.0.4, caret e sf instalados; **faltam `blockCV` e `scam`** (CRAN) para os
+  benchmarks.
+
+### A API proposta
+
+- **`zeit.spatial_folds(samples, method=..., k=5, ...)`** devolve um `SpatialFolds`: o fold de
+  cada ponto (`.folds`, -1 em nenhum), os vizinhos tirados do treino de cada um (`.exclude`, só
+  no buffer) e, quando há, o W do kNNDM; é um splitter do scikit-learn (`split`,
+  `get_n_splits`), então serve no `cross_val_predict` e no `GridSearchCV` de quem quiser. Com
+  `.plot()`. Métodos:
+  - `"blocks"`: hexágonos (padrão) ou quadrados de lado `size` (nas unidades do CRS), sorteados
+    em k folds (`selection="random"`), em sequência (`"systematic"`) ou em xadrez
+    (`"checkerboard"`, k = 2); com `label=`, `iterations` sorteios e fica o que equilibra mais
+    as classes entre os folds.
+  - `"buffer"`: deixar um de fora sem os vizinhos a menos de `size`.
+  - `"clusters"`: k-means das coordenadas, ou das variáveis (`space="feature"`, com `data`).
+  - `"knndm"`: o kNNDM, com a área a predizer dada por `data` (o raster: amostra regular das
+    células com valor), por pontos (`prediction_points=`) ou, no espaço das variáveis, pelos
+    valores do raster.
+- **`zeit.autocorrelation_range(data, sample=5000)`**: o alcance da autocorrelação de cada
+  banda (variograma empírico de uma amostra de pixels, ajustado como exponencial), o
+  `cv_spatial_autocor` do blockCV; `size=None` nos blocos usa a mediana. Do PARTS só se
+  aproveitam o `Correlation` e o otimizador: o `fit_correlation` dele ajusta correlações entre
+  séries, não o variograma de um mapa.
+- **`train_classifier(..., folds=None)`**: com folds (um `SpatialFolds`, rótulos, ou o nome de
+  um método), as predições fora do fold (`cross_val_predict`) ficam em `zeit_cv_` e os folds em
+  `zeit_folds_`; as coordenadas das amostras sempre em `zeit_xy_` (com o CRS). O `train_di`
+  com o modelo usa os folds dele (o `useCV` do CAST).
+- **`train_di` / `aoa`**: `folds` aceita um `SpatialFolds` (o buffer tira os vizinhos do treino
+  de cada ponto, o `CVtrain` do CAST) e `distance="mahalanobis"`.
+- **`zeit.error_profile(model, ...)`** (ou `observed=`, `predicted=`, `folds=`, `train=`, para
+  um modelo de fora, como as redes do Janus): um `ErrorProfile` com a janela móvel, a curva
+  (`calibration="monotone"`, padrão, ou `"linear"`), `.predict(aoa)` (o mapa do erro esperado,
+  ou da acurácia para classes), `.save()` e `.plot()`. A curva monótona é uma P-spline com a
+  restrição de forma por penalidade assimétrica (Bollaerts, Eilers & van Mechelen 2006), no
+  `zeit-core`; contra o `scam` a curva fica parecida, não igual (outra base, outro critério).
+- Na documentação: os folds servem para escolher o modelo e calibrar a AOA; a acurácia do mapa
+  continua sendo a da amostra probabilística (`zeit.accuracy`; Wadoux et al. 2021).
+
+### Etapas
+
+- **22a:** Mahalanobis no `train_di` / `aoa` e, no core, os folds com vizinhos tirados (CSR por
+  ponto), para o buffer.
+- **22b:** `spatial_folds` com blocos, buffer e agrupamentos, e `autocorrelation_range` (o
+  variograma no core).
+- **22c:** o kNNDM (Gj*, Gij e o W no core; os agrupamentos pelo SciPy e pelo scikit-learn,
+  com as threads presas ao `n_jobs`).
+- **22d:** `train_classifier(folds=)` com as predições fora do fold; o `train_di` pelo modelo.
+- **22e:** `error_profile`, a curva monótona no core, o mapa do erro esperado; `multiCV` se
+  couber.
+- **22f:** contra o CAST (`knndm`, `errorProfiles`, `trainDI(method = "MD")`) e o blockCV
+  (`cv_spatial`, `cv_buffer`, `cv_spatial_autocor`) em `benchmarks/vs_originals/`; o tutorial e
+  a API.
+
 ## Para depois
 
 - Fase 19: `zeit.ai.predict` com fp16 na GPU (2,4× no Siamese, medido) vale para todos os
@@ -2185,4 +2269,5 @@ usuários; a carga só se a contagem não bastar.
   depois da Fase 20, o mesmo cubo em vários nós de um cluster com o `dask-jobqueue`
   (`SLURMCluster`, com as threads do 20a em cada worker); pausar o ajudante quando o usuário
   volta a usar a máquina; nuvem.
+- O que falta do CAST e os folds espaciais do blockCV: virou a Fase 22.
 
