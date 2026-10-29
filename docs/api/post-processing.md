@@ -283,6 +283,48 @@ The dissimilarity of the training data to itself and the AOA's threshold, as CAS
 
 **Returns** a `TrainDI`: `features`, `center`, `scale`, `weight`, `train` (scaled and weighted; whitened for the Mahalanobis distance), `mean_distance`, `train_di` (each training point's DI), `threshold`, `distance` and `whiten` (the matrix that whitens a scaled point, or `None`).
 
+### `error_profile` { .api }
+
+<!-- sig: zeit.error_profile -->
+```python
+zeit.error_profile(
+    model=None, *, train=None, observed=None, predicted=None,
+    folds=None, weights=None, distance="euclidean", metric=None,
+    window=5, calibration="monotone", k=6, n_jobs=-1,
+)
+```
+
+How a model's error grows with the dissimilarity of the data to its training data, as CAST's `errorProfiles` (Meyer & Pebesma 2021), and the map of the error to expect where it is applied. The training points of a cross-validation, each predicted by a model fitted without its fold, are sorted by their DI (their distance to the nearest point of another fold); those within the AOA's threshold give the error metric in a moving window of `window` points, at the DI of the window's middle point, and a curve that only grows (only falls, for the accuracy) is fitted to the windows. The windows are CAST 1.0.4's to 1e-13, but for one difference: a window whose points are all of one class and all predicted right has accuracy 1 here and 0 in CAST. The curve is a P-spline with its coefficients kept monotone by an asymmetric penalty (Bollaerts, Eilers & van Mechelen 2006), its smoothness by generalised cross-validation, in the core; CAST's `scam` gives a curve within 1% of the metric's range of it on the test case.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `model` | classifier | `None` | A model from `train_classifier(..., folds=...)`: its cross-validation (`zeit_cv_`), training data and folds. |
+| `train` | `DataFrame` or array | `None` | For a model of any kind: the training predictors (points × predictors)… |
+| `observed` | array | `None` | …each training point's value or class… |
+| `predicted` | array | `None` | …its prediction by a model fitted without its fold… |
+| `folds` | list or `SpatialFolds` | `None` | …and the folds (as in `train_di`). |
+| `weights` | `str`, `dict` or list | `None` | As in `aoa`. |
+| `distance` | `str` | `"euclidean"` | As in `aoa`. |
+| `metric` | `str` | `None` | `"rmse"` or `"mae"` (values), `"accuracy"` (classes); default `"accuracy"` for a classifier or observations that are not numbers, else `"rmse"`. |
+| `window` | `int` | `5` | The moving window's points. |
+| `calibration` | `str` | `"monotone"` | `"monotone"` (CAST's `scam`) or `"linear"` (CAST's `lm`). |
+| `k` | `int` | `6` | The monotone curve's B-splines (CAST's `k`). |
+| `n_jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job ([how they are counted](parallel.md#threads-n_jobs)). |
+
+</div>
+
+**Returns** an `ErrorProfile`: `points` (the windows' `DI` and `metric`), `threshold`, the curve (call the profile on DI values), `.predict(zeit.aoa(...))` (the error expected in each pixel inside the AOA, a georeferenced `(y, x)` `DataArray`; `outside=True` also beyond, the curve going on as a line), `.save(path)` and `ErrorProfile.load(path)` (JSON), and `.plot()`.
+
+```python
+rf = zeit.train_classifier(stack, samples, label="class", folds="knndm")
+profile = zeit.error_profile(rf)                                   # accuracy against the DI
+applicable = zeit.aoa(stack, model=rf)
+expected = profile.predict(applicable)                              # the accuracy to expect, inside the AOA
+profile.plot()
+```
+
 ## Spatial cross-validation
 
 Points near each other are alike: a random k-fold validation tests a model on points next to its training points and says it is better than it is where it will be applied. Spatial folds hold out whole regions, as blockCV's (Valavi et al. 2019): blocks of a grid, a point and its neighbours within a buffer, or clusters of the points; or they mimic the area to predict, as CAST's kNNDM (Linnenbrink et al. 2024). They serve to choose a model and to calibrate its area of applicability (`train_di`, `aoa`); the accuracy of the map is still that of a probability sample ([`accuracy`](validation.md#accuracy); Wadoux et al. 2021).

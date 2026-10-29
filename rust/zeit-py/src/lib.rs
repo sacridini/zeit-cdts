@@ -27,6 +27,7 @@ mod parallel;
 mod parts;
 mod phenology;
 mod postproc;
+mod profile;
 mod recovery;
 mod sccd;
 mod sma;
@@ -79,5 +80,6 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     add_submodule(m, &parallel::module(m.py())?)?;
     add_submodule(m, &variogram::module(m.py())?)?;
     add_submodule(m, &knndm::module(m.py())?)?;
+    add_submodule(m, &profile::module(m.py())?)?;
     Ok(())
 }

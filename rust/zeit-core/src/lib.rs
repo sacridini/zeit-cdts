@@ -31,6 +31,7 @@ pub mod parallel;
 pub mod parts;
 pub mod phenology;
 pub mod postproc;
+pub mod profile;
 pub mod recovery;
 pub mod robustfit;
 pub mod sccd;

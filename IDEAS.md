@@ -2291,6 +2291,21 @@ o do blockCV), e contra os dois no R.
   partição (pontos em nenhum fold). Sempre guarda `zeit_y_`, `zeit_xy_` e `zeit_crs_`; com folds,
   `zeit_folds_` e `zeit_cv_`. O `train_di(model=)` usa os folds do modelo quando não recebe
   outros e o treino vem dele.
+- **22e:** `zeit.error_profile` (`zeit/_profile.py`) e a curva no core (`profile.rs`). Conferido
+  no CAST como caixa-preta antes: só os pontos com DI ≤ threshold, ordenados pelo DI, janela
+  **centrada** de 5 (a métrica com o DI do ponto do meio): 144 pontos dão 140 janelas, como no
+  CAST. Com os mesmos pesos (o `varImp` do caret), as janelas batem com o CAST a 1e-13
+  (`tests/data/make_error_profile_cast_fixtures.R`, `lm` e `rpart`). **Um bug do CAST, não
+  copiado:** na classificação, uma janela com os 5 pontos de uma classe só e todos certos tem
+  acurácia 0 no CAST (17 de 145 janelas no caso de teste); aqui 1. Vale relatar ao CAST. A
+  curva: P-spline cúbica (k = 6, o padrão do CAST), penalidade nas segundas diferenças com o λ
+  por GCV, monotonia pela penalidade assimétrica (κ = 1e8) e, ao fim, o máximo (ou mínimo)
+  acumulado dos coeficientes, que deixa a curva exatamente monótona; fora dos dados, uma reta
+  com a inclinação da ponta. Contra o `scam` (1.2.23): a 0,9% da amplitude da métrica no caso de
+  regressão, edf 2,68 contra 2,35. O `.predict` deixa vazio fora da AOA (a validação não diz
+  nada ali), `outside=True` para tudo. **Fica para depois:** `variable="LPD"` (pede o LPD do
+  treino) e o `multiCV` (refazer a validação com agrupamentos no espaço das variáveis de 3 até
+  leave-one-out).
 
 ## Para depois
 
