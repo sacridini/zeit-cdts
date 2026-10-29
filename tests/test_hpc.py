@@ -265,7 +265,9 @@ def test_the_caches_go_where_the_root_says(monkeypatch, tmp_path):
 
 def test_writable(tmp_path):
     assert _cache.writable(tmp_path / "not" / "yet")
-    assert not _cache.writable(Path("/nonexistent-root-zeit") if os.name != "nt" else Path("Q:/zeit"))
+    # under a file, not a folder: no one can write there, root (the wheels' tests) neither
+    (tmp_path / "a-file").write_text("")
+    assert not _cache.writable(tmp_path / "a-file" / "not" / "yet")
 
 
 # ---------------------------------------------------------------------------- network
