@@ -34,6 +34,7 @@ from ._profile import ErrorProfile, error_profile
 from ._hotspots import emerging_hotspots
 from .segmentation import snic_grid, snic_to_polygons
 from ._snic_api import snic
+from ._texture_api import texture
 from ._som_api import som, clean_samples
 from ._smooth import smooth
 from .masks import extract_water_mask
@@ -99,7 +100,7 @@ __all__ = [
     "ccdc", "sccd",
     "bfast_monitor", "bfast_lite", "bfast", "mann_kendall", "phenology",
     "ar_trend", "parts", "recovery_metrics", "ewmacd", "beast",
-    "twdtw", "smooth", "tmask", "snic", "som", "clean_samples", "unmix", "coded",
+    "twdtw", "smooth", "tmask", "snic", "texture", "som", "clean_samples", "unmix", "coded",
     "extract_events", "agreement", "predict_synthetic_image",
     "sampling_design", "stratified_sample", "accuracy",
     "train_classifier", "classify",

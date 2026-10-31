@@ -129,6 +129,7 @@
 | [`phenology`](time-series.md#phenology) | 19 phenology metrics per year or season |
 | [`twdtw`](time-series.md#twdtw) | Classification by time-weighted DTW, on a file, cube or single pixel |
 | [`snic`](time-series.md#snic) / [`snic_to_polygons`](time-series.md#snic_to_polygons) / [`snic_grid`](time-series.md#snic_grid) | Superpixel segmentation of a map or cube, and its polygons |
+| [`texture`](time-series.md#texture) | GLCM and window texture features of a map or a cube's summary |
 | [`som`](time-series.md#som) | Self-organizing map clusters of a map or cube, with each neuron's prototype |
 | [`clean_samples`](time-series.md#clean_samples) | Flag labelled samples whose class is not their SOM neuron's |
 | [`SOM`](time-series.md#som_1) | The SOM engine, online and batch (bit-exact `minisom` port) |

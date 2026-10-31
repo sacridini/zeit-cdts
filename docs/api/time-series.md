@@ -430,6 +430,42 @@ The seed grids of the R `snic` package, as `(n, 2)` `(row, col)` positions. Also
 
 </div>
 
+## Texture
+
+### `texture` { .api }
+
+<!-- sig: zeit.texture -->
+```python
+zeit.texture(
+    data, *, features=None, window=7, levels=32, distance=1, lo=None,
+    hi=None, summary="median", n_jobs=-1,
+)
+```
+
+Texture features of an image in a moving window, inputs for a classifier where fields, pastures, orchards and forests differ in texture but not in spectrum. The grey-level co-occurrence matrix's properties (Haralick et al. 1973) are scikit-image's `graycomatrix(..., angles=[0, pi/4, pi/2, 3pi/4], symmetric=True, normed=True)` and `graycoprops` for each pixel's window (cut by the image's edges), averaged over the four angles: equal to 1e-12, and 78 times faster on one thread (`benchmarks/vs_originals/texture.py`). Three of spfeas's window statistics (Graesser et al. 2012) complete them. A cube is summarized over time first.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `data` | `DataArray` or `ndarray` | required | A map `(y, x)`, or a cube `(time, y, x)` summarized by `summary`. |
+| `features` | `str` or list | `None` | All twelve, or any of: `contrast`, `dissimilarity`, `homogeneity`, `asm`, `energy`, `correlation`, `entropy` (base 2), `glcm_mean`, `glcm_variance`, and the window's `mean`, `std` and `gradient` (mean Sobel magnitude). |
+| `window` | `int` | `7` | The window's side in pixels (odd). |
+| `levels` | `int` | `32` | Grey levels (2-254) the values are quantized to over `[lo, hi]`. |
+| `distance` | `int` | `1` | The pairs' distance in pixels. |
+| `lo`, `hi` | `float` | `None` | The range quantized; default the image's 2nd and 98th percentiles. |
+| `summary` | `str` | `"median"` | A cube's summary: `"median"`, `"mean"`, `"min"`, `"max"`, `"std"` or `"amplitude"` (95th - 5th percentile). |
+| `n_jobs` | `int` | `-1` | Threads. |
+
+</div>
+
+**Returns** an `xarray.DataArray` `(feature, y, x)`, the map's coordinates kept; NaN where a window has no valid pair.
+
+```python
+tex = zeit.texture(ndvi, summary="max", window=7, features=["contrast", "entropy", "std"])
+stack = xr.concat([ndvi.median("time").expand_dims(feature=["ndvi"]), tex], "feature")  # predictors
+```
+
 ## Clustering (SOM)
 
 ### `som` { .api }

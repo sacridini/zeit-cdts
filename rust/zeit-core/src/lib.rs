@@ -39,6 +39,7 @@ pub mod sma;
 pub mod snic;
 pub mod som;
 pub mod spatial;
+pub mod texture;
 pub mod stl;
 pub mod tmask;
 pub mod twdtw;
