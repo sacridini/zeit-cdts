@@ -102,11 +102,12 @@ def run_tiles(command: str, inputs: Union[str, Path, Iterable], output_dir: Unio
             else "this computer only coordinates")
     say(f"{plan.command}: {len(plan.tiles)} tiles to process{which}{done}, {size}; {here}"
         + ("; helpers welcome" if helpers else ""))
-    with _StopOnSigterm():
-        coordinator.start()
+    def started():
         if helpers:
             say(f"Helpers join by running `zeit worker` (port {coordinator.port}).")
-        result = coordinator.wait()
+
+    with _StopOnSigterm():
+        result = coordinator.run(started)
     say(summary(result))
     return result
 

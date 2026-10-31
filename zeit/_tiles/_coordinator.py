@@ -244,8 +244,16 @@ class Coordinator:
         thread.start()
         self._threads.append(thread)
 
-    def wait(self) -> TileRunResult:
+    def run(self, on_start=None) -> TileRunResult:
+        """``start`` and ``wait`` as one: a Ctrl+C or SIGTERM that arrives while the run starts
+        (its threads already at work) closes it as one that arrives later does."""
+        return self.wait(starting=on_start or (lambda: None))
+
+    def wait(self, starting=None) -> TileRunResult:
         try:
+            if starting is not None:
+                self.start()
+                starting()
             with _system.keep_awake():
                 while not self.finished.wait(0.5):
                     pass

@@ -178,6 +178,28 @@ def test_sigterm_drops_the_tiles_at_work_and_keeps_the_record(tiles, tmp_path, m
     assert _journal.read_status(out).missing == [f"tile_{k}" for k in range(5)]
 
 
+def test_sigterm_while_the_run_starts_is_handled_too(tiles, tmp_path, monkeypatch):
+    # The tile is at work before start() has returned: a SIGTERM then must close the run as well.
+    out = tmp_path / "out"
+    started = threading.Event()
+    slow_tiles(monkeypatch, started)
+    spawn = _coordinator.Coordinator._spawn
+
+    def spawn_then_sigterm(self, target, name):
+        spawn(self, target, name)
+        if name == "zeit-tiles-monitor":
+            assert started.wait(30)
+            signal.raise_signal(signal.SIGTERM)     # its handler runs here, inside start()
+
+    monkeypatch.setattr(_coordinator.Coordinator, "_spawn", spawn_then_sigterm)
+    with pytest.raises(_coordinator.Stopped) as stopped:
+        zeit.run_tiles("mann_kendall", tiles, out, local_cores=1, verbose=False)
+    assert stopped.value.done == []
+    assert not (out / _tasks.PARTIAL).exists()
+    record = json.loads(next((out / _shard.STATE / _journal.RUNS).glob("*.json")).read_text())
+    assert record["stopped"] == "SIGTERM"
+
+
 class FakeStopped:
     def __init__(self, done):
         self.done = done
