@@ -300,6 +300,55 @@ def test_4d_cube_writes_date_band_descriptions(tmp_path):
     np.testing.assert_array_equal(back.sel(band="nir").values, data[:, 1])
 
 
+def test_4d_cube_saved_date_after_date(tmp_path):
+    # a band x time cube is written as time x band: every band of a date together, the dates in ZEIT_TIME
+    times = pd.to_datetime(["2021-01-01", "2021-02-01", "2021-03-01"])
+    data = np.arange(2 * 3 * 3 * 3, dtype=np.int16).reshape(2, 3, 3, 3)
+    da = xr.DataArray(data, dims=("band", "time", "y", "x"),
+                      coords={"time": times, "band": ["red", "nir"], "y": [2.5, 1.5, 0.5], "x": [0.5, 1.5, 2.5]})
+    out = save_raster(da.rio.write_crs(4326), tmp_path / "s.tif")
+    with rasterio.open(out) as src:
+        assert src.descriptions[:3] == ("2021-01-01_red", "2021-01-01_nir", "2021-02-01_red")
+        assert json.loads(src.tags()["ZEIT_TIME"])[1].startswith("2021-02-01")
+        np.testing.assert_array_equal(src.read(4), data[1, 1])
+    back = load_raster(out)
+    assert back.dims == ("time", "band", "y", "x")
+    np.testing.assert_array_equal(back.sel(band="red").values, data[0])
+
+    # other band names: the dates from the tag, the names a date's
+    out = save_raster(da.rio.write_crs(4326), tmp_path / "named.tif", band_names=["r", "n"] * 3)
+    back = load_raster(out)
+    assert back.dims == ("time", "band", "y", "x")
+    assert back.band.values.tolist() == ["r", "n"]
+    np.testing.assert_array_equal(back.sel(band="n", time="2021-03-01").values, data[1, 2])
+
+
+def test_sidecar_csv_of_several_bands_a_date(tmp_path):
+    # 3 dates x 2 bands in 6 bands without names, the dates in a CCDC_Dates.csv (cdts' columns)
+    array = np.arange(6 * 3 * 3, dtype=np.int16).reshape(6, 3, 3)
+    path = write_stack(tmp_path / "CCDC.tif", array)
+    pd.DataFrame({"Date": ["2020-02-04", "2020-05-26", "2020-06-20"], "Fractional_Year": [2020.09, 2020.4, 2020.47],
+                  "Ordinal_Day": [737459, 737571, 737596]}).to_csv(tmp_path / "CCDC_Dates.csv", index=False)
+    cube = load_raster(path)
+    assert cube.dims == ("time", "band", "y", "x")
+    assert cube.band.values.tolist() == [1, 2]
+    assert [str(t)[:10] for t in cube.time.values] == ["2020-02-04", "2020-05-26", "2020-06-20"]
+    np.testing.assert_array_equal(cube.sel(time="2020-05-26", band=2).values, array[3])
+
+    # the bands named, the same names each date
+    path = write_stack(tmp_path / "named.tif", array, ["red", "nir"] * 3)
+    pd.DataFrame({"Date": ["2020-02-04", "2020-05-26", "2020-06-20"]}).to_csv(tmp_path / "named_dates.csv",
+                                                                                index=False)
+    cube = load_raster(path)
+    assert cube.band.values.tolist() == ["red", "nir"]
+    np.testing.assert_array_equal(cube.sel(time="2020-06-20", band="red").values, array[4])
+
+    # dates that do not divide the bands: none
+    path = write_stack(tmp_path / "odd.tif", array[:5])
+    pd.DataFrame({"Date": ["2020-02-04", "2020-05-26"]}).to_csv(tmp_path / "odd_dates.csv", index=False)
+    assert load_raster(path).dims == ("band", "y", "x")
+
+
 def test_numpy_with_like_and_explicit_georef(ndvi, tmp_path):
     path, array = ndvi
     cube = load_raster(path)

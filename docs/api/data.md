@@ -385,6 +385,7 @@ It reads:
 | Source | Example | Where the dates come from |
 | :--- | :--- | :--- |
 | A raster file with one band per date | `"LT_Stack_NDVI_Rondonia.tif"` | `dates`/`start_year`; the dates `save_raster` writes into the file; the band descriptions (`yr1985`, `1985`, `2020-01-15`, `20200115`, or `2020-01-15_red` for a time × band stack); a `<name>_dates.csv` next to it |
+| A raster file with several bands per date, date after date | `"CCDC_Stack_Rondonia.tif"` (875 bands) | The band descriptions (`2020-01-15_red`); the dates `save_raster` writes into the file; a `<name>_dates.csv` next to it with one date for every few bands (125 dates: 7 bands each, named as the file names them or 1 to 7) |
 | A folder, a glob pattern or a list of single-date rasters | `"tiles/*.tif"` | The first date in each file name, or `pattern=` |
 | A Zarr store or a NetCDF file | `"cube.zarr"` | Its `time` coordinate |
 | An `xarray.DataArray` or `Dataset` | the output of `build_time_series` | Its `time` coordinate (`lat`/`lon` are renamed `y`/`x`) |

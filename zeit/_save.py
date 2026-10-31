@@ -71,7 +71,9 @@ def save_raster(
     band_names
         Band descriptions. By default: the dates of a ``time`` axis (``1985`` for annual
         series, ``2020-01-15`` otherwise, ``2020-01-15_red`` for a time x band cube), or
-        the labels of a ``band`` axis.
+        the labels of a ``band`` axis. A time x band cube is written date after date
+        (every band of a date together, whatever the order of its dims), its dates
+        also in the file's ``ZEIT_TIME`` tag.
     compress
         GeoTIFF compression: ``"deflate"`` (default), ``"lzw"``, ``"zstd"``, ``None``...
     driver
@@ -221,6 +223,9 @@ def _prepare(data: Any, path: Path, *, like: Any, crs: Any, transform: Optional[
     da = data if isinstance(data, xr.DataArray) else None
     if da is not None:
         da = _spatial_last(da)
+        if da.ndim >= 4 and "time" in da.dims[:-2]:
+            # date after date, every band of a date together (as Earth Engine, Janus and load_raster read them)
+            da = da.transpose("time", ...)
         if da.dtype.kind == "M":  # dates (e.g. CCDC's t_break) are written as decimal years
             da = _decimal_years(da)
     ndim = np.ndim(data)
@@ -239,7 +244,7 @@ def _prepare(data: Any, path: Path, *, like: Any, crs: Any, transform: Optional[
     count, height, width = array.shape
     if names is not None and len(names) != count:
         raise ValueError(f"{len(names)} band names for {count} bands")
-    if times is not None and ndim != 3:
+    if times is not None and ndim < 3:
         times = None
 
     crs_, transform_ = _georef(da, like, (height, width))
@@ -347,7 +352,8 @@ def _date_label(times: pd.DatetimeIndex) -> List[str]:
 
 
 def _band_labels(da: Optional[xr.DataArray]) -> Tuple[Optional[List[str]], Optional[pd.DatetimeIndex]]:
-    """Band descriptions (and the dates of a time axis) of a DataArray."""
+    """Band descriptions (and the dates of a time axis) of a DataArray: of a time x band cube, time first,
+    ``2020-01-15_red`` and each date once (its bands follow it)."""
     if da is None or da.ndim == 2:
         return None, None
     lead = da.dims[:-2]
@@ -357,7 +363,7 @@ def _band_labels(da: Optional[xr.DataArray]) -> Tuple[Optional[List[str]], Optio
         import itertools
         labels = [_date_label(times) if dim == "time" and times is not None else [str(v) for v in _coord(da, dim)]
                   for dim in lead]
-        return ["_".join(parts) for parts in itertools.product(*labels)], None
+        return ["_".join(parts) for parts in itertools.product(*labels)], times if lead[0] == "time" else None
     if times is not None:
         return _date_label(times), times
     if lead[0] in da.coords:  # labels of the band axis: names, years, vertex numbers...

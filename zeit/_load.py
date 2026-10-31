@@ -145,7 +145,10 @@ def load_raster(
     The dates of a raster file come, in order, from ``dates``/``start_year``, from the
     dates ``save_raster`` writes into the file, from the band descriptions (``yr1985``,
     ``1985``, ``2020-01-15``, ``20200115``, or ``2020-01-15_red`` for a time x band
-    stack) and from a ``<name>_dates.csv`` file next to it.
+    stack) and from a ``<name>_dates.csv`` file next to it (its ``Date`` column). Dates
+    in the tag or the CSV that are fewer than the bands but divide them are one for
+    every few bands, date after date: 125 dates for 875 bands give a ``(time, band,
+    y, x)`` cube of 7 bands, named as the file names them or 1 to 7.
 
     Examples
     --------
@@ -274,12 +277,12 @@ def _open_one(path: str, *, band: Any, chunks: Any, date_format: Optional[str]) 
     tag = tags.get(TIME_TAG)
     da = rioxarray.open_rasterio(path, masked=False, chunks=_file_chunks(chunks))
     da.attrs.pop("long_name", None)
+    count = da.sizes["band"]
     times: Optional[pd.DatetimeIndex] = None
-    names: Optional[List[str]] = None
-    if tag:
-        times = pd.DatetimeIndex(json.loads(tag))
-        if len(times) != da.sizes["band"] or not times.is_unique:
-            times = None
+    names: Optional[List[Any]] = None
+    tagged = pd.DatetimeIndex(json.loads(tag)) if tag else None
+    if tagged is not None and len(tagged) == count and tagged.is_unique:
+        times = tagged
     if times is None:
         if date_format is not None:
             found = [find_date(d, date_format) if d else None for d in descriptions]
@@ -288,8 +291,13 @@ def _open_one(path: str, *, band: Any, chunks: Any, date_format: Optional[str]) 
             parsed = dates_from_labels(descriptions)
         if parsed is not None:
             times, names = parsed
+    # several bands a date, date after date: the tag's or the side-car file's dates, one for every few bands
+    if times is None and tagged is not None:
+        times, names = _dates_of_bands(tagged, count, descriptions)
     if times is None:
-        times = _sidecar_dates(path, da.sizes["band"])
+        found = _sidecar_dates(path)
+        if found is not None:
+            times, names = _dates_of_bands(found, count, descriptions)
     if times is not None:
         labels = _time_labels(times, names)
         da = da.drop_vars("band").assign_coords(labels if names is not None else {"band": labels})
@@ -334,16 +342,40 @@ def _multi(index: pd.MultiIndex) -> xr.Coordinates:
     return xr.Coordinates.from_pandas_multiindex(index, "band")
 
 
-def _sidecar_dates(path: str, count: int) -> Optional[pd.DatetimeIndex]:
-    csv = os.path.splitext(path)[0] + "_dates.csv"
-    if not os.path.isfile(csv):
+def _sidecar_dates(path: str) -> Optional[pd.DatetimeIndex]:
+    """The dates of a ``<name>_dates.csv`` next to the file (its ``Date`` column; the name in any case)."""
+    folder, name = os.path.split(path)
+    wanted = os.path.splitext(name)[0].lower() + "_dates.csv"
+    try:
+        csv = next((os.path.join(folder, f) for f in os.listdir(folder or ".") if f.lower() == wanted), None)
+    except OSError:
+        return None
+    if csv is None or not os.path.isfile(csv):
         return None
     try:
         table = pd.read_csv(csv)
-        times = pd.DatetimeIndex(pd.to_datetime(table["Date"]))
-    except (KeyError, ValueError):
+        column = next((c for c in table.columns if str(c).strip().lower() == "date"), None)
+        return None if column is None else pd.DatetimeIndex(pd.to_datetime(table[column]))
+    except (ValueError, TypeError):
         return None
-    return times if len(times) == count else None
+
+
+def _dates_of_bands(times: pd.DatetimeIndex, count: int, descriptions: Sequence[Optional[str]]
+                    ) -> Tuple[Optional[pd.DatetimeIndex], Optional[List[Any]]]:
+    """``(times, names)`` of ``count`` bands from dates: one a band (names ``None``), or one for every
+    ``count / len(times)`` bands, date after date (a CCDC stack of 125 dates x 7 bands in 875 bands), each
+    band's date and name. The names of a date's bands are their descriptions when every date repeats them,
+    else 1, 2, ..."""
+    if len(times) == count:
+        return (times, None) if times.is_unique else (None, None)
+    if len(times) < 2 or count % len(times) or not times.is_unique:
+        return None, None
+    per = count // len(times)
+    first = [d or "" for d in descriptions[:per]]
+    named = all(first) and len(set(first)) == per and all(
+        (descriptions[b] or "") == first[b % per] for b in range(count))
+    names: List[Any] = first if named else list(range(1, per + 1))
+    return times.repeat(per), names * len(times)
 
 
 def _open_many(files: List[str], *, band: Any, chunks: Any, pattern: Optional[str],
