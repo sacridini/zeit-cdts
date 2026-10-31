@@ -1,0 +1,4041 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Change detection and time-series analysis for satellite imagery, in Python. Fast Rust ports of LandTrendr, CCDC, BFAST and more, from a single pixel to a Dask cluster.">
+      
+      
+      
+        <link rel="canonical" href="https://sacridini.github.io/zeit-cdts/benchmarks/">
+      
+      
+        <link rel="prev" href="../cli/">
+      
+      
+        <link rel="next" href="fidelity/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.0">
+    
+    
+      
+        <title>Benchmarks & Validation Suite - Zeit</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+  
+  
+    
+      
+      
+    
+  
+  
+  <style>:root{--md-admonition-icon--info:url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%3E%3Cpath%20d%3D%22M11%209h2V7h-2m1%2013c-4.41%200-8-3.59-8-8s3.59-8%208-8%208%203.59%208%208-3.59%208-8%208m0-18A10%2010%200%200%200%202%2012a10%2010%200%200%200%2010%2010%2010%2010%200%200%200%2010-10A10%2010%200%200%200%2012%202m-1%2015h2v-6h-2z%22/%3E%3C/svg%3E');}</style>
+
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/zeit.css">
+    
+      <link rel="stylesheet" href="../assets/benchmarks.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#benchmarks-validation-suite" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Zeit" class="md-header__button md-logo" aria-label="Zeit" data-md-component="logo">
+      
+  <img src="../assets/logo/zeit-lockup-light.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Zeit
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Benchmarks &amp; Validation Suite
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to system preference"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to system preference" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/sacridini/zeit-cdts" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    sacridini/zeit-cdts
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../getting-started/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Get Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../tutorials/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../api/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../cli/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  CLI
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="./" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Benchmarks
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Zeit" class="md-nav__button md-logo" aria-label="Zeit" data-md-component="logo">
+      
+  <img src="../assets/logo/zeit-lockup-light.svg" alt="logo">
+
+    </a>
+    Zeit
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/sacridini/zeit-cdts" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    sacridini/zeit-cdts
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../getting-started/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Get Started
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Get Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Core Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/choosing-an-algorithm/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Choosing an Algorithm
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/docker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docker
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../tutorials/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_2" id="__nav_3_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Data
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Data
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/stac-downloads/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    STAC Data Cubes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/gee-downloads/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Google Earth Engine
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/tmask/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cloud Masking (Tmask)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/embeddings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Embeddings (TESSERA, AlphaEarth)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Visualisation
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Visualisation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/plotting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plotting & Exploring Results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_4" id="__nav_3_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Change Detection
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Change Detection
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/landtrendr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LandTrendr
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/recovery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Recovery Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/ccdc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CCDC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/sccd/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    S-CCD
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/bfast/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    BFAST
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/bfast_monitor/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    BFAST Monitor
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/ewmacd/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    EWMACD
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/bfast_lite/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    BFAST Lite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/beast/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    BEAST
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/coded/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Forest Degradation (CODED)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_5" id="__nav_3_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Time-Series Analysis
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Time-Series Analysis
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/mann_kendall/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Trend Analysis (Mann-Kendall)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../tutorials/regional-trends/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Regional Trends (PARTS)
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3_5_2" id="__nav_3_5_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_3_5_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_5_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Regional Trends (PARTS)
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/regional-trends/how-it-works/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How It Works
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/regional-trends/worked-example/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Worked Example
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/regional-trends/advanced/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Advanced Topics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/regional-trends/faq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interpreting, FAQ & Pitfalls
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/hotspots/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Emerging Hot Spots
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/unmixing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spectral Unmixing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/phenology/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phenology
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/twdtw/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pattern Matching (TWDTW)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/som/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Clustering (SOM)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/snic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Segmentation (SNIC)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_6" id="__nav_3_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Validation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/accuracy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Accuracy & Area
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_7" id="__nav_3_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deep Learning
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Deep Learning
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/ai/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deep Learning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/tempcnn/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TempCNN
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/ltae/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LTAE & LightTAE
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/presto/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Presto
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/utae/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    UTAE
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/siamese/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Siamese Change Detector
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/postprocessing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Post-processing & AoA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/prithvi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Prithvi
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_8" id="__nav_3_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scaling Up
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Scaling Up
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/parallel-cloud-processing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parallel & Cloud Processing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorials/hpc-slurm/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    On a Cluster (HPC, Slurm)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../api/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/data/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data & I/O
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/embeddings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Embeddings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/preprocessing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pre-processing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/change-detection/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Change Detection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/time-series/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Time-Series Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/post-processing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Post-processing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/plot/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Visualisation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/ai/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deep Learning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/xarray/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Xarray Accessor
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/parallel/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Many Tiles & Helpers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="./" class="md-nav__link md-nav__link--active">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmarks
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link md-nav__link--active" for="__nav_6" id="__nav_6_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Benchmarks
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="fidelity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Algorithm Fidelity
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="performance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance & Scaling
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="vs-originals/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Against the Originals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#executive-summary-mission" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Executive Summary &amp; Mission
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Executive Summary &amp; Mission">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-validation-mandate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Validation Mandate
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#key-performance-indicators" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Performance Indicators
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#speed-and-fidelity-at-a-glance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Speed and Fidelity at a Glance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#comparison-matrix-at-a-glance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Comparison Matrix at a Glance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hardware-test-environment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hardware &amp; Test Environment
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#key-scientific-engineering-insights" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Scientific &amp; Engineering Insights
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Key Scientific &amp; Engineering Insights">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-parity-demands-meticulous-porting-not-high-level-mimicry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Parity Demands Meticulous Porting, Not High-Level Mimicry
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-high-performance-local-processing-beats-cloud-queues" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. High-Performance Local Processing Beats Cloud Queues
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-phenology-start-of-season-is-robust-senescence-is-ambiguous" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Phenology: Start-of-Season is Robust; Senescence is Ambiguous
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#explore-the-deep-dives" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Explore the Deep Dives
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+  <nav class="md-path" aria-label="Navigation" >
+    <ol class="md-path__list">
+      
+        
+  
+  
+    <li class="md-path__item">
+      <a href=".." class="md-path__link">
+        
+  <span class="md-ellipsis">
+    Home
+  </span>
+
+      </a>
+    </li>
+  
+
+      
+      
+        
+  
+  
+    
+    
+      <li class="md-path__item">
+        <a href="./" class="md-path__link">
+          
+  <span class="md-ellipsis">
+    Benchmarks
+  </span>
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ol>
+  </nav>
+
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/sacridini/zeit-cdts/edit/main/docs/benchmarks/index.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="benchmarks-validation-suite">Benchmarks &amp; Validation Suite<a class="headerlink" href="#benchmarks-validation-suite" title="Permanent link">&para;</a></h1>
+<p>Welcome to the <strong>Zeit Fidelity &amp; Performance Validation Suite</strong>. This section provides a comprehensive empirical evaluation of the algorithms implemented in Zeit, assessing both <strong>scientific fidelity</strong> (how faithfully Zeit reproduces the original tools and published papers it ports) and <strong>computational performance</strong> (single-core speedup and multi-core CPU scaling).</p>
+<hr />
+<h2 id="executive-summary-mission">Executive Summary &amp; Mission<a class="headerlink" href="#executive-summary-mission" title="Permanent link">&para;</a></h2>
+<p>Earth Observation (EO) time-series analysis has historically suffered from fragmented software ecosystems. Canonical algorithms were originally authored across diverse, often proprietary or single-threaded environments:</p>
+<ul>
+<li><strong>LandTrendr</strong> was authored in proprietary <strong>IDL</strong> (Kennedy <em>et al.</em> 2010).</li>
+<li><strong>CCDC</strong> was authored in <strong>MATLAB</strong> with compiled Fortran GLMnet (Zhu &amp; Woodcock 2014).</li>
+<li><strong>BFAST, Phenology, and TWDTW</strong> gained widespread adoption through <strong>R</strong> packages (<code>bfast</code>, <code>phenofit</code>, <code>dtwSat</code>/<code>twdtw</code>).</li>
+<li><strong>Deep learning models</strong> for satellite time-series (TempCNN, LightTAE, U-TAE) were scattered between R <code>sits</code> and standalone PyTorch repositories.</li>
+<li>Researchers have frequently relied on cloud platforms like <strong>Google Earth Engine (GEE)</strong>, trading off local control, customization, and queue times for scalability.</li>
+</ul>
+<p><strong>Zeit</strong> was engineered to unify these algorithms into a modern, cloud-native architecture written in a <strong>high-performance compiled core</strong> (C++ with <code>Eigen3</code> and OpenMP up to 1.7, <strong>Rust</strong> from 2.0) and <strong>PyTorch</strong> (<code>zeit.ai</code>), exposed through Python, Dask, and Xarray. The compiled core's timings in this section were taken with the Rust core of zeit 2.3, which gives the same results as the C++ one (see <a href="performance/">Performance</a>).</p>
+<h3 id="the-validation-mandate">The Validation Mandate<a class="headerlink" href="#the-validation-mandate" title="Permanent link">&para;</a></h3>
+<p>To verify that Zeit can serve as a drop-in, scientifically reliable replacement for these reference implementations, we subjected Zeit to a rigorous battery of <strong>13 benchmark comparisons</strong> (plus one bonus architectural verification). Every algorithm was evaluated against the <strong>authentic reference tool</strong> across millions of observations, testing:</p>
+<ol>
+<li><strong>Numerical and Statistical Fidelity:</strong> Do Zeit outputs match the reference tools down to floating-point tolerance, identical breakpoint positions, and matching model categories?</li>
+<li><strong>Execution Efficiency:</strong> How much faster is Zeit on a single core, how effectively does it scale across threads, and how does local desktop processing compare against distributed cloud platforms like Google Earth Engine?</li>
+</ol>
+<hr />
+<h2 id="key-performance-indicators">Key Performance Indicators<a class="headerlink" href="#key-performance-indicators" title="Permanent link">&para;</a></h2>
+<div class="bm-kpis">
+  <div class="bm-kpi-card">
+    <div class="bm-kpi-label">Tested Algorithms</div>
+    <div class="bm-kpi-value">13 + 1</div>
+    <div class="bm-kpi-sub">13 canonical tools + 1 bonus segmentation port (U-TAE)</div>
+  </div>
+
+  <div class="bm-kpi-card">
+    <div class="bm-kpi-label">Algorithm Parity</div>
+    <div class="bm-kpi-value">100%</div>
+    <div class="bm-kpi-sub">Exact model/vertex/label/codebook match on LandTrendr, CCDC, SNIC, SOM, TWDTW</div>
+  </div>
+
+  <div class="bm-kpi-card">
+    <div class="bm-kpi-label">Max Single-Core Speedup</div>
+    <div class="bm-kpi-value">370×</div>
+    <div class="bm-kpi-sub">Phenology vs R <code>phenofit</code> on real 25-yr EVI raster</div>
+  </div>
+
+  <div class="bm-kpi-card">
+    <div class="bm-kpi-label">Vs. Google Earth Engine</div>
+    <div class="bm-kpi-value">19.4×</div>
+    <div class="bm-kpi-sub">Compute throughput on full 54.7M px Landsat tile, 8 threads (0 queue delay)</div>
+  </div>
+</div>
+
+<hr />
+<h2 id="speed-and-fidelity-at-a-glance">Speed and Fidelity at a Glance<a class="headerlink" href="#speed-and-fidelity-at-a-glance" title="Permanent link">&para;</a></h2>
+<p>Every port is held to two standards at once: it must give the reference tool's answer, and it must give it faster. The chart lines both up for each algorithm. Hover over (or tab to) a row for the exact numbers; the full matrix follows below.</p>
+<div class="bm-chart-card">
+<p class="bm-chart-title">Single-core speedup over the reference tool, and how closely Zeit reproduces it</p>
+<p class="bm-chart-sub">Same task, one thread on each side. Log scale: each grid line is ten times the one before. A light extension shows the range over several workloads.</p>
+<div class="bm-chart-legend">
+<span><i style="background:var(--bm-zeit)"></i>Zeit faster</span>
+<span><i style="background:var(--bm-zeit);opacity:.3"></i>Range across workloads</span>
+<span><i style="background:var(--bm-ref)"></i>Zeit slower</span>
+</div>
+<div class="bm-chart-legend">
+<span><i class="pill" style="background:var(--zeit-teal)"></i>Identical output</span>
+<span><i class="pill" style="background:var(--zeit-teal-soft);box-shadow:inset 0 0 0 1px var(--zeit-teal)"></i>Equal within 1e-7</span>
+<span><i class="pill" style="background:var(--bm-grid)"></i>Close: same method, small numerical differences</span>
+</div>
+<div class="bm-chart-scroll">
+<svg class="zc" viewBox="0 0 720 704" role="img" aria-label="Single-core speedup of Zeit over each reference tool, with the fidelity of each port" xmlns="http://www.w3.org/2000/svg">
+<text class="zc-head" x="0" y="20">Algorithm · reference</text>
+<text class="zc-head" x="170" y="20">Fidelity</text>
+<text class="zc-head" x="272" y="20">Speedup, one core (log scale)</text>
+<line class="zc-grid" x1="310.2" x2="310.2" y1="44" y2="690"/>
+<text class="zc-tick" x="310.2" y="38" text-anchor="middle">1×</text>
+<line class="zc-grid" x1="436.9" x2="436.9" y1="44" y2="690"/>
+<text class="zc-tick" x="436.9" y="38" text-anchor="middle">10×</text>
+<line class="zc-grid" x1="563.7" x2="563.7" y1="44" y2="690"/>
+<text class="zc-tick" x="563.7" y="38" text-anchor="middle">100×</text>
+<line class="zc-grid zc-grid--minor" x1="348.3" x2="348.3" y1="44" y2="690"/>
+<line class="zc-grid zc-grid--minor" x1="370.6" x2="370.6" y1="44" y2="690"/>
+<line class="zc-grid zc-grid--minor" x1="398.8" x2="398.8" y1="44" y2="690"/>
+<line class="zc-grid zc-grid--minor" x1="475.1" x2="475.1" y1="44" y2="690"/>
+<line class="zc-grid zc-grid--minor" x1="497.4" x2="497.4" y1="44" y2="690"/>
+<line class="zc-grid zc-grid--minor" x1="525.5" x2="525.5" y1="44" y2="690"/>
+<line class="zc-grid zc-grid--minor" x1="601.8" x2="601.8" y1="44" y2="690"/>
+<line class="zc-grid zc-grid--minor" x1="624.2" x2="624.2" y1="44" y2="690"/>
+<line class="zc-base" x1="310.2" x2="310.2" y1="44" y2="690"/>
+<g class="zc-row" data-tip="Phenology vs R phenofit: 370× faster on one core. Fidelity: Close, Start of season within 3.7 days (MAE), 99.1% within 15 days." tabindex="0">
+<rect class="zc-hit" x="0" y="56" width="720" height="42"/>
+<text class="zc-name" x="0" y="74.0">Phenology</text>
+<text class="zc-sub" x="0" y="90.0">R phenofit</text>
+<g class="zc-pill zc-pill--close"><rect x="170" y="66.0" width="80" height="22" rx="11"/><text x="210" y="81.0" text-anchor="middle">Close</text></g>
+<rect class="zc-bar zc-bar--zeit" x="310.2" y="69.0" width="325.6" height="16" rx="4"/>
+<text class="zc-val" x="642.8" y="81.0">370×</text>
+</g>
+<g class="zc-row" data-tip="LandTrendr vs IDL original (GDL): 232× faster on one core. Fidelity: Identical, 100% identical vertex years (330/330 series)." tabindex="0">
+<rect class="zc-hit" x="0" y="98" width="720" height="42"/>
+<text class="zc-name" x="0" y="116.0">LandTrendr</text>
+<text class="zc-sub" x="0" y="132.0">IDL original (GDL)</text>
+<g class="zc-pill zc-pill--same"><rect x="170" y="108.0" width="80" height="22" rx="11"/><text x="210" y="123.0" text-anchor="middle">Identical</text></g>
+<rect class="zc-bar zc-bar--zeit" x="310.2" y="111.0" width="299.8" height="16" rx="4"/>
+<text class="zc-val" x="616.9" y="123.0">232×</text>
+</g>
+<g class="zc-row" data-tip="CCDC vs MATLAB original (Octave): 218×–260× faster on one core. Fidelity: Identical, 100% model match: dates, categories, coefficients." tabindex="0">
+<rect class="zc-hit" x="0" y="140" width="720" height="42"/>
+<text class="zc-name" x="0" y="158.0">CCDC</text>
+<text class="zc-sub" x="0" y="174.0">MATLAB original (Octave)</text>
+<g class="zc-pill zc-pill--same"><rect x="170" y="150.0" width="80" height="22" rx="11"/><text x="210" y="165.0" text-anchor="middle">Identical</text></g>
+<rect class="zc-bar zc-bar--range" x="310.2" y="153.0" width="306.1" height="16" rx="4"/>
+<rect class="zc-bar zc-bar--zeit" x="310.2" y="153.0" width="296.4" height="16" rx="4"/>
+<text class="zc-val" x="623.3" y="165.0">218×–260×</text>
+</g>
+<g class="zc-row" data-tip="TWDTW vs R twdtw / dtwSat: 72× faster on one core. Fidelity: ≤ 1e-7, Distances identical to R within 1e-12." tabindex="0">
+<rect class="zc-hit" x="0" y="182" width="720" height="42"/>
+<text class="zc-name" x="0" y="200.0">TWDTW</text>
+<text class="zc-sub" x="0" y="216.0">R twdtw / dtwSat</text>
+<g class="zc-pill zc-pill--float"><rect x="170" y="192.0" width="80" height="22" rx="11"/><text x="210" y="207.0" text-anchor="middle">≤ 1e-7</text></g>
+<rect class="zc-bar zc-bar--zeit" x="310.2" y="195.0" width="235.1" height="16" rx="4"/>
+<text class="zc-val" x="552.2" y="207.0">72×</text>
+</g>
+<g class="zc-row" data-tip="Mann-Kendall vs Python pymannkendall: 65×–75× faster on one core. Fidelity: Identical, 100% trend agreement, mean p-value difference 0.0." tabindex="0">
+<rect class="zc-hit" x="0" y="224" width="720" height="42"/>
+<text class="zc-name" x="0" y="242.0">Mann-Kendall</text>
+<text class="zc-sub" x="0" y="258.0">Python pymannkendall</text>
+<g class="zc-pill zc-pill--same"><rect x="170" y="234.0" width="80" height="22" rx="11"/><text x="210" y="249.0" text-anchor="middle">Identical</text></g>
+<rect class="zc-bar zc-bar--range" x="310.2" y="237.0" width="237.7" height="16" rx="4"/>
+<rect class="zc-bar zc-bar--zeit" x="310.2" y="237.0" width="229.5" height="16" rx="4"/>
+<text class="zc-val" x="554.8" y="249.0">65×–75×</text>
+</g>
+<g class="zc-row" data-tip="SOM vs Python minisom: 42×–67× faster on one core. Fidelity: Identical, Bit-exact codebooks (max weight difference 0.0)." tabindex="0">
+<rect class="zc-hit" x="0" y="266" width="720" height="42"/>
+<text class="zc-name" x="0" y="284.0">SOM</text>
+<text class="zc-sub" x="0" y="300.0">Python minisom</text>
+<g class="zc-pill zc-pill--same"><rect x="170" y="276.0" width="80" height="22" rx="11"/><text x="210" y="291.0" text-anchor="middle">Identical</text></g>
+<rect class="zc-bar zc-bar--range" x="310.2" y="279.0" width="231.1" height="16" rx="4"/>
+<rect class="zc-bar zc-bar--zeit" x="310.2" y="279.0" width="205.1" height="16" rx="4"/>
+<text class="zc-val" x="548.3" y="291.0">42×–67×</text>
+</g>
+<g class="zc-row" data-tip="BFAST Monitor vs R bfast::bfastmonitor: 16.9× faster on one core. Fidelity: Identical, 100% break agreement, magnitude correlation 1.0." tabindex="0">
+<rect class="zc-hit" x="0" y="308" width="720" height="42"/>
+<text class="zc-name" x="0" y="326.0">BFAST Monitor</text>
+<text class="zc-sub" x="0" y="342.0">R bfast::bfastmonitor</text>
+<g class="zc-pill zc-pill--same"><rect x="170" y="318.0" width="80" height="22" rx="11"/><text x="210" y="333.0" text-anchor="middle">Identical</text></g>
+<rect class="zc-bar zc-bar--zeit" x="310.2" y="321.0" width="155.6" height="16" rx="4"/>
+<text class="zc-val" x="472.8" y="333.0">16.9×</text>
+</g>
+<g class="zc-row" data-tip="BFAST vs R bfast::bfast: 13.2× faster on one core. Fidelity: Close, 87.5% same break count, 100% same positions." tabindex="0">
+<rect class="zc-hit" x="0" y="350" width="720" height="42"/>
+<text class="zc-name" x="0" y="368.0">BFAST</text>
+<text class="zc-sub" x="0" y="384.0">R bfast::bfast</text>
+<g class="zc-pill zc-pill--close"><rect x="170" y="360.0" width="80" height="22" rx="11"/><text x="210" y="375.0" text-anchor="middle">Close</text></g>
+<rect class="zc-bar zc-bar--zeit" x="310.2" y="363.0" width="142.0" height="16" rx="4"/>
+<text class="zc-val" x="459.2" y="375.0">13.2×</text>
+</g>
+<g class="zc-row" data-tip="TempCNN vs R sits (torch): 11.1× faster on one core. Fidelity: ≤ 1e-7, Max absolute difference 5.6e-9." tabindex="0">
+<rect class="zc-hit" x="0" y="392" width="720" height="42"/>
+<text class="zc-name" x="0" y="410.0">TempCNN</text>
+<text class="zc-sub" x="0" y="426.0">R sits (torch)</text>
+<g class="zc-pill zc-pill--float"><rect x="170" y="402.0" width="80" height="22" rx="11"/><text x="210" y="417.0" text-anchor="middle">≤ 1e-7</text></g>
+<rect class="zc-bar zc-bar--zeit" x="310.2" y="405.0" width="132.5" height="16" rx="4"/>
+<text class="zc-val" x="449.7" y="417.0">11.1×</text>
+</g>
+<g class="zc-row" data-tip="LightTAE vs R sits (torch): 5.8× faster on one core. Fidelity: ≤ 1e-7, Max absolute difference 8.9e-8." tabindex="0">
+<rect class="zc-hit" x="0" y="434" width="720" height="42"/>
+<text class="zc-name" x="0" y="452.0">LightTAE</text>
+<text class="zc-sub" x="0" y="468.0">R sits (torch)</text>
+<g class="zc-pill zc-pill--float"><rect x="170" y="444.0" width="80" height="22" rx="11"/><text x="210" y="459.0" text-anchor="middle">≤ 1e-7</text></g>
+<rect class="zc-bar zc-bar--zeit" x="310.2" y="447.0" width="96.8" height="16" rx="4"/>
+<text class="zc-val" x="413.9" y="459.0">5.8×</text>
+</g>
+<g class="zc-row" data-tip="BFAST Lite vs R bfast::bfastlite: 5.2× faster on one core. Fidelity: Close, 100% same break count, 80% same index." tabindex="0">
+<rect class="zc-hit" x="0" y="476" width="720" height="42"/>
+<text class="zc-name" x="0" y="494.0">BFAST Lite</text>
+<text class="zc-sub" x="0" y="510.0">R bfast::bfastlite</text>
+<g class="zc-pill zc-pill--close"><rect x="170" y="486.0" width="80" height="22" rx="11"/><text x="210" y="501.0" text-anchor="middle">Close</text></g>
+<rect class="zc-bar zc-bar--zeit" x="310.2" y="489.0" width="90.8" height="16" rx="4"/>
+<text class="zc-val" x="407.9" y="501.0">5.2×</text>
+</g>
+<g class="zc-row" data-tip="SNIC vs C reference (snic.c): 1.8×–3.5× faster on one core. Fidelity: Identical, Bitwise-identical segment labels." tabindex="0">
+<rect class="zc-hit" x="0" y="518" width="720" height="42"/>
+<text class="zc-name" x="0" y="536.0">SNIC</text>
+<text class="zc-sub" x="0" y="552.0">C reference (snic.c)</text>
+<g class="zc-pill zc-pill--same"><rect x="170" y="528.0" width="80" height="22" rx="11"/><text x="210" y="543.0" text-anchor="middle">Identical</text></g>
+<rect class="zc-bar zc-bar--range" x="310.2" y="531.0" width="69.0" height="16" rx="4"/>
+<rect class="zc-bar zc-bar--zeit" x="310.2" y="531.0" width="32.4" height="16" rx="4"/>
+<text class="zc-val" x="386.1" y="543.0">1.8×–3.5×</text>
+</g>
+<g class="zc-row" data-tip="Presto vs Official nasaharvest/presto: 1.17× faster on one core. Fidelity: ≤ 1e-7, Encodings within 1.2e-6 (identical in 3 of 5 cases)." tabindex="0">
+<rect class="zc-hit" x="0" y="560" width="720" height="42"/>
+<text class="zc-name" x="0" y="578.0">Presto</text>
+<text class="zc-sub" x="0" y="594.0">Official nasaharvest/presto</text>
+<g class="zc-pill zc-pill--float"><rect x="170" y="570.0" width="80" height="22" rx="11"/><text x="210" y="585.0" text-anchor="middle">≤ 1e-7</text></g>
+<rect class="zc-bar zc-bar--zeit" x="310.2" y="573.0" width="8.6" height="16" rx="4"/>
+<text class="zc-val" x="325.8" y="585.0">1.17×</text>
+</g>
+<g class="zc-row" data-tip="U-TAE vs Official utae-paps: 1.08× faster on one core. Fidelity: Identical, Max absolute difference 0.0." tabindex="0">
+<rect class="zc-hit" x="0" y="602" width="720" height="42"/>
+<text class="zc-name" x="0" y="620.0">U-TAE</text>
+<text class="zc-sub" x="0" y="636.0">Official utae-paps</text>
+<g class="zc-pill zc-pill--same"><rect x="170" y="612.0" width="80" height="22" rx="11"/><text x="210" y="627.0" text-anchor="middle">Identical</text></g>
+<rect class="zc-bar zc-bar--zeit" x="310.2" y="615.0" width="4.2" height="16" rx="4"/>
+<text class="zc-val" x="321.4" y="627.0">1.08×</text>
+</g>
+<g class="zc-row" data-tip="Siamese CNN vs Official FC-Siam-diff (Daudt et al.): 1.07×–1.16× faster on one core. Fidelity: ≤ 1e-7, Same outputs with the same weights (5.6e-16 in float64)." tabindex="0">
+<rect class="zc-hit" x="0" y="644" width="720" height="42"/>
+<text class="zc-name" x="0" y="662.0">Siamese CNN</text>
+<text class="zc-sub" x="0" y="678.0">Official FC-Siam-diff (Daudt et al.)</text>
+<g class="zc-pill zc-pill--float"><rect x="170" y="654.0" width="80" height="22" rx="11"/><text x="210" y="669.0" text-anchor="middle">≤ 1e-7</text></g>
+<rect class="zc-bar zc-bar--range" x="310.2" y="657.0" width="8.2" height="16" rx="4"/>
+<rect class="zc-bar zc-bar--zeit" x="310.2" y="657.0" width="3.7" height="16" rx="4"/>
+<text class="zc-val" x="325.3" y="669.0">1.07×–1.16×</text>
+</g>
+</svg>
+
+</div>
+</div>
+
+<p>Thirteen of the sixteen ports return the reference tool's own output, bit for bit or to floating-point rounding, and the fifteen measured on a single core are all faster before any parallelism (U-TAE by 8%, the Siamese detector by 7–16%, Presto by 17%). The three "close" ports fit curves or search for breaks with numerical optimisers, where tiny differences in the starting point or in the stopping rule move a date by a few days (<a href="fidelity/">Fidelity</a> has the details). The deep-learning ports run the same PyTorch operations as their references, so they gain little; Prithvi, measured on 14 threads and on the GPU, ties with its reference.</p>
+<p>The ports added since (emerging hot spots, recovery metrics, EWMACD, unmixing, Bayesian smoothing, area of applicability) are timed against their R originals with the Rust core on a page of their own: <a href="vs-originals/">Against the Original Implementations</a>.</p>
+<hr />
+<h2 id="comparison-matrix-at-a-glance">Comparison Matrix at a Glance<a class="headerlink" href="#comparison-matrix-at-a-glance" title="Permanent link">&para;</a></h2>
+<p>The table below summarizes the scope of our validation suite. Each comparison reflects reproducible benchmarks logged in the Zeit testing repository.</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Algorithm</th>
+<th style="text-align: left;">Reference Implementation</th>
+<th style="text-align: left;">Language / Engine</th>
+<th style="text-align: left;">Test Scope</th>
+<th style="text-align: left;">Primary Fidelity Metric</th>
+<th style="text-align: center;">Single-Core Speedup</th>
+<th style="text-align: center;">Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><strong>LandTrendr</strong></td>
+<td style="text-align: left;">Kennedy <em>et al.</em> (2010) <code>LandTrendr-2012</code></td>
+<td style="text-align: left;">Original IDL (via GDL)</td>
+<td style="text-align: left;">330 synthetic series + 54.7M px tile</td>
+<td style="text-align: left;"><strong>100%</strong> identical vertex years (330/330)</td>
+<td style="text-align: center;"><strong>232×</strong></td>
+<td style="text-align: center;"><span class="bm-pill bm-pill--compared">compared</span></td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>CCDC</strong></td>
+<td style="text-align: left;">Zhu &amp; Woodcock (2014) GERSL <code>CCDC</code></td>
+<td style="text-align: left;">Original MATLAB (GNU Octave)</td>
+<td style="text-align: left;">200 synthetic + 150 real Landsat px</td>
+<td style="text-align: left;"><strong>100%</strong> full model match (dates, categories, coeffs)</td>
+<td style="text-align: center;"><strong>218×–260×</strong></td>
+<td style="text-align: center;"><span class="bm-pill bm-pill--compared">compared</span></td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>SNIC (Superpixels)</strong></td>
+<td style="text-align: left;">Achanta &amp; Süsstrunk (2017) CVPR</td>
+<td style="text-align: left;">C reference (<code>snic.c</code>)</td>
+<td style="text-align: left;">Reference test fixtures (f32/f64)</td>
+<td style="text-align: left;"><strong>100%</strong> identical segment labels (bitwise)</td>
+<td style="text-align: center;"><strong>1.8×–3.5×</strong></td>
+<td style="text-align: center;"><span class="bm-pill bm-pill--compared">compared</span></td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>SOM</strong></td>
+<td style="text-align: left;">Vettigli <code>minisom</code> (online &amp; batch Kohonen SOM)</td>
+<td style="text-align: left;">Python (<code>minisom</code>)</td>
+<td style="text-align: left;">1,500 + 20,000 samples, 6 scenarios</td>
+<td style="text-align: left;"><strong>max weight diff = 0.0</strong> (exact codebook match)</td>
+<td style="text-align: center;"><strong>41×–67×</strong> (training)</td>
+<td style="text-align: center;"><span class="bm-pill bm-pill--compared">compared</span></td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>Phenology (Beck)</strong></td>
+<td style="text-align: left;">R <code>phenofit</code> (Zheng <em>et al.</em> 2021)</td>
+<td style="text-align: left;">R (<code>nloptr</code> curve fitting)</td>
+<td style="text-align: left;">Real EVI raster (638 px × 25 yrs)</td>
+<td style="text-align: left;"><strong>MAE 3.7d</strong> on Start-of-Season (99.1% within 15d)</td>
+<td style="text-align: center;"><strong>370×</strong></td>
+<td style="text-align: center;"><span class="bm-pill bm-pill--compared">compared</span></td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>TWDTW</strong></td>
+<td style="text-align: left;">Maus <em>et al.</em> (2016) <code>dtwSat</code> / <code>twdtw</code></td>
+<td style="text-align: left;">R (<code>twdtw</code> C core)</td>
+<td style="text-align: left;">45 multi-class temporal series</td>
+<td style="text-align: left;"><strong>Distances identical</strong> to R (1e-12)</td>
+<td style="text-align: center;"><strong>71.5×</strong></td>
+<td style="text-align: center;"><span class="bm-pill bm-pill--compared">compared</span></td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>Mann-Kendall</strong></td>
+<td style="text-align: left;"><code>pymannkendall</code> (3 variants)</td>
+<td style="text-align: left;">Python (pure Python)</td>
+<td style="text-align: left;">270 scenarios (90 series × 3 variants)</td>
+<td style="text-align: left;"><strong>100%</strong> trend agreement (mean diff p-val = 0.0)</td>
+<td style="text-align: center;"><strong>65×–75×</strong></td>
+<td style="text-align: center;"><span class="bm-pill bm-pill--compared">compared</span></td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>BFAST Monitor</strong></td>
+<td style="text-align: left;">Verbesselt <em>et al.</em> (2012) <code>bfast</code></td>
+<td style="text-align: left;">R (<code>bfast::bfastmonitor</code>)</td>
+<td style="text-align: left;">40 scenarios (breaks, noise, NaN gaps)</td>
+<td style="text-align: left;"><strong>100%</strong> break agreement (mag. corr = 1.0)</td>
+<td style="text-align: center;"><strong>16.9×</strong></td>
+<td style="text-align: center;"><span class="bm-pill bm-pill--compared">compared</span></td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>TempCNN</strong></td>
+<td style="text-align: left;">Pelletier <em>et al.</em> (2019) via R <code>sits</code></td>
+<td style="text-align: left;">R <code>torch</code> (LibTorch backend)</td>
+<td style="text-align: left;">1:1 weight-ported forward passes</td>
+<td style="text-align: left;"><strong>max abs diff = 5.6e-9</strong> (corr = 1.000000)</td>
+<td style="text-align: center;"><strong>11.1×</strong></td>
+<td style="text-align: center;"><span class="bm-pill bm-pill--compared">compared</span></td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>LightTAE (LTAE)</strong></td>
+<td style="text-align: left;">Sainte Fare Garnot <em>et al.</em> via R <code>sits</code></td>
+<td style="text-align: left;">R <code>torch</code> (LibTorch backend)</td>
+<td style="text-align: left;">1:1 weight-ported forward passes</td>
+<td style="text-align: left;"><strong>max abs diff = 8.9e-8</strong> (corr = 1.000000)</td>
+<td style="text-align: center;"><strong>5.8×</strong></td>
+<td style="text-align: center;"><span class="bm-pill bm-pill--compared">compared</span></td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>BFAST (Classic)</strong></td>
+<td style="text-align: left;">Verbesselt <em>et al.</em> (2010) <code>bfast</code></td>
+<td style="text-align: left;">R (<code>bfast::bfast</code>)</td>
+<td style="text-align: left;">40 scenarios (trend/season breaks)</td>
+<td style="text-align: left;"><strong>87.5%</strong> break count match (100% pos. match)</td>
+<td style="text-align: center;"><strong>13.2×</strong></td>
+<td style="text-align: center;"><span class="bm-pill bm-pill--compared">compared</span></td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>BFAST Lite</strong></td>
+<td style="text-align: left;">Jan Hackman <em>et al.</em> <code>bfast</code></td>
+<td style="text-align: left;">R (<code>bfast::bfastlite</code>)</td>
+<td style="text-align: left;">40 scenarios (single/multi breaks)</td>
+<td style="text-align: left;"><strong>100%</strong> break count match (80% exact index)</td>
+<td style="text-align: center;"><strong>5.2×</strong></td>
+<td style="text-align: center;"><span class="bm-pill bm-pill--compared">compared</span></td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>Official U-TAE</strong></td>
+<td style="text-align: left;">Garnot &amp; Landrieu (2021) <code>utae-paps</code></td>
+<td style="text-align: left;">Python (official PyTorch repo)</td>
+<td style="text-align: left;">Regular and padded sequence paths</td>
+<td style="text-align: left;"><strong>max abs diff = 0.0</strong> (exact numerical match)</td>
+<td style="text-align: center;"><strong>1.08×</strong></td>
+<td style="text-align: center;"><span class="bm-pill bm-pill--compared">compared</span></td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>Siamese CNN (FC-Siam-diff)</strong></td>
+<td style="text-align: left;">Daudt <em>et al.</em> (2018) <code>fully_convolutional_change_detection</code></td>
+<td style="text-align: left;">Python (official PyTorch code)</td>
+<td style="text-align: left;">40 same-weight cases (odd sizes too) + 5 training seeds</td>
+<td style="text-align: left;"><strong>max abs diff = 5.6e-16</strong> (float64); trained F1 0.979 vs 0.971</td>
+<td style="text-align: center;"><strong>1.07×–1.16×</strong></td>
+<td style="text-align: center;"><span class="bm-pill bm-pill--compared">compared</span></td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>Presto</strong></td>
+<td style="text-align: left;">Tseng <em>et al.</em> (2023) <code>nasaharvest/presto</code></td>
+<td style="text-align: left;">Python (official PyTorch code)</td>
+<td style="text-align: left;">2,560 pixel series in 5 cases (clouds, missing sensors, 3–24 dates)</td>
+<td style="text-align: left;"><strong>max abs diff = 1.2e-6</strong> (identical in 3 of 5 cases)</td>
+<td style="text-align: center;"><strong>1.17×</strong></td>
+<td style="text-align: center;"><span class="bm-pill bm-pill--compared">compared</span></td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>Prithvi-EO-2.0</strong></td>
+<td style="text-align: left;">Szwarcman <em>et al.</em> (2024) <code>prithvi_mae.py</code></td>
+<td style="text-align: left;">Python (PyTorch + <code>timm</code>)</td>
+<td style="text-align: left;">All six models (tiny-TL to 600M-TL), 5 cases each (dates and place, 1–4 dates, 112–224 px)</td>
+<td style="text-align: left;"><strong>max relative diff = 7.9e-7</strong> (encoder tokens)</td>
+<td style="text-align: center;">≈1× (14 threads)</td>
+<td style="text-align: center;"><span class="bm-pill bm-pill--compared">compared</span></td>
+</tr>
+</tbody>
+</table>
+<div class="admonition note">
+<p class="admonition-title">Status Definitions</p>
+<ul>
+<li><strong><code>compared</code></strong>: Exact numerical or statistical benchmark against the official reference tool or canonical implementation.</li>
+</ul>
+</div>
+<hr />
+<h2 id="hardware-test-environment">Hardware &amp; Test Environment<a class="headerlink" href="#hardware-test-environment" title="Permanent link">&para;</a></h2>
+<p>All performance benchmarks were measured on a modern workstation environment:</p>
+<div class="bm-machine-box" style="grid-template-columns: 1fr;">
+  <div class="bm-hw-spec">
+    <div class="bm-hw-tag" style="color: var(--bm-zeit);">
+      <span class="bm-hw-dot" style="background: var(--bm-zeit);"></span>
+      Benchmark Workstation (Intel Core i5)
+    </div>
+    <ul>
+      <li><strong>CPU:</strong> Intel Core i5-13600K (14 physical cores: 6 P-cores + 8 E-cores, 20 logical threads)</li>
+      <li><strong>RAM:</strong> 64 GB DDR5</li>
+      <li><strong>Operating System:</strong> Windows 11 Pro 64-bit</li>
+      <li><strong>R Environment:</strong> R 4.4.2 (CRAN `bfast`, `phenofit`, `twdtw`, `torch` 0.17.0, `sits` 1.5.2)</li>
+      <li><strong>Python Environment:</strong> Python 3.12.8, PyTorch 2.14.0, Zeit 0.18.0+</li>
+      <li><strong>GDL / Octave:</strong> GDL 1.1.2 (native Windows), GNU Octave 11.3 (compiled Fortran GLMnet)</li>
+    </ul>
+    <p class="bm-kpi-sub">SOM (re-validated in Zeit 0.21.0 after the bit-exact <code>minisom</code> port) was measured on an AMD Ryzen 7 7730U laptop (8 cores / 16 threads, Windows 11, Python 3.10, NumPy 1.26, <code>minisom</code> 2.3.6). Its speedups are ratios measured on that same machine.</p>
+  </div>
+</div>
+
+<hr />
+<h2 id="key-scientific-engineering-insights">Key Scientific &amp; Engineering Insights<a class="headerlink" href="#key-scientific-engineering-insights" title="Permanent link">&para;</a></h2>
+<h3 id="1-parity-demands-meticulous-porting-not-high-level-mimicry">1. Parity Demands Meticulous Porting, Not High-Level Mimicry<a class="headerlink" href="#1-parity-demands-meticulous-porting-not-high-level-mimicry" title="Permanent link">&para;</a></h3>
+<p>Empirical validation demonstrates that reproducing published remote sensing algorithms requires rigorous line-by-line fidelity to author reference implementations rather than high-level approximations:</p>
+<ul>
+<li><strong>LandTrendr:</strong> Replicating Kennedy <em>et al.</em> (2010) with 100% vertex year agreement (330/330 series) required reproducing subtle source behaviors: fitting on the despiked series, in-place <code>take_out_weakest2</code> mutation, whole-ladder Levenberg-Marquardt fallback, flat-line non-significance fallback, and single-precision F-test p-value tie-breaking.</li>
+<li><strong>CCDC:</strong> Matching Zhu &amp; Woodcock (2014) across 350 pixels (599 models, 249 breaks) required a native float32 port of Fortran GLMnet lasso, MATLAB <code>datenum</code> coordinate alignment, and bisquare Tmask outlier detection.</li>
+<li><strong>SNIC:</strong> Achieving bit-for-bit label parity with Achanta &amp; Süsstrunk (2017) required reproducing priority queue heap tie-breaking order, while resolving upstream heap underflow crashes on edge-case inputs.</li>
+<li><strong>SOM:</strong> Reproducing Python <code>minisom</code> codebooks bit-for-bit required matching its <code>RandomState</code> draw sequence, NumPy's pairwise summation inside the distance norm, <code>argmin</code> tie-breaking on square-rooted distances, and sample-order accumulation in the batch update. An earlier Zeit variant that only <em>resembled</em> the batch algorithm (different decay, no learning rate, epoch-based <code>num_iters</code>) agreed with <code>minisom</code> at just ARI = 0.39 and ran 6–10× slower on the same call; the exact port is identical and 41–67× faster on one core.</li>
+</ul>
+<p>Across all families, Zeit delivers <strong>100% bitwise and statistical parity</strong> with the authoritative reference implementations.</p>
+<h3 id="2-high-performance-local-processing-beats-cloud-queues">2. High-Performance Local Processing Beats Cloud Queues<a class="headerlink" href="#2-high-performance-local-processing-beats-cloud-queues" title="Permanent link">&para;</a></h3>
+<p>The prevailing assumption in remote sensing has been that massive spatial workflows require distributed cloud infrastructure like Google Earth Engine. Our full Landsat tile benchmark demonstrates otherwise:</p>
+<ul>
+<li><strong>Zeit processing 54,731,482 pixels (41 years)</strong> on a single desktop PC completed in <strong>103.92 seconds</strong> (526,693 pixels/sec) on 8 of its 20 threads.</li>
+<li><strong>Google Earth Engine's distributed cluster</strong> executed active server compute on ~38M pixels in <strong>1,396 seconds</strong> (27,213 pixels/sec), with an additional <strong>5.08 hours of cloud queue latency</strong>.</li>
+<li>Zeit delivered <strong>19.4× higher compute throughput</strong> than GEE's server cluster, with zero queue overhead and zero network egress costs.</li>
+</ul>
+<div class="bm-chart-card">
+<p class="bm-chart-title">LandTrendr on a full Landsat tile: a desktop PC against Google Earth Engine</p>
+<p class="bm-chart-sub">54.7 million pixels × 41 years on an Intel Core i5-13600K; about 38 million active pixels on Earth Engine's batch workers. Top: throughput while computing. Bottom: the time from submitting the job to having the result.</p>
+<div class="bm-chart-legend">
+<span><i style="background:var(--bm-zeit)"></i>Zeit, 8 threads</span>
+<span><i style="background:var(--bm-gpu-lo)"></i>Zeit, 1 thread</span>
+<span><i style="background:var(--bm-ref)"></i>Google Earth Engine</span>
+<span><i style="background:var(--bm-grid)"></i>Waiting in Earth Engine's queue</span>
+</div>
+<div class="bm-chart-scroll">
+<svg class="zc" viewBox="0 0 720 398" role="img" aria-label="LandTrendr on a full Landsat tile: Zeit on a desktop against Google Earth Engine" xmlns="http://www.w3.org/2000/svg">
+<text class="zc-head" x="0" y="18">Compute throughput, pixels per second</text>
+<line class="zc-grid" x1="178.0" x2="178.0" y1="32" y2="172"/>
+<text class="zc-tick" x="178.0" y="187" text-anchor="middle">0</text>
+<line class="zc-grid" x1="325.3" x2="325.3" y1="32" y2="172"/>
+<text class="zc-tick" x="325.3" y="187" text-anchor="middle">200k</text>
+<line class="zc-grid" x1="472.7" x2="472.7" y1="32" y2="172"/>
+<text class="zc-tick" x="472.7" y="187" text-anchor="middle">400k</text>
+<line class="zc-grid" x1="620.0" x2="620.0" y1="32" y2="172"/>
+<text class="zc-tick" x="620.0" y="187" text-anchor="middle">600k</text>
+<g class="zc-row" data-tip="Google Earth Engine: 27,213 pixels per second (1,396 s of compute)." tabindex="0">
+<rect class="zc-hit" x="0" y="40.0" width="720" height="44"/>
+<text class="zc-name" x="0" y="59.0">Google Earth Engine</text>
+<text class="zc-sub" x="0" y="75.0">batch workers (EECU)</text>
+<rect class="zc-bar zc-bar--ref" x="178.0" y="53.0" width="20.0" height="18" rx="4"/>
+<text class="zc-val" x="205.0" y="66.0">27k</text>
+</g>
+<g class="zc-row" data-tip="Zeit, 1 thread: 85,072 pixels per second (643 s of compute)." tabindex="0">
+<rect class="zc-hit" x="0" y="84.0" width="720" height="44"/>
+<text class="zc-name" x="0" y="103.0">Zeit, 1 thread</text>
+<text class="zc-sub" x="0" y="119.0">desktop PC</text>
+<rect class="zc-bar zc-bar--zeit-lo" x="178.0" y="97.0" width="62.7" height="18" rx="4"/>
+<text class="zc-val" x="247.7" y="110.0">85k</text>
+</g>
+<g class="zc-row" data-tip="Zeit, 8 threads: 526,693 pixels per second (104 s of compute)." tabindex="0">
+<rect class="zc-hit" x="0" y="128.0" width="720" height="44"/>
+<text class="zc-name" x="0" y="147.0">Zeit, 8 threads</text>
+<text class="zc-sub" x="0" y="163.0">desktop PC</text>
+<rect class="zc-bar zc-bar--zeit" x="178.0" y="141.0" width="388.0" height="18" rx="4"/>
+<text class="zc-val" x="573.0" y="154.0">527k</text>
+</g>
+<text class="zc-head" x="0" y="220">Time to the result, minutes: queue + compute</text>
+<line class="zc-grid" x1="178.0" x2="178.0" y1="234" y2="374"/>
+<text class="zc-tick" x="178.0" y="389" text-anchor="middle">0</text>
+<line class="zc-grid" x1="251.7" x2="251.7" y1="234" y2="374"/>
+<text class="zc-tick" x="251.7" y="389" text-anchor="middle">60</text>
+<line class="zc-grid" x1="325.3" x2="325.3" y1="234" y2="374"/>
+<text class="zc-tick" x="325.3" y="389" text-anchor="middle">120</text>
+<line class="zc-grid" x1="399.0" x2="399.0" y1="234" y2="374"/>
+<text class="zc-tick" x="399.0" y="389" text-anchor="middle">180</text>
+<line class="zc-grid" x1="472.7" x2="472.7" y1="234" y2="374"/>
+<text class="zc-tick" x="472.7" y="389" text-anchor="middle">240</text>
+<line class="zc-grid" x1="546.3" x2="546.3" y1="234" y2="374"/>
+<text class="zc-tick" x="546.3" y="389" text-anchor="middle">300</text>
+<line class="zc-grid" x1="620.0" x2="620.0" y1="234" y2="374"/>
+<text class="zc-tick" x="620.0" y="389" text-anchor="middle">360</text>
+<g class="zc-row" data-tip="Google Earth Engine: 23.3 min of compute after 5.09 h in the queue: 5.47 h in all." tabindex="0">
+<rect class="zc-hit" x="0" y="242.0" width="720" height="44"/>
+<text class="zc-name" x="0" y="261.0">Google Earth Engine</text>
+<text class="zc-sub" x="0" y="277.0">batch workers (EECU)</text>
+<rect class="zc-bar zc-bar--queue" x="178" y="255.0" width="374.6" height="18" rx="4"/>
+<text class="zc-inbar" x="365.3" y="268.0" text-anchor="middle">queue: 5.1 h</text>
+<rect class="zc-bar zc-bar--ref" x="554.6" y="255.0" width="28.6" height="18" rx="4"/>
+<text class="zc-val" x="590.2" y="268.0">5.47 h</text>
+</g>
+<g class="zc-row" data-tip="Zeit, 1 thread: 10.7 min of compute, no queue: 10.7 min in all." tabindex="0">
+<rect class="zc-hit" x="0" y="286.0" width="720" height="44"/>
+<text class="zc-name" x="0" y="305.0">Zeit, 1 thread</text>
+<text class="zc-sub" x="0" y="321.0">desktop PC</text>
+<rect class="zc-bar zc-bar--zeit-lo" x="178.0" y="299.0" width="13.2" height="18" rx="4"/>
+<text class="zc-val" x="198.2" y="312.0">10.7 min</text>
+</g>
+<g class="zc-row" data-tip="Zeit, 8 threads: 1.7 min of compute, no queue: 1.7 min in all." tabindex="0">
+<rect class="zc-hit" x="0" y="330.0" width="720" height="44"/>
+<text class="zc-name" x="0" y="349.0">Zeit, 8 threads</text>
+<text class="zc-sub" x="0" y="365.0">desktop PC</text>
+<rect class="zc-bar zc-bar--zeit" x="178.0" y="343.0" width="3.0" height="18" rx="4"/>
+<text class="zc-val" x="188.0" y="356.0">1.7 min</text>
+</g>
+</svg>
+
+</div>
+</div>
+
+<p>When both sides run in parallel, the gap stays wide for the statistical tools, whose reference implementations pay for each worker with an interpreter, and closes for the deep-learning models, which run on the same tensor libraries:</p>
+<div class="bm-chart-card">
+<p class="bm-chart-title">Who finishes first in parallel</p>
+<p class="bm-chart-sub">Wall-clock time of Zeit with 8 threads (20 for the neural networks, which run on PyTorch) and of the reference with its own parallel framework (19 R or Python workers, or intra-op threads for the neural networks). Each row is its own workload; log scale.</p>
+<div class="bm-chart-legend">
+<span><i class="dot" style="background:var(--bm-zeit)"></i>Zeit, 8 threads</span>
+<span><i class="dot" style="background:var(--bm-ref)"></i>Reference, all workers</span>
+</div>
+<div class="bm-chart-scroll">
+<svg class="zc" viewBox="0 0 720 452" role="img" aria-label="Wall-clock time of Zeit with 8 threads and of each reference tool with its parallel framework" xmlns="http://www.w3.org/2000/svg">
+<text class="zc-head" x="0" y="20">Algorithm · workload</text>
+<text class="zc-head" x="190" y="20">Wall-clock time, in parallel (log scale)</text>
+<text class="zc-head" x="720" y="20" text-anchor="end">Zeit finishes</text>
+<line class="zc-grid" x1="263.6" x2="263.6" y1="44" y2="438"/>
+<text class="zc-tick" x="263.6" y="38" text-anchor="middle">10 ms</text>
+<line class="zc-grid" x1="337.1" x2="337.1" y1="44" y2="438"/>
+<text class="zc-tick" x="337.1" y="38" text-anchor="middle">100 ms</text>
+<line class="zc-grid" x1="410.7" x2="410.7" y1="44" y2="438"/>
+<text class="zc-tick" x="410.7" y="38" text-anchor="middle">1 s</text>
+<line class="zc-grid" x1="484.3" x2="484.3" y1="44" y2="438"/>
+<text class="zc-tick" x="484.3" y="38" text-anchor="middle">10 s</text>
+<line class="zc-grid" x1="557.9" x2="557.9" y1="44" y2="438"/>
+<text class="zc-tick" x="557.9" y="38" text-anchor="middle">100 s</text>
+<g class="zc-row" data-tip="Mann-Kendall, 5,000 series: Zeit with 8 threads 3.6 ms; reference (Python multiprocessing, 19 workers) 20.1 s. Zeit finishes 5,552× sooner." tabindex="0">
+<rect class="zc-hit" x="0" y="56" width="720" height="42"/>
+<text class="zc-name" x="0" y="74.0">Mann-Kendall</text>
+<text class="zc-sub" x="0" y="90.0">5,000 series</text>
+<line class="zc-link" x1="231.1" x2="506.6" y1="77.0" y2="77.0"/>
+<circle class="zc-dot zc-dot--ref" cx="506.6" cy="77.0" r="6"/>
+<circle class="zc-dot zc-dot--zeit" cx="231.1" cy="77.0" r="6"/>
+<text class="zc-val zc-val--soft" x="220.1" y="81.0" text-anchor="end">3.6 ms</text>
+<text class="zc-val zc-val--soft" x="517.6" y="81.0">20.1 s</text>
+<text class="zc-val" x="720" y="81.0" text-anchor="end">5,552× sooner</text>
+</g>
+<g class="zc-row" data-tip="BFAST Monitor, 20,000 series: Zeit with 8 threads 10.0 ms; reference (R PSOCK cluster, 19 workers) 5.0 s. Zeit finishes 499× sooner." tabindex="0">
+<rect class="zc-hit" x="0" y="98" width="720" height="42"/>
+<text class="zc-name" x="0" y="116.0">BFAST Monitor</text>
+<text class="zc-sub" x="0" y="132.0">20,000 series</text>
+<line class="zc-link" x1="263.7" x2="462.2" y1="119.0" y2="119.0"/>
+<circle class="zc-dot zc-dot--ref" cx="462.2" cy="119.0" r="6"/>
+<circle class="zc-dot zc-dot--zeit" cx="263.7" cy="119.0" r="6"/>
+<text class="zc-val zc-val--soft" x="252.7" y="123.0" text-anchor="end">10.0 ms</text>
+<text class="zc-val zc-val--soft" x="473.2" y="123.0">5.0 s</text>
+<text class="zc-val" x="720" y="123.0" text-anchor="end">499× sooner</text>
+</g>
+<g class="zc-row" data-tip="Phenology, 638 px × 25 years: Zeit with 8 threads 209 ms; reference (R foreach + doParallel, 19 workers) 93.5 s. Zeit finishes 447× sooner." tabindex="0">
+<rect class="zc-hit" x="0" y="140" width="720" height="42"/>
+<text class="zc-name" x="0" y="158.0">Phenology</text>
+<text class="zc-sub" x="0" y="174.0">638 px × 25 years</text>
+<line class="zc-link" x1="360.7" x2="555.7" y1="161.0" y2="161.0"/>
+<circle class="zc-dot zc-dot--ref" cx="555.7" cy="161.0" r="6"/>
+<circle class="zc-dot zc-dot--zeit" cx="360.7" cy="161.0" r="6"/>
+<text class="zc-val zc-val--soft" x="349.7" y="165.0" text-anchor="end">209 ms</text>
+<text class="zc-val zc-val--soft" x="566.7" y="165.0">93.5 s</text>
+<text class="zc-val" x="720" y="165.0" text-anchor="end">447× sooner</text>
+</g>
+<g class="zc-row" data-tip="TWDTW, 3,000 series: Zeit with 8 threads 2.1 ms; reference (R PSOCK cluster, 19 workers) 189 ms. Zeit finishes 89× sooner." tabindex="0">
+<rect class="zc-hit" x="0" y="182" width="720" height="42"/>
+<text class="zc-name" x="0" y="200.0">TWDTW</text>
+<text class="zc-sub" x="0" y="216.0">3,000 series</text>
+<line class="zc-link" x1="214.1" x2="357.4" y1="203.0" y2="203.0"/>
+<circle class="zc-dot zc-dot--ref" cx="357.4" cy="203.0" r="6"/>
+<circle class="zc-dot zc-dot--zeit" cx="214.1" cy="203.0" r="6"/>
+<text class="zc-val zc-val--soft" x="203.1" y="207.0" text-anchor="end">2.1 ms</text>
+<text class="zc-val zc-val--soft" x="368.4" y="207.0">189 ms</text>
+<text class="zc-val" x="720" y="207.0" text-anchor="end">89× sooner</text>
+</g>
+<g class="zc-row" data-tip="BFAST, 400 series: Zeit with 8 threads 239 ms; reference (R PSOCK cluster, 19 workers) 3.3 s. Zeit finishes 14× sooner." tabindex="0">
+<rect class="zc-hit" x="0" y="224" width="720" height="42"/>
+<text class="zc-name" x="0" y="242.0">BFAST</text>
+<text class="zc-sub" x="0" y="258.0">400 series</text>
+<line class="zc-link" x1="365.0" x2="449.2" y1="245.0" y2="245.0"/>
+<circle class="zc-dot zc-dot--ref" cx="449.2" cy="245.0" r="6"/>
+<circle class="zc-dot zc-dot--zeit" cx="365.0" cy="245.0" r="6"/>
+<text class="zc-val zc-val--soft" x="354.0" y="249.0" text-anchor="end">239 ms</text>
+<text class="zc-val zc-val--soft" x="460.2" y="249.0">3.3 s</text>
+<text class="zc-val" x="720" y="249.0" text-anchor="end">14× sooner</text>
+</g>
+<g class="zc-row" data-tip="BFAST Lite, 2,000 series: Zeit with 8 threads 1.5 s; reference (R PSOCK cluster, 19 workers) 4.6 s. Zeit finishes 3.1× sooner." tabindex="0">
+<rect class="zc-hit" x="0" y="266" width="720" height="42"/>
+<text class="zc-name" x="0" y="284.0">BFAST Lite</text>
+<text class="zc-sub" x="0" y="300.0">2,000 series</text>
+<line class="zc-link" x1="423.3" x2="459.1" y1="287.0" y2="287.0"/>
+<circle class="zc-dot zc-dot--ref" cx="459.1" cy="287.0" r="6"/>
+<circle class="zc-dot zc-dot--zeit" cx="423.3" cy="287.0" r="6"/>
+<text class="zc-val zc-val--soft" x="412.3" y="291.0" text-anchor="end">1.5 s</text>
+<text class="zc-val zc-val--soft" x="470.1" y="291.0">4.6 s</text>
+<text class="zc-val" x="720" y="291.0" text-anchor="end">3.1× sooner</text>
+</g>
+<g class="zc-row" data-tip="TempCNN, batch of 512: Zeit with 20 threads 3.9 ms; reference (R torch intra-op threads) 7.8 ms. Zeit finishes 2.0× sooner." tabindex="0">
+<rect class="zc-hit" x="0" y="308" width="720" height="42"/>
+<text class="zc-name" x="0" y="326.0">TempCNN</text>
+<text class="zc-sub" x="0" y="342.0">batch of 512</text>
+<line class="zc-link" x1="233.8" x2="255.5" y1="329.0" y2="329.0"/>
+<circle class="zc-dot zc-dot--ref" cx="255.5" cy="329.0" r="6"/>
+<circle class="zc-dot zc-dot--zeit" cx="233.8" cy="329.0" r="6"/>
+<text class="zc-val zc-val--soft" x="222.8" y="333.0" text-anchor="end">3.9 ms</text>
+<text class="zc-val zc-val--soft" x="266.5" y="333.0">7.8 ms</text>
+<text class="zc-val" x="720" y="333.0" text-anchor="end">2.0× sooner</text>
+</g>
+<g class="zc-row" data-tip="LightTAE, batch of 512: Zeit with 20 threads 14.6 ms; reference (R torch intra-op threads) 27.0 ms. Zeit finishes 1.8× sooner." tabindex="0">
+<rect class="zc-hit" x="0" y="350" width="720" height="42"/>
+<text class="zc-name" x="0" y="368.0">LightTAE</text>
+<text class="zc-sub" x="0" y="384.0">batch of 512</text>
+<line class="zc-link" x1="275.7" x2="295.3" y1="371.0" y2="371.0"/>
+<circle class="zc-dot zc-dot--ref" cx="295.3" cy="371.0" r="6"/>
+<circle class="zc-dot zc-dot--zeit" cx="275.7" cy="371.0" r="6"/>
+<text class="zc-val zc-val--soft" x="264.7" y="375.0" text-anchor="end">14.6 ms</text>
+<text class="zc-val zc-val--soft" x="306.3" y="375.0">27.0 ms</text>
+<text class="zc-val" x="720" y="375.0" text-anchor="end">1.8× sooner</text>
+</g>
+<g class="zc-row" data-tip="U-TAE, batch of 32: Zeit with 20 threads 126 ms; reference (PyTorch intra-op threads) 125 ms. Both run on the PyTorch backend: tied." tabindex="0">
+<rect class="zc-hit" x="0" y="392" width="720" height="42"/>
+<text class="zc-name" x="0" y="410.0">U-TAE</text>
+<text class="zc-sub" x="0" y="426.0">batch of 32</text>
+<line class="zc-link" x1="344.2" x2="344.5" y1="413.0" y2="413.0"/>
+<circle class="zc-dot zc-dot--ref" cx="344.2" cy="413.0" r="6"/>
+<circle class="zc-dot zc-dot--zeit" cx="344.5" cy="413.0" r="6"/>
+<text class="zc-val zc-val--soft" x="333.5" y="417.0" text-anchor="end">126 ms</text>
+<text class="zc-val zc-val--soft" x="355.2" y="417.0">125 ms</text>
+<text class="zc-val" x="720" y="417.0" text-anchor="end">tied</text>
+</g>
+</svg>
+
+</div>
+</div>
+
+<h3 id="3-phenology-start-of-season-is-robust-senescence-is-ambiguous">3. Phenology: Start-of-Season is Robust; Senescence is Ambiguous<a class="headerlink" href="#3-phenology-start-of-season-is-robust-senescence-is-ambiguous" title="Permanent link">&para;</a></h3>
+<p>Testing Zeit against R <code>phenofit</code> on 25 years of real satellite data (178,710 joined observations across 17 phenometrics) uncovered a vital scientific nuance:
+- <strong>Green-up and Start-of-Season (SOS)</strong> metrics agree remarkably well (MAE <strong>3.7 to 5.3 days</strong>, with 99.1% of pixels matching within 15 days).
+- <strong>End-of-Season (EOS) and senescence</strong> metrics diverge significantly (Dormancy MAE <strong>76.9 days</strong>).
+- This divergence is not an error in either implementation; it reflects fundamental mathematical differences in how asymmetric logistic curves fit noisy, moisture-stressed post-harvest tail observations. Researchers are strongly advised to analyze SOS and EOS metrics separately.</p>
+<hr />
+<h2 id="explore-the-deep-dives">Explore the Deep Dives<a class="headerlink" href="#explore-the-deep-dives" title="Permanent link">&para;</a></h2>
+<p>To examine the detailed evidence, methodology, and visualizations, navigate to the dedicated benchmark pages:</p>
+<div class="grid cards">
+<ul>
+<li>
+<p><span class="twemoji lg middle"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m23 12-2.44-2.78.34-3.68-3.61-.82-1.89-3.18L12 3 8.6 1.54 6.71 4.72l-3.61.81.34 3.68L1 12l2.44 2.78-.34 3.69 3.61.82 1.89 3.18L12 21l3.4 1.46 1.89-3.18 3.61-.82-.34-3.68zm-13 5-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9z"/></svg></span> <strong>Algorithm Fidelity &amp; Accuracy</strong></p>
+<hr />
+<p>Detailed test batteries, root-cause parity analyses, weight porting verifications, and per-metric accuracy breakdowns for LandTrendr, CCDC, BFAST, Phenology, TWDTW, SOM, and Deep Learning.</p>
+<p><a href="fidelity/"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13.22 19.03a.75.75 0 0 1 0-1.06L18.19 13H3.75a.75.75 0 0 1 0-1.5h14.44l-4.97-4.97a.749.749 0 0 1 .326-1.275.75.75 0 0 1 .734.215l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0"/></svg></span> Read Algorithm Fidelity</a></p>
+</li>
+<li>
+<p><span class="twemoji lg middle"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 16a3 3 0 0 1-3-3c0-1.12.61-2.1 1.5-2.61l9.71-5.62-5.53 9.58c-.5.98-1.51 1.65-2.68 1.65m0-13c1.81 0 3.5.5 4.97 1.32l-2.1 1.21C14 5.19 13 5 12 5a8 8 0 0 0-8 8c0 2.21.89 4.21 2.34 5.65h.01c.39.39.39 1.02 0 1.41s-1.03.39-1.42.01A9.97 9.97 0 0 1 2 13 10 10 0 0 1 12 3m10 10c0 2.76-1.12 5.26-2.93 7.07-.39.38-1.02.38-1.41-.01a.996.996 0 0 1 0-1.41A7.95 7.95 0 0 0 20 13c0-1-.19-2-.54-2.9L20.67 8C21.5 9.5 22 11.18 22 13"/></svg></span> <strong>Performance &amp; Parallel Scaling</strong></p>
+<hr />
+<p>Interactive log-scale speedup charts, multi-core CPU scaling tables, the Google Earth Engine Landsat tile benchmark, and absolute execution times.</p>
+<p><a href="performance/"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13.22 19.03a.75.75 0 0 1 0-1.06L18.19 13H3.75a.75.75 0 0 1 0-1.5h14.44l-4.97-4.97a.749.749 0 0 1 .326-1.275.75.75 0 0 1 .734.215l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0"/></svg></span> Read Performance &amp; Scaling</a></p>
+</li>
+<li>
+<p><span class="twemoji lg middle"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 3c-1.27 0-2.4.8-2.82 2H3v2h1.95L2 14c-.47 2 1 3 3.5 3s4.06-1 3.5-3L6.05 7h3.12c.33.85.98 1.5 1.83 1.83V20H2v2h20v-2h-9V8.82c.85-.32 1.5-.97 1.82-1.82h3.13L15 14c-.47 2 1 3 3.5 3s4.06-1 3.5-3l-2.95-7H21V5h-6.17C14.4 3.8 13.27 3 12 3m0 2a1 1 0 0 1 1 1 1 1 0 0 1-1 1 1 1 0 0 1-1-1 1 1 0 0 1 1-1m-6.5 5.25L7 14H4zm13 0L20 14h-3z"/></svg></span> <strong>Against the Original Implementations</strong></p>
+<hr />
+<p>The newer ports timed against their R originals on the same inputs (sfdep, RecoverMetricsR, Brooks' EWMACD, RStoolbox, sits, CAST): 3× to 30,000× faster on one thread, the outputs checked to agree on every run.</p>
+<p><a href="vs-originals/"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13.22 19.03a.75.75 0 0 1 0-1.06L18.19 13H3.75a.75.75 0 0 1 0-1.5h14.44l-4.97-4.97a.749.749 0 0 1 .326-1.275.75.75 0 0 1 .734.215l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0"/></svg></span> Read Against the Originals</a></p>
+</li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../cli/" class="md-footer__link md-footer__link--prev" aria-label="Previous: CLI">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                CLI
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="fidelity/" class="md-footer__link md-footer__link--next" aria-label="Next: Algorithm Fidelity">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Algorithm Fidelity
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Zeit is free software released under the GPL-2.0-or-later license.
+    </div>
+  
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+    <a href="https://github.com/sacridini/zeit-cdts" target="_blank" rel="noopener" title="Zeit on GitHub" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+    
+    
+    
+    
+    <a href="https://pypi.org/project/zeit-cdts/" target="_blank" rel="noopener" title="Zeit on PyPI" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.8 200.5c-7.7-30.9-22.3-54.2-53.4-54.2h-40.1v47.4c0 36.8-31.2 67.8-66.8 67.8H172.7c-29.2 0-53.4 25-53.4 54.3v101.8c0 29 25.2 46 53.4 54.3 33.8 9.9 66.3 11.7 106.8 0 26.9-7.8 53.4-23.5 53.4-54.3v-40.7H226.2v-13.6h160.2c31.1 0 42.6-21.7 53.4-54.2 11.2-33.5 10.7-65.7 0-108.6M286.2 444.7a20.4 20.4 0 1 1 0-40.7 20.4 20.4 0 1 1 0 40.7M167.8 248.1h106.8c29.7 0 53.4-24.5 53.4-54.3V91.9c0-29-24.4-50.7-53.4-55.6-35.8-5.9-74.7-5.6-106.8.1-45.2 8-53.4 24.7-53.4 55.6v40.7h106.9v13.6h-147c-31.1 0-58.3 18.7-66.8 54.2-9.8 40.7-10.2 66.1 0 108.6 7.6 31.6 25.7 54.2 56.8 54.2H101v-48.8c0-35.3 30.5-66.4 66.8-66.4m-6.6-183.4a20.4 20.4 0 1 1 0 40.8 20.4 20.4 0 1 1 0-40.8"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.indexes", "navigation.top", "navigation.footer", "navigation.instant", "navigation.instant.progress", "navigation.path", "toc.follow", "search.suggest", "search.highlight", "search.share", "content.code.copy", "content.code.annotate", "content.tabs.link", "content.tooltips", "content.action.edit"], "search": "../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.c21346df.min.js"></script>
+      
+        <script src="../javascripts/mathjax.js"></script>
+      
+        <script src="../javascripts/charts.js"></script>
+      
+        <script src="https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>

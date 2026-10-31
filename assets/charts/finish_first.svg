@@ -1,0 +1,114 @@
+<svg class="zc" viewBox="0 0 720 452" role="img" aria-label="Wall-clock time of Zeit with 8 threads and of each reference tool with its parallel framework" xmlns="http://www.w3.org/2000/svg">
+<text class="zc-head" x="0" y="20">Algorithm · workload</text>
+<text class="zc-head" x="190" y="20">Wall-clock time, in parallel (log scale)</text>
+<text class="zc-head" x="720" y="20" text-anchor="end">Zeit finishes</text>
+<line class="zc-grid" x1="263.6" x2="263.6" y1="44" y2="438"/>
+<text class="zc-tick" x="263.6" y="38" text-anchor="middle">10 ms</text>
+<line class="zc-grid" x1="337.1" x2="337.1" y1="44" y2="438"/>
+<text class="zc-tick" x="337.1" y="38" text-anchor="middle">100 ms</text>
+<line class="zc-grid" x1="410.7" x2="410.7" y1="44" y2="438"/>
+<text class="zc-tick" x="410.7" y="38" text-anchor="middle">1 s</text>
+<line class="zc-grid" x1="484.3" x2="484.3" y1="44" y2="438"/>
+<text class="zc-tick" x="484.3" y="38" text-anchor="middle">10 s</text>
+<line class="zc-grid" x1="557.9" x2="557.9" y1="44" y2="438"/>
+<text class="zc-tick" x="557.9" y="38" text-anchor="middle">100 s</text>
+<g class="zc-row" data-tip="Mann-Kendall, 5,000 series: Zeit with 8 threads 3.6 ms; reference (Python multiprocessing, 19 workers) 20.1 s. Zeit finishes 5,552× sooner." tabindex="0">
+<rect class="zc-hit" x="0" y="56" width="720" height="42"/>
+<text class="zc-name" x="0" y="74.0">Mann-Kendall</text>
+<text class="zc-sub" x="0" y="90.0">5,000 series</text>
+<line class="zc-link" x1="231.1" x2="506.6" y1="77.0" y2="77.0"/>
+<circle class="zc-dot zc-dot--ref" cx="506.6" cy="77.0" r="6"/>
+<circle class="zc-dot zc-dot--zeit" cx="231.1" cy="77.0" r="6"/>
+<text class="zc-val zc-val--soft" x="220.1" y="81.0" text-anchor="end">3.6 ms</text>
+<text class="zc-val zc-val--soft" x="517.6" y="81.0">20.1 s</text>
+<text class="zc-val" x="720" y="81.0" text-anchor="end">5,552× sooner</text>
+</g>
+<g class="zc-row" data-tip="BFAST Monitor, 20,000 series: Zeit with 8 threads 10.0 ms; reference (R PSOCK cluster, 19 workers) 5.0 s. Zeit finishes 499× sooner." tabindex="0">
+<rect class="zc-hit" x="0" y="98" width="720" height="42"/>
+<text class="zc-name" x="0" y="116.0">BFAST Monitor</text>
+<text class="zc-sub" x="0" y="132.0">20,000 series</text>
+<line class="zc-link" x1="263.7" x2="462.2" y1="119.0" y2="119.0"/>
+<circle class="zc-dot zc-dot--ref" cx="462.2" cy="119.0" r="6"/>
+<circle class="zc-dot zc-dot--zeit" cx="263.7" cy="119.0" r="6"/>
+<text class="zc-val zc-val--soft" x="252.7" y="123.0" text-anchor="end">10.0 ms</text>
+<text class="zc-val zc-val--soft" x="473.2" y="123.0">5.0 s</text>
+<text class="zc-val" x="720" y="123.0" text-anchor="end">499× sooner</text>
+</g>
+<g class="zc-row" data-tip="Phenology, 638 px × 25 years: Zeit with 8 threads 209 ms; reference (R foreach + doParallel, 19 workers) 93.5 s. Zeit finishes 447× sooner." tabindex="0">
+<rect class="zc-hit" x="0" y="140" width="720" height="42"/>
+<text class="zc-name" x="0" y="158.0">Phenology</text>
+<text class="zc-sub" x="0" y="174.0">638 px × 25 years</text>
+<line class="zc-link" x1="360.7" x2="555.7" y1="161.0" y2="161.0"/>
+<circle class="zc-dot zc-dot--ref" cx="555.7" cy="161.0" r="6"/>
+<circle class="zc-dot zc-dot--zeit" cx="360.7" cy="161.0" r="6"/>
+<text class="zc-val zc-val--soft" x="349.7" y="165.0" text-anchor="end">209 ms</text>
+<text class="zc-val zc-val--soft" x="566.7" y="165.0">93.5 s</text>
+<text class="zc-val" x="720" y="165.0" text-anchor="end">447× sooner</text>
+</g>
+<g class="zc-row" data-tip="TWDTW, 3,000 series: Zeit with 8 threads 2.1 ms; reference (R PSOCK cluster, 19 workers) 189 ms. Zeit finishes 89× sooner." tabindex="0">
+<rect class="zc-hit" x="0" y="182" width="720" height="42"/>
+<text class="zc-name" x="0" y="200.0">TWDTW</text>
+<text class="zc-sub" x="0" y="216.0">3,000 series</text>
+<line class="zc-link" x1="214.1" x2="357.4" y1="203.0" y2="203.0"/>
+<circle class="zc-dot zc-dot--ref" cx="357.4" cy="203.0" r="6"/>
+<circle class="zc-dot zc-dot--zeit" cx="214.1" cy="203.0" r="6"/>
+<text class="zc-val zc-val--soft" x="203.1" y="207.0" text-anchor="end">2.1 ms</text>
+<text class="zc-val zc-val--soft" x="368.4" y="207.0">189 ms</text>
+<text class="zc-val" x="720" y="207.0" text-anchor="end">89× sooner</text>
+</g>
+<g class="zc-row" data-tip="BFAST, 400 series: Zeit with 8 threads 239 ms; reference (R PSOCK cluster, 19 workers) 3.3 s. Zeit finishes 14× sooner." tabindex="0">
+<rect class="zc-hit" x="0" y="224" width="720" height="42"/>
+<text class="zc-name" x="0" y="242.0">BFAST</text>
+<text class="zc-sub" x="0" y="258.0">400 series</text>
+<line class="zc-link" x1="365.0" x2="449.2" y1="245.0" y2="245.0"/>
+<circle class="zc-dot zc-dot--ref" cx="449.2" cy="245.0" r="6"/>
+<circle class="zc-dot zc-dot--zeit" cx="365.0" cy="245.0" r="6"/>
+<text class="zc-val zc-val--soft" x="354.0" y="249.0" text-anchor="end">239 ms</text>
+<text class="zc-val zc-val--soft" x="460.2" y="249.0">3.3 s</text>
+<text class="zc-val" x="720" y="249.0" text-anchor="end">14× sooner</text>
+</g>
+<g class="zc-row" data-tip="BFAST Lite, 2,000 series: Zeit with 8 threads 1.5 s; reference (R PSOCK cluster, 19 workers) 4.6 s. Zeit finishes 3.1× sooner." tabindex="0">
+<rect class="zc-hit" x="0" y="266" width="720" height="42"/>
+<text class="zc-name" x="0" y="284.0">BFAST Lite</text>
+<text class="zc-sub" x="0" y="300.0">2,000 series</text>
+<line class="zc-link" x1="423.3" x2="459.1" y1="287.0" y2="287.0"/>
+<circle class="zc-dot zc-dot--ref" cx="459.1" cy="287.0" r="6"/>
+<circle class="zc-dot zc-dot--zeit" cx="423.3" cy="287.0" r="6"/>
+<text class="zc-val zc-val--soft" x="412.3" y="291.0" text-anchor="end">1.5 s</text>
+<text class="zc-val zc-val--soft" x="470.1" y="291.0">4.6 s</text>
+<text class="zc-val" x="720" y="291.0" text-anchor="end">3.1× sooner</text>
+</g>
+<g class="zc-row" data-tip="TempCNN, batch of 512: Zeit with 20 threads 3.9 ms; reference (R torch intra-op threads) 7.8 ms. Zeit finishes 2.0× sooner." tabindex="0">
+<rect class="zc-hit" x="0" y="308" width="720" height="42"/>
+<text class="zc-name" x="0" y="326.0">TempCNN</text>
+<text class="zc-sub" x="0" y="342.0">batch of 512</text>
+<line class="zc-link" x1="233.8" x2="255.5" y1="329.0" y2="329.0"/>
+<circle class="zc-dot zc-dot--ref" cx="255.5" cy="329.0" r="6"/>
+<circle class="zc-dot zc-dot--zeit" cx="233.8" cy="329.0" r="6"/>
+<text class="zc-val zc-val--soft" x="222.8" y="333.0" text-anchor="end">3.9 ms</text>
+<text class="zc-val zc-val--soft" x="266.5" y="333.0">7.8 ms</text>
+<text class="zc-val" x="720" y="333.0" text-anchor="end">2.0× sooner</text>
+</g>
+<g class="zc-row" data-tip="LightTAE, batch of 512: Zeit with 20 threads 14.6 ms; reference (R torch intra-op threads) 27.0 ms. Zeit finishes 1.8× sooner." tabindex="0">
+<rect class="zc-hit" x="0" y="350" width="720" height="42"/>
+<text class="zc-name" x="0" y="368.0">LightTAE</text>
+<text class="zc-sub" x="0" y="384.0">batch of 512</text>
+<line class="zc-link" x1="275.7" x2="295.3" y1="371.0" y2="371.0"/>
+<circle class="zc-dot zc-dot--ref" cx="295.3" cy="371.0" r="6"/>
+<circle class="zc-dot zc-dot--zeit" cx="275.7" cy="371.0" r="6"/>
+<text class="zc-val zc-val--soft" x="264.7" y="375.0" text-anchor="end">14.6 ms</text>
+<text class="zc-val zc-val--soft" x="306.3" y="375.0">27.0 ms</text>
+<text class="zc-val" x="720" y="375.0" text-anchor="end">1.8× sooner</text>
+</g>
+<g class="zc-row" data-tip="U-TAE, batch of 32: Zeit with 20 threads 126 ms; reference (PyTorch intra-op threads) 125 ms. Both run on the PyTorch backend: tied." tabindex="0">
+<rect class="zc-hit" x="0" y="392" width="720" height="42"/>
+<text class="zc-name" x="0" y="410.0">U-TAE</text>
+<text class="zc-sub" x="0" y="426.0">batch of 32</text>
+<line class="zc-link" x1="344.2" x2="344.5" y1="413.0" y2="413.0"/>
+<circle class="zc-dot zc-dot--ref" cx="344.2" cy="413.0" r="6"/>
+<circle class="zc-dot zc-dot--zeit" cx="344.5" cy="413.0" r="6"/>
+<text class="zc-val zc-val--soft" x="333.5" y="417.0" text-anchor="end">126 ms</text>
+<text class="zc-val zc-val--soft" x="355.2" y="417.0">125 ms</text>
+<text class="zc-val" x="720" y="417.0" text-anchor="end">tied</text>
+</g>
+</svg>

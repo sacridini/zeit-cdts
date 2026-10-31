@@ -1,0 +1,70 @@
+<svg class="zc" viewBox="0 0 720 398" role="img" aria-label="LandTrendr on a full Landsat tile: Zeit on a desktop against Google Earth Engine" xmlns="http://www.w3.org/2000/svg">
+<text class="zc-head" x="0" y="18">Compute throughput, pixels per second</text>
+<line class="zc-grid" x1="178.0" x2="178.0" y1="32" y2="172"/>
+<text class="zc-tick" x="178.0" y="187" text-anchor="middle">0</text>
+<line class="zc-grid" x1="325.3" x2="325.3" y1="32" y2="172"/>
+<text class="zc-tick" x="325.3" y="187" text-anchor="middle">200k</text>
+<line class="zc-grid" x1="472.7" x2="472.7" y1="32" y2="172"/>
+<text class="zc-tick" x="472.7" y="187" text-anchor="middle">400k</text>
+<line class="zc-grid" x1="620.0" x2="620.0" y1="32" y2="172"/>
+<text class="zc-tick" x="620.0" y="187" text-anchor="middle">600k</text>
+<g class="zc-row" data-tip="Google Earth Engine: 27,213 pixels per second (1,396 s of compute)." tabindex="0">
+<rect class="zc-hit" x="0" y="40.0" width="720" height="44"/>
+<text class="zc-name" x="0" y="59.0">Google Earth Engine</text>
+<text class="zc-sub" x="0" y="75.0">batch workers (EECU)</text>
+<rect class="zc-bar zc-bar--ref" x="178.0" y="53.0" width="20.0" height="18" rx="4"/>
+<text class="zc-val" x="205.0" y="66.0">27k</text>
+</g>
+<g class="zc-row" data-tip="Zeit, 1 thread: 85,072 pixels per second (643 s of compute)." tabindex="0">
+<rect class="zc-hit" x="0" y="84.0" width="720" height="44"/>
+<text class="zc-name" x="0" y="103.0">Zeit, 1 thread</text>
+<text class="zc-sub" x="0" y="119.0">desktop PC</text>
+<rect class="zc-bar zc-bar--zeit-lo" x="178.0" y="97.0" width="62.7" height="18" rx="4"/>
+<text class="zc-val" x="247.7" y="110.0">85k</text>
+</g>
+<g class="zc-row" data-tip="Zeit, 8 threads: 526,693 pixels per second (104 s of compute)." tabindex="0">
+<rect class="zc-hit" x="0" y="128.0" width="720" height="44"/>
+<text class="zc-name" x="0" y="147.0">Zeit, 8 threads</text>
+<text class="zc-sub" x="0" y="163.0">desktop PC</text>
+<rect class="zc-bar zc-bar--zeit" x="178.0" y="141.0" width="388.0" height="18" rx="4"/>
+<text class="zc-val" x="573.0" y="154.0">527k</text>
+</g>
+<text class="zc-head" x="0" y="220">Time to the result, minutes: queue + compute</text>
+<line class="zc-grid" x1="178.0" x2="178.0" y1="234" y2="374"/>
+<text class="zc-tick" x="178.0" y="389" text-anchor="middle">0</text>
+<line class="zc-grid" x1="251.7" x2="251.7" y1="234" y2="374"/>
+<text class="zc-tick" x="251.7" y="389" text-anchor="middle">60</text>
+<line class="zc-grid" x1="325.3" x2="325.3" y1="234" y2="374"/>
+<text class="zc-tick" x="325.3" y="389" text-anchor="middle">120</text>
+<line class="zc-grid" x1="399.0" x2="399.0" y1="234" y2="374"/>
+<text class="zc-tick" x="399.0" y="389" text-anchor="middle">180</text>
+<line class="zc-grid" x1="472.7" x2="472.7" y1="234" y2="374"/>
+<text class="zc-tick" x="472.7" y="389" text-anchor="middle">240</text>
+<line class="zc-grid" x1="546.3" x2="546.3" y1="234" y2="374"/>
+<text class="zc-tick" x="546.3" y="389" text-anchor="middle">300</text>
+<line class="zc-grid" x1="620.0" x2="620.0" y1="234" y2="374"/>
+<text class="zc-tick" x="620.0" y="389" text-anchor="middle">360</text>
+<g class="zc-row" data-tip="Google Earth Engine: 23.3 min of compute after 5.09 h in the queue: 5.47 h in all." tabindex="0">
+<rect class="zc-hit" x="0" y="242.0" width="720" height="44"/>
+<text class="zc-name" x="0" y="261.0">Google Earth Engine</text>
+<text class="zc-sub" x="0" y="277.0">batch workers (EECU)</text>
+<rect class="zc-bar zc-bar--queue" x="178" y="255.0" width="374.6" height="18" rx="4"/>
+<text class="zc-inbar" x="365.3" y="268.0" text-anchor="middle">queue: 5.1 h</text>
+<rect class="zc-bar zc-bar--ref" x="554.6" y="255.0" width="28.6" height="18" rx="4"/>
+<text class="zc-val" x="590.2" y="268.0">5.47 h</text>
+</g>
+<g class="zc-row" data-tip="Zeit, 1 thread: 10.7 min of compute, no queue: 10.7 min in all." tabindex="0">
+<rect class="zc-hit" x="0" y="286.0" width="720" height="44"/>
+<text class="zc-name" x="0" y="305.0">Zeit, 1 thread</text>
+<text class="zc-sub" x="0" y="321.0">desktop PC</text>
+<rect class="zc-bar zc-bar--zeit-lo" x="178.0" y="299.0" width="13.2" height="18" rx="4"/>
+<text class="zc-val" x="198.2" y="312.0">10.7 min</text>
+</g>
+<g class="zc-row" data-tip="Zeit, 8 threads: 1.7 min of compute, no queue: 1.7 min in all." tabindex="0">
+<rect class="zc-hit" x="0" y="330.0" width="720" height="44"/>
+<text class="zc-name" x="0" y="349.0">Zeit, 8 threads</text>
+<text class="zc-sub" x="0" y="365.0">desktop PC</text>
+<rect class="zc-bar zc-bar--zeit" x="178.0" y="343.0" width="3.0" height="18" rx="4"/>
+<text class="zc-val" x="188.0" y="356.0">1.7 min</text>
+</g>
+</svg>
