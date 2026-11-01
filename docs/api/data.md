@@ -71,11 +71,12 @@ zeit.cube.build_annual_composites(
     bbox=None, vector_path=None, start_year=1985, end_year=2024,
     season=('06-01', '09-30'), bands=None, cloud_cover_max=30,
     method="median", apply_cloud_mask=True, resolution=30, epsg=4326,
-    access_token=None, chunksize=2048,
+    access_token=None, chunksize=2048, target_doy=None, doy_sigma=30.0,
+    cloud_distance=(30.0, 1500.0), weights=None, bap_info=False,
 )
 ```
 
-Builds one cloud-masked composite per year from a STAC catalog: the annual stack LandTrendr expects. Scenes are read as raw integers and reduced one spatial chunk at a time (QA mask, per-scene scale and offset, then median or medoid), so memory stays bounded by a few chunks however many scenes a year has, and every pixel is downloaded once. Also exported as `zeit.build_annual_composites`.
+Builds one cloud-masked composite per year from a STAC catalog: the annual stack LandTrendr expects. Scenes are read as raw integers and reduced one spatial chunk at a time (QA mask, per-scene scale and offset, then median, medoid or best available pixel), so memory stays bounded by a few chunks however many scenes a year has, and every pixel is downloaded once. Also exported as `zeit.build_annual_composites`.
 
 <div class="params" markdown>
 
@@ -89,8 +90,13 @@ Builds one cloud-masked composite per year from a STAC catalog: the annual stack
 | `season` | `tuple` | `("06-01", "09-30")` | `("MM-DD", "MM-DD")` window inside each year. A window that wraps the new year (`("12-01", "02-28")`) is labelled with its first year. |
 | `bands` | `list[str]` | `None` | Bands to composite, e.g. `["nir08", "swir22"]` for NBR. Required. |
 | `cloud_cover_max` | `int` | `30` | Maximum scene cloud cover, in percent. |
-| `method` | `str` | `"median"` | `"median"` (per band) or `"medoid"` (the real observation closest to the multi-band median). |
+| `method` | `str` | `"median"` | `"median"` (per band), `"medoid"` (the real observation closest to the multi-band median) or `"bap"` (the best available pixel: each pixel's clear observation of the highest score, every band from that date; below). |
 | `apply_cloud_mask` | `bool` | `True` | Mask clouds and shadows with the collection's QA band. |
+| `target_doy` | `float` | `None` | `"bap"`: the day of the year the composite aims at (default: the middle of `season`). |
+| `doy_sigma` | `float` | `30.0` | `"bap"`: days from the target at which the day's score falls to 0.61 (`exp(-0.5 (days / doy_sigma)²)`). |
+| `cloud_distance` | `tuple` | `(30.0, 1500.0)` | `"bap"`: metres to the nearest cloud or shadow of the scene at which the cloud's score is 0 and 1 (linear between; a scene without clouds scores 1). |
+| `weights` | `dict` | `None` | `"bap"`: the score's weights, `zeit.cube.BAP_WEIGHTS` by default: `doy` 0.3, `cloud` 0.5, `sensor` 0.1 (Landsat 7 after its scan line corrector failed scores 0.5, the others 1), `cover` 0.1 (1 − the scene's `eo:cloud_cover`). |
+| `bap_info` | `bool` | `False` | `"bap"`: adds the bands `bap_doy` (the day of the year of each pixel's date), `bap_score` and `bap_clear` (its clear observations). |
 | `resolution` | `float` | `30` | Output pixel size, in units of `epsg`. |
 | `epsg` | `int` | `4326` | Output coordinate reference system. |
 | `access_token` | `str` | `None` | Token for catalogs that require one. |
@@ -114,6 +120,17 @@ comp = zeit.build_annual_composites(
 )
 nbr = zeit.compute_indices(comp, ["NBR"]).sel(band="NBR")
 zeit.save_raster(nbr, "nbr_1985_2024.tif")   # one band per year, ready for LandTrendr
+```
+
+The best available pixel (`method="bap"`) scores each clear observation the way Griffiths et al. (2013) and White et al. (2014) do: a weighted sum of its day of the year near a target day, its distance to the nearest cloud or shadow (the exact Euclidean distance, in zeit's core), its sensor and its scene's cloud cover; each pixel takes the observation of the highest score (the earlier date of equal ones), so its bands come from one date, as the medoid's do, but chosen for its quality rather than for being typical. Each chunk is read with the margin of the cloud distance around it, so the composite does not depend on the chunks. On 60 dates of 1024 × 1024 pixels the score and the choice take 2.7 s on one thread and 0.85 s on four, against 5.9 s for the same score in numpy and scipy (the same date at every pixel; `benchmarks/vs_originals/bap.py`).
+
+```python
+comp = zeit.build_annual_composites(
+    bbox=[-63.05, -9.95, -62.95, -9.85], start_year=2023, end_year=2023, season=("06-01", "09-30"),
+    bands=["red", "nir08", "swir16"], method="bap", epsg=32720, resolution=30, cloud_cover_max=70,
+    bap_info=True,
+)
+comp.sel(band="bap_doy")   # the date each pixel came from (day 211 nearly everywhere here: 2 of 33 scenes)
 ```
 
 ### `build_spectral_temporal_metrics` { .api }

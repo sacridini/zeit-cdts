@@ -521,6 +521,188 @@ def _composite_cube(cube, bands, qa_band, method):
     )
 
 
+#: The quality states of the best available pixel composite (zeit-core's bap): no observation (outside the scene, a
+#: fill, a defective pixel), a cloud or its shadow (the clear pixels near it score less), a clear observation.
+BAP_NO_DATA, BAP_CLOUD, BAP_CLEAR = 0, 1, 2
+
+#: The default weights of the best available pixel's score: its day of the year near the target day, its distance
+#: to the nearest cloud or shadow, its sensor, its scene's cloud cover.
+BAP_WEIGHTS = dict(doy=0.3, cloud=0.5, sensor=0.1, cover=0.1)
+
+#: The bands a best available pixel composite adds with ``bap_info=True``: the day of the year of each pixel's
+#: date, its score and how many clear observations the pixel had.
+BAP_INFO_BANDS = ("bap_doy", "bap_score", "bap_clear")
+
+
+def _qa_states(qa: np.ndarray, qa_band: Optional[str]) -> np.ndarray:
+    """No data, cloud or clear (BAP_*) of each pixel of an integer QA array.
+
+    Clouds are what scores the pixels near them lower: Sentinel-2's SCL cloud shadow, medium and high cloud
+    probability and thin cirrus (3, 8, 9, 10); Landsat QA_PIXEL's dilated cloud, cirrus, cloud and shadow bits (1-4);
+    HLS Fmask's cloud, adjacent and shadow bits (1-3). Clear is what `_clear_mask` keeps; the rest (no data, a
+    defective pixel, a dark area...) is neither.
+    """
+    if qa_band is None:
+        return np.full(qa.shape, BAP_CLEAR, dtype="uint8")
+    clear = _clear_mask(qa, qa_band)
+    name = qa_band.lower()
+    if name == "scl":
+        cloud = np.isin(qa, [3, 8, 9, 10])
+    elif name == "fmask":
+        cloud = ((qa & 0b1110) != 0) & (qa != 255)
+    else:
+        cloud = ((qa & 0b11110) != 0) & ((qa & 1) == 0)
+    states = np.where(clear, BAP_CLEAR, np.where(cloud, BAP_CLOUD, BAP_NO_DATA)).astype("uint8")
+    return states
+
+
+def _sensor_scores(platforms, times) -> np.ndarray:
+    """Each scene's sensor score: 0.5 for Landsat 7 after its scan line corrector failed (2003-05-31), else 1."""
+    out = np.ones(len(times), dtype="float64")
+    slc_off = np.datetime64("2003-05-31")
+    for i, (p, t) in enumerate(zip(platforms, times)):
+        p = str(p).lower().replace("_", "-")
+        if ("landsat-7" in p or p == "le07" or "etm" in p) and np.datetime64(t, "D") >= slc_off:
+            out[i] = 0.5
+    return out
+
+
+def _scene_dates(cube: xr.DataArray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Day of the year, sensor score and cover score (1 - eo:cloud_cover / 100) of each scene of a cube."""
+    times = pd.DatetimeIndex(cube.time.values)
+    doy = times.dayofyear.values.astype("float64")
+    t = cube.sizes["time"]
+    platforms = cube.coords["platform"].values if "platform" in cube.coords else [""] * t
+    platforms = np.broadcast_to(np.asarray(platforms, dtype=object), (t,))
+    sensor = _sensor_scores(platforms, cube.time.values)
+    if "eo:cloud_cover" in cube.coords:
+        cc = np.broadcast_to(np.asarray(cube.coords["eo:cloud_cover"].values, dtype="float64"), (t,))
+        cover = np.where(np.isfinite(cc), 1.0 - np.clip(cc, 0, 100) / 100.0, 1.0)
+    else:
+        cover = np.ones(t)
+    return doy, sensor, cover
+
+
+def _bap_block(raw, band_idx, qa_idx, qa_band, scale, offset, doy, sensor, cover, opts, info, pads):
+    """The best available pixel composite of one spatial chunk of raw digital numbers (with `pads` = (top, bottom,
+    left, right) rows and columns of its neighbours around it, the margin of the cloud distance).
+
+    raw: ``(time, band, y, x)`` integer array, 0 = nodata. Each pixel takes, of its clear observations (the QA's
+    and every band's), the one of the highest score (zeit-core's bap: day of the year, distance to clouds, sensor,
+    cover). Returns ``(len(band_idx) [+ 3], y, x)`` float32 reflectance (and the date's day of the year, its score,
+    the pixel's clear observations), the margins cut off.
+    """
+    from ._core import bap
+
+    t = raw.shape[0]
+    if qa_idx is not None:
+        states = _qa_states(raw[:, qa_idx], qa_band)
+    else:
+        states = np.full((t,) + raw.shape[2:], BAP_CLEAR, dtype="uint8")
+    # a band without a value: no observation
+    empty = (raw[:, band_idx] == 0).any(axis=1)
+    states[empty & (states == BAP_CLEAR)] = BAP_NO_DATA
+    date, score, clear = bap.best_dates(np.ascontiguousarray(states), doy, sensor, cover, **opts, n_jobs=1)
+    top, bottom, left, right = pads
+    ys = slice(top, raw.shape[2] - bottom)
+    xs = slice(left, raw.shape[3] - right)
+    date, score, clear = date[ys, xs], score[ys, xs], clear[ys, xs]
+    sub = raw[:, :, ys, xs]
+    has = date >= 0
+    d = np.where(has, date, 0)
+    out = np.full((len(band_idx) + (3 if info else 0),) + date.shape, np.nan, dtype=np.float32)
+    for k, i in enumerate(band_idx):
+        v = np.take_along_axis(sub[:, i], d[None], 0)[0].astype(np.float32)
+        v = v * scale[d, k] + offset[d, k]
+        out[k] = np.where(has, v, np.nan)
+    if info:
+        out[len(band_idx)] = np.where(has, doy[d], np.nan)
+        out[len(band_idx) + 1] = score
+        out[len(band_idx) + 2] = clear
+    return out
+
+
+def _bap_opts(target_doy, doy_sigma, cloud_distance, weights) -> dict:
+    """zeit._core.bap.best_dates's settings, the cloud distances still in metres (`_bap_cube` makes them pixels)."""
+    w = {**BAP_WEIGHTS, **(weights or {})}
+    unknown = set(w) - set(BAP_WEIGHTS)
+    if unknown:
+        raise ValueError(f"Unknown weights {sorted(unknown)}: use {sorted(BAP_WEIGHTS)}.")
+    lo, hi = cloud_distance
+    if not (0 <= lo < hi):
+        raise ValueError(f"cloud_distance {cloud_distance}: (near, far) metres with 0 <= near < far.")
+    return dict(target_doy=float(target_doy), doy_sigma=float(doy_sigma), cloud_min=float(lo),
+                cloud_max=float(hi), w_doy=w["doy"], w_cloud=w["cloud"], w_sensor=w["sensor"],
+                w_cover=w["cover"])
+
+
+def _at_least(chunks: Tuple[int, ...], size: int) -> Tuple[int, ...]:
+    """Chunks of an axis merged so that each is at least `size` long (or the axis is one chunk)."""
+    out = []
+    for c in chunks:
+        if out and (out[-1] < size or c < size):
+            out[-1] += c
+        else:
+            out.append(c)
+    if len(out) > 1 and out[-1] < size:
+        out[-2] += out.pop()
+    return tuple(out)
+
+
+def _pixel_metres(cube: xr.DataArray) -> float:
+    """A cube's pixel size in metres: its x spacing, in degrees of longitude at its middle latitude when its CRS is
+    geographic."""
+    dx = abs(float(cube.x.values[1] - cube.x.values[0])) if cube.sizes["x"] > 1 else float(
+        cube.attrs.get("resolution", 1.0) if np.isscalar(cube.attrs.get("resolution", 1.0)) else 1.0)
+    epsg = int(cube.coords["epsg"]) if "epsg" in cube.coords else None
+    if epsg == 4326:
+        lat = float(np.mean(cube.y.values))
+        return dx * 111_320.0 * np.cos(np.radians(lat))
+    return dx
+
+
+def _bap_cube(cube, bands, qa_band, opts, info):
+    """Lazy best available pixel composite of a raw integer cube: one dask task per spatial chunk, each with the
+    margin of the cloud distance read from its neighbours. `opts`' cloud distances in metres."""
+    import dask.array as da
+
+    px = _pixel_metres(cube)
+    opts = dict(opts, cloud_min=opts["cloud_min"] / px, cloud_max=opts["cloud_max"] / px)
+    names = list(cube.band.values)
+    band_idx = [names.index(b) for b in bands]
+    qa_idx = names.index(qa_band) if qa_band else None
+    scale, offset = _cube_scale_offset(cube, bands)
+    doy, sensor, cover = _scene_dates(cube)
+    margin = int(np.ceil(opts["cloud_max"])) if opts["w_cloud"] > 0 and qa_idx is not None else 0
+    raw = cube.data.rechunk({0: -1, 1: -1})
+    if margin:
+        raw = raw.rechunk({2: _at_least(raw.chunks[2], margin), 3: _at_least(raw.chunks[3], margin)})
+    out_chunks = raw.chunks
+    ny, nx = len(out_chunks[2]), len(out_chunks[3])
+    # an axis of one chunk has no neighbours to take a margin from
+    my, mx = (margin if ny > 1 else 0), (margin if nx > 1 else 0)
+    padded = da.overlap.overlap(raw, depth={0: 0, 1: 0, 2: my, 3: mx}, boundary="none") if my or mx else raw
+
+    def block(b, block_info=None):
+        _, _, iy, ix = block_info[0]["chunk-location"]
+        pads = (my if iy > 0 else 0, my if iy < ny - 1 else 0, mx if ix > 0 else 0, mx if ix < nx - 1 else 0)
+        return _bap_block(b, band_idx, qa_idx, qa_band, scale, offset, doy, sensor, cover, opts, info, pads)
+
+    n_out = len(bands) + (3 if info else 0)
+    return da.map_blocks(block, padded, drop_axis=0, dtype=np.float32,
+                         chunks=((n_out,),) + out_chunks[2:])
+
+
+def _season_middle(season: Tuple[str, str]) -> float:
+    """The day of the year in the middle of a ("MM-DD", "MM-DD") window (one that wraps the new year too)."""
+    a = pd.Timestamp(f"2001-{season[0]}").dayofyear
+    b = pd.Timestamp(f"2001-{season[1]}").dayofyear
+    if b < a:
+        b += 365
+    m = (a + b) / 2.0
+    return m - 365 if m > 365 else m
+
+
 def _stm_block(raw, layers, band_pos, qa_idx, qa_band, scale, offset, metrics):
     """Spectral temporal metrics of one spatial chunk of raw digital numbers.
 
@@ -646,14 +828,19 @@ def build_annual_composites(
     epsg: int = 4326,
     access_token: Optional[str] = None,
     chunksize: int = 2048,
+    target_doy: Optional[float] = None,
+    doy_sigma: float = 30.0,
+    cloud_distance: Tuple[float, float] = (30.0, 1500.0),
+    weights: Optional[dict] = None,
+    bap_info: bool = False,
 ) -> xr.DataArray:
     """
     Builds one cloud-masked composite per year from a STAC catalog: the annual stack
     LandTrendr (and other annual trajectory methods) expects.
 
     Scenes are read as raw integers and reduced chunk by chunk (mask, per-scene scale and
-    offset, then median or medoid), so memory stays bounded by a few chunks however many
-    scenes a year has, and every pixel is downloaded once.
+    offset, then median, medoid or best available pixel), so memory stays bounded by a few
+    chunks however many scenes a year has, and every pixel is downloaded once.
 
     source, collection, bbox, vector_path, cloud_cover_max, resolution, epsg,
     access_token, chunksize: as in `build_time_series`. An area (bbox or vector_path) is
@@ -662,15 +849,34 @@ def build_annual_composites(
     season: ("MM-DD", "MM-DD") window inside each year. A window that wraps the new year
         (e.g. ("12-01", "02-28")) is labelled with the year it starts in.
     bands: Bands to composite, e.g. ["nir08", "swir22"] for NBR.
-    method: "median" (per band) or "medoid" (the real observation closest to the
-        multi-band median, keeping bands consistent).
+    method: "median" (per band), "medoid" (the real observation closest to the
+        multi-band median, keeping bands consistent) or "bap" (the best available pixel:
+        each pixel's clear observation of the highest score, all its bands from that one
+        date; see below).
     apply_cloud_mask: Mask clouds and shadows with the collection's QA band.
+    target_doy, doy_sigma, cloud_distance, weights, bap_info: the best available pixel's
+        score (method="bap"), a weighted sum, after Griffiths et al. (2013) and White et
+        al. (2014), of what makes an observation good:
+
+        - ``doy``: its day of the year near ``target_doy`` (default: the middle of the
+          season), ``exp(-0.5 (days / doy_sigma)^2)``;
+        - ``cloud``: its distance to the nearest cloud or shadow of its scene, 0 at the
+          first of ``cloud_distance`` (metres) or nearer, 1 at the second or farther,
+          linear between (a scene without clouds scores 1);
+        - ``sensor``: 0.5 for Landsat 7 after its scan line corrector failed, else 1;
+        - ``cover``: 1 - the scene's cloud cover (``eo:cloud_cover``).
+
+        ``weights`` changes theirs (default ``BAP_WEIGHTS``: doy 0.3, cloud 0.5, sensor
+        0.1, cover 0.1), e.g. ``{"sensor": 0}``. Each chunk is read with the margin of
+        the cloud distance around it, so the composite is the same whatever the chunks.
+        ``bap_info=True`` adds three bands: ``bap_doy`` (each pixel's date as its day of
+        the year), ``bap_score`` and ``bap_clear`` (its clear observations).
 
     Returns a lazy float32 DataArray (time, band, y, x) of reflectance, with ``time`` on
     January 1st of each year and a ``year`` coordinate. Years without scenes are NaN.
     """
-    if method not in ("median", "medoid"):
-        raise ValueError(f"Unknown method {method!r}. Use 'median' or 'medoid'.")
+    if method not in ("median", "medoid", "bap"):
+        raise ValueError(f"Unknown method {method!r}. Use 'median', 'medoid' or 'bap'.")
     if bbox is None and vector_path is None:
         raise ValueError("Provide bbox or vector_path so every year shares the same grid.")
     if not bands:
@@ -678,9 +884,18 @@ def build_annual_composites(
 
     qa_band = _qa_band_for(collection.lower(), source) if apply_cloud_mask else None
     load = list(bands) + ([qa_band] if qa_band and qa_band not in bands else [])
+    out_bands = list(bands)
+    if method == "bap":
+        opts = _bap_opts(_season_middle(season) if target_doy is None else target_doy, doy_sigma,
+                         cloud_distance, weights)
+        if bap_info:
+            out_bands += list(BAP_INFO_BANDS)
+        reduce = lambda cube: _bap_cube(cube, bands, qa_band, opts, bap_info)
+    else:
+        reduce = lambda cube: _composite_cube(cube, bands, qa_band, method)
     return _annual_stack(
-        lambda cube: _composite_cube(cube, bands, qa_band, method),
-        bands, f"{method}_composite",
+        reduce,
+        out_bands, f"{method}_composite",
         source=source, collection=collection, bbox=bbox, vector_path=vector_path,
         start_year=start_year, end_year=end_year, season=season, load=load,
         cloud_cover_max=cloud_cover_max, resolution=resolution, epsg=epsg,
