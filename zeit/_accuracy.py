@@ -12,6 +12,15 @@ Olofsson et al. (2014), eqs. 4-11, and give the numbers of its example and of R'
 ``sits_accuracy``. Like them, without a finite population correction (negligible on maps of
 thousands of pixels and more).
 
+The areas can also come from model-assisted estimators, which add what the map says everywhere
+(its mapped areas, known) to what the sample says: the difference estimator (the mapped area
+corrected by the estimated area of the map's errors; Stehman 2013, McRoberts et al. 2018) and
+the ratio estimator (the mapped area times the estimated ratio of the reference's area to the
+map's; Stehman 2014). They matter when the strata are not the map's classes (with the map's
+classes as strata the three agree) and for rare classes and changes, whose intervals they
+narrow when the map is good. ``transitions`` assesses the transitions between two dates of a
+map of classes (each pair of classes a class: "Forest -> Pasture"), with the same estimators.
+
 Strata and areas come from the map: the area of each pixel from its transform and CRS
 (hectares; in a geographic CRS, the area of each row on the sphere), lazily for dask maps.
 """
@@ -27,6 +36,7 @@ import xarray as xr
 
 NO_CHANGE, CHANGE = "no change", "change"
 _EARTH_RADIUS = 6371007.181   # authalic radius, metres
+ESTIMATORS = ("direct", "difference", "ratio")
 
 
 # ---------------------------------------------------------------------------
@@ -427,9 +437,11 @@ class Accuracy:
         User's and producer's accuracy of each class (``estimate``, ``se``, ``ci_low``,
         ``ci_high``); NaN for a class the map or the reference never gives.
     area
-        Per class: ``mapped`` (the area the map gives it), ``estimate`` (the error-adjusted
-        area), ``se``, ``ci`` (half-width of the confidence interval), ``ci_low``,
-        ``ci_high``; in ``area_unit``.
+        Per class: ``mapped`` (the area the map gives it; inside the strata when they are
+        given on the map's grid), ``estimate`` (the error-adjusted area), ``se``, ``ci``
+        (half-width of the confidence interval), ``ci_low``, ``ci_high``; in ``area_unit``.
+    estimator
+        How ``area`` was estimated: ``"direct"``, ``"difference"`` or ``"ratio"``.
     date
         For maps of events with ``date_tolerance``: of the points that both the map and the
         reference call change, the estimated share whose dates are within the tolerance and
@@ -447,6 +459,7 @@ class Accuracy:
     n_unlabelled: int = 0
     date: Optional[pd.Series] = None
     strata: Optional[pd.DataFrame] = field(default=None, repr=False)
+    estimator: str = "direct"
 
     def to_dataframe(self) -> pd.DataFrame:
         """One row per class: user's and producer's accuracy and area, with their intervals."""
@@ -463,7 +476,8 @@ class Accuracy:
             "user's": [_pm(self.users.loc[c]) for c in self.users.index],
             "producer's": [_pm(self.producers.loc[c]) for c in self.producers.index],
             f"mapped ({self.area_unit})": [f"{v:,.0f}" for v in self.area.mapped],
-            f"estimated ({self.area_unit})": [f"{e:,.0f} ± {h:,.0f}" for e, h in zip(self.area.estimate, self.area.ci)],
+            f"estimated ({self.area_unit}{'' if self.estimator == 'direct' else ', ' + self.estimator})":
+                [f"{e:,.0f} ± {h:,.0f}" if np.isfinite(e) else "-" for e, h in zip(self.area.estimate, self.area.ci)],
         }, index=self.users.index)
         lines.append(table.to_string())
         if self.date is not None:
@@ -488,6 +502,7 @@ def accuracy(
     date_tolerance: Optional[float] = None,
     reference_date: str = "ref_date",
     confidence: float = 0.95,
+    estimator: str = "direct",
     nodata: Any = "auto",
 ) -> Accuracy:
     """Accuracy and error-adjusted areas of a map, from a reference sample (Olofsson et al. 2014).
@@ -521,6 +536,16 @@ def accuracy(
         Column with the date of the change in the reference.
     confidence
         Level of the confidence intervals.
+    estimator
+        How the areas are estimated: ``"direct"`` (Stehman 2014: the sample alone, the
+        reference's share of each stratum weighed by its area), ``"difference"`` (the mapped
+        area plus the estimated area of the reference minus the map's: Stehman 2013, McRoberts
+        et al. 2018) or ``"ratio"`` (the mapped area times the estimated ratio of the
+        reference's area to the map's: Stehman 2014). The last two use the map's areas, known
+        everywhere: with strata that are not the map's classes, or a rare class, their
+        intervals are narrower when the map is good. With the map's classes as strata the three
+        agree. The ratio is NaN for a class no sample point is mapped as. The accuracies are
+        the same whatever the estimator.
     nodata
         As for ``sampling_design``.
 
@@ -538,13 +563,165 @@ def accuracy(
     >>> acc = zeit.accuracy(events, points)
     >>> acc.area.loc["change", ["estimate", "ci"]]
     """
+    _check_estimator(estimator)
     samples, n_unlabelled = _labelled(samples, reference)
     map_strata = _strata(map, bins, nodata)
+    return _assess(samples, n_unlabelled, map_strata, strata, nodata, confidence, estimator,
+                   lambda s: _reference_names(s[reference], map_strata),
+                   date_tolerance=date_tolerance, reference_date=reference_date)
+
+
+def transitions(
+    map_from: Any,
+    map_to: Any,
+    samples: Any,
+    *,
+    reference_from: str = "ref_from",
+    reference_to: str = "ref_to",
+    strata: Any = None,
+    confidence: float = 0.95,
+    estimator: str = "direct",
+    nodata: Any = "auto",
+) -> Accuracy:
+    """The area of each transition between two dates of a map of classes, from a reference sample.
+
+    Each pair of a class at the first date and a class at the second is a class of a map of
+    transitions ("Forest -> Pasture", and "Forest -> Forest" where nothing changed), assessed as
+    ``accuracy`` assesses a map: the error matrix of the transitions, their user's and
+    producer's accuracies and the error-adjusted area of each transition with its interval
+    (Olofsson et al. 2014; Stehman 2014: the strata need not be the transitions), by the
+    direct, difference or ratio estimator.
+
+    Parameters
+    ----------
+    map_from, map_to
+        The map of classes at the first and at the second date (``DataArray`` or raster path),
+        on the same grid.
+    samples
+        The reference points (``GeoDataFrame``, vector file, or what ``zeit.interpret``
+        returns), in any CRS, with the reference class at each date in the
+        ``reference_from`` and ``reference_to`` columns (names or codes of the maps' classes).
+        Points without both are left out.
+    reference_from, reference_to
+        Columns with the reference class at the first and at the second date.
+    strata
+        The strata the sample was drawn from (a map of classes or of events), when they are
+        not the transitions: e.g. the classes of one of the dates, or a map of change. Its
+        areas weigh the points. Default: the transitions themselves.
+    confidence
+        Level of the confidence intervals.
+    estimator
+        ``"direct"``, ``"difference"`` or ``"ratio"``, as for ``accuracy``: the model-assisted
+        ones use the mapped area of each transition and narrow the intervals of rare
+        transitions when the maps are good.
+    nodata
+        As for ``sampling_design``.
+
+    Returns
+    -------
+    Accuracy
+        As ``accuracy``'s, its classes the transitions ``"<from> -> <to>"``: ``area`` has the
+        mapped and the estimated area of each.
+
+    Examples
+    --------
+    >>> # points stratified by a map of change, labelled with the class at each date
+    >>> tr = zeit.transitions(lc_2015, lc_2022, points, strata=change, estimator="difference")
+    >>> tr.area.loc["Forest -> Pasture", ["estimate", "ci"]]
+    """
+    _check_estimator(estimator)
+    import geopandas as gpd
+
+    if hasattr(samples, "samples") and isinstance(getattr(samples, "samples"), gpd.GeoDataFrame):
+        samples = samples.samples
+    if not isinstance(samples, gpd.GeoDataFrame):
+        samples = gpd.read_file(samples)
+    for column in (reference_from, reference_to):
+        if column not in samples.columns:
+            raise ValueError(f"the samples have no {column!r} column (the reference class at a date); columns: "
+                             f"{list(samples.columns)}")
+    given = np.ones(len(samples), dtype=bool)
+    for column in (reference_from, reference_to):
+        given &= (samples[column].notna() & (samples[column].astype(str).str.strip() != "")).to_numpy()
+    n_unlabelled = int((~given).sum())
+    samples = samples[given].reset_index(drop=True)
+    a, b = _strata(map_from, None, nodata), _strata(map_to, None, nodata)
+    if a.events is not None or b.events is not None:
+        raise ValueError("transitions are between two maps of classes, not of events")
+    if a.codes.shape != b.codes.shape or not np.allclose(_grid_of(a.codes), _grid_of(b.codes)):
+        raise ValueError("the two maps should be on the same grid")
+    pairs = _transition_strata(a, b)
+
+    def reference(s):
+        f = _reference_names(s[reference_from], a)
+        t = _reference_names(s[reference_to], b)
+        return [f"{x}{SEPARATOR}{y}" for x, y in zip(f, t)]
+
+    return _assess(samples, n_unlabelled, pairs, strata, nodata, confidence, estimator, reference)
+
+
+SEPARATOR = " -> "
+
+
+def _check_estimator(estimator: str) -> None:
+    if estimator not in ESTIMATORS:
+        raise ValueError(f"estimator should be one of {ESTIMATORS}, not {estimator!r}")
+
+
+def _grid_of(codes: xr.DataArray) -> np.ndarray:
+    from ._warp import transform_of
+
+    try:
+        return np.asarray(tuple(transform_of(codes))[:6], dtype=np.float64)
+    except Exception:  # noqa: BLE001 - no coordinates: the shape alone
+        return np.zeros(6)
+
+
+def _transition_strata(a: _Strata, b: _Strata) -> _Strata:
+    """A map of transitions: a code for each (class at a, class at b) found, named "<a> -> <b>"."""
+    base = int(max(b.names)) + 1 if b.names else 1
+    lo = int(min(min(a.names, default=0), min(b.names, default=0), 0))
+    shift = -lo
+    width = base + shift
+    valid = (a.codes >= 0) & (b.codes >= 0)
+    codes = xr.where(valid, (a.codes.astype(np.int64) + shift) * width + (b.codes.astype(np.int64) + shift), -1)
+    values = codes.data
+    if hasattr(values, "dask"):
+        import dask.array as dask_array
+        found = np.asarray(dask_array.unique(values).compute())
+    else:
+        found = np.unique(np.asarray(values))
+    found = found[found >= 0]
+    names = {}
+    for code in found.tolist():
+        i, j = divmod(int(code), width)
+        names[int(code)] = f"{a.names[i - shift]}{SEPARATOR}{b.names[j - shift]}"
+    codes = codes.astype(np.int64)
+    if a.codes.rio.crs is not None:
+        codes = codes.rio.write_crs(a.codes.rio.crs)
+    return _Strata(codes, names, None, codes)
+
+
+def _inside(map_strata: _Strata, strata: _Strata) -> _Strata:
+    """The map's classes inside the strata (the population the sample was drawn from), when the
+    strata are on the map's grid; else the whole map."""
+    a, b = map_strata.codes, strata.codes
+    if a.shape != b.shape or not np.allclose(_grid_of(a), _grid_of(b)):
+        return map_strata
+    codes = a.where(b.data >= 0, -1)
+    return _Strata(codes, map_strata.names, map_strata.events, map_strata.source)
+
+
+def _assess(samples, n_unlabelled: int, map_strata: _Strata, strata: Any, nodata: Any, confidence: float,
+            estimator: str, reference_of, date_tolerance: Optional[float] = None,
+            reference_date: str = "ref_date") -> Accuracy:
+    """The estimates of ``map_strata`` from the labelled ``samples`` (``reference_of(samples)``: the
+    reference class of each), weighed by the areas of ``strata`` (default: the map's classes)."""
     strata_strata = map_strata if strata is None else _strata(strata, None, nodata)
     if "stratum" not in samples.columns and strata is None:
         warnings.warn("the samples have no 'stratum' column: they are weighed as a sample stratified by the "
                       "map's classes (right for a stratified or simple random sample, not for points chosen by "
-                      "hand)", stacklevel=2)
+                      "hand)", stacklevel=3)
 
     points = _to_crs(samples, map_strata.codes)
     m_codes, inside = _values_at(map_strata.codes, points)
@@ -553,39 +730,41 @@ def accuracy(
     keep = inside & inside_s & (m_codes >= 0) & (h_codes >= 0)
     if (~keep).any():
         warnings.warn(f"{int((~keep).sum())} reference points fall outside the map or its strata and are left "
-                      "out", stacklevel=2)
+                      "out", stacklevel=3)
     if not keep.any():
         raise ValueError("no reference point falls on the map")
     samples, m_codes, h_codes = samples[keep].reset_index(drop=True), m_codes[keep], h_codes[keep]
     points = points[keep].reset_index(drop=True)
 
     map_names = [map_strata.names[int(c)] for c in m_codes]
-    ref_names = _reference_names(samples[reference], map_strata)
-    classes = list(dict.fromkeys(list(map_strata.names.values()) + sorted(set(ref_names) - set(map_strata.names.values()))))
+    ref_names = reference_of(samples)
     design = _stratum_table(strata_strata).table
-    map_design = design if strata is None else _stratum_table(map_strata).table
+    map_design = design if strata is None else _stratum_table(_inside(map_strata, strata_strata)).table
+    mapped ={n_: float(a) for n_, a in zip(map_design.name, map_design.area)}
+    classes = list(dict.fromkeys(list(map_strata.names.values()) + sorted(set(ref_names) - set(map_strata.names.values()))))
 
     est = _Estimator(np.asarray(h_codes), design, confidence)
     m = np.asarray(map_names, dtype=object)
     r = np.asarray(ref_names, dtype=object)
 
-    confusion = pd.DataFrame(0.0, index=pd.Index(classes, name="map"), columns=pd.Index(classes, name="reference"))
-    counts = pd.DataFrame(0, index=confusion.index, columns=confusion.columns)
-    for i in classes:
-        for j in classes:
-            y = (m == i) & (r == j)
-            confusion.loc[i, j] = est.mean(y)[0]
-            counts.loc[i, j] = int(y.sum())
+    # the error matrix: each point adds its weight (its stratum's over its points) to its cell
+    position = {c: k for k, c in enumerate(classes)}
+    cell = (np.array([position[c] for c in m], dtype=np.int64), np.array([position[c] for c in r], dtype=np.int64))
+    n_cells = np.zeros((len(classes), len(classes)), dtype=np.int64)
+    np.add.at(n_cells, cell, 1)
+    p_cells = np.zeros((len(classes), len(classes)))
+    np.add.at(p_cells, cell, est.point_weights(len(m)))
+    confusion = pd.DataFrame(p_cells, index=pd.Index(classes, name="map"), columns=pd.Index(classes, name="reference"))
+    counts = pd.DataFrame(n_cells, index=confusion.index, columns=confusion.columns)
     overall = pd.Series(est.mean(m == r, interval=True), index=["estimate", "se", "ci_low", "ci_high"])
     users = pd.DataFrame([est.ratio((m == c) & (r == c), m == c) for c in classes], index=pd.Index(classes, name="class"),
                          columns=["estimate", "se", "ci_low", "ci_high"])
     producers = pd.DataFrame([est.ratio((m == c) & (r == c), r == c) for c in classes],
                              index=users.index, columns=users.columns)
     total_area = float(design.area.sum())
-    mapped = {n_: float(a) for n_, a in zip(map_design.name, map_design.area)}
     rows = []
     for c in classes:
-        p, se, _, _ = est.mean(r == c, interval=True)
+        p, se = est.share(estimator, r == c, m == c, mapped.get(c, 0.0) / total_area if total_area > 0 else 0.0)
         half = est.z * se * total_area
         rows.append([mapped.get(c, 0.0), p * total_area, se * total_area, half, p * total_area - half,
                      p * total_area + half])
@@ -596,7 +775,7 @@ def accuracy(
         date = _date_agreement(map_strata, samples, m, r, est, points, reference_date, float(date_tolerance))
     return Accuracy(confusion=confusion, counts=counts, overall=overall, users=users, producers=producers,
                     area=area, area_unit=_row_areas(strata_strata.codes)[1], confidence=confidence,
-                    n=len(samples), n_unlabelled=n_unlabelled, date=date, strata=design)
+                    n=len(samples), n_unlabelled=n_unlabelled, date=date, strata=design, estimator=estimator)
 
 
 def _labelled(samples: Any, reference: str):
@@ -699,17 +878,41 @@ class _Estimator:
         if xbar == 0:
             return [np.nan] * 4
         r = ybar / xbar
-        var = sum(w ** 2 * (_var(y[m]) + r ** 2 * _var(x[m]) - 2 * r * _cov(y[m], x[m])) / len(m)
-                  for m, w in self.groups) / xbar ** 2
+        # the variance of the residuals y - r x (as var(y) + r^2 var(x) - 2 r cov(y, x), without its
+        # cancellation: exactly 0 where every point agrees)
+        var = sum(w ** 2 * _var(y[m] - r * x[m]) / len(m) for m, w in self.groups) / xbar ** 2
         return self._interval(r, np.sqrt(max(var, 0.0)))
+
+    def point_weights(self, n: int) -> np.ndarray:
+        """Each point's weight in ``mean``: its stratum's weight over its points (0 if left out)."""
+        out = np.zeros(n)
+        for m, w in self.groups:
+            out[m] = w / len(m)
+        return out
+
+    def share(self, estimator: str, y: np.ndarray, x: np.ndarray, x_share: float) -> Tuple[float, float]:
+        """(estimate, standard error) of the share of the area where ``y`` (the reference's
+        indicator of a class), given the map's indicator ``x`` of it and its share of the area
+        ``x_share`` (known: the mapped area over the total).
+
+        direct: the stratified mean of y (Stehman 2014). difference: x_share plus the stratified
+        mean of y - x, its variance that of y - x (Sarndal et al. 1992, sec. 6.3; Stehman 2013;
+        McRoberts et al. 2018). ratio: x_share times the ratio of the stratified means of y and
+        x, its variance that of the ratio times x_share squared (the combined ratio estimator,
+        Cochran 1977, sec. 6.11; Stehman 2013)."""
+        y, x = np.asarray(y, dtype=np.float64), np.asarray(x, dtype=np.float64)
+        if estimator == "difference":
+            est, se, _, _ = self.mean(y - x, interval=True)
+            return x_share + est, se
+        if estimator == "ratio":
+            est, se, _, _ = self.ratio(y, x)
+            return x_share * est, x_share * se
+        est, se, _, _ = self.mean(y, interval=True)
+        return est, se
 
 
 def _var(v: np.ndarray) -> float:
     return float(np.var(v, ddof=1)) if len(v) > 1 else 0.0
-
-
-def _cov(a: np.ndarray, b: np.ndarray) -> float:
-    return float(np.cov(a, b, ddof=1)[0, 1]) if len(a) > 1 else 0.0
 
 
 def _date_agreement(strata: _Strata, samples, m, r, est: _Estimator, points, column: str,

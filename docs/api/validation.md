@@ -150,7 +150,7 @@ acc = s.accuracy(date_tolerance=1)
 zeit.accuracy(
     map, samples, *, reference="ref", strata=None, bins=None,
     date_tolerance=None, reference_date="ref_date", confidence=0.95,
-    nodata="auto",
+    estimator="direct", nodata="auto",
 )
 ```
 
@@ -168,6 +168,7 @@ The map's error matrix in proportions of area, its overall, user's and producer'
 | `date_tolerance` | `float` | `None` | Maps of events: also compare dates. Of the points both call change, the share whose years (of the map's `date` and `reference_date`) are at most this far apart. |
 | `reference_date` | `str` | `"ref_date"` | Column with the reference date of the change. |
 | `confidence` | `float` | `0.95` | Level of the confidence intervals. |
+| `estimator` | `str` | `"direct"` | How the areas are estimated: `"direct"` (the sample alone: Stehman 2014), `"difference"` (the mapped area plus the estimated area of the reference minus the map's) or `"ratio"` (the mapped area times the estimated ratio of the reference's area to the map's). See [Model-assisted estimators](#model-assisted-estimators). |
 | `nodata` | `"auto"`, `float` or `None` | `"auto"` | As for `sampling_design`. |
 
 </div>
@@ -178,11 +179,12 @@ The map's error matrix in proportions of area, its overall, user's and producer'
 | :--- | :--- |
 | `overall` | `estimate`, `se`, `ci_low`, `ci_high` of the overall accuracy. |
 | `users`, `producers` | The same, per class (rows). |
-| `area` | Per class: `mapped` (area the map gives it), `estimate` (error-adjusted area), `se`, `ci` (half-width of the interval), `ci_low`, `ci_high`, in `area_unit`. |
+| `area` | Per class: `mapped` (area the map gives it; inside the strata when `strata` is on the map's grid, the population the sample was drawn from), `estimate` (error-adjusted area), `se`, `ci` (half-width of the interval), `ci_low`, `ci_high`, in `area_unit`. |
 | `confusion` | Error matrix in proportions of area: map classes in rows, reference classes in columns. |
 | `counts` | The error matrix in points. |
 | `date` | With `date_tolerance`: `within` (estimated share of the change points whose dates agree), `within_se`, `mean_difference` (years), `n`. |
 | `n`, `n_unlabelled` | Points used, and points left out for having no label. |
+| `estimator` | How `area` was estimated. |
 | `to_dataframe()` | User's, producer's and area in one table. |
 
 ```python
@@ -197,3 +199,53 @@ acc_ccdc = zeit.accuracy(zeit.extract_events(segments, band="nir", event_type="l
 
 !!! warning "Points chosen by hand are not a sample"
     The estimates assume the points were drawn at random within the strata (or across the whole map). Field points or points picked on the screen give an error matrix, but not unbiased accuracies or areas. `accuracy` warns when the points have no `stratum` column and weighs them as if they were stratified by the map.
+
+## Model-assisted estimators
+
+The direct estimator uses the sample alone: the share of each class in the reference, weighed by the area of each stratum. The map, though, is known everywhere, and its classes agree with the reference at most points. The model-assisted estimators use it (Särndal et al. 1992; Stehman 2013; McRoberts et al. 2018):
+
+- **difference**: the mapped area of the class, plus the estimated area where the reference has it minus the area where the map has it (the map's net error). Its variance is that of the differences, small where the map is right.
+- **ratio**: the mapped area of the class, times the estimated ratio of the area the reference gives it to the area the map gives it (the combined ratio estimator, Cochran 1977). NaN for a class no sample point is mapped as.
+
+They matter when the strata are not the map's classes, as with a sample stratified by another map or by a map of change, and most for rare classes and changes: on the fixture of the tests (a sample of 190 points stratified by an older alert map), the 95% interval of "Forest -> Pasture" is ±17.6 ha by the direct estimator and ±3.4 ha by the difference estimator, around 22 ha. With the map's classes as strata the three estimators give the same areas. The accuracies (user's, producer's, overall) are the same whatever the estimator. All three are R's `survey` package's (`svytotal`, `svyratio`) to 1e-10.
+
+```python
+acc = zeit.accuracy(the_map, points, strata=alerts, estimator="difference")
+```
+
+## `transitions` { .api }
+
+<!-- sig: zeit.transitions -->
+```python
+zeit.transitions(
+    map_from, map_to, samples, *, reference_from="ref_from",
+    reference_to="ref_to", strata=None, confidence=0.95,
+    estimator="direct", nodata="auto",
+)
+```
+
+The area of each transition between two dates of a map of classes ("Forest -> Pasture"; "Forest -> Forest" where nothing changed), with its confidence interval, from a reference sample labelled with the class at each date. Each pair of classes is a class of a map of transitions, assessed as [`accuracy`](#accuracy) assesses a map: error matrix of the transitions, user's and producer's accuracies, and the error-adjusted areas by the direct, difference or ratio estimator. Also exported as `zeit.transitions`.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `map_from` | `DataArray` or path | required | The map of classes at the first date. |
+| `map_to` | `DataArray` or path | required | The map of classes at the second date, on the same grid. |
+| `samples` | `GeoDataFrame`, path or `zeit.interpret` session | required | The reference points, in any CRS, with the reference class at each date. Points without both are left out (and counted). |
+| `reference_from` | `str` | `"ref_from"` | Column with the reference class at the first date (names of the maps' classes or their codes). |
+| `reference_to` | `str` | `"ref_to"` | Column with the reference class at the second date. |
+| `strata` | `DataArray`, `Dataset` or path | `None` | The map the sample was stratified by (classes of one date, a map of change...). Default: the transitions themselves. |
+| `confidence` | `float` | `0.95` | Level of the confidence intervals. |
+| `estimator` | `str` | `"direct"` | `"direct"`, `"difference"` or `"ratio"`, as for `accuracy`. |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | As for `sampling_design`. |
+
+</div>
+
+**Returns** an `Accuracy` object whose classes are the transitions `"<from> -> <to>"`: those the maps have and those the reference adds.
+
+```python
+tr = zeit.transitions("lc_2015.tif", "lc_2022.tif", points, strata="change_2015_2022.tif",
+                      estimator="difference")
+tr.area.loc["Forest -> Pasture", ["mapped", "estimate", "ci"]]   # hectares, ± the 95% interval
+```

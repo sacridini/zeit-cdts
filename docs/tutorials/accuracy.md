@@ -228,6 +228,27 @@ acc_ccdc = zeit.accuracy(ccdc_loss, "loss_reference.gpkg", strata=loss)
 
 This is the fair way to compare algorithms: the same points, labelled once, without knowing which map they would favour. The intervals of the second map are wider than if it had been sampled on its own strata, since its errors are not where the sample concentrated.
 
+## Transitions between two dates
+
+A map of classes at two dates says how much forest became pasture. Label each point with the class at each date (two columns, `ref_from` and `ref_to`), and `zeit.transitions` estimates the area of every transition, "Forest -> Pasture" as well as "Forest -> Forest", each with its interval:
+
+```python
+tr = zeit.transitions("lc_2015.tif", "lc_2022.tif", points, strata="lc_2015.tif")
+tr.area.loc["Forest -> Pasture", ["mapped", "estimate", "ci"]]
+```
+
+Changes are rare, so a sample stratified by one date's classes has few points in them, and their intervals are wide. Stratify by a map of change instead (the transitions themselves, or another product's alerts), and pass it as `strata`.
+
+## When the strata are not the map: model-assisted estimators
+
+The error-adjusted areas above use the sample alone (the direct estimator). The map is known everywhere, though, and the model-assisted estimators use it: `estimator="difference"` takes the mapped area and corrects it by the map's net error estimated from the sample; `estimator="ratio"` multiplies it by the estimated ratio of the reference's area to the map's. With the map's classes as strata the three agree; with other strata, and for rare classes or changes, the model-assisted intervals are narrower when the map is good:
+
+```python
+tr = zeit.transitions("lc_2015.tif", "lc_2022.tif", points, strata="alerts.tif", estimator="difference")
+```
+
+On the fixture of the tests (190 points stratified by an older alert map), the 95% interval of the area cleared is ±17.6 ha by the direct estimator and ±3.4 ha by the difference estimator. The three are checked against R's `survey` package to 1e-10.
+
 ## Pitfalls
 
 !!! warning "What makes the estimates wrong"
@@ -253,5 +274,9 @@ Following Olofsson et al. (2014), a paper or a report should give enough to repe
 ## References
 
 - Olofsson, P., Foody, G. M., Herold, M., Stehman, S. V., Woodcock, C. E., Wulder, M. A. (2014). Good practices for estimating area and assessing accuracy of land change. *Remote Sensing of Environment*, 148, 42–57.
+- Cochran, W. G. (1977). *Sampling Techniques*, 3rd ed. Wiley.
+- McRoberts, R. E., Stehman, S. V., Liknes, G. C., Næsset, E., Sannier, C., Walters, B. F. (2018). The effects of imperfect reference data on remote sensing-assisted estimators of land cover class proportions. *ISPRS Journal of Photogrammetry and Remote Sensing*, 142, 292–300.
+- Särndal, C.-E., Swensson, B., Wretman, J. (1992). *Model Assisted Survey Sampling*. Springer.
+- Stehman, S. V. (2013). Estimating area from an accuracy assessment error matrix. *Remote Sensing of Environment*, 132, 202–211.
 - Stehman, S. V. (2014). Estimating area and map accuracy for stratified random sampling when the strata are different from the map classes. *International Journal of Remote Sensing*, 35(13), 4923–4939.
 - Stehman, S. V., Foody, G. M. (2019). Key issues in rigorous accuracy assessment of land cover products. *Remote Sensing of Environment*, 231, 111199.

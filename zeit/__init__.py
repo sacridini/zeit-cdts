@@ -23,7 +23,7 @@ from ._recovery import recovery_metrics
 from ._ewmacd import ewmacd
 from ._beast import beast
 from .metrics import extract_events, agreement
-from ._accuracy import sampling_design, stratified_sample, accuracy
+from ._accuracy import sampling_design, stratified_sample, accuracy, transitions
 from ._ccdc import predict_synthetic_image
 from ._twdtw_api import twdtw
 
@@ -102,7 +102,7 @@ __all__ = [
     "ar_trend", "parts", "recovery_metrics", "ewmacd", "beast",
     "twdtw", "smooth", "tmask", "snic", "texture", "som", "clean_samples", "unmix", "coded",
     "extract_events", "agreement", "predict_synthetic_image",
-    "sampling_design", "stratified_sample", "accuracy",
+    "sampling_design", "stratified_sample", "accuracy", "transitions",
     "train_classifier", "classify",
     "apply_mmu_filter", "apply_majority_filter", "mmu_sieve", "smooth_probs", "desawtooth_classes",
     "aoa", "train_di", "TrainDI",

@@ -148,7 +148,8 @@
 | [`sampling_design`](validation.md#sampling_design) | Sample size and allocation per stratum (Olofsson et al. 2014) |
 | [`stratified_sample`](validation.md#stratified_sample) | Stratified random points of a map |
 | [`interpret`](validation.md#interpret) | Label reference points by eye: chips, series, keyboard, review |
-| [`accuracy`](validation.md#accuracy) | Accuracies and error-adjusted areas with confidence intervals |
+| [`accuracy`](validation.md#accuracy) | Accuracies and error-adjusted areas with confidence intervals (direct, difference or ratio estimator) |
+| [`transitions`](validation.md#transitions) | The area of each transition between two dates of a map of classes, with its interval |
 | **Visualisation** | |
 | [`plot`](plot.md#plot) | Any cube, map, result or pixel: interactive viewer in a notebook or window, or a matplotlib figure |
 | **Deep learning** (`zeit.ai`) | |

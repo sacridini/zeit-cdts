@@ -183,6 +183,28 @@ Each partition is a GLS on a dense 1500 × 1500 correlation matrix, so the cost 
 
 The kNNDM rows are the best of two runs, not three.
 
+### Areas of transitions vs survey
+
+[`zeit.transitions`](../api/validation.md#transitions) against R's **survey 4.5** (Lumley), the reference for design-based estimators, with **terra** for the mapped areas. The landscape is made up: 2048 × 2048 pixels of 30 m with Forest, Pasture, Crop and Water at two dates; patches are cleared, cropped and regrown between the dates. Two maps of the dates have errors: 6% of the classes are wrong, 80% of the changes are found and 1.5% of the pixels are false change. The strata are not the transitions: they come from an older alert map (its alerts, a buffer of 2 pixels and the rest), with 250 + 200 + 150 points whose reference is the truth.
+
+The R script counts the transitions inside the strata with terra's `freq`. It then builds `svydesign(ids = ~1, strata = ~h, weights = ~A_h / n_h)` and estimates each transition's area with:
+
+- `svytotal` (direct);
+- the mapped area plus `svytotal` of y − x (difference);
+- `svyratio(~y, ~x)` times the mapped area (ratio).
+
+The user's and producer's accuracies come from `svyratio` and the overall accuracy from `svymean`. Its timing covers reading the three rasters, so both sides read them from files.
+
+| Workload | survey + terra | Zeit | Speedup | Agreement |
+|:---|---:|---:|:---:|:---|
+| direct, 2048 × 2048 px, 600 points, 16 transitions | 0.51 s | 0.85 s | 0.6× | max diff 5.7e-15 |
+| difference | 0.44 s | 0.77 s | 0.6× | max diff 7.6e-15 |
+| ratio | 0.42 s | 0.73 s | 0.6× | max diff 5.7e-15 |
+
+**How they were checked.** For every transition, the script compares the mapped area, the estimate and its standard error, and the user's and producer's accuracies with their standard errors. It also compares the overall accuracy. Each must agree with survey's to 1e-9 of the value (or of 1 for values below 1). A value survey leaves undefined (NA) must be NaN in Zeit, for example the ratio estimate of a transition no point is mapped as. The fixtures of `tests/test_accuracy_survey.py` (`tests/data/make_survey_fixtures.R`) hold the same estimators to 1e-10 on a smaller landscape.
+
+Zeit is slower here, unlike in the benchmarks above. On these maps, most of its time is reading the rasters and counting the pairs through dask, not the estimates. The Janus benchmark of the same estimators (its `tools/bench_validation_vs_survey.py`) has the count in Rust.
+
 ---
 
 ## Protocol
@@ -199,9 +221,9 @@ The kNNDM rows are the best of two runs, not three.
 |:---|:---|
 | Platform | Windows 11 (`Windows-11-10.0.26300-SP0`) |
 | Processor | `Intel64 Family 6 Model 183 Stepping 1, GenuineIntel` (the Intel Core i5-13600K of the other benchmarks), 20 logical processors |
-| R | 4.4.2, with sfdep 0.2.5, RecoverMetricsR 0.1.0, RStoolbox 1.0.2.2, sits 1.5.4, CAST 1.0.4, Rbeast 1.0.2, remotePARTS 1.0.4, blockCV 4.0.1 (with automap 1.1.20) and scam 1.2.23 |
+| R | 4.4.2, with sfdep 0.2.5, RecoverMetricsR 0.1.0, RStoolbox 1.0.2.2, sits 1.5.4, CAST 1.0.4, Rbeast 1.0.2, remotePARTS 1.0.4, blockCV 4.0.1 (with automap 1.1.20), scam 1.2.23 and survey 4.5 |
 | Python | pyxccd 1.1.0, in a virtual environment of its own |
-| Date | 2026-10-24 (the AR(1) trends and PARTS: 2026-10-28; the spatial cross-validation: 2026-10-29) |
+| Date | 2026-10-24 (the AR(1) trends and PARTS: 2026-10-28; the spatial cross-validation: 2026-10-29; the transitions: 2026-11-03) |
 
 ---
 
@@ -218,6 +240,7 @@ python benchmarks/vs_originals/aoa.py
 python benchmarks/vs_originals/beast.py
 python benchmarks/vs_originals/parts.py               # sides 50, 100, 200; ZEIT_BENCH_THREADS=8 by default
 python benchmarks/vs_originals/folds.py               # autocor knndm profile mahalanobis (CAST's MD takes 15 min)
+python benchmarks/vs_originals/accuracy_survey.py     # zeit.transitions against survey (and terra)
 python benchmarks/vs_originals/ewmacd.py "path/to/EWMACD v1.3.0.r"   # Brooks' script, not distributed
 PYXCCD_PYTHON=path/to/pyxccd-env/python python benchmarks/vs_originals/sccd.py CCDC_Stack_Rondonia.tif CCDC_Stack_Rondonia_Dates.csv
 ```
