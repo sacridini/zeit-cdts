@@ -153,7 +153,16 @@ def _strata_of(data: Any, bins: Optional[Sequence[float]], nodata: Any) -> _Stra
             names.update({i + 1: _interval(edges[i], edges[i + 1], years=True) for i in range(len(edges) - 1)})
         return _Strata(codes.astype(np.int32), names, data, data)
 
+    from ._plot._style import classes_from_attrs
+
     raw, nd = _raw_map(data, nodata)
+    if bins is None and np.issubdtype(raw.dtype, np.integer) and np.can_cast(raw.dtype, np.int32):
+        codes, found = _integer_codes(raw, nd)
+        if len(found) > 1000:
+            raise ValueError(f"the map has {len(found)} distinct values: give the strata as intervals with bins=")
+        labels = classes_from_attrs(raw.attrs) or {}
+        names = {int(v): labels.get(float(v), str(int(v))) for v in found}
+        return _Strata(codes, names, None, raw)
     da = raw if nd is None else raw.where(raw != nd)
     valid = da.notnull()
     if bins is not None:
@@ -161,15 +170,6 @@ def _strata_of(data: Any, bins: Optional[Sequence[float]], nodata: Any) -> _Stra
         codes = xr.where(valid, _digitize(da.astype(np.float64), edges), -1)
         names = {i + 1: _interval(edges[i], edges[i + 1]) for i in range(len(edges) - 1)}
         return _Strata(codes.astype(np.int32), names, None, da)
-    from ._plot._style import classes_from_attrs
-
-    if np.issubdtype(raw.dtype, np.integer) and np.can_cast(raw.dtype, np.int32):
-        codes, found = _integer_codes(raw, nd)
-        if len(found) > 1000:
-            raise ValueError(f"the map has {len(found)} distinct values: give the strata as intervals with bins=")
-        labels = classes_from_attrs(da.attrs) or {}
-        names = {int(v): labels.get(float(v), str(int(v))) for v in found}
-        return _Strata(codes, names, None, da)
     values = da.data
     if hasattr(values, "dask"):
         import dask.array as dask_array
@@ -794,10 +794,17 @@ def _transition_strata(a: _Strata, b: _Strata) -> _Strata:
         import dask.array as dask_array
         valid = (a.codes >= 0) & (b.codes >= 0)
         codes = xr.where(valid, (a.codes.astype(np.int64) + shift) * width + (b.codes.astype(np.int64) + shift), -1)
+        codes = codes.astype(np.int64)
         found = np.asarray(dask_array.unique(codes.data).compute())
-    else:   # both in memory: one pass, the transitions found from a table of the codes seen
+    else:   # both in memory: the pairs in place, in int32 when they fit, found from a table of the codes seen
         va, vb = np.asarray(va), np.asarray(vb)
-        pair = (va.astype(np.int64) + shift) * width + (vb.astype(np.int64) + shift)
+        pair = va.astype(np.int32 if width * width < 2 ** 31 else np.int64)
+        if shift:
+            pair += shift
+        pair *= width
+        pair += vb
+        if shift:
+            pair += shift
         pair[(va < 0) | (vb < 0)] = -1
         codes = xr.DataArray(pair, coords=a.codes.coords, dims=a.codes.dims)
         found = _distinct(pair)
@@ -806,7 +813,6 @@ def _transition_strata(a: _Strata, b: _Strata) -> _Strata:
     for code in found.tolist():
         i, j = divmod(int(code), width)
         names[int(code)] = f"{a.names[i - shift]}{SEPARATOR}{b.names[j - shift]}"
-    codes = codes.astype(np.int64)
     if a.codes.rio.crs is not None:
         codes = codes.rio.write_crs(a.codes.rio.crs)
     return _Strata(codes, names, None, codes)

@@ -197,9 +197,9 @@ The user's and producer's accuracies come from `svyratio` and the overall accura
 
 | Workload | survey + terra | Zeit | Speedup | Agreement |
 |:---|---:|---:|:---:|:---|
-| direct, 2048 × 2048 px, 600 points, 16 transitions | 0.39 s | 0.24 s | 1.7× | max diff 5.7e-15 |
-| difference | 0.35 s | 0.23 s | 1.5× | max diff 7.6e-15 |
-| ratio | 0.38 s | 0.24 s | 1.6× | max diff 5.7e-15 |
+| direct, 2048 × 2048 px, 600 points, 16 transitions | 0.48 s | 0.18 s | 2.7× | max diff 5.7e-15 |
+| difference | 0.40 s | 0.21 s | 1.9× | max diff 7.6e-15 |
+| ratio | 0.41 s | 0.19 s | 2.2× | max diff 5.7e-15 |
 
 **How they were checked.** For every transition, the script compares the mapped area, the estimate and its standard error, and the user's and producer's accuracies with their standard errors. It also compares the overall accuracy. Each must agree with survey's to 1e-9 of the value (or of 1 for values below 1). A value survey leaves undefined (NA) must be NaN in Zeit, for example the ratio estimate of a transition no point is mapped as. The fixtures of `tests/test_accuracy_survey.py` (`tests/data/make_survey_fixtures.R`) hold the same estimators to 1e-10 on a smaller landscape.
 
