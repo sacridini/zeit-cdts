@@ -197,13 +197,13 @@ The user's and producer's accuracies come from `svyratio` and the overall accura
 
 | Workload | survey + terra | Zeit | Speedup | Agreement |
 |:---|---:|---:|:---:|:---|
-| direct, 2048 × 2048 px, 600 points, 16 transitions | 0.51 s | 0.85 s | 0.6× | max diff 5.7e-15 |
-| difference | 0.44 s | 0.77 s | 0.6× | max diff 7.6e-15 |
-| ratio | 0.42 s | 0.73 s | 0.6× | max diff 5.7e-15 |
+| direct, 2048 × 2048 px, 600 points, 16 transitions | 0.39 s | 0.24 s | 1.7× | max diff 5.7e-15 |
+| difference | 0.35 s | 0.23 s | 1.5× | max diff 7.6e-15 |
+| ratio | 0.38 s | 0.24 s | 1.6× | max diff 5.7e-15 |
 
 **How they were checked.** For every transition, the script compares the mapped area, the estimate and its standard error, and the user's and producer's accuracies with their standard errors. It also compares the overall accuracy. Each must agree with survey's to 1e-9 of the value (or of 1 for values below 1). A value survey leaves undefined (NA) must be NaN in Zeit, for example the ratio estimate of a transition no point is mapped as. The fixtures of `tests/test_accuracy_survey.py` (`tests/data/make_survey_fixtures.R`) hold the same estimators to 1e-10 on a smaller landscape.
 
-Zeit is slower here, unlike in the benchmarks above. On these maps, most of its time is reading the rasters and counting the pairs through dask, not the estimates. The Janus benchmark of the same estimators (its `tools/bench_validation_vs_survey.py`) has the count in Rust.
+Most of the time on both sides is reading the rasters and counting the pairs, not the estimates. A map of integer classes of up to 2^26 pixels is read once into memory, and Zeit counts its classes, the pairs and the pixels of each stratum per row with a few `bincount`s; larger maps stay lazy and are counted through dask. Before this, Zeit read each raster several times through dask and took 0.73–0.85 s, 0.6× survey's speed. The Janus benchmark of the same estimators (its `tools/bench_validation_vs_survey.py`) has the count in Rust.
 
 ---
 

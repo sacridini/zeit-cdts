@@ -22,7 +22,9 @@ narrow when the map is good. ``transitions`` assesses the transitions between tw
 map of classes (each pair of classes a class: "Forest -> Pasture"), with the same estimators.
 
 Strata and areas come from the map: the area of each pixel from its transform and CRS
-(hectares; in a geographic CRS, the area of each row on the sphere), lazily for dask maps.
+(hectares; in a geographic CRS, the area of each row on the sphere). A map of integer classes of up
+to 2^26 pixels is read once and counted in memory; larger ones, and maps of other values, lazily
+for dask maps.
 """
 
 from dataclasses import dataclass, field
@@ -55,7 +57,8 @@ def _is_events(data: Any) -> bool:
     return isinstance(data, xr.Dataset) and "yod" in data
 
 
-def _as_map(data: Any, nodata: Any) -> xr.DataArray:
+def _raw_map(data: Any, nodata: Any) -> Tuple[xr.DataArray, Any]:
+    """(the map as it is stored, its nodata value or None when there is none or it is NaN)."""
     from ._load import load_raster
 
     if isinstance(data, xr.Dataset):
@@ -70,9 +73,60 @@ def _as_map(data: Any, nodata: Any) -> xr.DataArray:
     da = da.transpose("y", "x")
     if nodata == "auto":
         nodata = da.rio.nodata
-    if nodata is not None and not (isinstance(nodata, float) and np.isnan(nodata)):
-        da = da.where(da != nodata)
-    return da
+    if nodata is not None and isinstance(nodata, float) and np.isnan(nodata):
+        nodata = None
+    return da, nodata
+
+
+def _as_map(data: Any, nodata: Any) -> xr.DataArray:
+    da, nodata = _raw_map(data, nodata)
+    return da if nodata is None else da.where(da != nodata)
+
+
+# A map of classes of this many pixels or fewer is read once into memory (its codes as int32: 256 MB at most) and
+# counted there; a larger one stays lazy.
+_IN_MEMORY = 1 << 26
+_SLAB = 1 << 22   # pixels counted at a time, to bound the temporary arrays
+
+
+def _distinct(v: np.ndarray) -> np.ndarray:
+    """The distinct values of an integer array, sorted (a table of the values seen when their range is small)."""
+    flat = v.reshape(-1)
+    if flat.size == 0:
+        return np.zeros(0, dtype=np.int64)
+    lo, hi = int(flat.min()), int(flat.max())
+    if hi - lo > _SLAB:
+        return np.unique(flat).astype(np.int64)
+    seen = np.zeros(hi - lo + 1, dtype=bool)
+    for i in range(0, flat.size, _SLAB):
+        seen[np.subtract(flat[i:i + _SLAB], lo, dtype=np.int64)] = True
+    return np.flatnonzero(seen) + lo
+
+
+def _code_block(v: np.ndarray, nodata: Any) -> np.ndarray:
+    codes = v.astype(np.int32)
+    if nodata is not None:
+        codes[v == nodata] = -1
+    return codes
+
+
+def _integer_codes(raw: xr.DataArray, nodata: Any) -> Tuple[xr.DataArray, np.ndarray]:
+    """(the codes of a map of integer classes, -1 at nodata; its classes): read once, into memory when it is not
+    too large."""
+    values = raw.data
+    if hasattr(values, "dask") and raw.size <= _IN_MEMORY:
+        values = values.compute()
+    if hasattr(values, "dask"):
+        import dask.array as dask_array
+        found = np.asarray(dask_array.unique(values).compute(), dtype=np.int64)
+        codes = dask_array.map_blocks(_code_block, values, nodata, dtype=np.int32)
+    else:
+        values = np.asarray(values)
+        found = _distinct(values)
+        codes = _code_block(values, nodata)
+    if nodata is not None:
+        found = found[found != nodata]
+    return xr.DataArray(codes, coords=raw.coords, dims=raw.dims), found
 
 
 def _strata(data: Any, bins: Optional[Sequence[float]] = None, nodata: Any = "auto") -> _Strata:
@@ -99,13 +153,23 @@ def _strata_of(data: Any, bins: Optional[Sequence[float]], nodata: Any) -> _Stra
             names.update({i + 1: _interval(edges[i], edges[i + 1], years=True) for i in range(len(edges) - 1)})
         return _Strata(codes.astype(np.int32), names, data, data)
 
-    da = _as_map(data, nodata)
+    raw, nd = _raw_map(data, nodata)
+    da = raw if nd is None else raw.where(raw != nd)
     valid = da.notnull()
     if bins is not None:
         edges = np.asarray(bins, dtype=np.float64)
         codes = xr.where(valid, _digitize(da.astype(np.float64), edges), -1)
         names = {i + 1: _interval(edges[i], edges[i + 1]) for i in range(len(edges) - 1)}
         return _Strata(codes.astype(np.int32), names, None, da)
+    from ._plot._style import classes_from_attrs
+
+    if np.issubdtype(raw.dtype, np.integer) and np.can_cast(raw.dtype, np.int32):
+        codes, found = _integer_codes(raw, nd)
+        if len(found) > 1000:
+            raise ValueError(f"the map has {len(found)} distinct values: give the strata as intervals with bins=")
+        labels = classes_from_attrs(da.attrs) or {}
+        names = {int(v): labels.get(float(v), str(int(v))) for v in found}
+        return _Strata(codes, names, None, da)
     values = da.data
     if hasattr(values, "dask"):
         import dask.array as dask_array
@@ -119,8 +183,6 @@ def _strata_of(data: Any, bins: Optional[Sequence[float]], nodata: Any) -> _Stra
         raise ValueError("the map has non-integer values: give the strata as intervals with bins=")
     if len(found) > 1000:
         raise ValueError(f"the map has {len(found)} distinct values: give the strata as intervals with bins=")
-    from ._plot._style import classes_from_attrs
-
     labels = classes_from_attrs(da.attrs) or {}
     names = {int(v): labels.get(float(v), str(int(v))) for v in found}
     codes = xr.where(valid, da.fillna(-1), -1).astype(np.int32)
@@ -171,8 +233,52 @@ def _row_areas(da: xr.DataArray) -> Tuple[np.ndarray, str]:
 def _counts_per_row(strata: _Strata) -> np.ndarray:
     """(stratum, row) pixel counts, in the order of ``strata.names``; one pass, lazily."""
     codes = strata.codes
+    if not hasattr(codes.data, "dask"):
+        return _count_rows(np.asarray(codes.data), np.fromiter(strata.names, dtype=np.int64, count=len(strata.names)))
     stack = xr.concat([(codes == c).sum("x") for c in strata.names], dim="stratum")
     return np.asarray(stack.values, dtype=np.int64).reshape(len(strata.names), codes.sizes["y"])
+
+
+def _count_rows(v: np.ndarray, names: np.ndarray) -> np.ndarray:
+    """(code, row) pixel counts of a (y, x) array in memory, the codes in the order of ``names``: one bincount of each
+    slab of rows, of each pixel's value plus the range of the values times its row when the range is small, else of
+    its position in ``names`` (k for none) plus k + 1 times its row."""
+    k, (ny, nx) = len(names), v.shape
+    counts = np.zeros((ny, k + 1), dtype=np.int64)
+    if k == 0 or v.size == 0:
+        return counts[:, :k].T.copy()
+    lo, hi = int(names.min()), int(names.max())
+    lut = None
+    if hi - lo <= _SLAB:
+        lut = np.full(hi - lo + 2, k, dtype=np.int64)   # the last entry: outside the range
+        lut[names - lo] = np.arange(k)
+    else:
+        order = np.argsort(names)
+        sorted_names = names[order]
+    step = max(1, _SLAB // max(nx, 1))
+    rows = np.arange(min(step, ny), dtype=np.int64)[:, None]
+    for r0 in range(0, ny, step):
+        block = v[r0:r0 + step]
+        n = block.shape[0]
+        base = min(lo, int(block.min()))
+        width = max(hi, int(block.max())) - base + 1
+        if width * n <= 4 * _SLAB:   # a few codes: count (value, row) directly, then take the columns of the names
+            key = np.subtract(block, base, dtype=np.int64)
+            key += width * rows[:n]
+            seen = np.bincount(key.reshape(-1), minlength=width * n).reshape(n, width)
+            counts[r0:r0 + n, :k] = seen[:, names - base]
+            continue
+        block = block.astype(np.int64)
+        if lut is not None:
+            rel = block - lo
+            rel[(rel < 0) | (rel > hi - lo)] = hi - lo + 1
+            pos = lut[rel]
+        else:
+            at = np.clip(np.searchsorted(sorted_names, block), 0, k - 1)
+            pos = np.where(sorted_names[at] == block, order[at], k)
+        key = pos + (k + 1) * np.arange(n, dtype=np.int64)[:, None]
+        counts[r0:r0 + n] = np.bincount(key.reshape(-1), minlength=(k + 1) * n).reshape(n, k + 1)
+    return counts[:, :k].T.copy()
 
 
 @dataclass
@@ -683,14 +789,18 @@ def _transition_strata(a: _Strata, b: _Strata) -> _Strata:
     lo = int(min(min(a.names, default=0), min(b.names, default=0), 0))
     shift = -lo
     width = base + shift
-    valid = (a.codes >= 0) & (b.codes >= 0)
-    codes = xr.where(valid, (a.codes.astype(np.int64) + shift) * width + (b.codes.astype(np.int64) + shift), -1)
-    values = codes.data
-    if hasattr(values, "dask"):
+    va, vb = a.codes.data, b.codes.data
+    if hasattr(va, "dask") or hasattr(vb, "dask"):
         import dask.array as dask_array
-        found = np.asarray(dask_array.unique(values).compute())
-    else:
-        found = np.unique(np.asarray(values))
+        valid = (a.codes >= 0) & (b.codes >= 0)
+        codes = xr.where(valid, (a.codes.astype(np.int64) + shift) * width + (b.codes.astype(np.int64) + shift), -1)
+        found = np.asarray(dask_array.unique(codes.data).compute())
+    else:   # both in memory: one pass, the transitions found from a table of the codes seen
+        va, vb = np.asarray(va), np.asarray(vb)
+        pair = (va.astype(np.int64) + shift) * width + (vb.astype(np.int64) + shift)
+        pair[(va < 0) | (vb < 0)] = -1
+        codes = xr.DataArray(pair, coords=a.codes.coords, dims=a.codes.dims)
+        found = _distinct(pair)
     found = found[found >= 0]
     names = {}
     for code in found.tolist():

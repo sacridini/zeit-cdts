@@ -138,3 +138,37 @@ def test_mapped_inside_the_strata(maps):
     for code, name in enumerate(R["names"], start=1):
         assert acc.area.loc[name, "mapped"] == pytest.approx((values == code).sum() * R["pixel_area"])
     assert acc.area.estimate.sum() == pytest.approx(float((part.values > 0).sum()) * R["pixel_area"])
+
+
+@pytest.mark.parametrize("estimator", ["direct", "difference"])
+def test_lazy_and_in_memory_agree(maps, monkeypatch, estimator):
+    """Maps of integer classes are read once and counted in memory; lazily (larger than _IN_MEMORY) and as floats
+    they give the same numbers."""
+    import zeit._accuracy as accuracy_module
+
+    a, b, strata = maps
+    pts = _points(R["points"])
+    in_memory = zeit.transitions(a.chunk(16), b.chunk(16), pts, strata=strata.chunk(16), estimator=estimator)
+    monkeypatch.setattr(accuracy_module, "_IN_MEMORY", 0)
+    lazy = zeit.transitions(a.chunk(16), b.chunk(16), pts, strata=strata.chunk(16), estimator=estimator)
+    as_floats = zeit.transitions(a.astype(np.float64), b.astype(np.float64), pts, strata=strata.astype(np.float32),
+                                 estimator=estimator)
+    for other in (lazy, as_floats):
+        assert list(other.area.index) == list(in_memory.area.index)
+        np.testing.assert_allclose(other.area.to_numpy(), in_memory.area.to_numpy(), rtol=1e-12)
+        np.testing.assert_allclose(other.strata.pixels.to_numpy(), in_memory.strata.pixels.to_numpy())
+    _check(in_memory, R["transitions"], estimator)
+
+
+@pytest.mark.parametrize("slab", [1 << 22, 64])
+def test_counts_per_row(monkeypatch, slab):
+    """The (class, row) counts by each of _count_rows' ways: the values directly, a table of the names, a search."""
+    import zeit._accuracy as accuracy_module
+
+    monkeypatch.setattr(accuracy_module, "_SLAB", slab)
+    rng = np.random.default_rng(3)
+    for names in (np.array([4, 1, 9, 60]), np.array([7, -3, 70_000_000, 2])):
+        v = rng.choice(np.append(names, [-1, 1234]), size=(37, 8)).astype(np.int64)
+        counts = accuracy_module._count_rows(v, names)
+        assert counts.shape == (len(names), v.shape[0])
+        np.testing.assert_array_equal(counts, [(v == c).sum(axis=1) for c in names])
