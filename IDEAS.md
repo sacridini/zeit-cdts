@@ -2523,6 +2523,26 @@ validação.
   - Tempo: 3,6× o FORCE com 1 thread e 2,4× com 6, num kernel do core que soma em float32 na ordem
     do FORCE (sem FMA) e escreve cada saída uma vez. A versão em numpy ficava em 0,8× com 6
     threads, limitada pela memória.
+- **23d, o ImproPhe:** `zeit.improphe`, o CF-ImproPhe e o L2-ImproPhe do FORCE (Frantz et al.
+  2016), port direto do `improphe-hl.c` e do `pca-cl.c`. O STARFM do `resmerge-ll.c` é código do
+  USDA com termos próprios e ficou de fora; o merge de 20 m para 10 m do Sentinel-2 ainda falta.
+  - O `pca` do FORCE projeta os dados na transposta da matriz de autovetores, e o resultado
+    depende dos sinais que o GSL dá a eles. Por isso o `gsl_eigen_symmv` do GSL 2.7 foi portado
+    linha a linha.
+  - Com `force=True`, igual ao FORCE em todos os valores quando ele usa a CBLAS de referência do
+    GSL. Com o OpenBLAS do build de referência, 99,997-100%.
+  - Duas armadilhas achadas no caminho:
+    - no conda-forge, `libgslcblas.so.0` aponta para o OpenBLAS; a CBLAS do GSL é o
+      `libgslcblas.so.0.0.0`;
+    - o `hypot` do Rust no Windows não é corretamente arredondado como o da glibc, e isso mudava
+      os autovetores. O port tem um `hypot` próprio.
+  - O L2IMP do FORCE 3.11.00 não roda como lançado: os produtos do sensor secundário nunca são
+    preenchidos. A comparação usa uma cópia do build com isso corrigido.
+  - O padrão do Zeit são as componentes principais do artigo. Nos dados sintéticos, nenhuma das
+    duas projeções ganha sempre, e a do FORCE muda de qualidade com os sinais dos autovetores.
+    `pca="force"` fica como opção.
+  - Tempo: 1,2× a 2,4× o estágio de cálculo do FORCE, com 1 e 6 threads, nos raios de 10, 20 e
+    50 pixels.
 - **Janus:** o `zeit-core` foi para o `7c01978` sem mudar nada do que o Janus já chamava. As
   ferramentas pedem duas coisas novas no Janus:
   - saídas cujas bandas a ferramenta decide (a grade nova, os anos, as janelas);
