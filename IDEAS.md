@@ -2480,6 +2480,49 @@ validação.
       foi confirmado com os autores.
   - Um port literal do `calc_metrics` mostra que essas são as únicas diferenças. O Zeit é
     156× mais rápido com 1 thread e 730× com 8.
+- **23c, o ajuste espectral:** `zeit.spectral_adjust`, port direto do `spec-adjust-hl.c`
+  (Scheffler, Frantz & Segl 2020). Leva Landsat 4-9 e MODIS às dez bandas do Sentinel-2A, com o
+  red edge previsto. As tabelas são geradas do fonte do FORCE e conferidas por checksum.
+  - Uma diferença de propósito: a primeira busca do FORCE pula o cluster 9 e deixa o global
+    vencer primeiro. O Zeit faz as duas buscas como a segunda, que é o que o artigo descreve.
+  - Com `force_search=True`, as duas buscas como as do FORCE: igual a ele em 100% dos 49 milhões
+    de valores int16 de cada sensor (LND08, 07 e 05). No padrão, 1,6 a 2,3% passam de 1, e são
+    exatamente as observações em que as duas buscas escolhem diferente.
+  - Tempo: 2,5× o cálculo do FORCE com 1 e 6 threads.
+  - O MODIS não foi comparado: o TSA do FORCE o recusa (11 bandas). O SpecHomo não foi rodado:
+    seus classificadores são arquivos dill de 218 MB, de licença não declarada, que executam
+    código ao carregar.
+- **23c, o NBAR:** `zeit.nbar`, o fator c de Roy et al. (2016, 2017), escrito em sala limpa pelos
+  artigos e pelo guia do HLS (o `brdf-ll.c` do FORCE vem do Ambrals, sem licença). Os kernels e
+  os fatores c batem com as tabelas da especificação a 5e-7.
+  - `zeit.sentinel2_angles` lê os ângulos da grade de 5 km do `MTD_TL.xml`, funde os detectores e
+    interpola para a grade do cubo. Uma folha leva 2,2 s com 8 threads.
+  - Contra o próprio HLS v2.0:
+    - L30: em todo bin de zênite e azimute de visada, a razão do HLS fica a 0,0083 do c do Zeit
+      (inclinação de 0,98 a 1,07);
+    - S30: do red edge ao SWIR, a 0,010-0,021 depois do offset de cada janela;
+    - o visível do S30 não bate, e a diferença fica com as correções atmosféricas (Sen2Cor e
+      LaSRC);
+    - os ângulos do sol batem a 0,03°.
+  - Os ângulos do Landsat ficam com quem tem as bandas do L1 (login no USGS).
+  - No caminho apareceu um defeito do `build_time_series`: o L2A do Earth Search já vem com o
+    offset do baseline 04.00 tirado (`earthsearch:boa_offset_applied`), e o Zeit o tirava de novo
+    (−0,1 na reflectância). Corrigido no 6301355.
+- **23c, o Tasseled Cap:** `zeit.tasseled_cap`, com brilho, verdor, umidade e o TCD do FORCE
+  (B − G − W).
+  - Por padrão, a matriz de Crist (1985) em todo sensor, com a aritmética do FORCE. É igual a ele
+    em 100% dos valores (Sentinel-2A e Landsat 8, 7 e 5).
+  - `coefficients="sensor"`: Huang et al. 2002 para o ETM+ e Baig et al. 2014 para o OLI, iguais
+    às tabelas do RStoolbox a 1e-7. A tabela do TM no RStoolbox tem dois sinais do SWIR1 trocados
+    em relação ao artigo; o Zeit segue o artigo.
+  - O Sentinel-2 fica com Crist, como no FORCE. A matriz de Shi & Xu (2019) é de 13 bandas do
+    L1C, B1, B9 e B10 incluídas (conferido na transcrição do ee_extra, Apache-2.0), e o L2A não
+    tem essas bandas. O agente tinha proposto uma versão de 6 bandas tirada da memória, que não
+    batia com nada publicado; foi descartada.
+  - `TCB`, `TCG`, `TCW` e `TCD` também em `compute_indices` e no Earth Engine.
+  - Tempo: 3,6× o FORCE com 1 thread e 2,4× com 6, num kernel do core que soma em float32 na ordem
+    do FORCE (sem FMA) e escreve cada saída uma vez. A versão em numpy ficava em 0,8× com 6
+    threads, limitada pela memória.
 - **Janus:** o `zeit-core` foi para o `7c01978` sem mudar nada do que o Janus já chamava. As
   ferramentas pedem duas coisas novas no Janus:
   - saídas cujas bandas a ferramenta decide (a grade nova, os anos, as janelas);

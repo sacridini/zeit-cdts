@@ -178,3 +178,27 @@ def test_compute_indices_has_the_crist_components():
     out = zeit.compute_indices(cube, ["TCB", "TCG", "TCW", "TCD"], band_map={"nir": "nir08"})
     tc = zeit.tasseled_cap(cube, ["brightness", "greenness", "wetness", "disturbance"])
     np.testing.assert_allclose(out.values, tc.values, rtol=1e-4, atol=1e-5)
+
+
+@pytest.mark.parametrize("dtype", [np.int16, np.uint16, np.int32, np.float32, np.float64])
+@pytest.mark.parametrize("threads", [1, 3])
+def test_the_compiled_kernel_equals_the_numpy_path_bit_for_bit(dtype, threads):
+    from zeit._tasseled import _block, _block_numpy, _matrices
+    rng = np.random.default_rng(7)
+    nt, nb, ny, nx = 4, 8, 37, 53
+    x = rng.integers(0, 9000, (nt, nb, ny, nx))
+    x[rng.random(x.shape) < 0.05] = 0
+    x[rng.random(x.shape) < 0.02] = 0 if dtype == np.uint16 else -9999
+    block = x.astype(dtype) if np.issubdtype(dtype, np.integer) else (x / 10000.0).astype(dtype)
+    if dtype in (np.float32, np.float64):
+        block[rng.random(block.shape) < 0.02] = np.nan
+    src = [5, 2, 7, 0, 3, 1]
+    m = _matrices("sensor", ["LND08", "LND07", "SEN2", "LND05"], nt,
+                  ["wetness", "brightness", "greenness"], ["wetness"])
+    for rows, dist, missing in [([0, 1, 2], (1, 2, 0), [0]), ([0], None, []), ([2, 1], (1, 2, 0), [-9999, 0])]:
+        a = _block(block, src, m, rows, dist, missing, threads)
+        b = _block_numpy(block, src, m, rows, dist, missing, threads)
+        assert a.dtype == b.dtype == np.float32 and a.shape == b.shape
+        nan = np.isnan(b)
+        assert np.array_equal(np.isnan(a), nan)
+        assert np.array_equal(a.view(np.uint32)[~nan], b.view(np.uint32)[~nan])

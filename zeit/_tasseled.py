@@ -131,13 +131,34 @@ def _tile(block: np.ndarray, out: np.ndarray, k: int, r0: int, r1: int, src: Seq
         out[k, len(rows), r0:r1] = tmp - done[w]
 
 
+_KERNEL_DTYPES = tuple(np.dtype(t) for t in (np.int16, np.uint16, np.int32, np.float32, np.float64))
+
+
 def _block(block: np.ndarray, src: Sequence[int], matrices: np.ndarray, rows: Sequence[int],
            disturbance: Optional[Sequence[int]], missing: Sequence[float] = (), threads: int = 1,
            block_info: Any = None) -> np.ndarray:
     """``(time, band, y, x)`` -> ``(time, component, y, x)`` float32. `matrices` is ``(date, row, 6)`` for all the
     dates of the cube; `rows` the rows to return, and `disturbance` (the rows of brightness, greenness and wetness)
-    adds ``B - G - W`` last. The image is done in tiles of rows that stay in cache, on `threads` threads (numpy
-    releases the GIL)."""
+    adds ``B - G - W`` last. Done by the compiled core on `threads` threads, with the arithmetic of ``_block_numpy``
+    bit for bit."""
+    from . import _core
+
+    first = block_info[0]["array-location"][0][0] if block_info else 0
+    block = np.asarray(block)
+    if block.dtype not in _KERNEL_DTYPES:
+        block = block.astype(np.float32)
+    block = np.ascontiguousarray(block)
+    m = np.ascontiguousarray(matrices[first:first + block.shape[0]], dtype=np.float32)
+    return _core.tasseled.tasseled_batch(block, [int(b) for b in src], m, [int(r) for r in rows],
+                                         None if disturbance is None else [int(r) for r in disturbance],
+                                         [float(v) for v in missing], int(threads))
+
+
+def _block_numpy(block: np.ndarray, src: Sequence[int], matrices: np.ndarray, rows: Sequence[int],
+                 disturbance: Optional[Sequence[int]], missing: Sequence[float] = (), threads: int = 1,
+                 block_info: Any = None) -> np.ndarray:
+    """What ``_block`` computes, in numpy: the image is done in tiles of rows that stay in cache, on `threads`
+    threads (numpy releases the GIL). The reference of the tests."""
     first = block_info[0]["array-location"][0][0] if block_info else 0
     nt, _, ny, nx = block.shape
     out = np.empty((nt, len(rows) + int(disturbance is not None), ny, nx), dtype=np.float32)

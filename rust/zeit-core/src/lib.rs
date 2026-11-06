@@ -46,6 +46,7 @@ pub mod spatial;
 pub mod specadjust;
 mod specadjust_tables;
 pub mod stl;
+pub mod tasseled;
 pub mod texture;
 pub mod tmask;
 pub mod tsa;

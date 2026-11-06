@@ -11,7 +11,7 @@ reading and no writing; ``force_time_ms.c`` makes its seconds milliseconds); it 
 FORCE's time is the minimum of the repetitions of ``tc`` less that of ``tc_src`` (the screening and the TSS bricks are common;
 ``tc`` keeps four bands and ``tc_src`` six, a difference that stays in FORCE's time and favours FORCE's number being too high).
 Zeit's is the best of three of ``zeit.tasseled_cap`` (four components, int16 in, float32 out, ``nodata=None``) on the whole cube,
-the observations FORCE screens out included (9% of them), on that many threads (numpy over tiles of rows).
+the observations FORCE screens out included (9% of them), on that many threads (the compiled core, over tiles of 4096 pixels).
 """
 import argparse
 import sys

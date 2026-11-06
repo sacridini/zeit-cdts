@@ -1241,11 +1241,11 @@ def part_tasseled(jobs):
                                     "band": ["blue", "green", "red", "nir08", "swir16", "swir22"],
                                     "platform": ("time", [platform] * nt)})
         t0 = time.perf_counter()
-        got = zeit.tasseled_cap(cube, TC_COMPONENTS, nodata=None).values       # (dates, 4, y, x) float32
+        got = zeit.tasseled_cap(cube, TC_COMPONENTS, nodata=None, n_jobs=1).values  # (dates, 4, y, x) float32
         seconds = time.perf_counter() - t0
         got = wrap_int16(got.transpose(1, 0, 2, 3))
         n_failed = len(_failed)
-        report(f"{sensor}: {int(valid.sum())} pixel-dates, Zeit {seconds * 1000:.0f} ms (numpy, 1 thread)", TC_COMPONENTS,
+        report(f"{sensor}: {int(valid.sum())} pixel-dates, Zeit {seconds * 1000:.0f} ms (1 thread)", TC_COMPONENTS,
                np.where(valid[None], got, 0), np.where(valid[None], want, 0))
         d = np.abs(got.astype(np.int32) - want)
         print(f"  pixel-dates equal in all four: {100 * (d == 0).all(0)[valid].mean():.3f} %; values off by exactly 1: "

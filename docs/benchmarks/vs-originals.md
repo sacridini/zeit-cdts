@@ -311,10 +311,10 @@ All four components are equal in every observation FORCE computes (the disturban
 
 | | FORCE | Zeit | Gain | Zeit, million pixel-dates/s |
 |:---|---:|---:|---:|---:|
-| 1 thread | 0.567 | 0.267 | 2.1× | 128 |
-| 6 threads | 0.156 | 0.189 | 0.8× | 179 |
+| 1 thread | 0.567 | 0.158 | 3.6× | 215 |
+| 6 threads | 0.156 | 0.065 | 2.4× | 520 |
 
-(FORCE's run with four indices keeps four bands in its time series and the other six, which favors FORCE's difference being too small; with the whole run FORCE takes 1.61 s with 1 thread and 0.39 s with 6.) The work is a few multiply-adds a value and memory-bound: Zeit's numpy loop works on tiles of rows that stay in the cache, and with six threads it is probably limited by memory (it reads 0.4 GB and writes 0.5 GB of float32, where FORCE's loop writes 16 bits; not profiled further).
+(FORCE's run with four indices keeps four bands in its time series and the other six, which favors FORCE's difference being too small; with the whole run FORCE takes 1.61 s with 1 thread and 0.39 s with 6.) The work is a few multiply-adds a value and memory-bound. Zeit's compiled core converts tiles of 4096 pixels of the six bands to float32 in a buffer that stays in the cache, adds the products in FORCE's order (no fused multiply-add) and writes each output value once; it reads 0.4 GB and writes 0.5 GB of float32, where FORCE writes 16 bits. A numpy version of the same arithmetic took 0.267 s and 0.189 s (0.8× FORCE on six threads).
 
 **RStoolbox.** `tasseledCap(img, sat)` on a synthetic image of 1000 x 1000 pixels and six bands (mixtures of vegetation, soil and water with noise, reflectance 0-1), one thread.
 
