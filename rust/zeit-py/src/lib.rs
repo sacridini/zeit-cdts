@@ -22,6 +22,7 @@ mod ccdc;
 mod coded;
 mod ewmacd;
 mod hotspots;
+mod improphe;
 mod knndm;
 mod landtrendr;
 mod mannkendall;
@@ -93,5 +94,6 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     add_submodule(m, &specadjust::module(m.py())?)?;
     add_submodule(m, &brdf::module(m.py())?)?;
     add_submodule(m, &tasseled::module(m.py())?)?;
+    add_submodule(m, &improphe::module(m.py())?)?;
     Ok(())
 }

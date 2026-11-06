@@ -49,6 +49,7 @@ from ._nbar import nbar
 from ._s2angles import sentinel2_angles
 from ._specadjust import spectral_adjust
 from ._tasseled import tasseled_cap
+from ._improphe import improphe
 
 from .regularize import regularize_time_series
 
@@ -125,6 +126,7 @@ __all__ = [
     "bandpass_adjust",
     "spectral_adjust",
     "tasseled_cap",
+    "improphe",
     "build_annual_composites",
     "build_spectral_temporal_metrics",
     "compute_indices",

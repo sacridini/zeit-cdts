@@ -193,6 +193,14 @@ class ZeitAccessor:
         from zeit._tasseled import tasseled_cap
         return tasseled_cap(self._obj, components, **kwargs)
 
+    def improphe(self, coarse: Any, **kwargs: Any) -> xr.DataArray:
+        """
+        FORCE's ImproPhe with this (time, band, y, x) fine reflectance cube as the guide: sharpens `coarse` to its
+        pixels, the same as ``zeit.improphe(coarse, cube, **kwargs)``.
+        """
+        from zeit._improphe import improphe
+        return improphe(coarse, self._obj, **kwargs)
+
     def save(self, path: Any, **kwargs: Any) -> Path:
         """
         Writes this map, cube or result to a raster: the same as ``zeit.save_raster(da, path, **kwargs)``.
