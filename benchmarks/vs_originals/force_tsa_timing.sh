@@ -86,6 +86,7 @@ COMMON=(DIR_LOWER="$WORK/ard" NTHREAD_READ=1 NTHREAD_WRITE=1 NTHREAD_COMPUTE="$N
 # they have in common.
 TSA_COMMON=(INDEX=NDVI OUTPUT_TSS=TRUE INT_DAY=16 ABOVE_NOISE=0 BELOW_NOISE=0)
 RBF=(INTERPOLATE=RBF RBF_SIGMA="8 16 32" RBF_CUTOFF=0.95)
+POL_ALL="DEM DLM DPS DSS DMS DES DEV DAV DLV LTS LGS LGV VEM VLM VPS VSS VMS VES VEV VAV VLV VBL VGA VSA VPA VGM VGV DPY DPV IST IBL IBT IGS IRR IFR RAR RAF RMR RMF"
 FB=(OUTPUT_FBY=TRUE OUTPUT_FBQ=TRUE OUTPUT_FBM=TRUE OUTPUT_FBW=TRUE OUTPUT_FBD=TRUE)
 
 [ -f "$WORK/compute.tsv" ] || printf 'config\tncomp\trep\twall_s\tinput_ms\tcompute_ms\toutput_ms\n' > "$WORK/compute.tsv"
@@ -104,6 +105,8 @@ cfg() {
         rbf_stm)         ARGS=("${RBF[@]}" OUTPUT_STM=TRUE STM="$STM") ;;
         rbf_fold)        ARGS=("${RBF[@]}" FOLD_TYPE=AVG "${FB[@]}") ;;
         rbf_trend_nopen) ARGS=("${RBF[@]}" FOLD_TYPE=AVG OUTPUT_TRY=TRUE OUTPUT_CAY=TRUE CHANGE_PENALTY=FALSE) ;;
+        rbf_polar)       ARGS=("${RBF[@]}" POL_ADAPTIVE=TRUE POL="VSS VPS VES VSA RMR IGS" OUTPUT_POL=TRUE) ;;
+        rbf_polar39)     ARGS=("${RBF[@]}" POL_ADAPTIVE=TRUE POL="$POL_ALL" OUTPUT_POL=TRUE) ;;
         cso_m1)          MOD=CSO; ARGS=(MONTH_STEP=1 CSO="$CSO") ;;
         cso_num)         MOD=CSO; ARGS=(MONTH_STEP=1 CSO="NUM") ;;
         *) echo "unknown config $1"; exit 2 ;;
@@ -134,7 +137,7 @@ run() {
     echo "done $name t=$NCOMP rep=$rep: wall $(echo "$t1 - $t0" | bc -l | cut -c1-6) s, I/C/O ms: $ms"
 }
 
-[ ${#CONFIGS[@]} -gt 0 ] || CONFIGS=(baseline int_linear int_moving int_rbf int_harmonic rbf_stm rbf_fold rbf_trend_nopen cso_m1 cso_num)
+[ ${#CONFIGS[@]} -gt 0 ] || CONFIGS=(baseline int_linear int_moving int_rbf int_harmonic rbf_stm rbf_fold rbf_trend_nopen rbf_polar rbf_polar39 cso_m1 cso_num)
 for name in "${CONFIGS[@]}"; do
     for rep in $REPS; do
         run "$name" "$rep"

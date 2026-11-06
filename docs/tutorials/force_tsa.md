@@ -6,7 +6,7 @@
 <div><span class="k">Answers</span><span class="v">What does this pixel's year look like, is it trending, when did it lose most, and how well was it observed?</span></div>
 <div><span class="k">Input</span><span class="v">One index with clouds as NaN: <code>(time, rows, cols)</code>, any spacing</span></div>
 <div><span class="k">Output</span><span class="v">A regular series, metrics by period, a trend and a change map, and gap statistics</span></div>
-<div><span class="k">Reference</span><span class="v">Ported from FORCE's TSA (Frantz 2019); RBF: Schwieder et al. (2016); STM: Müller et al. (2015); CAT: Hird et al. (2016); CSO: Ernst et al. (2018)</span></div>
+<div><span class="k">Reference</span><span class="v">Ported from FORCE's TSA (Frantz 2019); RBF: Schwieder et al. (2016); STM: Müller et al. (2015); CAT: Hird et al. (2016); CSO: Ernst et al. (2018); polar metrics: Brooks et al. (2020)</span></div>
 </div>
 
 ## How it works
@@ -22,6 +22,7 @@ FORCE's chain, and the Zeit function of each step:
 | Linear trend of a fold | TRY, TRQ, TRM, TRW, TRD | [`zeit.linear_trend`](../api/time-series.md#linear_trend) |
 | Greatest change, and the trend around it | CAY, CAQ, CAM, CAW, CAD | [`zeit.cat`](../api/time-series.md#cat) |
 | Clear observations and the gaps between them | CSO | [`zeit.clear_observations`](../api/time-series.md#clear_observations) |
+| Land surface phenology: dates, values, integrals and rates of each season | POL (and TRO, CAO of each metric) | [`zeit.polar_metrics`](../api/time-series.md#polar_metrics) |
 
 The folds are the link: the yearly mean of the interpolated series is a short series of its own, and `linear_trend` and `cat` take it along its `year` axis.
 
@@ -95,6 +96,16 @@ cso.sel(metric="max").mean(("y", "x"))              # the longest gap, in days
 
 Each window is a quarter; the gaps run from the window's start to the first clear observation, between them, and from the last to the window's end. A cube of booleans (`ndvi.notnull()`) works too. Low counts and long gaps tell where the interpolation, and the metrics built on it, are least reliable.
 
+### 6. Polar phenology metrics, and the trend of the start of the season
+
+```python
+pol = zeit.polar_metrics(tsi, ["DSS", "DES", "VPS", "IGS"])   # (metric, year, y, x)
+pol.sel(metric="DSS").mean(("y", "x"))                       # day of the year each season starts
+sos = zeit.linear_trend(pol.sel(metric="DSS"))               # days per year: slope, sig, ...
+```
+
+Each date of the interpolated series is a vector (the NDVI as the radius, the day of the year as the angle); the mean vector gives the time of least activity, which starts the phenological year, and the values accumulated along each season give its start (`DSS`, 20% of the total), middle and end (`DES`, 80%). `metrics` takes any of the [39 FORCE names](../api/time-series.md#polar_metrics): dates, lengths, values, amplitudes, integrals and rates. With 5 years of data there are 4 seasons, so one year at an end of the series is `NaN` (here 2022, which has no complete season). The result has a `year` axis, so `linear_trend` and `cat` take one metric along it directly: `sos.slope` is the change of the start of the season in days per year (a positive slope is a later start), and with so few seasons `sos.sig` should be read before the slope. The series must be regular, which is what `interpolate(..., step=16)` gives.
+
 !!! tip "Save the maps"
     The results are `DataArray`s and `Dataset`s on the cube's grid: `zeit.save_raster(trend, "results/trend")` writes one GeoTIFF per variable, and `zeit.save_raster(stm, ...)` one per metric.
 
@@ -105,10 +116,11 @@ Each window is a quarter; the gaps run from the window's start to the first clea
 - **The CAT penalty is corrected.** FORCE compares a candidate's penalized drop with the best one's unpenalized drop; Zeit compares penalized with penalized.
 - **CSO over k intervals, and the last window.** FORCE mixes the number of observations with the number of intervals in its standard deviation, skewness, kurtosis and quantiles, and drops the last window when it starts in the month the range ends in; Zeit takes every statistic over the same intervals and keeps the window.
 - **Constant series.** `skew` and `kurtosis` are NaN where FORCE leaves them undefined.
+- **Polar metrics.** The dates count from 1 January of each season's year (FORCE counts continuous days from the first year's), so a trend along `year` is the change per year; what FORCE leaves undefined and writes as 0 (a season whose total is zero) is `NaN`; `DPV` is 0 without `adaptive`, where FORCE writes `-DPY`.
 - **A harmonic pixel that does not converge.** The robust fit can cycle without settling; such a pixel is left out of the comparison with FORCE.
 
 ??? info "Validation"
-    Against FORCE 3.11.00 on 10,000 pixels, the metrics, folds, standardization, linear and moving interpolation and the harmonic fit to part of the series are equal; the RBF and the full harmonic are within 1 of FORCE's int16. See [Against the Original Implementations](../benchmarks/vs-originals.md#force-tsa).
+    Against FORCE 3.11.00 on 10,000 pixels, the metrics, folds, standardization, linear and moving interpolation and the harmonic fit to part of the series are equal; the RBF and the full harmonic are within 1 of FORCE's int16, and the 39 polar metrics are equal. See [Against the Original Implementations](../benchmarks/vs-originals.md#force-tsa).
 
 ## References
 
@@ -118,4 +130,5 @@ Each window is a quarter; the gaps run from the window's start to the first clea
 - Müller, H., Rufin, P., Griffiths, P., Barros Siqueira, A. J., & Hostert, P. (2015). Mining dense Landsat time series for separating cropland and pasture in a heterogeneous Brazilian savanna landscape. *Remote Sensing of Environment*, 156, 490-499.
 - Hird, J. N., Castilla, G., McDermid, G. J., & Bueno, I. T. (2016). A simple transformation for visualizing non-seasonal landscape change from dense time series of satellite data. *IEEE Journal of Selected Topics in Applied Earth Observations and Remote Sensing*, 9, 3372-3383.
 - Ernst, S., Lymburner, L., & Sixsmith, J. (2018). Implications of pixel quality flags on the observation density of a continental Landsat archive. *Remote Sensing*, 10, 1570.
+- Brooks, B.-G. J., Lee, D. C., Pomara, L. Y., & Hargrove, W. W. (2020). Monitoring broadscale vegetational diversity and change across North American landscapes using land surface phenology. *Forests*, 11(6), 606. [doi:10.3390/f11060606](https://doi.org/10.3390/f11060606) (the polar metrics, as FORCE's `polar-hl.c` implements them).
 - Alken, P., et al. GNU Scientific Library, `multifit/multirobust.c` (the bisquare IRLS of the harmonic fit).

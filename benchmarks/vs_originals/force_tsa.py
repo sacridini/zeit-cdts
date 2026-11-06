@@ -14,8 +14,9 @@ reports, are left out and counted, see ``IRLS_CAP``), ``trend`` (``zeit.linear_t
 against TRY, TRM, CAY and CAM with and without the change penalty), ``cso`` (``zeit.clear_observations``' core on
 FORCE's TSS and windows against cso_m1 and cso_m3: NUM, MIN, MAX, RNG and AVG equal; STD, SKW, KRT, the quantiles and IQR
 differ by design, shown with a port of FORCE's own code), ``polar`` (``zeit.polar_metrics``' core on FORCE's RBF TSI
-against the 39 polar metrics of rbf_polar_adapt and rbf_polar_fixed, and the trend and change of each against TRO and
-CAO; the dates converted from "days from 1 January of the band's year" to FORCE's continuous days, FORCE's in_ce
+against the 39 polar metrics of rbf_polar_adapt and rbf_polar_fixed, and of the edge cases moving_polar (a MOVING TSI
+with nodata) and rbf_polar_thr (other thresholds) and zero_polar (a block of zero index: season sum 0) when the
+reference folder has them, and the trend and change of each against TRO and CAO; the dates converted from "days from 1 January of the band's year" to FORCE's continuous days, FORCE's in_ce
 handling of TRO and CAO checked with a port of its code).
 
 For each product and band it prints the share of pixels that are equal, within +-1, and the largest |difference|.
@@ -829,7 +830,17 @@ def _polar_names():
     return list(POLAR_NAMES)
 
 
-def polar_zeit(jobs, adaptive, config="int_rbf"):
+# The polar configurations: name -> (adaptive, the configuration whose TSI is the input, start, mid, end thresholds).
+POLAR_CONFIGS = {
+    "rbf_polar_adapt": (True, "int_rbf", (0.2, 0.5, 0.8)),
+    "rbf_polar_fixed": (False, "int_rbf", (0.2, 0.5, 0.8)),
+    "moving_polar": (True, "moving_polar", (0.2, 0.5, 0.8)),
+    "rbf_polar_thr": (True, "int_rbf", (0.1, 0.4, 0.9)),
+    "zero_polar": (True, "zero_polar", (0.2, 0.5, 0.8)),
+}
+
+
+def polar_zeit(jobs, adaptive, config="int_rbf", thresholds=(0.2, 0.5, 0.8)):
     """Zeit's core on FORCE's own TSI: ``(metrics, years, pixels)`` floats (NaN where Zeit has none), the TSI's ``ce``
     relative to the first year, and the seconds."""
     from zeit import _core
@@ -839,7 +850,7 @@ def polar_zeit(jobs, adaptive, config="int_rbf"):
     assert len(grid) == v.shape[1], (len(grid), v.shape)
     ce = grid - (POL_FIRST_DATE // 10000) * 365
     t0 = time.perf_counter()
-    out = np.asarray(_core.tsa.polar_batch(v.astype(np.float32), ce, POL_STEP, _polar_names(), 0.2, 0.5, 0.8,
+    out = np.asarray(_core.tsa.polar_batch(v.astype(np.float32), ce, POL_STEP, _polar_names(), *thresholds,
                                            adaptive, jobs))  # (pixels, metrics, years)
     return out.transpose(1, 2, 0), ce, time.perf_counter() - t0
 
@@ -919,7 +930,7 @@ def _crit_list(nf):
     return [float("nan")] + [crit[df] for df in range(1, nf - 1)]
 
 
-def polar_trend(jobs, names, zeit_out, force_out, want_pol, config, adaptive):
+def polar_trend(jobs, names, zeit_out, force_out, want_pol, config, adaptive, bad):
     """TRO: ``zeit.linear_trend``'s core on each metric's yearly series against FORCE's ``<MET>-TRO``; the 9 date metrics,
     which FORCE has in continuous days, are converted as FORCE's in_ce does (see ``_in_ce_from_zeit``), and FORCE's own
     code in Python (``literal_trend``, in_ce) on FORCE's POL outputs must give FORCE's values."""
@@ -955,13 +966,14 @@ def polar_trend(jobs, names, zeit_out, force_out, want_pol, config, adaptive):
     known[:, sig] = (got[:, sig] != want[:, sig]) & (lit[:, sig] == want[:, sig])
     undefined = np.zeros(got.shape, bool)  # the R-squared of a constant series is 0/0: FORCE's int16 of a NaN is 0
     undefined[:, rsq] = (got[:, rsq] == NODATA) & (want[:, rsq] != NODATA)
+    skip_bad = np.broadcast_to(bad, got.shape)  # the pixels with a season FORCE leaves undefined: its series is garbage
     summary_by_metric(f"TRO ({config}): Zeit's trend of the yearly series, in_ce applied to the dates", names,
-                      got, want, known | undefined)
+                      got, want, known | undefined | skip_bad)
     print(f"  left out: SIG where the exact critical t differs from Hill's ({int(known.sum())} values); R-squared of "
           f"constant series ({int(undefined.sum())})")
 
 
-def polar_cat(jobs, names, zeit_out, force_out, want_pol, config, adaptive):
+def polar_cat(jobs, names, zeit_out, force_out, want_pol, config, adaptive, bad):
     """CAO: ``zeit.cat``'s core on each metric's yearly series against FORCE's ``<MET>-CAO``. FORCE has the 9 date metrics
     in continuous days, and its cat() then scales the slope by 1000 before the test of significance and the offset, and
     does not correct the change (a loss of dates between two years is a difference of continuous days): those are
@@ -1014,7 +1026,7 @@ def polar_cat(jobs, names, zeit_out, force_out, want_pol, config, adaptive):
         undefined[:, r] = (got[:, r] == NODATA) & (want[:, r] != NODATA)
     summary_by_metric(f"CAO ({config}): Zeit's change of the yearly series (the 9 date metrics in continuous days, "
                       f"without the {len(affected)} bands FORCE's in_ce alters)", names, got, want,
-                      skip | known | undefined)
+                      skip | known | undefined | np.broadcast_to(bad, got.shape))
     print(f"  left out: the {len(affected)} bands of the 9 date metrics that FORCE's in_ce alters ({int(skip.sum())} "
           f"values); SIG where the exact critical t differs from Hill's ({int(known.sum())}); R-squared of constant "
           f"parts ({int(undefined.sum())})")
@@ -1024,9 +1036,11 @@ def part_polar(jobs):
     """Zeit's polar metrics of FORCE's own TSI (the RBF's) against the 39 products of rbf_polar_adapt and rbf_polar_fixed
     (POL), and Zeit's trend and change of each of them against TRO and CAO."""
     names = _polar_names()
-    for adaptive in (True, False):
-        config = "rbf_polar_" + ("adapt" if adaptive else "fixed")
-        zeit_out, ce, seconds = polar_zeit(jobs, adaptive)
+    for config, (adaptive, tsi_config, thresholds) in POLAR_CONFIGS.items():
+        if not (ref.REF / "out" / config / "X0000_Y0000").is_dir():
+            print(f"\n== {config}: not in the reference folder, skipped")
+            continue
+        zeit_out, ce, seconds = polar_zeit(jobs, adaptive, tsi_config, thresholds)
         got_f = force_scale(zeit_out)
         want = load_polar(config)
         assert want.shape == got_f.shape, (want.shape, got_f.shape)
@@ -1050,8 +1064,11 @@ def part_polar(jobs):
               + "".join(f", {names[k]} {int(undefined[k].sum())}" for k in range(len(names)) if undefined[k].any())
               + f"; int16 overflow {int(overflow.sum())} values"
               + "".join(f", {names[k]} {int(overflow[k].sum())}" for k in range(len(names)) if overflow[k].any()))
-        polar_trend(jobs, names, zeit_out, got_f, want, config, adaptive)
-        polar_cat(jobs, names, zeit_out, got_f, want, config, adaptive)
+        bad = undefined.any(axis=(0, 1))[None, None, :]  # pixels with an undefined season in any metric
+        if bad.any():
+            print(f"  {int(bad.sum())} pixels have a season FORCE leaves undefined (Zeit: NaN); their TRO and CAO are left out")
+        polar_trend(jobs, names, zeit_out, got_f, want, config, adaptive, bad)
+        polar_cat(jobs, names, zeit_out, got_f, want, config, adaptive, bad)
 
 
 # The parts.

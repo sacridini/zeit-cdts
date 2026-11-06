@@ -80,6 +80,9 @@ def main():
     ap.add_argument("--size", type=int, default=100, help="pixels per side (one tile, 30 m)")
     ap.add_argument("--years", type=int, nargs=2, default=[2018, 2022])
     ap.add_argument("--seed", type=int, default=1)
+    ap.add_argument("--zero-block", type=int, default=0,
+                    help="a k x k block (top left) whose red equals its NIR in every observation: NDVI exactly 0, "
+                         "the polar season's sum is zero there; the random draws are not changed")
     a = ap.parse_args()
     n = a.size
     rng = np.random.default_rng(a.seed)
@@ -135,6 +138,10 @@ def main():
         arr = np.zeros((10, n, n), np.float64)
         for b, nm in enumerate(NAMES):
             arr[b] = refl[nm] + rng.normal(0, 30, (n, n))
+
+        if a.zero_block:  # red = NIR: NDVI 0 (clouds and shadows below still apply)
+            k = a.zero_block
+            arr[2, :k, :k] = arr[7, :k, :k]
 
         qai = np.zeros((n, n), np.int16)
         if cloudy_obs[i]:

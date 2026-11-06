@@ -79,6 +79,7 @@ def force_isolated(ms, ncomp):
         "interp-linear": best("int_linear") - base, "interp-moving": best("int_moving") - base,
         "interp-rbf": rbf - base, "interp-harmonic": best("int_harmonic") - base,
         "stm": best("rbf_stm") - rbf, "fold": best("rbf_fold") - rbf, "trend+cat": best("rbf_trend_nopen") - rbf,
+        "polar": best("rbf_polar") - rbf, "polar-39": best("rbf_polar39") - rbf,
         "cso": best("cso_m1"),
     }
     return out, {"baseline": base, "rbf": rbf, "cso_num": best("cso_num") if ("cso_num", ncomp) in ms else None}
@@ -132,6 +133,13 @@ def zeit_functions(tss, t_in, tsi, tsi_dates, fby):
         _core.tsa.cat_batch(fby, False, 0.95, "two", jobs)
 
     fns["trend+cat"] = trend_cat
+    # the polar metrics of the RBF TSI (float32, as FORCE's int16 are exact in it), adaptive: the 6 default ones and the 39
+    from zeit._tsa import POLAR_NAMES
+
+    ce_polar = (grid - 2018 * 365).astype(np.int64)
+    default6 = ["VSS", "VPS", "VES", "VSA", "RMR", "IGS"]
+    for product, names in (("polar", default6), ("polar-39", list(POLAR_NAMES))):
+        fns[product] = lambda jobs, names=names: _core.tsa.polar_batch(tsi, ce_polar, 16, names, 0.2, 0.5, 0.8, True, jobs)
     ce = t_in
     windows = np.array(_force_windows(), dtype=np.float64)
     values = np.where(np.isnan(tss), np.nan, 1.0).astype(DTYPE)
@@ -185,6 +193,8 @@ NOTES = {
     "stm": "FORCE: compute stage less the RBF run's (16 metrics)",
     "fold": "FORCE: compute stage less the RBF run's (5 folds, AVG)",
     "trend+cat": "FORCE: compute stage less the RBF run's (TRY+CAY, no penalty); Zeit: yearly fold + trend + CAT",
+    "polar": "FORCE: compute stage less the RBF run's (POL, adaptive, VSS VPS VES VSA RMR IGS); Zeit: polar_batch on the f32 TSI",
+    "polar-39": "FORCE: compute stage less the RBF run's (POL, adaptive, the 39 metrics); Zeit: polar_batch on the f32 TSI",
     "cso": "FORCE: whole compute stage, QAI screening included (no baseline to take off); 1-month windows",
 }
 

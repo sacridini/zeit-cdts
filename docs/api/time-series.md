@@ -219,7 +219,7 @@ new_fronts = ehs.category.isin([1, 2, 3])                     # new, consecutive
 
 ## FORCE time series analysis
 
-Five functions ported from the higher-level time series analysis of [FORCE](https://github.com/davidfrantz/force) 3.11.00 (Frantz 2019, *Remote Sensing* 11, 1124; GPL-3.0-or-later). They are the steps of FORCE's TSA after the interpolation ([`interpolate`](preprocessing.md#interpolate) and [`standardize`](preprocessing.md#standardize) are in Pre-processing): spectral-temporal metrics and their folds by period, linear trends, change-aftereffect-trend and clear-observation statistics. Each runs on any input of the [BFAST family](change-detection.md#bfast_monitor) (a `(time, y, x)` cube in memory or dask, a raster, a numpy array, one pixel's series) and returns floats, not FORCE's int16 scaled by 10000. Tutorial: [FORCE's time series analysis chain](../tutorials/force_tsa.md). Agreement with FORCE on 10,000 pixels: [Against the original implementations](../benchmarks/vs-originals.md#force-tsa).
+Six functions ported from the higher-level time series analysis of [FORCE](https://github.com/davidfrantz/force) 3.11.00 (Frantz 2019, *Remote Sensing* 11, 1124; GPL-3.0-or-later). They are the steps of FORCE's TSA after the interpolation ([`interpolate`](preprocessing.md#interpolate) and [`standardize`](preprocessing.md#standardize) are in Pre-processing): spectral-temporal metrics and their folds by period, linear trends, change-aftereffect-trend, clear-observation statistics and polar phenology metrics. Each runs on any input of the [BFAST family](change-detection.md#bfast_monitor) (a `(time, y, x)` cube in memory or dask, a raster, a numpy array, one pixel's series) and returns floats, not FORCE's int16 scaled by 10000. Tutorial: [FORCE's time series analysis chain](../tutorials/force_tsa.md). Agreement with FORCE on 10,000 pixels: [Against the original implementations](../benchmarks/vs-originals.md#force-tsa).
 
 ### `temporal_metrics` { .api #temporal_metrics }
 
@@ -384,6 +384,81 @@ longest_gap = zeit.clear_observations(ndvi.notnull(), metrics=["max"])     # a b
 ```
 
 References: Müller, H., Rufin, P., Griffiths, P., Barros Siqueira, A. J., & Hostert, P. (2015). *Remote Sensing of Environment*, 156, 490-499 (STM). Hird, J. N., Castilla, G., McDermid, G. J., & Bueno, I. T. (2016). *IEEE JSTARS*, 9, 3372-3383 (CAT). Ernst, S., Lymburner, L., & Sixsmith, J. (2018). *Remote Sensing*, 10, 1570 (CSO). The full list, with the interpolation's, is in the [tutorial](../tutorials/force_tsa.md#references).
+
+### `polar_metrics` { .api #polar_metrics }
+
+<!-- sig: zeit.polar_metrics -->
+```python
+zeit.polar_metrics(
+    data, metrics=('VSS', 'VPS', 'VES', 'VSA', 'RMR', 'IGS'), *,
+    start=0.2, mid=0.5, end=0.8, adaptive=True, dates=None, band=None,
+    nodata="auto", chunks=None, n_jobs=-1,
+)
+```
+
+The polar phenology metrics of each pixel and year: FORCE's POL (`polar-hl.c`, Frantz), which implements and extends the polar metrics of Brooks et al. (2020). Each date of a regular series is a vector: the value is the radius and the day of the year the angle. The mean of all the vectors is the long-term mean vector; the opposite direction, the time of least activity, starts the phenological year. Along each year's season the values are accumulated and divided by their total, and the dates where that fraction reaches `start`, `mid` and `end` are the start, middle and end of the season; the rest of the 39 metrics (dates, lengths, values, amplitudes, integrals and rates) come from those points. Only what the requested metrics need is computed. The series must be regular, a constant step of whole days (the output of [`interpolate`](preprocessing.md#interpolate) with `step=`, FORCE's TSI) and cover at least 2 years; a missing step (NaN) is filled by linear interpolation in time, as FORCE does.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `data` | `DataArray`, path, `ndarray`, list or `pd.Series` | required | A `(time, y, x)` cube of a non-negative index (negative values count as 0), a numpy array with `dates=`, or one pixel's series. |
+| `metrics` | sequence of `str` | `("VSS", "VPS", "VES", "VSA", "RMR", "IGS")` | Any of the 39 names in the table below, upper or lower case. |
+| `start`, `mid`, `end` | `float` | `0.2`, `0.5`, `0.8` | The fractions of the season's accumulated value that mark its start, middle and end (FORCE's `POL_START_THRESHOLD`, `POL_MID_THRESHOLD` and `POL_END_THRESHOLD`), each between 0 and 1. |
+| `adaptive` | `bool` | `True` | Fine-tune the start of each year's season from its own mean vector, not the long-term one (FORCE's `POL_ADAPTIVE`). |
+| `dates` | list | `None` | Date of each time step, for inputs that carry none. |
+| `band` | `str` or `int` | `None` | The index to use in a `(time, band, y, x)` cube or a `Dataset`. |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | Value marking a missing observation besides NaN, as in [`mann_kendall`](#mann_kendall). |
+| `chunks` | `"auto"`, `dict` | `None` | Inputs read from disk: `None` reads into memory; otherwise the result is lazy. |
+| `n_jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job ([how they are counted](parallel.md#threads-n_jobs)). |
+
+</div>
+
+**Returns** an `xarray.DataArray` `(metric, year, y, x)`: one band per calendar year from the first date's to the last's, float32 for float32 input, else float64, unrounded (FORCE writes truncated int16). A season belongs to the year it ends in when the long-term start of the year is before day 182, else to the year after it begins, so a series of `n` years has `n - 1` seasons and one year (the first or the last) is NaN. [`linear_trend`](#linear_trend) of one metric along `year` is FORCE's TRO of it and [`cat`](#cat) its CAO.
+
+The 39 metrics. A *date* counts days from 1 January of the band's year (365 days a year, 29 February sharing day 60 with 1 March). *Data* is the unit of the input.
+
+| Name | Meaning | Unit |
+| :--- | :--- | :--- |
+| `DEM` | date of the early minimum (first step of the season with a non-zero accumulated fraction) | days |
+| `DLM` | date of the late minimum (the step after the last one with the fraction 1: the start of the next season) | days |
+| `DPS` | date of the peak (first maximum of the growing season) | days |
+| `DSS`, `DMS`, `DES` | date of the start, the middle and the end of the season (the fraction reaches `start`, `mid`, `end`) | days |
+| `DEV`, `DAV`, `DLV` | date of the mean vector of the early (`start` to `mid`), whole (`start` to `end`) and late (`mid` to `end`) growing season | days |
+| `LTS`, `LGS`, `LGV` | length of the total season (`DLM - DEM`), of the growing season (`DES - DSS`) and between the early and late mean vectors (`DLV - DEV`) | days |
+| `VEM`, `VLM` | value at the early and at the late minimum | data |
+| `VPS` | value at the peak | data |
+| `VSS`, `VMS`, `VES` | value at the start, the middle and the end of the season | data |
+| `VEV`, `VAV`, `VLV` | length of the early, whole and late mean vector (the mean, not the sum, of the points of the window) | data |
+| `VBL` | base level, `(VEM + VLM) / 2` | data |
+| `VGM`, `VGV` | mean and standard deviation (`n - 1`) of the growing season | data |
+| `VGA` | green amplitude, peak minus `(VSS + VES) / 2` | data |
+| `VSA` | seasonal amplitude, peak minus base level | data |
+| `VPA` | peak amplitude, peak minus the value at the middle | data |
+| `DPY` | start of the phenological year (long-term, the same every year; negative when it falls before 1 January of the band's year) | days |
+| `DPV` | shift of the season's own start from `DPY` (0 without `adaptive`) | days |
+| `IST` | seasonal integral, above the base level | data × year |
+| `IBL` | base integral, under the base level | data × year |
+| `IBT` | total integral of the season | data × year |
+| `IGS` | green integral, above the green level in the growing season | data × year |
+| `IRR`, `IFR` | rising and falling integral (the sum of the rises and of the falls) | data × month |
+| `RAR`, `RAF` | average rate of rise (early growing season) and of fall (late growing season); the sum of the rates over all the steps of the window, as FORCE | data / month |
+| `RMR`, `RMF` | maximum rate of rise (early growing season) and of fall (late growing season) | data / month |
+
+**Differences from FORCE.** All are deliberate.
+
+- **Dates count from 1 January of the band's year**, FORCE's from 1 January of the first year of the series (continuous days). A linear trend along `year` is then directly the change per year; FORCE subtracts 365 from the slope of a date (its `in_ce`) to get the same. To compare with FORCE's rasters add `365 * i` to the dates of year `i` (FORCE also writes the slope of a date times 1000).
+- **What FORCE leaves undefined is NaN.** FORCE casts a `NaN` to int16 and writes garbage (0 on x86): a season whose accumulated total is 0 (a pixel of zero index), a season without steps, the mean vector or rate of a window without steps, `VGM` without a step, `VGV` with fewer than 2. Nothing is clipped to 16 bits (FORCE wraps an integral past 32767).
+- **`DPV` is 0 without `adaptive`**, where FORCE writes `-DPY` (a start it never set).
+- **`STANDARDIZE_POL` does nothing in FORCE** and does not exist here: use [`standardize`](preprocessing.md#standardize).
+
+```python
+tsi = zeit.interpolate(ndvi * 10000, "rbf", step=16)           # FORCE's TSI
+pol = zeit.polar_metrics(tsi, ["DSS", "DES", "VPS", "IGS"])    # (metric, year, y, x)
+sos_trend = zeit.linear_trend(pol.sel(metric="DSS"))           # days per year, along year
+```
+
+Reference: Brooks, B.-G. J., Lee, D. C., Pomara, L. Y., & Hargrove, W. W. (2020). Monitoring broadscale vegetational diversity and change across North American landscapes using land surface phenology. *Forests*, 11(6), 606. [doi:10.3390/f11060606](https://doi.org/10.3390/f11060606).
 
 ## Phenology
 

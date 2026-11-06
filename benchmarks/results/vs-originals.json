@@ -1033,6 +1033,50 @@
    "threads": 6,
    "note": "FORCE: whole compute stage, QAI screening included (no baseline to take off); 1-month windows; the NUM-only CSO run's stage is 0.37 s, the TSA baseline's 0.36 s",
    "date": "2026-11-06"
+  },
+  {
+   "method": "force-tsa polar",
+   "original": "FORCE 3.11.00",
+   "size": "250,000 px x 325 dates",
+   "original_s": 1.093,
+   "zeit_s": 0.5828620999964187,
+   "speedup": 1.875229149410668,
+   "threads": 1,
+   "note": "FORCE: compute stage less the RBF run's (POL, adaptive, VSS VPS VES VSA RMR IGS); Zeit: polar_batch on the f32 TSI",
+   "date": "2026-11-06"
+  },
+  {
+   "method": "force-tsa polar-39",
+   "original": "FORCE 3.11.00",
+   "size": "250,000 px x 325 dates",
+   "original_s": 0.8730000000000002,
+   "zeit_s": 0.614382999992813,
+   "speedup": 1.42093775382817,
+   "threads": 1,
+   "note": "FORCE: compute stage less the RBF run's (POL, adaptive, the 39 metrics); Zeit: polar_batch on the f32 TSI",
+   "date": "2026-11-06"
+  },
+  {
+   "method": "force-tsa polar",
+   "original": "FORCE 3.11.00",
+   "size": "250,000 px x 325 dates",
+   "original_s": 0.44600000000000006,
+   "zeit_s": 0.13559409999288619,
+   "speedup": 3.2892286613016277,
+   "threads": 6,
+   "note": "FORCE: compute stage less the RBF run's (POL, adaptive, VSS VPS VES VSA RMR IGS); Zeit: polar_batch on the f32 TSI",
+   "date": "2026-11-06"
+  },
+  {
+   "method": "force-tsa polar-39",
+   "original": "FORCE 3.11.00",
+   "size": "250,000 px x 325 dates",
+   "original_s": 0.529,
+   "zeit_s": 0.14313680000486784,
+   "speedup": 3.69576516997732,
+   "threads": 6,
+   "note": "FORCE: compute stage less the RBF run's (POL, adaptive, the 39 metrics); Zeit: polar_batch on the f32 TSI",
+   "date": "2026-11-06"
   }
  ],
  "machine": {

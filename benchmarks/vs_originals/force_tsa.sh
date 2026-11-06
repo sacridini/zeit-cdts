@@ -27,7 +27,8 @@ CSO="NUM MIN MAX RNG IQR AVG STD SKW KRT Q25 Q50 Q75"
 mkdir -p "$WORK/prm" "$WORK/out" "$WORK/logs"
 if [ ! -f "$WORK/ard/X0000_Y0000/.done" ]; then
     rm -rf "$WORK/ard"
-    python -I "$HERE/force_tsa_cube.py" "$WORK" --size "$SIZE" --years 2018 2022 --seed 1 || exit 1
+    python -I "$HERE/force_tsa_cube.py" "$WORK" --size "$SIZE" --years 2018 2022 --seed 1 \
+        ${ZERO:+--zero-block "$ZERO"} || exit 1
     touch "$WORK/ard/X0000_Y0000/.done"
 fi
 TILE=$(awk '/^TILE_SIZE_X/ {printf "%d", $3}' "$WORK/ard/datacube-definition.prj")
@@ -131,6 +132,18 @@ for adaptive in adapt fixed; do
     run TSA "rbf_polar_$adaptive" "${RBF[@]}" POL_ADAPTIVE=$ad POL="$POL_ALL" OUTPUT_POL=TRUE OUTPUT_TRO=TRUE \
         OUTPUT_CAO=TRUE
 done
+
+# Edge cases of the polar metrics. moving_polar: a MOVING interpolation with a short window, which leaves nodata in the TSI
+# (and, in the pixels with long gaps, none in the season) and exercises the local linear filling of FORCE's polar code;
+# the TSI is written, since the polar part reads it. rbf_polar_thr: other thresholds of the season (0.1, 0.4, 0.9).
+run TSA moving_polar INTERPOLATE=MOVING MOVING_MAX=8 OUTPUT_TSI=TRUE POL_ADAPTIVE=TRUE POL="$POL_ALL" OUTPUT_POL=TRUE \
+    OUTPUT_TRO=TRUE OUTPUT_CAO=TRUE
+run TSA rbf_polar_thr "${RBF[@]}" POL_ADAPTIVE=TRUE POL_START_THRESHOLD=0.1 POL_MID_THRESHOLD=0.4 \
+    POL_END_THRESHOLD=0.9 POL="$POL_ALL" OUTPUT_POL=TRUE OUTPUT_TRO=TRUE OUTPUT_CAO=TRUE
+# With ZERO=<k> (the cube's --zero-block, see below) a k x k block of the cube has a zero index in every observation:
+# the season's sum is zero there. Run in a cube of its own (another workdir and DEST), only when ZERO is set.
+[ -n "${ZERO:-}" ] && run TSA zero_polar "${RBF[@]}" OUTPUT_TSI=TRUE POL_ADAPTIVE=TRUE POL="$POL_ALL" OUTPUT_POL=TRUE \
+    OUTPUT_TRO=TRUE OUTPUT_CAO=TRUE
 
 # Copy the small outputs (the cube's BOA and QAI stay here).
 mkdir -p "$DEST"
