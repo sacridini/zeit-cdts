@@ -1077,6 +1077,28 @@
    "threads": 6,
    "note": "FORCE: compute stage less the RBF run's (POL, adaptive, the 39 metrics); Zeit: polar_batch on the f32 TSI",
    "date": "2026-11-06"
+  },
+  {
+   "method": "polar",
+   "original": "PolarMetrics 0.1.0 (R)",
+   "size": "5000 pixels x 365 dates",
+   "original_s": 5.01,
+   "zeit_s": 0.006863699993118644,
+   "speedup": 729.9270080310747,
+   "threads": 8,
+   "note": "metrics in common; the year and the steps it reads differ, see polar.py",
+   "date": "2026-11-06"
+  },
+  {
+   "method": "polar",
+   "original": "PolarMetrics 0.1.0 (R)",
+   "size": "5000 pixels x 365 dates",
+   "original_s": 5.01,
+   "zeit_s": 0.03218520000518765,
+   "speedup": 155.6616084160571,
+   "threads": 1,
+   "note": "metrics in common; the year and the steps it reads differ, see polar.py",
+   "date": "2026-11-06"
   }
  ],
  "machine": {

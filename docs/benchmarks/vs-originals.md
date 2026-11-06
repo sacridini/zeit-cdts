@@ -255,6 +255,14 @@ The polar rows are FORCE's POL stage over the RBF's (the run with the metrics wr
 
 The accuracy holds on this cube (`force_tsa.py --part stm,interp --ref <bench folder>`): STM 100% within 1 (Q90 98.98% equal, the rest equal), linear and moving interpolation 100% equal, RBF 99.983% equal and 100% within 1. The harmonic fit: 301 of 28.5 million values differ by more than 1 (at most 11), all in 13 of the 250,000 pixels (0.005%), and all 13 are pixels whose iteratively reweighted fit does not converge: the core reports the iterations (`zeit._core.tsa.harmonic_iterations`: 65535 for a fit that ran its 100 without settling), 2,219 pixels (0.9%) are like that, and the 13 are among them; the converged ones (99.1%) are all within 1 of FORCE, which is what `force_tsa.py` checks, counting the others instead of listing them. Such a series cycles between a few predictions and stops where the cap, the rounding and the order of the sums put it, so its value is not reproducible between FORCE, GSL and Zeit.
 
+**Against the method's own code.** FORCE's polar metrics extend the **PolarMetrics** R package of Brooks, Lee, Hargrove and Pomara (0.1.0, GPL (>= 3), installed from GitHub). `benchmarks/vs_originals/polar.py` runs its `calc_metrics` and Zeit's core (`adaptive=False`) on 5,000 synthetic pixels, a sample every 5 days over 5 years (the package needs a whole number of samples per cycle; 30% of the pixels peak near the new year), and compares the eight metrics they share: `es`/DSS, `ls`/DES, `s_intv`/LGS, `ms`/DAV, `s_avg`/VGM, `s_sd`/VGV, `s_mag`/VAV and `a_avg`/IBT. A literal Python port of `calc_metrics` reproduces the package (the dates identical, the values to 1e-9) and isolates the three places where the definitions differ:
+
+1. **The start of the year.** The package starts at the sample `ceiling(av_ang * spc / 2 pi)`; FORCE, so Zeit, at the first sample on or after the angle's day. They pick the same sample in 40% of the pixels and the next one in the rest.
+2. **The steps it reads.** The package dates the season on the rotated year, but reads `v`, `VX` and `VY` at the same positions of the unrotated series (`v[es2ls]`, `calc_metrics.R` lines 165 and 290-295). Its `s_avg`, `s_sd`, `s_mag`, `a_avg` and the angle behind `ms` are therefore of other steps than the season it dates. This is the behavior of 0.1.0's code as run, not confirmed with the authors.
+3. **The dates.** The package gives the position's day plus the angle's day, up to a step (4 days here) from the sample's own.
+
+Where the year starts agree, `es` and `ls` are within 4 days of Zeit's (2 observed) and `s_intv` within 1; the values differ, because of (2). With the port reading the rotated steps from Zeit's start, all eight agree on all 20,000 pixel-years: `ms` equal, the values within 2e-7, and `es`, `ls` and `s_intv` within 1 day (95%, 98% and 93% equal; FORCE truncates a day from a float32 angle). On 5,000 pixels × 365 dates the package takes 5.0 s (one thread); Zeit's core 0.032 s with 1 thread (156×) and 0.0069 s with 8 (730×).
+
 ---
 
 ## Protocol
@@ -294,6 +302,7 @@ python benchmarks/vs_originals/accuracy_survey.py     # zeit.transitions against
 python benchmarks/vs_originals/force_tsa.py --part stm,fold,standardize,interp,trend,cso,polar --jobs 4   # FORCE's TSA, against its saved outputs
 wsl -e bash -lc 'bash benchmarks/vs_originals/force_tsa_timing.sh ~/force-ref-work/tsa-bench 6'   # FORCE's compute stage on the 500 x 500 cube (also with 1); then:
 python benchmarks/vs_originals/force_tsa_timing.py    # Zeit's times against it (--profile: the cost by size)
+python benchmarks/vs_originals/polar.py               # PolarMetrics 0.1.0 (R package from GitHub: R CMD INSTALL), against zeit.polar_metrics
 python benchmarks/vs_originals/ewmacd.py "path/to/EWMACD v1.3.0.r"   # Brooks' script, not distributed
 PYXCCD_PYTHON=path/to/pyxccd-env/python python benchmarks/vs_originals/sccd.py CCDC_Stack_Rondonia.tif CCDC_Stack_Rondonia_Dates.csv
 ```
