@@ -204,3 +204,104 @@ LandTrendr's spike removal for a single series: one-year spikes (up or down) are
 zeit.desawtooth(np.array([8000, 8100, 3000, 8050, 7900, 8000.0]))
 # array([8000., 8034.7, 8025.2, 8050., 7900., 8000.])
 ```
+
+## Interpolation and standardization
+
+Ported from the time series analysis of [FORCE](https://github.com/davidfrantz/force) 3.11.00 (Frantz 2019, GPL-3.0-or-later): `interpolate` is its TSI, `standardize` its STANDARDIZE. The statistics, trends and clear-observation counts of the same chain are in [FORCE time series analysis](time-series.md#force-time-series-analysis); the [tutorial](../tutorials/force_tsa.md) runs the whole chain, and [Against the original implementations](../benchmarks/vs-originals.md#force-tsa) has the agreement with FORCE.
+
+### `interpolate` { .api #interpolate }
+
+<!-- sig: zeit.interpolate -->
+```python
+zeit.interpolate(
+    data, method="rbf", *, step=16, start=None, end=None, times=None,
+    sigma=(8, 16, 32), cutoff=0.95, window=16, modes=3, trend=True,
+    fit=None, period=365.25, dates=None, band=None, nodata="auto",
+    chunks=None, n_jobs=-1,
+)
+```
+
+Interpolates every pixel's series to a regular grid of dates, or to any dates you give. One function for every input, like [`smooth`](#smooth): a `(time, y, x)` cube (in memory or dask), anything [`load_raster`](data.md#load_raster) reads, a `(time, band, y, x)` cube or `Dataset` with `band=`, a numpy array with `dates=`, or one pixel's series. The dates are needed and must not decrease; NaN (and NoData) marks a missing observation. Ported from FORCE's TSA (Frantz 2019), with four methods:
+
+- **RBF** (`"rbf"`, default; Schwieder et al. 2016): an ensemble of Gaussian kernels of standard deviations `sigma` (days), each cut where its mass reaches `cutoff`, weighted by how much data it finds around each date. The kernels are combined into one weight per integer day, the same average as FORCE's loop over kernels. A date with no valid observation within the largest kernel is NaN.
+- **Linear** (`"linear"`): straight lines between the valid observations on either side, constant beyond the first and last.
+- **Moving average** (`"moving"`): the mean of the valid observations within `window` days (closed).
+- **Harmonic** (`"harmonic"`; Zhu et al. 2015): an offset, an optional slope and up to 3 harmonics of `period`, fit by iteratively reweighted least squares with bisquare weights (tuning 4.685, MAD scale; the algorithm of GSL's `gsl_multifit_robust`). `fit=(first, last)` fits on part of the series and predicts the rest, which is FORCE's near-real-time mode.
+
+The grid is FORCE's: from `start` (default the first date) every `step` days, `floor((end - start + 1) / step)` dates, `end` being the last date by default. No date is made after `end`.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `data` | `DataArray`, path, `ndarray` or `pd.Series` | required | The series to interpolate (see above). |
+| `method` | `str` | `"rbf"` | `"rbf"`, `"linear"`, `"moving"` or `"harmonic"`. |
+| `step` | `int` | `16` | Days between the dates of the grid. |
+| `start`, `end` | date | `None` | First and last date of the grid. Default: the first and last date of the series. |
+| `times` | list of dates | `None` | Any dates for the result, instead of the grid (`start`, `end` and `step` are then not allowed). |
+| `sigma` | sequence of `float` | `(8, 16, 32)` | RBF: standard deviations of the kernels in days, increasing. |
+| `cutoff` | `float` | `0.95` | RBF: the share of each kernel's mass kept (0-1). |
+| `window` | `float` | `16` | Moving average: the half-width in days. |
+| `modes` | `int` | `3` | Harmonic: the number of harmonics (1-3). |
+| `trend` | `bool` | `True` | Harmonic: add an offset-and-slope term. |
+| `fit` | `(date, date)` | `None` | Harmonic: the window the model is fit on (inclusive). Default: the whole series. |
+| `period` | `float` | `365.25` | Harmonic: the period in days. |
+| `dates` | list | `None` | Date of each time step, for inputs that carry none. |
+| `band` | `str` or `int` | `None` | The index to use in a `(time, band, y, x)` cube or a `Dataset`. |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | Value marking a missing observation besides NaN, as in [`smooth`](#smooth). |
+| `chunks` | `"auto"`, `dict` | `None` | Inputs read from disk: `None` reads into memory; otherwise the result is lazy. |
+| `n_jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job ([how they are counted](parallel.md#threads-n_jobs)). |
+
+</div>
+
+**Returns** an `xarray.DataArray` `(time, y, x)` with the new dates, the coordinates and georeferencing of the input, and `attrs` with the method and its parameters (a `pandas.Series` for a Series). Float32 for float32 input, else float64; the values are not rounded.
+
+**Differences from FORCE**, all deliberate:
+
+- The output is float, not FORCE's int16: no rounding to the data's scale and no clipping.
+- The harmonic's period is 365.25 days, the real year; FORCE counts 365 on a calendar without leap days. The time is centered and scaled inside and the system solved by Cholesky on balanced columns, which does not change the fit.
+- A pixel whose harmonic IRLS cycles without converging is left out of the comparison with FORCE (one in 10,000 in the benchmark; neither implementation settles on a fit). A pixel with fewer valid observations in `fit` than coefficients is NaN.
+
+```python
+ndvi = zeit.load_raster("S2_ndvi_2018_2022.tif")                   # (time, y, x), clouds as NaN
+tsi = zeit.interpolate(ndvi, "rbf", step=16)                       # FORCE's default grid
+daily = zeit.interpolate(ndvi, "linear", times=pd.date_range("2020", "2021", freq="D"))
+nrt = zeit.interpolate(ndvi, "harmonic", fit=("2018-01-01", "2020-12-31"), end="2022-12-31")
+```
+
+### `standardize` { .api #standardize }
+
+<!-- sig: zeit.standardize -->
+```python
+zeit.standardize(
+    data, method="normalize", *, ddof=1, dim=None, dates=None,
+    band=None, nodata="auto", chunks=None, n_jobs=-1,
+)
+```
+
+Standardizes every pixel's series along an axis (FORCE's STANDARDIZE and STANDARDIZE_FOLD). The mean and the deviation are those of the valid observations; missing observations stay NaN. Takes the same inputs as [`interpolate`](#interpolate) (the dates are not needed), and any axis through `dim=`, such as the `year` of [`temporal_metrics(..., by="year")`](time-series.md#temporal_metrics).
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `data` | `DataArray`, path, `ndarray` or `pd.Series` | required | The series to standardize. |
+| `method` | `str` | `"normalize"` | `"normalize"`: `(x - mean) / std`, the z-score; `"center"`: `x - mean`. |
+| `ddof` | `int` | `1` | Degrees of freedom of the deviation (`n - ddof`; 1 is the sample deviation, as FORCE). |
+| `dim` | `str` | `None` | The axis to standardize along: `"time"` (default when it exists) or another, such as `"year"`. A `metric` axis of length 1 is dropped; with more, choose one with `.sel(metric=...)`. |
+| `dates` | list | `None` | Date of each time step, for inputs that carry none (not needed for the result). |
+| `band` | `str` or `int` | `None` | The index to use in a `(time, band, y, x)` cube or a `Dataset`. |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | Value marking a missing observation besides NaN. |
+| `chunks` | `"auto"`, `dict` | `None` | Inputs read from disk: `None` reads into memory; otherwise the result is lazy. |
+| `n_jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job ([how they are counted](parallel.md#threads-n_jobs)). |
+
+</div>
+
+**Returns** the cube with the same dims, coordinates and georeferencing (a `pandas.Series` for a Series). A series with fewer than 2 valid observations is left as it is; a constant series gives NaN when normalized. Float32 for float32 input, else float64, not rounded as FORCE's int16 is.
+
+```python
+z = zeit.standardize(tsi)                                          # z-score of each pixel along time
+anomaly = zeit.standardize(tsi, "center")                          # x - mean
+yearly = zeit.temporal_metrics(ndvi, ["mean"], by="year")
+zy = zeit.standardize(yearly, dim="year")                          # each year against the others
+```

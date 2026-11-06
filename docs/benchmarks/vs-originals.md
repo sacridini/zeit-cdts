@@ -198,6 +198,33 @@ The user's and producer's accuracies come from `svyratio` and the overall accura
 
 Most of the time on both sides is reading the rasters and counting the pairs, not the estimates. A map of integer classes of up to 2^26 pixels is read once into memory, and Zeit counts its classes, the pairs and the pixels of each stratum per row with a few `bincount`s; larger maps stay lazy and are counted through dask. Before this, Zeit read each raster several times through dask and took 0.73–0.85 s, 0.6× survey's speed. The Janus benchmark of the same estimators (its `tools/bench_validation_vs_survey.py`) has the count in Rust.
 
+### FORCE (TSA)
+
+The time series analysis ported from **FORCE 3.11.00** (Frantz 2019; GPL-3.0-or-later): [`temporal_metrics`](../api/time-series.md#temporal_metrics), [`standardize`](../api/preprocessing.md#standardize), [`interpolate`](../api/preprocessing.md#interpolate), [`linear_trend`](../api/time-series.md#linear_trend), [`cat`](../api/time-series.md#cat) and [`clear_observations`](../api/time-series.md#clear_observations), against FORCE's own outputs on the same synthetic cube: 10,000 pixels, 325 dates over 2018-2022 interpolated to 114 dates (the script is `benchmarks/vs_originals/force_tsa.py`, which compares the outputs and reports every difference it cannot explain). Zeit's floats are truncated toward zero to int16 before comparing, as FORCE writes its outputs. "Equal" is the share of values identical after that, "within 1" the share that differ by at most 1.
+
+| Product | Equal | Within 1 | Left out, and why |
+|:---|---:|---:|:---|
+| STM, 16 metrics (MIN, Q01-Q99, MAX, AVG, STD, RNG, IQR, SKW, KRT, NUM) | 100% (Q90: 98.97%) | 100% | nothing |
+| Folds, 10 statistics × year, quarter, month, week and day (5, 4, 12, 52 and 365 bands) | 100% (KRT by week: 99.70%) | 100% | STD, SKW and KRT by day: 1,140,000 values each, a day with one or no observation (undefined in FORCE); SKW and KRT by week: 552 values of a constant series (NaN in Zeit) |
+| Standardization: normalize of the interpolated series (114 bands), center of the yearly, quarterly and monthly folds | 100% | 100% | nothing |
+| Interpolation, linear | 100% | 100% | nothing |
+| Interpolation, moving average | 100% | 100% | nothing |
+| Interpolation, RBF | 99.984% | 100% | nothing |
+| Interpolation, harmonic fit to all the series | 99.999% | 100% | nothing |
+| Interpolation, harmonic fit to part of the series, and its near-real-time dates (120 bands) | 100% | 100% | one pixel (114 and 120 values): its IRLS cycles without converging in either implementation |
+| TRY and TRM, the 12 trend variables of the yearly and monthly folds | 100% | 100% | nothing; `sig` matches although Zeit uses the exact t quantile |
+| CAY, without the penalty (39 variables) | 99.995% | 100% | nothing; 21 values of `loss` differ by 1 (FORCE truncates the offset before dividing) |
+| CAY, with the penalty | 99.995% | 100% | 58,149 values of the 1,491 pixels (15%) where the corrected comparison picks another step; `loss`: 18 values off by 1 |
+| CAM, without the penalty | 99.980% | 100% | nothing; 78 values of `loss` off by 1 |
+| CAM, with the penalty | 99.980% | 100% | 271,635 values of the 6,965 pixels (70%) where the corrected comparison picks another step; `loss`: 24 values off by 1 |
+| CSO m1 (59 monthly windows), NUM, MIN, MAX, RNG, AVG | 100% | 100% | the last window (Zeit makes 60) |
+| CSO m3 (20 quarterly windows), NUM, MIN, MAX, RNG, AVG | 100% | 100% | none |
+| CSO m1 and m3, IQR, STD, SKW, KRT, Q25, Q50, Q75 | see below | | by design: FORCE's statistics mix `n` observations with `k` intervals |
+
+**How they were checked.** For the metrics, folds, interpolation and standardization the comparison is value by value against FORCE's rasters. The two products that differ by design are checked in a second way. With the penalty, the pixels where Zeit's corrected comparison picks another change step than FORCE are all reproduced by a literal Python port of FORCE's comparison (penalized against the best one's unpenalized drop, in float32), and every other value is equal or within 1 as above; the values of those pixels are the ones counted as left out in the table. For CSO, the statistics that depend on `n` (STD, SKW, KRT and the quantiles) differ from FORCE's by design: on 1-month windows Zeit's STD equals FORCE's in 68.9% of the values, SKW in 29.2%, KRT in 21.1%, Q25 in 57.6%, Q50 in 86.2% and Q75 in 75.8%. A literal Python port of FORCE's n-for-k code reproduces FORCE's STD, quantiles and IQR exactly, and its SKW and KRT within 1 (97.9% equal for KRT on 1-month windows; 99.7% and 98.5% for SKW and KRT on 3-month ones), which is the check that the difference is the definition, not an error.
+
+**Timings.** The times against FORCE have not been measured. FORCE runs in WSL, from its own parameter files, with a startup and file I/O of its own, so the comparison needs a protocol of its own; the table of times comes in a separate measurement. For orientation only, Zeit's own times on these 10,000 pixels with 4 threads were 8.7 ms for the 16 metrics, 94 ms for the five folds, and 14 ms (linear), 17 ms (moving average and RBF) and 271 ms (harmonic) for the interpolation to 114 dates; they are not a comparison.
+
 ---
 
 ## Protocol
@@ -234,6 +261,7 @@ python benchmarks/vs_originals/beast.py
 python benchmarks/vs_originals/parts.py               # sides 50, 100, 200; ZEIT_BENCH_THREADS=8 by default
 python benchmarks/vs_originals/folds.py               # autocor knndm profile mahalanobis (CAST's MD takes 15 min)
 python benchmarks/vs_originals/accuracy_survey.py     # zeit.transitions against survey (and terra)
+python benchmarks/vs_originals/force_tsa.py --part stm,fold,standardize,interp,trend,cso --jobs 4   # FORCE's TSA, against its saved outputs
 python benchmarks/vs_originals/ewmacd.py "path/to/EWMACD v1.3.0.r"   # Brooks' script, not distributed
 PYXCCD_PYTHON=path/to/pyxccd-env/python python benchmarks/vs_originals/sccd.py CCDC_Stack_Rondonia.tif CCDC_Stack_Rondonia_Dates.csv
 ```

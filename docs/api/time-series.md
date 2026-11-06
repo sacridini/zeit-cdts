@@ -217,6 +217,174 @@ ehs.category.zeit.plot()                                       # legend: the pat
 new_fronts = ehs.category.isin([1, 2, 3])                     # new, consecutive, intensifying hot spots
 ```
 
+## FORCE time series analysis
+
+Five functions ported from the higher-level time series analysis of [FORCE](https://github.com/davidfrantz/force) 3.11.00 (Frantz 2019, *Remote Sensing* 11, 1124; GPL-3.0-or-later). They are the steps of FORCE's TSA after the interpolation ([`interpolate`](preprocessing.md#interpolate) and [`standardize`](preprocessing.md#standardize) are in Pre-processing): spectral-temporal metrics and their folds by period, linear trends, change-aftereffect-trend and clear-observation statistics. Each runs on any input of the [BFAST family](change-detection.md#bfast_monitor) (a `(time, y, x)` cube in memory or dask, a raster, a numpy array, one pixel's series) and returns floats, not FORCE's int16 scaled by 10000. Tutorial: [FORCE's time series analysis chain](../tutorials/force_tsa.md). Agreement with FORCE on 10,000 pixels: [Against the original implementations](../benchmarks/vs-originals.md#force-tsa).
+
+### `temporal_metrics` { .api #temporal_metrics }
+
+<!-- sig: zeit.temporal_metrics -->
+```python
+zeit.temporal_metrics(
+    data,
+    metrics=('min', 'p25', 'median', 'p75', 'max', 'mean', 'std'), *,
+    by=None, ddof=1, dates=None, band=None, nodata="auto",
+    chunks=None, n_jobs=-1,
+)
+```
+
+Statistics of each pixel's series, over all of it or by period: FORCE's spectral-temporal metrics (STM; Müller et al. 2015) and their folds (FBY, FBQ, FBM, FBW, FBD). The series can have any spacing; NaN marks a missing observation.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `data` | `DataArray`, `Dataset`, path, `ndarray`, list or `pd.Series` | required | A `(time, y, x)` cube, a `(time, band, y, x)` cube or `Dataset` with `band=`, a numpy array with `dates=`, or one pixel's series. |
+| `metrics` | sequence of `str` | `("min", "p25", "median", "p75", "max", "mean", "std")` | `min`, `max`, `range`, `iqr`, `mean`, `std`, `skew`, `kurtosis` (excess), `count` (valid observations), `median` and `pNN` for any integer percentile 0-100 (R-7, as `np.nanpercentile`). |
+| `by` | `str` | `None` | `None`: the statistics of the whole series. `"year"`, `"quarter"`, `"month"`, `"week"` or `"doy"`: those of each period (the dates are needed). |
+| `ddof` | `int` | `1` | Degrees of freedom of `std`: the divisor is `n - ddof` (1 is the sample deviation, as FORCE's STD). |
+| `dates` | list | `None` | Date of each time step, for inputs that carry none. |
+| `band` | `str` or `int` | `None` | The index to use in a `(time, band, y, x)` cube or a `Dataset`. |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | Value marking a missing observation besides NaN, as in [`mann_kendall`](#mann_kendall). |
+| `chunks` | `"auto"`, `dict` | `None` | Inputs read from disk: `None` reads into memory; otherwise the result is lazy. |
+| `n_jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job ([how they are counted](parallel.md#threads-n_jobs)). |
+
+</div>
+
+**Returns** an `xarray.DataArray` `(metric, y, x)`, or `(metric, <by>, y, x)` with `by`, with the names of the metrics in `metric`. Float32 for float32 input, else float64. Pixels without a valid observation are NaN (0 for `count`). The periods are the years from the first to the last date, 1-4, 1-12, 1-52, 1-365, all of them, the empty ones NaN. The week is `min(ceil(doy / 7), 52)` and the day of the year counts 365 days, 29 February sharing day 60 with 1 March, so that a calendar day is the same day of the year in every year (FORCE's calendar).
+
+**Differences from FORCE.** `skew` (M3 / sigma^3, the population deviation) and `kurtosis` (excess) are NaN in a series with fewer than 2 distinct values, where FORCE leaves them undefined; `std` with `n <= ddof` is NaN. The output is not rounded to int16.
+
+```python
+stm = zeit.temporal_metrics(ndvi, ["p10", "median", "p90", "std"])        # (metric, y, x)
+yearly = zeit.temporal_metrics(ndvi, ["mean", "max"], by="year")           # (metric, year, y, x)
+```
+
+### `linear_trend` { .api #linear_trend }
+
+<!-- sig: zeit.linear_trend -->
+```python
+zeit.linear_trend(
+    data, *, conf=0.95, tail="two", dim=None, band=None,
+    nodata="auto", chunks=None, n_jobs=-1,
+)
+```
+
+The linear trend of each pixel's series: FORCE's TRY, TRQ, TRM, TRW and TRD, depending on the series (the yearly, quarterly, monthly, weekly or daily folds of [`temporal_metrics`](#temporal_metrics)). A least-squares line on the position of each step along `dim` (0, 1, 2..., counting the missing steps too, so the slope is per step: per year for a yearly series), with a t-test of the slope. A pixel with fewer than 3 valid steps is NaN.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `data` | `DataArray`, path, `ndarray`, list or `pd.Series` | required | A `(time, y, x)` cube, or a series along another axis such as the `(metric, year, y, x)` result of `temporal_metrics(..., by="year")`. |
+| `conf` | `float` | `0.95` | Confidence level of the test of the slope. |
+| `tail` | `str` | `"two"` | `"two"`, `"left"` (is the slope significantly negative?) or `"right"`. |
+| `dim` | `str` | `None` | The axis of the series: `"time"` (default when it exists) or another, such as `"year"`. A `metric` axis of length 1 is dropped; with more, choose one with `.sel(metric=...)`. |
+| `band` | `str` or `int` | `None` | The index to use in a `(time, band, y, x)` cube or a `Dataset`. |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | Value marking a missing observation besides NaN. |
+| `chunks` | `"auto"`, `dict` | `None` | Inputs read from disk: `None` reads into memory; otherwise the result is lazy. |
+| `n_jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job ([how they are counted](parallel.md#threads-n_jobs)). |
+
+</div>
+
+**Returns** an `xarray.Dataset` of `(y, x)` maps:
+
+| Variable | Meaning |
+| :--- | :--- |
+| `mean`, `offset` | Mean of the valid steps; the fit at the first step. |
+| `slope` | Slope per step. |
+| `pct_gain`, `abs_gain` | The slope times the number of steps, as a percentage of the offset (0 unless the offset is positive) and as is. |
+| `rsq` | R squared, 0-1 (FORCE writes it times 10000). |
+| `sig` | `-1`, `0` or `1`: the slope is significantly negative, not significant, or positive. |
+| `rmse`, `mae`, `maxe` | Root mean square, mean absolute and largest absolute residual. |
+| `num`, `len` | Valid steps, and steps. |
+
+**Differences from FORCE.** The critical value is the exact quantile of Student's t with `num - 2` degrees of freedom, tabled once per degrees of freedom; FORCE iterates Hill's approximation to a tolerance of 1e-4, so `sig` can differ only where the t-value is that close to the limit.
+
+```python
+yearly = zeit.temporal_metrics(ndvi, ["mean"], by="year")
+trend = zeit.linear_trend(yearly)                    # trend.slope: NDVI per year
+greening = trend.sig == 1
+```
+
+### `cat` { .api #cat }
+
+<!-- sig: zeit.cat -->
+```python
+zeit.cat(
+    data, *, penalty=False, conf=0.95, tail="two", dim=None,
+    band=None, nodata="auto", chunks=None, n_jobs=-1,
+)
+```
+
+The change-aftereffect-trend of each pixel's series (CAT; Hird et al. 2016): FORCE's CAY, CAQ, CAM, CAW and CAD. The change is the greatest loss between a valid step and the valid one before it (positive for a loss; a series that only rises keeps its smallest rise). The series is split at that step, and the trend of [`linear_trend`](#linear_trend) is fit to the whole series (`total_`), to the steps before the change (`before_`, from the first up to two before the change step, as FORCE defines it) and from the change step on (`after_`). A part without valid steps is NaN; one with fewer than 3 has only its `mean`, `num` and `len`.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `data` | `DataArray`, path, `ndarray`, list or `pd.Series` | required | As for [`linear_trend`](#linear_trend). |
+| `penalty` | `bool` | `False` | Weight each loss by what the series has lost by the next valid step (FORCE's `CHANGE_PENALTY`), which discounts a dip the series recovers from. |
+| `conf` | `float` | `0.95` | Confidence level of the test of the slopes. |
+| `tail` | `str` | `"two"` | `"two"`, `"left"` or `"right"`. |
+| `dim` | `str` | `None` | The axis of the series, as for `linear_trend`. |
+| `band` | `str` or `int` | `None` | The index to use in a `(time, band, y, x)` cube or a `Dataset`. |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | Value marking a missing observation besides NaN. |
+| `chunks` | `"auto"`, `dict` | `None` | Inputs read from disk: `None` reads into memory; otherwise the result is lazy. |
+| `n_jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job ([how they are counted](parallel.md#threads-n_jobs)). |
+
+</div>
+
+**Returns** an `xarray.Dataset` of `(y, x)` maps: `change` (the greatest loss), `loss` (the change as a percentage of `total_offset`, 0 unless that is positive), `change_time` (the coordinate of `dim` at the change: the date, the year, the month..., NaN or NaT when there is none) and the twelve variables of `linear_trend` for each part, prefixed `total_`, `before_` and `after_`: 39 in all. A pixel with fewer than 2 valid steps is NaN.
+
+**Differences from FORCE.** With `penalty`, FORCE compares the penalized value of each candidate with the *unpenalized* change of the best one so far, mixing two scales; Zeit compares penalized with penalized, and returns the winner's unpenalized change, as FORCE. The two can pick another step (15% of the pixels on yearly folds, 70% on monthly ones in the benchmark). The t quantile is exact, as in `linear_trend`.
+
+```python
+yearly = zeit.temporal_metrics(ndvi, ["mean"], by="year")
+ch = zeit.cat(yearly, penalty=True)                  # ch.change_time: the year of the greatest loss
+ch.after_slope                                       # the recovery after it, per year
+```
+
+### `clear_observations` { .api #clear_observations }
+
+<!-- sig: zeit.clear_observations -->
+```python
+zeit.clear_observations(
+    data, *, months=1, metrics=('count', 'mean', 'max'), start=None,
+    end=None, dates=None, band=None, nodata="auto", chunks=None,
+    n_jobs=-1,
+)
+```
+
+The clear-sky observations of each pixel in windows of months, and the gaps between them: FORCE's CSO (Ernst et al. 2018). An observation is valid where the value is finite (NaN and NoData are cloud or missing), or True in a boolean cube. In each window the intervals, in days, run from the start of the window to the first valid observation, between consecutive ones, and from the last to the end of the window. A window without a valid observation has one interval, as long as the window, and a count of 0. The dates are needed and must not decrease.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `data` | `DataArray`, path, `ndarray`, list or `pd.Series` | required | A cube of any values (valid where finite), or a boolean cube (True: clear). |
+| `months` | `int` | `1` | The length of a window in months, 1 to 12. |
+| `metrics` | sequence of `str` | `("count", "mean", "max")` | `count` (the valid observations) and, of the intervals in days, the metrics of [`temporal_metrics`](#temporal_metrics): `min`, `max`, `range`, `iqr`, `mean`, `std`, `skew`, `kurtosis`, `median`, `pNN`. |
+| `start`, `end` | date | `None` | The windows begin on the first day of the month of `start` and go on until the one that holds `end`, which is included whole. Default: the first and last date. |
+| `dates` | list | `None` | Date of each time step, for inputs that carry none. |
+| `band` | `str` or `int` | `None` | The index to use in a `(time, band, y, x)` cube or a `Dataset`. |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | Value marking a missing observation besides NaN. |
+| `chunks` | `"auto"`, `dict` | `None` | Inputs read from disk: `None` reads into memory; otherwise the result is lazy. |
+| `n_jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job ([how they are counted](parallel.md#threads-n_jobs)). |
+
+</div>
+
+**Returns** an `xarray.DataArray` `(metric, window, y, x)`, with `window` the first day of each window and `window_end` (along `window`) its end, exclusive. Float32 for float32 input, else float64.
+
+**Differences from FORCE.** FORCE mixes the number of observations `n` with the number of intervals `k`: its standard deviation divides by `n - 1`, its skewness and kurtosis by `n`, and its quantiles are taken over the first `n` of the `k` intervals (reading stale memory when observations share a day). Here every metric but `count` is over the same `k` intervals; `count`, `min`, `max`, `range` and `mean` equal FORCE's, the others differ where `n != k`. In a window without a valid observation FORCE writes 0 for `std`, `skew`, `kurtosis` and the quantiles; here `std`, `skew` and `kurtosis` are NaN. FORCE leaves out the last window when it starts in the month the range ends in (December's, with 1-month windows); Zeit keeps it.
+
+```python
+cso = zeit.clear_observations(ndvi, months=3, metrics=["count", "max"])    # (metric, window, y, x)
+longest_gap = zeit.clear_observations(ndvi.notnull(), metrics=["max"])     # a boolean cube works too
+```
+
+References: Müller, H., Rufin, P., Griffiths, P., Barros Siqueira, A. J., & Hostert, P. (2015). *Remote Sensing of Environment*, 156, 490-499 (STM). Hird, J. N., Castilla, G., McDermid, G. J., & Bueno, I. T. (2016). *IEEE JSTARS*, 9, 3372-3383 (CAT). Ernst, S., Lymburner, L., & Sixsmith, J. (2018). *Remote Sensing*, 10, 1570 (CSO). The full list, with the interpolation's, is in the [tutorial](../tutorials/force_tsa.md#references).
+
 ## Phenology
 
 ### `phenology` { .api #phenology }

@@ -38,6 +38,8 @@ is in Zeit any more.
 | `zeit/ai/ltae.py` (LightTAE, the L-TAE) | [VSainteuf/lightweight-temporal-attention-pytorch](https://github.com/VSainteuf/lightweight-temporal-attention-pytorch), Sainte Fare Garnot & Landrieu (2020) | MIT |
 | `zeit/segmentation.py` (seed grids) | R package [snic](https://github.com/rolfsimoes/snic), `snic_grid()` | GPL (>= 2) |
 | `rust/zeit-core/src/warp.rs`, `warp/` (resampling kernels of `load_raster(..., like=)`) | [GDAL](https://gdal.org) 3.12, `alg/gdalwarpkernel.cpp`, Warmerdam, Rouault et al. (via landschaft, same author as Zeit) | MIT |
+| `rust/zeit-core/src/tsa/` (spectral-temporal metrics and folds, standardization, interpolation, linear trend, change-aftereffect-trend, clear-observation statistics; `stats.rs` from `stm-hl.c`, `fold-hl.c`, `standardize-hl.c` and `stats-cl.c`, `interp.rs` from `interpolate-hl.c`, `trend.rs` from `trend-hl.c` and `stats-cl.c`, `cso.rs` from `cso-hl.c`) | [FORCE](https://github.com/davidfrantz/force) 3.11.00, David Frantz (2019) | GPL-3.0-or-later |
+| `rust/zeit-core/src/tsa/interp.rs` (the bisquare iteratively reweighted least squares of the harmonic interpolation) | [GNU Scientific Library](https://www.gnu.org/software/gsl/) `multifit/multirobust.c` and `robust_wfun.c`, Patrick Alken (Copyright 2013) | GPL-3.0-or-later |
 | `rust/zeit-core/src/landtrendr.rs` (LandTrendr) | [KennedyResearch/LandTrendr-2012](https://github.com/KennedyResearch/LandTrendr-2012), Kennedy et al. (2010), IDL | no license published — see below |
 
 SNIC (`rust/zeit-core/src/snic.rs`) is implemented from the paper (Achanta & Süsstrunk,

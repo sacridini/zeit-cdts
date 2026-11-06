@@ -151,6 +151,7 @@ nav:
           - Forest Degradation (CODED): tutorials/coded.md
       - Time-Series Analysis:
           - Trend Analysis (Mann-Kendall): tutorials/mann_kendall.md
+          - FORCE Time Series Analysis: tutorials/force_tsa.md
           - Regional Trends (PARTS):
               - tutorials/regional-trends/index.md
               - How It Works: tutorials/regional-trends/how-it-works.md
