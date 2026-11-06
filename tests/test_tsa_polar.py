@@ -134,6 +134,47 @@ def test_missing_steps_are_interpolated_and_empty_pixels_are_nan():
     np.testing.assert_allclose(out2.isel(y=0, x=1).values, a.values, equal_nan=True)
 
 
+def _seasonal(start, steps=125):
+    """A smooth 16-day seasonal series (peak in July) that is the same function of the day of the year wherever
+    it starts: its long-term mean vector is at about day 184, so the phenological year starts at the turn of
+    the year."""
+    dates = pd.date_range(start, periods=steps, freq="16D")
+    doy = np.minimum(dates.dayofyear, 365)
+    return _one(0.16 + 0.52 * np.exp(-((doy - 190) / 50.0) ** 2), dates)
+
+
+@pytest.mark.parametrize("start", ["2016-01-01", "2016-02-10", "2016-03-01", "2016-06-01", "2015-12-01"])
+def test_a_series_that_does_not_start_on_1_january_measures_the_seasons_it_covers(start):
+    # The start of the phenological year falls before the first step (February to June) or the series begins
+    # in December: FORCE finds no season at all there (every metric 0), here every season whose start is in
+    # the series is measured, and as in the series from 1 January.
+    names = ["DSS", "DPS", "DES", "VPS", "VSS", "VES", "LGS", "IGS"]
+    out = zeit.polar_metrics(_seasonal(start), names, n_jobs=2)
+    ref = zeit.polar_metrics(_seasonal("2016-01-01"), names, n_jobs=2)
+    years = [2017, 2018, 2019, 2020]               # fully inside every series
+    assert set(years) <= set(out.year.values)
+    for year in years:
+        got, want = out.sel(year=year), ref.sel(year=year)
+        assert np.isfinite(got.values).all(), (start, year, got.values)
+        # the steps are on another grid: the same season to two steps
+        for name, tol in (("DSS", 36), ("DPS", 36), ("DES", 36), ("LGS", 36), ("VPS", 0.03), ("VSS", 0.15),
+                          ("VES", 0.15)):
+            assert abs(float(got.sel(metric=name)) - float(want.sel(metric=name))) <= tol, (start, year, name)
+    # the first band is the season that ends before the first start, with no steps of its own
+    assert np.isnan(out.sel(year=out.year.values[0])).all()
+
+
+def test_a_box_that_starts_after_its_first_start_of_the_year_is_as_the_whole_series():
+    # The seasons start on day 330 (window 327..332): a series from day 335 has no step in the window of
+    # the first year, so that season is NaN and the others are the whole series' (FORCE: every season lost).
+    whole = zeit.polar_metrics(_one(_box()), ALL)
+    cut = _one(_box())[DATES >= "2021-12-01"]
+    out = zeit.polar_metrics(cut, ALL)
+    assert list(out.year.values) == [2021, 2022, 2023]
+    assert np.isnan(out.sel(year=[2021, 2022])).all()
+    np.testing.assert_allclose(out.sel(year=2023).values, whole.sel(year=2023).values, equal_nan=True)
+
+
 def test_negative_values_count_as_zero():
     a = zeit.polar_metrics(_one(_box()), ALL)
     b = zeit.polar_metrics(_one(_box() - np.where(_box() == 0, 50, 0)), ALL)

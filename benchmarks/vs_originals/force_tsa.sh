@@ -140,6 +140,12 @@ run TSA moving_polar INTERPOLATE=MOVING MOVING_MAX=8 OUTPUT_TSI=TRUE POL_ADAPTIV
     OUTPUT_TRO=TRUE OUTPUT_CAO=TRUE
 run TSA rbf_polar_thr "${RBF[@]}" POL_ADAPTIVE=TRUE POL_START_THRESHOLD=0.1 POL_MID_THRESHOLD=0.4 \
     POL_END_THRESHOLD=0.9 POL="$POL_ALL" OUTPUT_POL=TRUE OUTPUT_TRO=TRUE OUTPUT_CAO=TRUE
+# Series that do not start on 1 January (DATE_RANGE from the middle of the first year: the TSI grid starts there, as
+# the first step), over the RBF, for the pixels whose phenological year starts before and after the first step.
+for start in feb:2018-02-10 jun:2018-06-01 dec:2018-12-01; do
+    run TSA "rbf_polar_${start%%:*}" "${RBF[@]}" DATE_RANGE="${start#*:} 2022-12-31" POL_ADAPTIVE=TRUE POL="$POL_ALL" \
+        OUTPUT_POL=TRUE OUTPUT_TRO=TRUE OUTPUT_CAO=TRUE OUTPUT_TSI=TRUE
+done
 # With ZERO=<k> (the cube's --zero-block, see below) a k x k block of the cube has a zero index in every observation:
 # the season's sum is zero there. Run in a cube of its own (another workdir and DEST), only when ZERO is set.
 [ -n "${ZERO:-}" ] && run TSA zero_polar "${RBF[@]}" OUTPUT_TSI=TRUE POL_ADAPTIVE=TRUE POL="$POL_ALL" OUTPUT_POL=TRUE \

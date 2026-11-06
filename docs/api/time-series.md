@@ -414,7 +414,7 @@ The polar phenology metrics of each pixel and year: FORCE's POL (`polar-hl.c`, F
 
 </div>
 
-**Returns** an `xarray.DataArray` `(metric, year, y, x)`: one band per calendar year from the first date's to the last's, float32 for float32 input, else float64, unrounded (FORCE writes truncated int16). A season belongs to the year it ends in when the long-term start of the year is before day 182, else to the year after it begins, so a series of `n` years has `n - 1` seasons and one year (the first or the last) is NaN. [`linear_trend`](#linear_trend) of one metric along `year` is FORCE's TRO of it and [`cat`](#cat) its CAO.
+**Returns** an `xarray.DataArray` `(metric, year, y, x)`: one band per calendar year from the first date's to the last's, float32 for float32 input, else float64, unrounded (FORCE writes truncated int16). A season belongs to the year it ends in when the long-term start of the year is before day 182, else to the year after it begins, so a series of `n` years has `n - 1` seasons and one year (the first or the last) is NaN. A series need not start on 1 January: a season whose start of the year is before the first date (or has no step in the series) is NaN, and the seasons whose start is in the series are measured as usual (FORCE, which looks for the first start for ever, finds no season at all in that case and writes 0 for every metric); a season cut short by the end of the series is measured from the steps it has, as in FORCE. [`linear_trend`](#linear_trend) of one metric along `year` is FORCE's TRO of it and [`cat`](#cat) its CAO.
 
 The 39 metrics. A *date* counts days from 1 January of the band's year (365 days a year, 29 February sharing day 60 with 1 March). *Data* is the unit of the input.
 

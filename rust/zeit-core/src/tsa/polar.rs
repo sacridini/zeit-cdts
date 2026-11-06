@@ -52,6 +52,14 @@
 //! * DPV, the shift of the start of the year of each season, is 0 without `adaptive`; FORCE
 //!   writes the date of the long-term start, negated (it subtracts a start never found).
 //! * FORCE's STANDARDIZE_POL does nothing, and does not exist here.
+//! * A series that does not start before the long-term start of its first year (it starts in the
+//!   middle of the year, after the start of the phenological year, or a step grid steps over a
+//!   start): FORCE looks for the start of year 0 for ever and finds no season at all, so every
+//!   metric of the pixel is a NaN written as 0. Here a start with no step in its window (one day
+//!   wider than FORCE's, as the days are truncated) is skipped, a season is numbered by the year its
+//!   start is in, and the seasons whose start is in the series are measured; the others (the first,
+//!   when the series begins after its start) are NaN. Where FORCE finds its seasons the result is
+//!   FORCE's.
 //!
 //! The band of a season `s` is `y_out = s` if the long-term start is before day 182, `s + 1`
 //! otherwise (the season ends in the year `y_out`): even with `adaptive`, from the long-term
@@ -233,6 +241,8 @@ struct Work {
     season: Vec<i32>,
     diff: Vec<i32>,
     theta0: Vec<i32>,
+    /// Per year, whether a step was found in the window after that year's long-term start.
+    covered: Vec<bool>,
 }
 
 /// A step kept as an event of a season: FORCE's `timing`.
@@ -355,14 +365,25 @@ fn series_pixel<T: Sample>(g: &Grid, plan: &Plan, w: &mut Work, series: &[T], ro
     let theta_rad = opposite(alpha_rad);
     let theta_doy = (f64::from(theta_rad) * 365.0 / (2.0 * PI)) as i32;
 
-    // The seasons from the long-term start.
+    // The seasons from the long-term start. A season is numbered by the year its start is in; a start
+    // with no step in its window (the series begins after it, or the step grid steps over it) is
+    // skipped, where FORCE would look for that start forever and find no season at all. The window is
+    // one day wider than FORCE's (`step`): the days are truncated, so two steps can be `step + 1`
+    // apart and miss a window of `step`; where FORCE finds a start, the first step in its window is
+    // the same.
     w.season.clear();
+    w.covered.clear();
+    w.covered.resize(ny + 2, false);
     {
         let (mut s, mut y) = (-1i32, 0i32);
         for i in 0..ni {
+            while g.pce[i] > y * 365 + theta_doy + step + 1 {
+                y += 1;
+            }
             let tce = y * 365 + theta_doy;
-            if g.pce[i] >= tce && g.pce[i] - tce <= step {
-                s += 1;
+            if g.pce[i] >= tce && g.pce[i] - tce <= step + 1 {
+                s = y;
+                w.covered[y as usize] = true;
                 y += 1;
             }
             w.season.push(s);
@@ -432,7 +453,8 @@ fn series_pixel<T: Sample>(g: &Grid, plan: &Plan, w: &mut Work, series: &[T], ro
                         if i < ii + 1 {
                             break;
                         }
-                        w.diff[i - ii - 1] = 1;
+                        // the season the step is in becomes this one (the previous, or none yet)
+                        w.diff[i - ii - 1] = s - w.season[i - ii - 1];
                     }
                 }
             }
@@ -475,6 +497,9 @@ fn series_pixel<T: Sample>(g: &Grid, plan: &Plan, w: &mut Work, series: &[T], ro
         let y_out = if theta_doy < 182 { s } else { s + 1 };
         let theta_ce = si * 365 + theta_doy;
         let off = y_out as i32 * 365;
+        if !w.covered[s] {
+            continue; // the series begins after this season's start: nothing to measure
+        }
 
         let (mut left, mut right, mut start, mut mid, mut peak, mut end) = (
             Event::default(),
@@ -947,6 +972,27 @@ mod tests {
         is(&adapt, ny, "DPV", 3, -4.0);
         for y in 1..4 {
             is(&fixed, ny, "DPV", y, 0.0);
+        }
+    }
+
+    #[test]
+    fn a_series_that_starts_after_the_first_start_of_the_year() {
+        // The box's seasons start on day 330 (window 327..332). A series from day 335 of the first
+        // year has no step in the window of year 0: the season of year 0 is not covered (NaN), the
+        // others are as in the whole series (FORCE finds no season at all there).
+        let (want, ny) = all(&box_series(), false);
+        let (c, v): (Vec<i64>, Vec<f64>) = days().into_iter().zip(box_series()).filter(|(c, _)| *c >= 335).unzip();
+        let m: Vec<usize> = (0..N_METRICS).collect();
+        let (got, ny2) = polar_batch(&v, 1, v.len(), &c, STEP as i32, 0.2, 0.5, 0.8, false, &m, 1).unwrap();
+        assert_eq!(ny, ny2);
+        for k in 0..N_METRICS {
+            assert!(got[k * ny + 1].is_nan(), "{} of band 1", NAMES[k]);
+        }
+        for k in 0..N_METRICS {
+            for y in 2..4 {
+                let (a, b) = (got[k * ny + y], want[k * ny + y]);
+                assert!(same(a, b), "{} of band {y}: {a} vs {b}", NAMES[k]);
+            }
         }
     }
 

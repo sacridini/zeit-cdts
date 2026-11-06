@@ -837,16 +837,21 @@ POLAR_CONFIGS = {
     "moving_polar": (True, "moving_polar", (0.2, 0.5, 0.8)),
     "rbf_polar_thr": (True, "int_rbf", (0.1, 0.4, 0.9)),
     "zero_polar": (True, "zero_polar", (0.2, 0.5, 0.8)),
+    # DATE_RANGE from the middle of the first year (the TSI's first step is there): FORCE's seasons are found the same way
+    # (the first step within one step after the long-term start), so the ones the series covers agree.
+    "rbf_polar_feb": (True, "rbf_polar_feb", (0.2, 0.5, 0.8), 20180210),
+    "rbf_polar_jun": (True, "rbf_polar_jun", (0.2, 0.5, 0.8), 20180601),
+    "rbf_polar_dec": (True, "rbf_polar_dec", (0.2, 0.5, 0.8), 20181201),
 }
 
 
-def polar_zeit(jobs, adaptive, config="int_rbf", thresholds=(0.2, 0.5, 0.8)):
+def polar_zeit(jobs, adaptive, config="int_rbf", thresholds=(0.2, 0.5, 0.8), first=POL_FIRST_DATE):
     """Zeit's core on FORCE's own TSI: ``(metrics, years, pixels)`` floats (NaN where Zeit has none), the TSI's ``ce``
     relative to the first year, and the seconds."""
     from zeit import _core
 
     v, _, _ = tsi(config)
-    grid = ref.tsi_grid(ref.ce_of(POL_FIRST_DATE), ref.ce_of(POL_LAST_DATE), POL_STEP).astype(np.int64)
+    grid = ref.tsi_grid(ref.ce_of(first), ref.ce_of(POL_LAST_DATE), POL_STEP).astype(np.int64)
     assert len(grid) == v.shape[1], (len(grid), v.shape)
     ce = grid - (POL_FIRST_DATE // 10000) * 365
     t0 = time.perf_counter()
@@ -1036,11 +1041,11 @@ def part_polar(jobs):
     """Zeit's polar metrics of FORCE's own TSI (the RBF's) against the 39 products of rbf_polar_adapt and rbf_polar_fixed
     (POL), and Zeit's trend and change of each of them against TRO and CAO."""
     names = _polar_names()
-    for config, (adaptive, tsi_config, thresholds) in POLAR_CONFIGS.items():
+    for config, (adaptive, tsi_config, thresholds, *first) in POLAR_CONFIGS.items():
         if not (ref.REF / "out" / config / "X0000_Y0000").is_dir():
             print(f"\n== {config}: not in the reference folder, skipped")
             continue
-        zeit_out, ce, seconds = polar_zeit(jobs, adaptive, tsi_config, thresholds)
+        zeit_out, ce, seconds = polar_zeit(jobs, adaptive, tsi_config, thresholds, *first)
         got_f = force_scale(zeit_out)
         want = load_polar(config)
         assert want.shape == got_f.shape, (want.shape, got_f.shape)
@@ -1049,6 +1054,20 @@ def part_polar(jobs):
         undefined = nan_zeit & (want != NODATA)               # NaN where FORCE converts an undefined float to int16
         overflow = ~nan_zeit & (np.abs(np.trunc(np.nan_to_num(got_f))) > 32767)
         skip = undefined | overflow
+        if first:
+            # A series that starts after the long-term start of the phenological year: FORCE looks for that start
+            # for ever and finds no season (every metric of the pixel is a NaN written as 0, as for a season that
+            # no step is in); Zeit skips it and measures the seasons whose start is in the series. Compared where
+            # FORCE found a season; Zeit may not lack one that FORCE has.
+            none = (want[names.index("LTS")] == 0) & (want[names.index("LGS")] == 0) & (want[names.index("DEM")] == 0)
+            measured = none & ~nan_zeit
+            lost = undefined & ~none
+            skip = skip | measured
+            print(f"\n{config}, the series from {first[0]}: of {none.size} pixels x bands FORCE finds no season in "
+                  f"{int(none.sum())}; Zeit measures {int(measured[0].sum())} of those and lacks {int(lost[0].sum())} "
+                  f"that FORCE has")
+            if lost.any():
+                _failed.append(f"POL {config}: Zeit lacks seasons that FORCE has")
         print(f"\n== {config}: Zeit {seconds * 1000:.1f} ms for {zeit_out.shape[2]} pixels x {len(ce)} dates "
               f"({jobs} threads)")
         if not adaptive:
@@ -1065,6 +1084,8 @@ def part_polar(jobs):
               + f"; int16 overflow {int(overflow.sum())} values"
               + "".join(f", {names[k]} {int(overflow[k].sum())}" for k in range(len(names)) if overflow[k].any()))
         bad = undefined.any(axis=(0, 1))[None, None, :]  # pixels with an undefined season in any metric
+        if first:
+            bad = bad | measured.any(axis=(0, 1))[None, None, :]  # and those whose seasons only Zeit measures
         if bad.any():
             print(f"  {int(bad.sum())} pixels have a season FORCE leaves undefined (Zeit: NaN); their TRO and CAO are left out")
         polar_trend(jobs, names, zeit_out, got_f, want, config, adaptive, bad)
