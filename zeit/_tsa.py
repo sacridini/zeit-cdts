@@ -51,8 +51,10 @@ def _work_dtype(cube: xr.DataArray) -> np.dtype:
 
 
 def _flat(block: np.ndarray) -> np.ndarray:
-    """A ``(time, y, x)`` block as ``(pixels, time)`` float64."""
-    return np.ascontiguousarray(block.reshape(block.shape[0], -1).T, dtype=np.float64)
+    """A ``(time, y, x)`` block as ``(pixels, time)``: float32 stays float32 (the core reads it as it is and works in
+    float64), anything else is float64."""
+    dtype = np.float32 if block.dtype == np.float32 else np.float64
+    return np.ascontiguousarray(block.reshape(block.shape[0], -1).T, dtype=dtype)
 
 
 def _metrics_block(block, names, ddof, n_jobs, group, n_groups, dtype):

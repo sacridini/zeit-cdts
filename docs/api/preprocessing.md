@@ -260,7 +260,7 @@ The grid is FORCE's: from `start` (default the first date) every `step` days, `f
 
 - The output is float, not FORCE's int16: no rounding to the data's scale and no clipping.
 - The harmonic's period is 365.25 days, the real year; FORCE counts 365 on a calendar without leap days. The time is centered and scaled inside and the system solved by Cholesky on balanced columns, which does not change the fit.
-- A pixel whose harmonic IRLS cycles without converging is left out of the comparison with FORCE (one in 10,000 in the benchmark; neither implementation settles on a fit). A pixel with fewer valid observations in `fit` than coefficients is NaN.
+- A pixel whose harmonic IRLS cycles without converging (about 1 in 100 in the benchmark, found by the core) is left out of the comparison with FORCE: neither implementation settles on a fit, and a handful of them differ from FORCE by more than 1. A pixel with fewer valid observations in `fit` than coefficients is NaN.
 
 ```python
 ndvi = zeit.load_raster("S2_ndvi_2018_2022.tif")                   # (time, y, x), clouds as NaN

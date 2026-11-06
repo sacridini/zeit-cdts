@@ -2,7 +2,10 @@
 //! standardization, interpolation,
 //! linear trend and greatest change, clear observations).
 
-use numpy::{AllowTypeChange, PyArray1, PyArray2, PyArray3, PyArrayLike1, PyArrayLike2, PyArrayMethods};
+use numpy::{
+    AllowTypeChange, PyArray1, PyArray2, PyArray3, PyArrayLike1, PyArrayLike2, PyArrayMethods, PyReadonlyArray2,
+    PyUntypedArrayMethods,
+};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use zeit_core::tsa::cso;
@@ -11,6 +14,44 @@ use zeit_core::tsa::stats::{self, Metric, Standardize};
 use zeit_core::tsa::trend::{self, Tail, CAT_LEN, TREND_LEN};
 
 use crate::arrays::c_order;
+
+/// The (pixels, time) cube of the functions that read a whole one: a float32
+/// array is read as it is (the work is in float64 either way, but the cube is
+/// not converted), any other dtype is converted to float64.
+#[derive(FromPyObject)]
+enum Cube<'py> {
+    F32(PyReadonlyArray2<'py, f32>),
+    F64(PyArrayLike2<'py, f64, AllowTypeChange>),
+}
+
+impl Cube<'_> {
+    fn dim(&self) -> (usize, usize) {
+        match self {
+            Cube::F32(a) => (a.shape()[0], a.shape()[1]),
+            Cube::F64(a) => a.as_array().dim(),
+        }
+    }
+}
+
+/// Runs `$body` with `$v` the cube's values as a C-ordered slice (f32 or f64).
+macro_rules! with_cube {
+    ($cube:expr, $v:ident => $body:expr) => {
+        match &$cube {
+            Cube::F32(a) => {
+                let view = a.as_array();
+                let c = c_order(&view);
+                let $v: &[f32] = &c;
+                $body
+            }
+            Cube::F64(a) => {
+                let view = a.as_array();
+                let c = c_order(&view);
+                let $v: &[f64] = &c;
+                $body
+            }
+        }
+    };
+}
 
 fn metrics_of(names: &[String]) -> PyResult<Vec<Metric>> {
     if names.is_empty() {
@@ -26,17 +67,14 @@ fn metrics_of(names: &[String]) -> PyResult<Vec<Metric>> {
 #[pyo3(signature = (values, metrics, ddof = 1.0, n_jobs = -1))]
 fn stm_batch<'py>(
     py: Python<'py>,
-    values: PyArrayLike2<'py, f64, AllowTypeChange>,
+    values: Cube<'py>,
     metrics: Vec<String>,
     ddof: f64,
     n_jobs: i32,
 ) -> PyResult<Bound<'py, PyArray2<f64>>> {
     let metrics = metrics_of(&metrics)?;
-    let view = values.as_array();
-    let (n_pixels, n_time) = view.dim();
-    let v = c_order(&view);
-    let v: &[f64] = &v;
-    let out = py.detach(|| stats::stm_batch(v, n_pixels, n_time, &metrics, ddof, n_jobs));
+    let (n_pixels, n_time) = values.dim();
+    let out = with_cube!(values, v => py.detach(|| stats::stm_batch(v, n_pixels, n_time, &metrics, ddof, n_jobs)));
     PyArray1::from_vec(py, out).reshape([n_pixels, metrics.len()])
 }
 
@@ -47,7 +85,7 @@ fn stm_batch<'py>(
 #[pyo3(signature = (values, group, n_groups, metrics, ddof = 1.0, n_jobs = -1))]
 fn fold_batch<'py>(
     py: Python<'py>,
-    values: PyArrayLike2<'py, f64, AllowTypeChange>,
+    values: Cube<'py>,
     group: PyArrayLike1<'py, i32, AllowTypeChange>,
     n_groups: usize,
     metrics: Vec<String>,
@@ -55,8 +93,7 @@ fn fold_batch<'py>(
     n_jobs: i32,
 ) -> PyResult<Bound<'py, PyArray3<f64>>> {
     let metrics = metrics_of(&metrics)?;
-    let view = values.as_array();
-    let (n_pixels, n_time) = view.dim();
+    let (n_pixels, n_time) = values.dim();
     let group: Vec<i32> = group.as_array().iter().copied().collect();
     if group.len() != n_time {
         return Err(PyValueError::new_err("one group per time step"));
@@ -64,9 +101,9 @@ fn fold_batch<'py>(
     if group.iter().any(|&g| g < -1 || g >= n_groups as i32) {
         return Err(PyValueError::new_err("group must be -1 or in 0..n_groups"));
     }
-    let v = c_order(&view);
-    let v: &[f64] = &v;
-    let out = py.detach(|| stats::fold_batch(v, n_pixels, n_time, &group, n_groups, &metrics, ddof, n_jobs));
+    let out = with_cube!(values, v => py.detach(|| {
+        stats::fold_batch(v, n_pixels, n_time, &group, n_groups, &metrics, ddof, n_jobs)
+    }));
     PyArray1::from_vec(py, out).reshape([n_pixels, metrics.len(), n_groups])
 }
 
@@ -101,7 +138,7 @@ fn standardize_batch<'py>(
 #[allow(clippy::too_many_arguments)]
 fn interp_batch<'py>(
     py: Python<'py>,
-    values: PyArrayLike2<'py, f64, AllowTypeChange>,
+    values: Cube<'py>,
     t_in: PyArrayLike1<'py, f64, AllowTypeChange>,
     t_out: PyArrayLike1<'py, f64, AllowTypeChange>,
     method: &str,
@@ -131,17 +168,41 @@ fn interp_batch<'py>(
             )))
         }
     };
-    let view = values.as_array();
-    let (n_pixels, n_in) = view.dim();
+    let (n_pixels, n_in) = values.dim();
     let t_in: Vec<f64> = t_in.as_array().iter().copied().collect();
     let t_out: Vec<f64> = t_out.as_array().iter().copied().collect();
     let n_out = t_out.len();
-    let v = c_order(&view);
-    let v: &[f64] = &v;
-    let out = py
-        .detach(|| interp::interp_batch(v, n_pixels, n_in, &t_in, &t_out, &method, n_jobs))
-        .map_err(PyValueError::new_err)?;
+    let out = with_cube!(values, v => py
+        .detach(|| interp::interp_batch(v, n_pixels, n_in, &t_in, &t_out, &method, n_jobs)))
+    .map_err(PyValueError::new_err)?;
     PyArray1::from_vec(py, out).reshape([n_pixels, n_out])
+}
+
+/// How the robust fit of every series of values (pixels, n_in) ends under
+/// `interp_batch`'s harmonic method: the iterations of the reweighted least
+/// squares (1..=100), 65535 when it ran 100 without converging, 0 when not fit.
+#[pyfunction]
+#[pyo3(signature = (values, t_in, modes = 3, trend = true, fit_lo = f64::NEG_INFINITY, fit_hi = f64::INFINITY,
+                    period = 365.25, n_jobs = -1))]
+#[allow(clippy::too_many_arguments)]
+fn harmonic_iterations<'py>(
+    py: Python<'py>,
+    values: Cube<'py>,
+    t_in: PyArrayLike1<'py, f64, AllowTypeChange>,
+    modes: usize,
+    trend: bool,
+    fit_lo: f64,
+    fit_hi: f64,
+    period: f64,
+    n_jobs: i32,
+) -> PyResult<Bound<'py, PyArray1<u16>>> {
+    let (n_pixels, n_in) = values.dim();
+    let t_in: Vec<f64> = t_in.as_array().iter().copied().collect();
+    let out = with_cube!(values, v => py.detach(|| {
+        interp::harmonic_iterations(v, n_pixels, n_in, &t_in, modes, trend, (fit_lo, fit_hi), period, n_jobs)
+    }))
+    .map_err(PyValueError::new_err)?;
+    Ok(PyArray1::from_vec(py, out))
 }
 
 /// The linear trend of every series of values (pixels, steps; NaN marks a
@@ -201,15 +262,14 @@ fn cat_batch<'py>(
 #[pyo3(signature = (values, t, windows, metrics, n_jobs = -1))]
 fn cso_batch<'py>(
     py: Python<'py>,
-    values: PyArrayLike2<'py, f64, AllowTypeChange>,
+    values: Cube<'py>,
     t: PyArrayLike1<'py, f64, AllowTypeChange>,
     windows: PyArrayLike2<'py, f64, AllowTypeChange>,
     metrics: Vec<String>,
     n_jobs: i32,
 ) -> PyResult<Bound<'py, PyArray3<f64>>> {
     let metrics = metrics_of(&metrics)?;
-    let view = values.as_array();
-    let (n_pixels, n_time) = view.dim();
+    let (n_pixels, n_time) = values.dim();
     let t: Vec<f64> = t.as_array().iter().copied().collect();
     let w = windows.as_array();
     if w.ncols() != 2 {
@@ -217,11 +277,9 @@ fn cso_batch<'py>(
     }
     let windows: Vec<(f64, f64)> = w.rows().into_iter().map(|r| (r[0], r[1])).collect();
     let n_windows = windows.len();
-    let v = c_order(&view);
-    let v: &[f64] = &v;
-    let out = py
-        .detach(|| cso::cso_batch(v, n_pixels, n_time, &t, &windows, &metrics, n_jobs))
-        .map_err(PyValueError::new_err)?;
+    let out = with_cube!(values, v => py
+        .detach(|| cso::cso_batch(v, n_pixels, n_time, &t, &windows, &metrics, n_jobs)))
+    .map_err(PyValueError::new_err)?;
     PyArray1::from_vec(py, out).reshape([n_pixels, metrics.len(), n_windows])
 }
 
@@ -232,6 +290,7 @@ pub fn module(py: Python<'_>) -> PyResult<Bound<'_, PyModule>> {
     m.add_function(wrap_pyfunction!(fold_batch, &m)?)?;
     m.add_function(wrap_pyfunction!(standardize_batch, &m)?)?;
     m.add_function(wrap_pyfunction!(interp_batch, &m)?)?;
+    m.add_function(wrap_pyfunction!(harmonic_iterations, &m)?)?;
     m.add_function(wrap_pyfunction!(trend_batch, &m)?)?;
     m.add_function(wrap_pyfunction!(cat_batch, &m)?)?;
     m.add_function(wrap_pyfunction!(cso_batch, &m)?)?;

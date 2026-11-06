@@ -6,7 +6,7 @@ use numpy::ndarray::{ArrayView, Dimension};
 use std::borrow::Cow;
 
 /// The values of `a` in C order, borrowed when `a` already is C-contiguous.
-pub fn c_order<'a, D: Dimension>(a: &'a ArrayView<'a, f64, D>) -> Cow<'a, [f64]> {
+pub fn c_order<'a, T: Copy, D: Dimension>(a: &'a ArrayView<'a, T, D>) -> Cow<'a, [T]> {
     match a.as_slice() {
         Some(s) => Cow::Borrowed(s),
         None => Cow::Owned(a.iter().copied().collect()),

@@ -8,3 +8,24 @@ pub mod cso;
 pub mod interp;
 pub mod stats;
 pub mod trend;
+
+/// A type the series may be stored in: the work is always in f64, the cube is
+/// not converted as a whole (a float32 cube is half the memory traffic of a
+/// float64 one). NaN marks a missing observation.
+pub trait Sample: Copy + Send + Sync + 'static {
+    fn to_f64(self) -> f64;
+}
+
+impl Sample for f64 {
+    #[inline(always)]
+    fn to_f64(self) -> f64 {
+        self
+    }
+}
+
+impl Sample for f32 {
+    #[inline(always)]
+    fn to_f64(self) -> f64 {
+        f64::from(self)
+    }
+}

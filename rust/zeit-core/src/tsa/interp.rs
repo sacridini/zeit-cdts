@@ -24,6 +24,7 @@
 //! and scales the time (the fit does not change: the cosines and sines absorb
 //! the phase and the intercept the offset).
 
+use super::Sample;
 use crate::parallel;
 
 /// How a series is interpolated.
@@ -61,12 +62,18 @@ struct Work {
     res: Vec<f64>,
     fac: Vec<f64>,
     abs: Vec<f64>,
+    /// For the linear interpolation, the number of valid observations before each step.
+    prev: Vec<u32>,
+    /// The prefix sums (integers) and counts of the valid observations.
+    pre_sum: Vec<i64>,
+    pre_num: Vec<u32>,
 }
 
 /// The values of every series of `values` (pixels, n_in), at the times `t_out`:
-/// (pixels, n_out), flat. `t_in` increases (ties allowed).
-pub fn interp_batch(
-    values: &[f64],
+/// (pixels, n_out), flat. `t_in` increases (ties allowed). `values` may be f64
+/// or f32 (the work is in f64 either way).
+pub fn interp_batch<T: Sample>(
+    values: &[T],
     n_pixels: usize,
     n_in: usize,
     t_in: &[f64],
@@ -87,15 +94,19 @@ pub fn interp_batch(
         return Err("the times of the series must not decrease".into());
     }
     let n_out = t_out.len();
-    let mut out = vec![f64::NAN; n_pixels * n_out];
     if n_pixels == 0 || n_out == 0 || n_in == 0 {
-        return Ok(out);
+        return Ok(vec![f64::NAN; n_pixels * n_out]);
     }
+    // Every kernel writes all of its row: the output is not filled here, its
+    // pages are first written (and so faulted in) by the threads.
+    let mut out = parallel::uninit_f64(n_pixels * n_out);
     match method {
         Method::Linear => {
+            // Where each new time falls among all the times of the series, once
+            // for every pixel: the first step with t >= x.
+            let at: Vec<u32> = t_out.iter().map(|&x| t_in.partition_point(|&v| v < x) as u32).collect();
             parallel::for_each_row(&mut out, n_out, n_jobs, Work::default, |w, p, row| {
-                compact(&values[p * n_in..(p + 1) * n_in], t_in, w);
-                linear(&w.t, &w.y, t_out, row);
+                linear(&values[p * n_in..(p + 1) * n_in], t_in, t_out, &at, w, row);
             });
         }
         Method::Moving { window } => {
@@ -103,9 +114,17 @@ pub fn interp_batch(
                 return Err("window must be a non-negative number of days".into());
             }
             let window = *window;
+            // The steps of each window, once for every pixel.
+            let span: Vec<(u32, u32)> = t_out
+                .iter()
+                .map(|&x| {
+                    let lo = t_in.partition_point(|&v| v < x - window);
+                    let hi = t_in.partition_point(|&v| v <= x + window).max(lo);
+                    (lo as u32, hi as u32)
+                })
+                .collect();
             parallel::for_each_row(&mut out, n_out, n_jobs, Work::default, |w, p, row| {
-                compact(&values[p * n_in..(p + 1) * n_in], t_in, w);
-                moving(&w.t, &w.y, t_out, window, row);
+                moving(&values[p * n_in..(p + 1) * n_in], &span, w, row);
             });
         }
         Method::Rbf { sigma, cutoff } => {
@@ -151,12 +170,10 @@ pub fn interp_batch(
                 let series = &values[px * n_in..(px + 1) * n_in];
                 w.idx.clear();
                 w.idx
-                    .extend((0..n_in).filter(|&i| in_fit[i] && !series[i].is_nan()));
-                if w.idx.len() < p {
-                    return;
-                }
+                    .extend((0..n_in).filter(|&i| in_fit[i] && !series[i].to_f64().is_nan()));
                 let mut c = [0.0; MAXP];
-                if !robust_fit(series, &design, w, &mut c) {
+                if w.idx.len() < p || robust_fit(series, &design, w, &mut c).is_none() {
+                    row.fill(f64::NAN);
                     return;
                 }
                 for (o, x) in row.iter_mut().zip(design.x_out.chunks_exact(p)) {
@@ -169,55 +186,131 @@ pub fn interp_batch(
 }
 
 /// The valid observations of `series` into `w.t` and `w.y`.
-fn compact(series: &[f64], t_in: &[f64], w: &mut Work) {
-    w.t.clear();
-    w.y.clear();
-    for (&v, &t) in series.iter().zip(t_in) {
-        if !v.is_nan() {
-            w.t.push(t);
-            w.y.push(v);
-        }
+fn compact<T: Sample>(series: &[T], t_in: &[f64], w: &mut Work) {
+    // written without a branch on the (unpredictable) gaps: every step is
+    // stored, the position advances only on a valid one
+    let n = series.len();
+    w.t.resize(n, 0.0);
+    w.y.resize(n, 0.0);
+    let mut k = 0;
+    let (ts, ys) = (&mut w.t[..], &mut w.y[..]);
+    for i in 0..n {
+        let v = series[i].to_f64();
+        ts[k] = t_in[i];
+        ys[k] = v;
+        k += usize::from(!v.is_nan());
     }
+    w.t.truncate(k);
+    w.y.truncate(k);
 }
 
 // ---- linear ----------------------------------------------------------------
 
 /// `interpolate_linear`: the last valid observation before `x` and the first
 /// after; one at `x` is the value; constant beyond the ends; none: NaN.
-fn linear(t: &[f64], y: &[f64], t_out: &[f64], out: &mut [f64]) {
-    let n = t.len();
-    for (o, &x) in out.iter_mut().zip(t_out) {
-        if n == 0 {
-            *o = f64::NAN;
-            continue;
-        }
-        let r = t.partition_point(|&v| v < x); // the first with t >= x
-        *o = if r < n && t[r] == x {
-            y[r]
-        } else if r == 0 {
-            y[0]
-        } else if r == n {
-            y[n - 1]
+///
+/// `at[k]` is the first step of the whole series with t >= t_out[k]. One pass
+/// compacts the valid observations (without a branch on the gaps, which are as
+/// unpredictable as the clouds) and counts them as it goes: the count at `at[k]`
+/// is where t_out[k] falls among the valid observations, which replaces a
+/// bisection of them for each new time.
+fn linear<T: Sample>(series: &[T], t_in: &[f64], t_out: &[f64], at: &[u32], w: &mut Work, out: &mut [f64]) {
+    let n = series.len();
+    let Work { t, y, prev: rank, .. } = w;
+    ensure(t, n + 1, 0.0);
+    ensure(y, n + 1, 0.0);
+    ensure(rank, n + 1, 0);
+    let (t, y, rank) = (&mut t[..n + 1], &mut y[..n + 1], &mut rank[..n + 1]);
+    let mut k = 0usize;
+    for (s, (&ti, r)) in series.iter().zip(t_in.iter().zip(rank.iter_mut())) {
+        let v = s.to_f64();
+        *r = k as u32;
+        t[k] = ti;
+        y[k] = v;
+        k += usize::from(v == v);
+    }
+    rank[n] = k as u32;
+    let nv = k;
+    if nv == 0 {
+        out.fill(f64::NAN);
+        return;
+    }
+    for ((o, &x), &a) in out.iter_mut().zip(t_out).zip(at) {
+        let r = rank[a as usize] as usize; // the valid observations before x
+        // the neighbours clamped into the valid observations, so that the
+        // interpolation is always computed and the cases only select
+        let (l, h) = (r.saturating_sub(1), r.min(nv - 1));
+        let (xl, xr, yl, yr) = (t[l], t[h], y[l], y[h]);
+        let line = (yl * (xr - x) + yr * (x - xl)) / (xr - xl);
+        let exact = r < nv && xr == x;
+        let inside = r > 0 && r < nv;
+        let end = if r == 0 { yl } else { yr }; // the first or the last observation
+        *o = if exact {
+            yr
+        } else if inside {
+            line
         } else {
-            let (xl, xr, yl, yr) = (t[r - 1], t[r], y[r - 1], y[r]);
-            (yl * (xr - x) + yr * (x - xl)) / (xr - xl)
+            end
         };
+    }
+}
+
+/// `v` grown to at least `n` elements.
+#[inline]
+fn ensure<V: Copy>(v: &mut Vec<V>, n: usize, fill: V) {
+    if v.len() < n {
+        v.resize(n, fill);
     }
 }
 
 // ---- moving average ----------------------------------------------------------
 
 /// `interpolate_moving`: the mean of the valid observations with |t - x| <= window.
-fn moving(t: &[f64], y: &[f64], t_out: &[f64], window: f64, out: &mut [f64]) {
-    for (o, &x) in out.iter_mut().zip(t_out) {
-        let mut j = t.partition_point(|&v| v < x - window);
-        let (mut sum, mut num) = (0.0, 0.0);
-        while j < t.len() && t[j] <= x + window {
-            sum += y[j];
-            num += 1.0;
-            j += 1;
+///
+/// `span[k]` are the steps of the whole series within the window of the new
+/// time k. When every value of the series is an integer (as FORCE's int16 are),
+/// the sums are exact in any order and come from prefix sums; otherwise the
+/// window is added up in order, as always.
+fn moving<T: Sample>(series: &[T], span: &[(u32, u32)], w: &mut Work, out: &mut [f64]) {
+    let n = series.len();
+    let Work { pre_sum, pre_num, .. } = w;
+    ensure(pre_sum, n + 1, 0);
+    ensure(pre_num, n + 1, 0);
+    let (mut s, mut c, mut exact) = (0i64, 0u32, true);
+    pre_sum[0] = 0;
+    pre_num[0] = 0;
+    for ((v, ps), pc) in series.iter().zip(pre_sum[1..].iter_mut()).zip(pre_num[1..].iter_mut()) {
+        let v = v.to_f64();
+        let ok = v == v;
+        let iv = (v as i64) & i64::from(ok).wrapping_neg(); // 0 for a gap (`as` gives 0 for NaN anyway)
+        exact &= !ok | ((iv as f64 == v) & (v.abs() < 1.0e12));
+        s += iv;
+        c += u32::from(ok);
+        *ps = s;
+        *pc = c;
+    }
+    if exact {
+        for (o, &(lo, hi)) in out.iter_mut().zip(span) {
+            let (lo, hi) = (lo as usize, hi as usize);
+            let num = pre_num[hi] - pre_num[lo];
+            *o = if num > 0 {
+                (pre_sum[hi] - pre_sum[lo]) as f64 / f64::from(num)
+            } else {
+                f64::NAN
+            };
         }
-        *o = if num > 0.0 { sum / num } else { f64::NAN };
+    } else {
+        for (o, &(lo, hi)) in out.iter_mut().zip(span) {
+            let (mut sum, mut num) = (0.0, 0.0);
+            for v in &series[lo as usize..hi as usize] {
+                let v = v.to_f64();
+                if !v.is_nan() {
+                    sum += v;
+                    num += 1.0;
+                }
+            }
+            *o = if num > 0.0 { sum / num } else { f64::NAN };
+        }
     }
 }
 
@@ -477,10 +570,16 @@ fn mad_sigma(r: &[f64], p: usize, buf: &mut Vec<f64>) -> f64 {
 }
 
 /// `gsl_multifit_robust` with the bisquare weights on the observations
-/// `w.idx` of `series`: false when the first, unweighted fit is singular. A
-/// later singular fit (fewer than p observations with weight) stops the
-/// iteration at the last good coefficients.
-fn robust_fit(series: &[f64], design: &Design, w: &mut Work, c: &mut [f64; MAXP]) -> bool {
+/// `w.idx` of `series`: the number of iterations (`MAX_ITER` when it did not
+/// converge) and whether it converged, or None when the first, unweighted fit is singular. A later
+/// singular fit (fewer than p observations with weight) stops the iteration at
+/// the last good coefficients.
+fn robust_fit<T: Sample>(
+    series: &[T],
+    design: &Design,
+    w: &mut Work,
+    c: &mut [f64; MAXP],
+) -> Option<(usize, bool)> {
     let p = design.p;
     let Work {
         idx,
@@ -497,7 +596,7 @@ fn robust_fit(series: &[f64], design: &Design, w: &mut Work, c: &mut [f64; MAXP]
     y.clear();
     for &i in idx.iter() {
         rows.extend_from_slice(&design.x_in[i * p..(i + 1) * p]);
-        y.push(series[i]);
+        y.push(series[i].to_f64());
     }
     let mean = y.iter().sum::<f64>() / n as f64;
     let sigy = (y.iter().map(|v| (v - mean) * (v - mean)).sum::<f64>() / (n - 1) as f64).sqrt();
@@ -507,7 +606,7 @@ fn robust_fit(series: &[f64], design: &Design, w: &mut Work, c: &mut [f64; MAXP]
     let mut l: Mat = [[0.0; MAXP]; MAXP];
     let mut d = [0.0; MAXP];
     if !wls(rows, y, None, p, c, &mut l, &mut d) {
-        return false;
+        return None;
     }
     // the leverage of each observation, h = |L^-1 D x|^2, and 1 / sqrt(1 - h)
     fac.clear();
@@ -557,7 +656,53 @@ fn robust_fit(series: &[f64], design: &Design, w: &mut Work, c: &mut [f64; MAXP]
         residuals(c, res);
         converged = (0..p).all(|i| (c[i] - prev[i]).abs() <= tol * c[i].abs().max(prev[i].abs()));
     }
-    true
+    Some((numit, converged))
+}
+
+/// How the robust fit of each series of `values` (pixels, n_in) ended, as
+/// `interp_batch` runs it with the harmonic method: the iterations of the
+/// reweighted least squares (1..=100), `u16::MAX` when it ran all 100 without
+/// converging (a series that cycles: its result depends on where the cycle is
+/// cut, so it is not a reproducible value), and 0 when it was not fit (fewer
+/// observations than coefficients, or singular).
+#[allow(clippy::too_many_arguments)]
+pub fn harmonic_iterations<T: Sample>(
+    values: &[T],
+    n_pixels: usize,
+    n_in: usize,
+    t_in: &[f64],
+    modes: usize,
+    trend: bool,
+    fit: (f64, f64),
+    period: f64,
+    n_jobs: i32,
+) -> Result<Vec<u16>, String> {
+    if values.len() != n_pixels * n_in || t_in.len() != n_in {
+        return Err("values must be n_pixels x n_in, with one time for each step".into());
+    }
+    if !(1..=3).contains(&modes) || !(period > 0.0) || !period.is_finite() {
+        return Err("modes must be 1, 2 or 3 and period a positive number of days".into());
+    }
+    if n_pixels == 0 || n_in == 0 {
+        return Ok(vec![0; n_pixels]);
+    }
+    let design = Design::new(t_in, &[], modes, trend, period);
+    let p = design.p;
+    let in_fit: Vec<bool> = t_in.iter().map(|&t| t >= fit.0 && t <= fit.1).collect();
+    let mut out = vec![0u16; n_pixels];
+    parallel::for_each_row(&mut out, 1, n_jobs, Work::default, |w, px, row| {
+        let series = &values[px * n_in..(px + 1) * n_in];
+        w.idx.clear();
+        w.idx
+            .extend((0..n_in).filter(|&i| in_fit[i] && !series[i].to_f64().is_nan()));
+        let mut c = [0.0; MAXP];
+        if w.idx.len() >= p {
+            if let Some((numit, converged)) = robust_fit(series, &design, w, &mut c) {
+                row[0] = if converged { numit as u16 } else { u16::MAX };
+            }
+        }
+    });
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -680,6 +825,113 @@ mod tests {
                 "{x}: {g} vs {want}"
             );
         }
+    }
+
+    /// The bisection of the valid observations, as the linear and moving kernels were first written.
+    fn naive_linear(t: &[f64], y: &[f64], x: f64) -> f64 {
+        let v: Vec<(f64, f64)> = t.iter().copied().zip(y.iter().copied()).filter(|p| !p.1.is_nan()).collect();
+        let n = v.len();
+        if n == 0 {
+            return f64::NAN;
+        }
+        let r = v.partition_point(|p| p.0 < x);
+        if r < n && v[r].0 == x {
+            v[r].1
+        } else if r == 0 {
+            v[0].1
+        } else if r == n {
+            v[n - 1].1
+        } else {
+            let ((xl, yl), (xr, yr)) = (v[r - 1], v[r]);
+            (yl * (xr - x) + yr * (x - xl)) / (xr - xl)
+        }
+    }
+
+    fn naive_moving(t: &[f64], y: &[f64], x: f64, window: f64) -> f64 {
+        let (mut sum, mut num) = (0.0, 0.0);
+        for (&ti, &yi) in t.iter().zip(y) {
+            if !yi.is_nan() && ti >= x - window && ti <= x + window {
+                sum += yi;
+                num += 1.0;
+            }
+        }
+        if num > 0.0 {
+            sum / num
+        } else {
+            f64::NAN
+        }
+    }
+
+    #[test]
+    fn linear_and_moving_are_the_bisection_and_the_window_sum_bit_for_bit() {
+        // ties in t, a series without observations, one with a single one, new times in any order
+        let mut s = 11;
+        let n = 120;
+        let mut t: Vec<f64> = (0..n).map(|i| 1000.0 + 5.0 * i as f64 + (lcg(&mut s) * 3.0).floor()).collect();
+        t[40] = t[39];
+        let mut out_t: Vec<f64> = (-5..60).map(|i| 990.0 + 11.5 * i as f64).collect();
+        out_t.extend([t[3], t[39], 1e9, -1e9]);
+        out_t.swap(2, 30);
+        let mut cube: Vec<f64> = Vec::new();
+        let mut shape: Vec<Vec<f64>> = Vec::new();
+        for k in 0..6 {
+            let y: Vec<f64> = (0..n)
+                .map(|_| {
+                    let gap = lcg(&mut s) < 0.4 + 0.1 * k as f64;
+                    let v = 3000.0 * lcg(&mut s) - 500.0;
+                    match (gap, k % 2) {
+                        (true, _) => f64::NAN,
+                        (false, 0) => v.round(), // integers: the prefix sums
+                        _ => v,                  // fractions: the window summed in order
+                    }
+                })
+                .collect();
+            shape.push(y.clone());
+            cube.extend(y);
+        }
+        shape.push(vec![f64::NAN; n]);
+        cube.extend(vec![f64::NAN; n]);
+        let mut one = vec![f64::NAN; n];
+        one[17] = 42.0;
+        shape.push(one.clone());
+        cube.extend(one);
+        let px = shape.len();
+        let cube32: Vec<f32> = cube.iter().map(|&v| v as f32).collect();
+        let back: Vec<f64> = cube32.iter().map(|&v| f64::from(v)).collect();
+        let eq = |a: f64, b: f64| (a.is_nan() && b.is_nan()) || a == b;
+        for jobs in [1, 3] {
+            let lin = interp_batch(&cube, px, n, &t, &out_t, &Method::Linear, jobs).unwrap();
+            let mov = interp_batch(&cube, px, n, &t, &out_t, &Method::Moving { window: 16.0 }, jobs).unwrap();
+            let lin32 = interp_batch(&cube32, px, n, &t, &out_t, &Method::Linear, jobs).unwrap();
+            for (p, y) in shape.iter().enumerate() {
+                for (k, &x) in out_t.iter().enumerate() {
+                    let i = p * out_t.len() + k;
+                    assert!(eq(lin[i], naive_linear(&t, y, x)), "linear px {p} x {x}: {}", lin[i]);
+                    assert!(eq(mov[i], naive_moving(&t, y, x, 16.0)), "moving px {p} x {x}: {}", mov[i]);
+                    let yb = &back[p * n..(p + 1) * n];
+                    assert!(eq(lin32[i], naive_linear(&t, yb, x)), "linear f32 px {p} x {x}");
+                }
+            }
+        }
+        let mov32 = interp_batch(&cube32, px, n, &t, &out_t, &Method::Moving { window: 16.0 }, 1).unwrap();
+        for p in 0..px {
+            for (k, &x) in out_t.iter().enumerate() {
+                let want = naive_moving(&t, &back[p * n..(p + 1) * n], x, 16.0);
+                assert!(eq(mov32[p * out_t.len() + k], want), "moving f32 px {p} x {x}");
+            }
+        }
+    }
+
+    #[test]
+    fn harmonic_iterations_flag_a_fit_that_does_not_converge() {
+        let t: Vec<f64> = (0..300).map(|i| 738000.0 + 6.0 * i as f64).collect();
+        let y: Vec<f64> = t.iter().map(|&x| truth(x)).collect();
+        let mut few = vec![f64::NAN; 300];
+        few[..7].fill(1.0);
+        let cube: Vec<f64> = y.iter().chain(&few).copied().collect();
+        let it = harmonic_iterations(&cube, 2, 300, &t, 3, true, (0.0, 1e9), 365.0, 1).unwrap();
+        assert!(it[0] >= 1 && it[0] < 100, "{it:?}");
+        assert_eq!(it[1], 0);
     }
 
     fn truth(x: f64) -> f64 {

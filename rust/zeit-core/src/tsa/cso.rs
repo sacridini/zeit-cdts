@@ -36,6 +36,7 @@
 //! caller's here.
 
 use super::stats::{Metric, Plan};
+use super::Sample;
 use crate::parallel;
 
 /// The buffers of one thread.
@@ -56,8 +57,8 @@ struct Work {
 /// valid observations, any other the statistic of the intervals between them (see
 /// the module's notes). Steps outside every window are ignored; windows may
 /// overlap, and are found by bisection of `t`.
-pub fn cso_batch(
-    values: &[f64],
+pub fn cso_batch<T: Sample>(
+    values: &[T],
     n_pixels: usize,
     n_time: usize,
     t: &[f64],
@@ -95,7 +96,7 @@ pub fn cso_batch(
         .filter(|(_, k)| **k == Metric::Count)
         .map(|(i, _)| i)
         .collect();
-    let mut out = vec![f64::NAN; n_pixels * m * nw];
+    let mut out = parallel::uninit_f64(n_pixels * m * nw); // every row is written
     parallel::for_each_row(&mut out, m * nw, n_jobs, Work::default, |w, p, row| {
         let y = &values[p * n_time..(p + 1) * n_time];
         let Work { gaps, sorted, q, tmp } = w;
@@ -104,7 +105,7 @@ pub fn cso_batch(
             gaps.clear();
             let (mut n, mut left) = (0usize, start);
             for s in lo..hi {
-                if !y[s].is_finite() {
+                if !y[s].to_f64().is_finite() {
                     continue;
                 }
                 n += 1;

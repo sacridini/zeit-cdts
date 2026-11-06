@@ -161,6 +161,32 @@ def test_harmonic_without_outliers_is_the_least_squares(modes, trend):
     np.testing.assert_allclose(out.values[:, 0, 0], _design(x_out, modes, trend) @ coef, rtol=0, atol=1e-8)
 
 
+def test_the_core_reads_float32_as_it_is_and_reports_the_irls():
+    """float32 (and integer-valued) cubes give the float64 cube's results bit for bit; the harmonic fit says how it ended."""
+    from zeit import _core
+
+    rng = np.random.default_rng(12)
+    t = np.floor(np.arange(120) * 5.5)
+    v = np.floor(rng.random((30, 120)) * 5000).astype(np.float32)
+    v[rng.random(v.shape) < 0.4] = np.nan
+    v[3] = np.nan
+    out_t = np.arange(-20.0, 700.0, 16.0)
+    wide = v.astype(np.float64)
+    for kw in (dict(method="linear"), dict(method="moving", window=16.0), dict(method="rbf"),
+               dict(method="harmonic", period=365.0)):
+        a = _core.tsa.interp_batch(v, t, out_t, n_jobs=2, **kw)
+        b = _core.tsa.interp_batch(wide, t, out_t, n_jobs=2, **kw)
+        np.testing.assert_array_equal(a, b)
+    np.testing.assert_array_equal(_core.tsa.stm_batch(v, ["mean", "p50", "count"], 1.0, 2),
+                                  _core.tsa.stm_batch(wide, ["mean", "p50", "count"], 1.0, 2))
+    group = (np.arange(120) // 25).astype(np.int32)
+    np.testing.assert_array_equal(_core.tsa.fold_batch(v, group, 5, ["mean", "count"], 1.0, 2),
+                                  _core.tsa.fold_batch(wide, group, 5, ["mean", "count"], 1.0, 2))
+    iters = _core.tsa.harmonic_iterations(v, t, period=365.0, n_jobs=2)
+    assert iters.shape == (30,) and iters[3] == 0  # no observation: not fit
+    assert ((iters[np.arange(30) != 3] >= 1) & (iters[np.arange(30) != 3] <= 100)).sum() + (iters == 65535).sum() == 29
+
+
 def test_harmonic_is_robust_to_outliers_and_honours_fit():
     dates = pd.date_range("2018-01-01", periods=230, freq="8D")
     x = _days(dates, dates[0])

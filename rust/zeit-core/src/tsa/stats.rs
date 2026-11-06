@@ -15,6 +15,7 @@
 //! results stay f64; NaN marks a missing observation, and a series without
 //! one gives NaN (0 for the count).
 
+use super::Sample;
 use crate::parallel;
 
 /// A statistic of a series.
@@ -296,11 +297,76 @@ impl Plan {
     }
 
     /// The metrics of the valid values of `y` into `out`.
-    fn series(&self, y: &[f64], w: &mut Work, out: &mut [f64]) {
+    fn series<T: Sample>(&self, y: &[T], w: &mut Work, out: &mut [f64]) {
         let Work { vals, sorted, q, .. } = w;
-        vals.clear();
-        vals.extend(y.iter().copied().filter(|v| !v.is_nan()));
-        self.eval(vals, sorted, q, out);
+        let n = gather(vals, y.iter().copied());
+        self.eval(&vals[..n], sorted, q, out);
+    }
+
+    /// Whether the metrics are the mean and the count alone, which the lanes of
+    /// `fold_mean` compute.
+    fn mean_count_only(&self) -> bool {
+        self.metrics.iter().all(|m| matches!(m, Metric::Mean | Metric::Count))
+    }
+}
+
+/// The valid values of `it` into the front of `vals` (which only grows), their
+/// number returned. Every value is stored and the position advances on a valid
+/// one: no branch on the gaps, which are as unpredictable as the clouds.
+#[inline]
+fn gather<T: Sample, I: ExactSizeIterator<Item = T>>(vals: &mut Vec<f64>, it: I) -> usize {
+    if vals.len() < it.len() {
+        vals.resize(it.len(), 0.0);
+    }
+    let mut k = 0;
+    for x in it {
+        let x = x.to_f64();
+        vals[k] = x;
+        k += usize::from(!x.is_nan());
+    }
+    k
+}
+
+/// Pixels the mean of a fold runs at once: the recurrence of the mean is a chain
+/// of a subtraction, a division and an addition (about 20 cycles a value), and
+/// the series of different pixels are independent chains the processor overlaps.
+const LANES: usize = 4;
+
+/// The mean and the count of every group of the steps of `LANES` series at
+/// once (`y` has the series; a block with fewer pixels repeats its first),
+/// into `rows` (the rows of the pixels, `m * n_groups` each), as `Plan::eval`
+/// gives them, and by the same recurrence.
+fn fold_mean<T: Sample>(
+    plan: &Plan,
+    y: &[&[T]; LANES],
+    steps: &[usize],
+    starts: &[usize],
+    rows: &mut [f64],
+    width: usize,
+) {
+    let n_groups = starts.len() - 1;
+    for g in 0..n_groups {
+        let mut n = [0.0f64; LANES];
+        let mut mean = [0.0f64; LANES];
+        for &t in &steps[starts[g]..starts[g + 1]] {
+            for l in 0..LANES {
+                let x = y[l][t].to_f64();
+                let ok = !x.is_nan();
+                let nn = n[l] + 1.0;
+                let step = (x - mean[l]) / nn;
+                mean[l] = if ok { mean[l] + step } else { mean[l] };
+                n[l] = if ok { nn } else { n[l] };
+            }
+        }
+        for (l, row) in rows.chunks_mut(width).enumerate() {
+            for (k, m) in plan.metrics.iter().enumerate() {
+                row[k * n_groups + g] = match m {
+                    Metric::Count => n[l],
+                    _ if n[l] == 0.0 => f64::NAN,
+                    _ => mean[l],
+                };
+            }
+        }
     }
 }
 
@@ -315,8 +381,8 @@ pub fn series_metrics(y: &[f64], metrics: &[Metric], ddof: f64) -> Vec<f64> {
 
 /// The metrics of every series of `values` (pixels, time), over the whole time
 /// axis (FORCE's STM): (pixels, metrics), flat.
-pub fn stm_batch(
-    values: &[f64],
+pub fn stm_batch<T: Sample>(
+    values: &[T],
     n_pixels: usize,
     n_time: usize,
     metrics: &[Metric],
@@ -326,7 +392,7 @@ pub fn stm_batch(
     assert_eq!(values.len(), n_pixels * n_time, "values must be n_pixels x n_time");
     let plan = Plan::new(metrics, ddof);
     let m = plan.n_metrics();
-    let mut out = vec![f64::NAN; n_pixels * m];
+    let mut out = parallel::uninit_f64(n_pixels * m); // every row is written
     parallel::for_each_row(&mut out, m, n_jobs, Work::default, |w, p, row| {
         plan.series(&values[p * n_time..(p + 1) * n_time], w, row);
     });
@@ -339,8 +405,8 @@ pub fn stm_batch(
 /// 0..n_groups, or -1 to leave the step out; a group without a valid
 /// observation gives NaN (0 for the count).
 #[allow(clippy::too_many_arguments)]
-pub fn fold_batch(
-    values: &[f64],
+pub fn fold_batch<T: Sample>(
+    values: &[T],
     n_pixels: usize,
     n_time: usize,
     group: &[i32],
@@ -372,20 +438,31 @@ pub fn fold_batch(
     }
     let plan = Plan::new(metrics, ddof);
     let m = plan.n_metrics();
-    let mut out = vec![f64::NAN; n_pixels * m * n_groups];
-    parallel::for_each_row(&mut out, m * n_groups, n_jobs, Work::default, |w, p, row| {
+    let width = m * n_groups;
+    if n_pixels == 0 || width == 0 {
+        return vec![f64::NAN; n_pixels * width];
+    }
+    let mut out = parallel::uninit_f64(n_pixels * width); // every row is written
+    if plan.mean_count_only() {
+        // blocks of LANES pixels (the last block repeats its first pixel to fill the lanes)
+        parallel::for_each_row(&mut out, width * LANES, n_jobs, || (), |_, b, rows| {
+            let first = b * LANES;
+            let series = |l: usize| {
+                let p = if first + l < n_pixels { first + l } else { first };
+                &values[p * n_time..(p + 1) * n_time]
+            };
+            let y = [series(0), series(1), series(2), series(3)];
+            fold_mean(&plan, &y, &steps, &starts, rows, width);
+        });
+        return out;
+    }
+    parallel::for_each_row(&mut out, width, n_jobs, Work::default, |w, p, row| {
         let y = &values[p * n_time..(p + 1) * n_time];
         let Work { vals, sorted, q, tmp } = w;
         tmp.resize(m, f64::NAN);
         for g in 0..n_groups {
-            vals.clear();
-            vals.extend(
-                steps[starts[g]..starts[g + 1]]
-                    .iter()
-                    .map(|&t| y[t])
-                    .filter(|v| !v.is_nan()),
-            );
-            plan.eval(vals, sorted, q, tmp);
+            let n = gather(vals, steps[starts[g]..starts[g + 1]].iter().map(|&t| y[t]));
+            plan.eval(&vals[..n], sorted, q, tmp);
             for (k, &v) in tmp.iter().enumerate() {
                 row[k * n_groups + g] = v;
             }
@@ -609,6 +686,38 @@ mod tests {
             }
             assert_eq!(out[p * 12 + 4 + 3], 0.0); // count of the empty group
             assert!(out[p * 12 + 3].is_nan() && out[p * 12 + 8 + 3].is_nan());
+        }
+    }
+
+    #[test]
+    fn fold_of_the_mean_by_lanes_is_the_recurrence_bit_for_bit() {
+        // 11 pixels (not a multiple of the lanes), gaps, a pixel without observations, an empty group, f32 too
+        let (np, nt) = (11, 40);
+        let mut v = series(np * nt, 8);
+        for i in (0..v.len()).step_by(3) {
+            v[i] = f64::NAN;
+        }
+        v[nt * 6..nt * 7].fill(f64::NAN);
+        let group: Vec<i32> = (0..nt as i32).map(|t| if t % 7 == 6 { -1 } else { [0, 0, 1, 1, 1, 3][t as usize % 6] }).collect();
+        for names in [vec!["mean", "count"], vec!["count"], vec!["mean"], vec!["count", "mean", "count"]] {
+            let m = Metric::parse_all(&names).unwrap();
+            for jobs in [1, 3] {
+                let got = fold_batch(&v, np, nt, &group, 4, &m, 1.0, jobs);
+                let v32: Vec<f32> = v.iter().map(|&x| x as f32).collect();
+                let got32 = fold_batch(&v32, np, nt, &group, 4, &m, 1.0, jobs);
+                for p in 0..np {
+                    for g in 0..4 {
+                        let y: Vec<f64> = (0..nt).filter(|&t| group[t] == g as i32).map(|t| v[p * nt + t]).collect();
+                        let y32: Vec<f64> = y.iter().map(|&x| f64::from(x as f32)).collect();
+                        let (want, want32) = (series_metrics(&y, &m, 1.0), series_metrics(&y32, &m, 1.0));
+                        for k in 0..m.len() {
+                            let i = (p * m.len() + k) * 4 + g;
+                            assert!(got[i] == want[k] || (got[i].is_nan() && want[k].is_nan()), "{names:?} px {p} g {g}");
+                            assert!(got32[i] == want32[k] || (got32[i].is_nan() && want32[k].is_nan()), "f32 {names:?} px {p} g {g}");
+                        }
+                    }
+                }
+            }
         }
     }
 

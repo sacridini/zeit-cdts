@@ -16,7 +16,7 @@ What FORCE's time is made of (the best, minimum, of the repetitions of each conf
 * CSO: the compute stage as it is. The CSO has no baseline to take off: its input is the QAI alone, and the QAI screening
   is part of the stage (the TSA baseline's stage, with the index on top of it, is an upper bound of it).
 
-Zeit's side: the ``zeit._core.tsa.*_batch`` functions on FORCE's series (int16, -9999 as NaN, float64): the TSS for the
+Zeit's side: the ``zeit._core.tsa.*_batch`` functions on FORCE's series (int16, -9999 as NaN, float32): the TSS for the
 interpolations and the CSO, its RBF TSI for the STM and the folds, its yearly average fold (FBY) for the trend and the CAT.
 FORCE computes the yearly fold inside the TRY/CAY run, so the Zeit time of "trend+cat" includes the yearly fold of the TSI.
 ``best_of``: a warm-up and the best of three.
@@ -35,6 +35,9 @@ from common import best_of, no_power_throttling, record, workdir
 SIZE_LABEL = "250,000 px x 325 dates"
 ORIGINAL = "FORCE 3.11.00"
 NODATA = -9999
+# FORCE's int16 values are exact in float32, which the core reads as it is (the work is in float64 either way):
+# half the memory traffic of the float64 copy of the cube the first measurements fed it.
+DTYPE = np.float32
 STM_NAMES = ["min", "p1", "p10", "p25", "p50", "p75", "p90", "p99", "max", "mean", "std", "skew", "kurtosis", "count"]
 CSO_NAMES = ["count", "min", "max", "range", "iqr", "mean", "std", "skew", "kurtosis", "p25", "p50", "p75"]
 BENCH = workdir("force_tsa") / "bench"
@@ -85,15 +88,15 @@ def load_inputs():
     """The three series of the FORCE outputs, as Zeit takes them."""
     a, dates = ref.load("baseline", "TSS")
     nb, ny, nx = a.shape
-    tss = a.reshape(nb, ny * nx).T.astype(np.float64)
+    tss = np.ascontiguousarray(a.reshape(nb, ny * nx).T, dtype=DTYPE)
     tss[tss == NODATA] = np.nan
     t_in = np.array([ref.ce_of(str(d)[:8]) for d in dates], dtype=np.float64)
     a, tsi_dates = ref.load("int_rbf", "TSI")
-    tsi = a.reshape(a.shape[0], -1).T.astype(np.float64)
+    tsi = np.ascontiguousarray(a.reshape(a.shape[0], -1).T, dtype=DTYPE)
     tsi[tsi == NODATA] = np.nan
     tsi_dates = pd.to_datetime(tsi_dates, format="%Y%m%d")
     a, _ = ref.load("rbf_fold", "FBY")
-    fby = a.reshape(a.shape[0], -1).T.astype(np.float64)
+    fby = np.ascontiguousarray(a.reshape(a.shape[0], -1).T, dtype=np.float64)  # 5 values a pixel: not worth the dtype
     fby[fby == NODATA] = np.nan
     return tss, t_in, tsi, tsi_dates, fby
 
@@ -131,7 +134,7 @@ def zeit_functions(tss, t_in, tsi, tsi_dates, fby):
     fns["trend+cat"] = trend_cat
     ce = t_in
     windows = np.array(_force_windows(), dtype=np.float64)
-    values = np.where(np.isnan(tss), np.nan, 1.0)
+    values = np.where(np.isnan(tss), np.nan, 1.0).astype(DTYPE)
     fns["cso"] = lambda jobs: _core.tsa.cso_batch(values, ce, windows, CSO_NAMES, jobs)
     return fns
 

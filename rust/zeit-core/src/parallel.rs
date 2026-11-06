@@ -497,6 +497,18 @@ pub fn pool(threads: usize) -> Arc<rayon::ThreadPool> {
         .clone()
 }
 
+/// A vector of `n` values for a kernel that writes every one of them before
+/// anything reads it, without the zeroing `vec![0.0; n]` does when the memory
+/// is not fresh from the system (a serial pass over a cube-sized output, ahead
+/// of the threads).
+pub fn uninit_f64(n: usize) -> Vec<f64> {
+    let mut v: Vec<f64> = Vec::with_capacity(n);
+    // SAFETY: f64 has no invalid bit patterns; the callers write all `n` values
+    // (every row, through `for_each_row`) and never read one first.
+    unsafe { v.set_len(n) };
+    v
+}
+
 /// Calls `f(&mut state, i, row)` for every row `i` of `out` (`width` values each),
 /// on the threads of `n_jobs`, with one `state` from `init` per task: the scratch
 /// buffers OpenMP's threads allocated once in the C++ core. With one thread, the

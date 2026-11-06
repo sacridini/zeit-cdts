@@ -9,8 +9,8 @@ are quantized: Zeit's float result is converted the way FORCE writes it (truncat
 
 Parts: ``stm`` (the 16 statistics of the whole series), ``fold`` (the ten statistics by year, quarter, month, week and
 day of the year), ``standardize``, ``interp`` (the linear, moving, RBF and harmonic interpolations of FORCE's own TSS
-onto its 16-day grid, and the harmonic fit's NRT product; one pixel whose IRLS cycles is left out, see
-``CYCLING_PIXELS``), ``trend`` (``zeit.linear_trend`` and ``zeit.cat`` of the average folds by year and by month,
+onto its 16-day grid, and the harmonic fit's NRT product; the pixels whose IRLS does not converge, which the core
+reports, are left out and counted, see ``IRLS_CAP``), ``trend`` (``zeit.linear_trend`` and ``zeit.cat`` of the average folds by year and by month,
 against TRY, TRM, CAY and CAM with and without the change penalty), ``cso`` (``zeit.clear_observations``' core on
 FORCE's TSS and windows against cso_m1 and cso_m3: NUM, MIN, MAX, RNG and AVG equal; STD, SKW, KRT, the quantiles and IQR
 differ by design, shown with a port of FORCE's own code).
@@ -22,7 +22,7 @@ The target is 100% equal or within +-1; the exit code is 1 when something is out
 
 ``--ref <folder>`` reads the outputs from another folder of the same layout: the 500 x 500 measurement cube of the timing
 (``force_tsa_timing.sh`` and ``force_tsa_timing.py``), where the parts ``stm`` and ``interp`` check that the agreement
-holds on a larger cube (``int_harmonic_part``, with its cycling pixel, is not run there).
+holds on a larger cube (``int_harmonic_part`` is not run there).
 """
 import argparse
 import sys
@@ -204,11 +204,30 @@ def _agreement(title, got, want, skip=None):
           f"beyond 2: {int((diff > 2).sum())}, max |dif| {int(diff.max()) if diff.size else 0}")
 
 
-# The one pixel of the synthetic cube (row-major index) whose bisquare IRLS does not converge when fit on 2018-2020: it
-# cycles between four predictions (1365-1409 at the last date) and stops after the 100 iterations at the point GSL's
-# iteration cap, rounding and the order of the sums happen to give, which differs among FORCE, GSL in numpy and Zeit.
-# The others (9999 of 10000) agree within +-1.
-CYCLING_PIXELS = (3250,)
+# Where the bisquare IRLS of a pixel does not converge (the core reports it: ``harmonic_iterations`` is 65535) it cycles
+# between a few predictions and stops after the 100 iterations at the point GSL's iteration cap, rounding and the order
+# of the sums happen to give, which differs among FORCE, GSL in numpy and Zeit: such a pixel's value is not reproducible
+# (about 1 pixel in 100 of FORCE's cubes, most of them still within +-1 of FORCE). They are detected, not listed: the
+# converged pixels must agree within +-1, and the others are only counted.
+IRLS_CAP = 65535
+
+
+def _not_converged(_core, v, t_in, kw, jobs):
+    """Mask of the pixels whose harmonic fit ran all its iterations without converging."""
+    it = np.asarray(_core.tsa.harmonic_iterations(v, t_in, modes=kw["modes"], trend=kw["trend"], fit_lo=kw["fit_lo"],
+                                                  fit_hi=kw["fit_hi"], period=kw["period"], n_jobs=jobs))
+    return it == IRLS_CAP
+
+
+def _left_out(title, got, want, capped):
+    """Marks the not-converged pixels as left out, and says how they did anyway."""
+    skip = np.zeros(got.shape, bool)
+    skip[:, capped] = True
+    diff = np.abs(got.astype(np.int64) - np.asarray(want).reshape(got.shape).astype(np.int64))[:, capped]
+    print(f"  {title}: {int(capped.sum())} pixels whose IRLS ran 100 iterations without converging are left out "
+          f"(their result depends on where the cycle is cut); of them, {int((diff.max(0) > 1).sum())} have a date "
+          f"beyond +-1 of FORCE, max |dif| {int(diff.max()) if diff.size else 0}")
+    return skip
 
 
 def part_interp(jobs):
@@ -245,9 +264,9 @@ def part_interp(jobs):
         print(f"{config}: Zeit {seconds * 1000:.1f} ms")
         got = trunc16(out.T)
         skip = None
-        if config == "int_harmonic_part":
-            skip = np.zeros(got.shape, bool)
-            skip[:, list(CYCLING_PIXELS)] = True
+        if kw["method"] == "harmonic":
+            capped = _not_converged(_core, v, t_in, kw, jobs)
+            skip = _left_out("TSI", got, want, capped)
         report(f"TSI ({config})", bands, got, want, skip, show=0)
         if kw["method"] == "harmonic":
             _agreement("TSI", got, want.reshape(len(bands), -1), skip)
@@ -258,8 +277,7 @@ def part_interp(jobs):
             nrt = trunc16((v[:, late] - pred).T)
             want_nrt, nbands = ref.load(config, "NRT")
             assert len(nbands) == int(late.sum()), (len(nbands), int(late.sum()))
-            skip = np.zeros(nrt.shape, bool)
-            skip[:, list(CYCLING_PIXELS)] = True
+            skip = _left_out("NRT", nrt, want_nrt, capped)
             report("NRT (int_harmonic_part)", nbands, nrt, want_nrt, skip, show=0)
             _agreement("NRT", nrt, want_nrt.reshape(len(nbands), -1), skip)
 
