@@ -803,8 +803,10 @@ pub struct Params {
     pub ksd: usize,
     /// Fraction of the variance the components keep.
     pub min_var: f32,
-    /// FORCE's exact arithmetic, see the module.
+    /// FORCE's seasonal means: truncated to integers, every window's upper limit excluded (see the module).
     pub force: bool,
+    /// FORCE's components: the projection on the rows of GSL's eigenvectors (see `pca`).
+    pub force_pca: bool,
 }
 
 /// The fine data ready for the kernel: the standardized components and their texture.
@@ -851,7 +853,7 @@ pub fn prepare_fine(
     if n == 0 {
         return None;
     }
-    let mut pc = pca(&seasonal, nwin * nb, npix, p.min_var, p.force, n_jobs);
+    let mut pc = pca(&seasonal, nwin * nb, npix, p.min_var, p.force_pca, n_jobs);
     drop(seasonal);
     if pc.npc == 0 {
         return None;
@@ -1520,11 +1522,13 @@ mod tests {
             ksd: 2,
             min_var: 0.975,
             force: false,
+            force_pca: false,
         };
         let mr: Vec<f32> = (0..npix).map(|p| if (p % nx) < nx / 2 { 10.0 } else { 90.0 }).collect();
         for force in [false, true] {
             let p = Params {
                 force,
+                force_pca: force,
                 ..params.clone()
             };
             let prep = prepare_fine(&x, nt, nb, ny, nx, &doy, &year, Some(2020), &p, 2).expect("data");

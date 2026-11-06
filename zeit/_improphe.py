@@ -152,7 +152,7 @@ def _on_grid(coarse: xr.DataArray, fine: xr.DataArray, values: np.ndarray, res: 
 
 def improphe(coarse: Any, fine: Any, *, by: Any = "auto", seasons: Sequence[int] = DEFAULT_SEASONS,
              kernel_size: float = 2500.0, texture_size: float = 330.0, pc_variance: float = 0.975,
-             force: bool = False, nodata: Any = "auto", chunks: Any = None, n_jobs: int = -1) -> xr.DataArray:
+             force: bool = False, pca: Optional[str] = None, nodata: Any = "auto", chunks: Any = None, n_jobs: int = -1) -> xr.DataArray:
     """Sharpen a coarse field to the pixels of a finer sensor (FORCE's CF-ImproPhe and L2-ImproPhe).
 
     Each pixel's prediction is the weighted mean of the coarse values at the pixels of its neighbourhood that look
@@ -196,22 +196,31 @@ def improphe(coarse: Any, fine: Any, *, by: Any = "auto", seasons: Sequence[int]
         The radii of the prediction circle and of the texture window, in map units (FORCE's ``KERNEL_SIZE`` and
         ``KERNEL_TEXT``), turned into pixels of `fine` by truncation; they should be multiples of the pixel size
         (FORCE refuses others; here a warning). The defaults, 2500 and 330, are for 10 m pixels (radii of 250 and
-        33 pixels). The cost per pixel grows with the area of the circle: measured at 8 threads of a desktop, about
-        1.8e6 pixels/s for a radius of 10 pixels, 5e5 for 25, 1.2e5 for 83 (a fifth of that on one thread), and
-        roughly 1.3e4 for 250 by extrapolation: a 1000 x 1000 tile at the default 10 m radius takes over a minute
-        on 8 threads. Pass a smaller `kernel_size` for a quick look.
+        33 pixels). The cost per pixel grows with the area of the circle: measured on a 297 x 297 tile with 6 threads
+        of a desktop (the neighbourhood step alone, one year or scene), about 8e5 pixels/s for a radius of 10
+        pixels and 6e4 for 50 (a sixth of that on one thread); a circle cut by the edge of a small tile is cheaper
+        than a whole one, so a large tile costs more per pixel, and the default radius of 250 pixels has 25 times
+        the area of 50: expect minutes for a 1000 x 1000 tile on 8 threads. Pass a smaller `kernel_size` for a
+        quick look.
     pc_variance
         Fraction of the variance the components keep (FORCE: 0.975).
     force
-        ``False`` (default): the method as the paper describes it. The components are the principal components, the
-        last seasonal window includes its upper limit (day 365), and the seasonal means are floats. ``True``: FORCE's
-        arithmetic to the letter, quirks included, to reproduce its output: the means are truncated towards zero
-        (FORCE keeps 16-bit integers), the upper limit of every window is excluded (day 365 falls in no window of
-        the default seasons), and the "components" are the data projected on the transposed eigenvector matrix, that
-        is on the ROWS of the matrix of GSL 2.7's eigenvectors, a rotation that is not the principal axes (an
-        evident slip of FORCE's ``pca``: ``gsl_blas_dgemm(NoTrans, Trans, ...)``); the signs of GSL's eigenvectors
-        then change the distances, so ``gsl_eigen_symmv`` is ported literally. Both differences are deliberate
-        and off by default; either way FORCE's output is the result truncated to integers.
+        ``False`` (default): the method as the paper describes it: the principal components, float seasonal means,
+        the last window including day 365. ``True``: FORCE's arithmetic to the letter, to reproduce its output: the
+        means truncated towards zero (FORCE keeps 16-bit integers: only right for reflectance times 10000), the upper
+        limit of every window excluded (day 365 falls in no window of the default seasons), and FORCE's components
+        (``pca="force"``). With it the result truncated to integers is FORCE's in every value of the comparison in
+        the docs, against FORCE built on GSL's reference CBLAS; FORCE linked to OpenBLAS differs in the last bits of
+        the eigenvectors, and so in a few thousandths of the values (more where the seasonal means are collinear).
+    pca
+        The components whose distances choose the neighbours; by default as `force` says. ``"principal"``: the
+        principal components (standardized). ``"force"``: FORCE's: its ``pca`` projects the data on the transposed
+        eigenvector matrix (``gsl_blas_dgemm(NoTrans, Trans, ...)``), the ROWS of the matrix of GSL 2.7's
+        eigenvectors, a rotation that is not the principal axes and whose directions depend on the signs GSL gives
+        the eigenvectors (so ``gsl_eigen_symmv`` is ported literally). On the synthetic data of the comparison in
+        the docs neither is better throughout: FORCE's was up to 2.8 times better in one year of a CF field and
+        somewhat worse in others, and with float means instead of FORCE's integers (other eigenvector signs) the
+        same projection lost what it had gained in one year and gained in another.
     nodata
         Values that mean missing besides NaN: ``"auto"`` (the raster's NoData of each input; 0 for an integer `fine`
         without one, as ``tasseled_cap``), a number for both, or ``None``.
@@ -254,6 +263,11 @@ def improphe(coarse: Any, fine: Any, *, by: Any = "auto", seasons: Sequence[int]
     coarse = coarse if isinstance(coarse, xr.DataArray) else load_raster(coarse, chunks=chunks)
     if not {"time", "band", "y", "x"} <= set(fine.dims) or fine.ndim != 4:
         raise ValueError(f"fine must be (time, band, y, x), got {fine.dims}")
+    if pca is None:
+        pca = "force" if force else "principal"
+    if pca not in ("force", "principal"):
+        raise ValueError(f"pca must be 'force' or 'principal', got {pca!r}")
+    force_pca = pca == "force"
     if not (0.0 < pc_variance <= 1.0):
         raise ValueError(f"pc_variance must be in (0, 1], got {pc_variance}")
     dwin = [int(s) for s in seasons]
@@ -289,7 +303,8 @@ def improphe(coarse: Any, fine: Any, *, by: Any = "auto", seasons: Sequence[int]
     min_var = float(pc_variance)
     if mode == "year":
         for i, year in enumerate(layer_values.tolist()):
-            prep = _core.improphe.prepare(x4, doy, years, dwin, int(year), h, ksd, min_var, bool(force), threads)
+            prep = _core.improphe.prepare(x4, doy, years, dwin, int(year), h, ksd, min_var, bool(force), threads,
+                                          force_pca)
             if prep is None:
                 out[i] = mr[i]
                 components.append(0)
@@ -298,7 +313,7 @@ def improphe(coarse: Any, fine: Any, *, by: Any = "auto", seasons: Sequence[int]
             out[i] = _core.improphe.predict(pcs, tex, mr[i], h, ksd, threads)
             components.append(int(pcs.shape[0]))
     else:
-        prep = _core.improphe.prepare(x4, doy, years, dwin, None, h, ksd, min_var, bool(force), threads)
+        prep = _core.improphe.prepare(x4, doy, years, dwin, None, h, ksd, min_var, bool(force), threads, force_pca)
         if prep is None:
             out[...] = mr
             components.append(0)
@@ -322,7 +337,7 @@ def improphe(coarse: Any, fine: Any, *, by: Any = "auto", seasons: Sequence[int]
     result.attrs["improphe"] = (
         f"{'CF-ImproPhe' if mode == 'year' else 'L2-ImproPhe'}; radius {h} px, texture radius {ksd} px, "
         f"min_neighbors {int(_core.improphe.min_neighbors(h))}; components ({pc_variance} of the variance) {ncomp}; "
-        f"seasons {' '.join(map(str, dwin))}; force={bool(force)}")
+        f"seasons {' '.join(map(str, dwin))}; pca={pca}, force={bool(force)}")
     if fine.rio.crs is not None:
         result = result.rio.write_crs(fine.rio.crs)
     return result

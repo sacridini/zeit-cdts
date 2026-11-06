@@ -58,7 +58,7 @@ fn season_means<'py>(
 /// (y, x), number of pixels with all the seasonal bands, all the eigenvalues)`, or `None` when there are no
 /// components (no scene, or fewer than two valid pixels).
 #[pyfunction]
-#[pyo3(signature = (x, doy, year, dwin, ywin, h, ksd, min_var = 0.975, force = false, n_jobs = -1))]
+#[pyo3(signature = (x, doy, year, dwin, ywin, h, ksd, min_var = 0.975, force = false, n_jobs = -1, force_pca = None))]
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn prepare<'py>(
     py: Python<'py>,
@@ -72,6 +72,7 @@ fn prepare<'py>(
     min_var: f32,
     force: bool,
     n_jobs: i32,
+    force_pca: Option<bool>,
 ) -> PyResult<
     Option<(
         Bound<'py, PyArray3<f32>>,
@@ -92,6 +93,7 @@ fn prepare<'py>(
         ksd,
         min_var,
         force,
+        force_pca: force_pca.unwrap_or(force),
     };
     let prep = py.detach(|| improphe::prepare_fine(xs, nt, nb, ny, nx, &doy, &year, ywin, &params, n_jobs));
     let Some(p) = prep else { return Ok(None) };
@@ -140,6 +142,7 @@ fn predict<'py>(
                 ksd,
                 min_var: 1.0,
                 force: false,
+                force_pca: false,
             };
             improphe::predict_planes(pcs_s, npc, tex_s, mr_s, nb, ny, nx, &params, o, n_jobs)
         });

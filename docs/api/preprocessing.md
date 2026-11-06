@@ -241,6 +241,65 @@ tc = zeit.tasseled_cap(landsat, ["wetness"], coefficients="sensor")  # the matri
 lt = zeit.landtrendr(tc.sel(band="wetness"))
 ```
 
+## Sharpening coarse data (ImproPhe)
+
+### `improphe` { .api }
+
+<!-- sig: zeit.improphe -->
+```python
+zeit.improphe(
+    coarse, fine, *, by="auto", seasons=(1, 91, 181, 271, 365),
+    kernel_size=2500.0, texture_size=330.0, pc_variance=0.975,
+    force=False, pca=None, nodata="auto", chunks=None, n_jobs=-1,
+)
+```
+
+Sharpens a coarse field, or the scenes of a coarser sensor, to the pixels of a finer one: each pixel's value is the weighted mean of the coarse values at the pixels of its neighbourhood that look like it in the fine data. It is FORCE's CF-ImproPhe (a continuous field with a layer for each year, such as a 500 m phenology metric, sharpened with the Sentinel-2 or Landsat scenes of that year) and L2-ImproPhe (Landsat 30 m scenes sharpened with Sentinel-2 10 m), FORCE 3.11 (David Frantz, GPL-3.0-or-later), the method of Frantz, Stellmes, Roeder, Udelhoven, Mader and Hill (2016, *IEEE Transactions on Geoscience and Remote Sensing* 54(7):4153-4164).
+
+The fine scenes (of the year, or all of them for L2) are averaged in the seasonal windows of the year, which gives one spectrum of `windows x bands` values per pixel; principal components keep 97.5% of their variance and are standardized, and the largest standard deviation of the components in a square of radius `texture_size` is the fine texture. Around each pixel, in a circle of radius `kernel_size`, a neighbour is kept if the mean absolute difference S of its components to the pixel's is under one of the five thresholds 0.025, 0.05, 0.1, 0.2 and 0.4: the smallest that keeps at least 0.5% of the circle's pixels (the pixel itself counts). The weight of a kept neighbour is 1 / (S T U), where T is the neighbour's fine texture and U the standard deviation of its coarse values in the texture square, each of the three factors rescaled over the kept neighbours to `1 + exp(25 x - 7.5)` with x from 0 to 1 (a value of 0 counts 1). A pixel with no neighbour (no fine data) keeps its coarse value; a pixel without a coarse value is NaN.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `coarse` | `DataArray` or path | required | What to sharpen, on any grid of the same CRS (nearest neighbour onto the fine grid, as FORCE's read does; for an integer factor that is the replication of each pixel). With `by="year"`: `(year, y, x)` or `(year, field, y, x)`; the layer dimension is `year`, or `time` with one date per year, or `band` named by the years. With `by=None`: scenes `(time, band, y, x)` or `(time, y, x)`. NaN and the NoData value are missing. |
+| `fine` | `DataArray` or path | required | The fine reflectance `(time, band, y, x)` with a datetime `time` coordinate, NaN where missing (mask clouds first). Any scale; with `force=True` the seasonal means are cut to integers, which is FORCE's only for reflectance times 10000. Its grid is the output's. |
+| `by` | `"year"`, `None` or `"auto"` | `"auto"` | `"year"`: CF-ImproPhe, each year with the fine scenes of that year. `None`: L2-ImproPhe, each coarse scene with the seasonal means of all the fine scenes. `"auto"`: a `year` dimension means `"year"`, several dates in a year mean `None`, else it asks. |
+| `seasons` | sequence of `int` | `(1, 91, 181, 271, 365)` | The days of the year that limit the seasonal windows (FORCE's `SEASONAL_WINDOW`), `n + 1` for `n` windows, in FORCE's 365-day calendar. A limit larger than the next makes a window that crosses the new year (the days of the neighbouring years count). A window with no scene at a pixel takes the mean of all of them. |
+| `kernel_size` | `float` | `2500.0` | Radius of the circle, in map units (FORCE's `KERNEL_SIZE`), cut to whole pixels of `fine`; a multiple of the pixel size is expected (FORCE refuses others; here a warning). The default suits 10 m pixels (250 pixels). |
+| `texture_size` | `float` | `330.0` | Radius of the square of the texture, in map units (FORCE's `KERNEL_TEXT`), 33 pixels at 10 m. |
+| `pc_variance` | `float` | `0.975` | Fraction of the variance the components keep. |
+| `force` | `bool` | `False` | FORCE's arithmetic to the letter (below). |
+| `pca` | `str` or `None` | `None` | The components: `"principal"` (the paper's) or `"force"` (FORCE's projection, below); `None` takes FORCE's with `force=True` and the principal ones otherwise. |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | Values that mean missing besides NaN: the raster's NoData of each input (0 for an integer `fine` without one, as `tasseled_cap`), a number for both, or `None`. |
+| `chunks` | `"auto"`, `dict` | `None` | Inputs read from disk: `None` in memory; a dask input is loaded in any case. |
+| `n_jobs` | `int` | `-1` | Threads (the processors zeit may use by default). |
+
+</div>
+
+**Returns** float32, the layers of `coarse` on the grid and coordinates of `fine`: `(year, [field], y, x)` or `(time, [band], y, x)`. `attrs["improphe"]` says the variant, the radius and texture radius in pixels, the minimum number of neighbours, the number of components (per year, or once) and `force`. A year (CF) or the whole series (L2) with no fine data gives the coarse values themselves.
+
+```python
+# CF-ImproPhe: a yearly 500 m field (year, y, x) with the Sentinel-2 cube of the same years, 10 m pixels
+sharp = zeit.improphe(lsp_500m, sentinel2, by="year", kernel_size=500, texture_size=60)
+# L2-ImproPhe: Landsat scenes (time, band, y, x) at 10 m from the same cube
+l8_10m = zeit.improphe(landsat, sentinel2, by=None, kernel_size=300, texture_size=60)
+# FORCE's arithmetic, to compare with its outputs after truncating to integers
+same_as_force = zeit.improphe(lsp_500m, sentinel2, force=True, kernel_size=500, texture_size=60)
+```
+
+**Where it differs from FORCE.** The kernel (the neighbours, the thresholds, the weights and their order of summation) is FORCE's, in float32 and float64 as its own. With `force=False`, two differences are deliberate, and a third is a FORCE quirk that is left out:
+
+- *The components.* FORCE projects the data on the transposed matrix of eigenvectors that GSL returns (`gsl_blas_dgemm(NoTrans, Trans, ...)` in `pca-cl.c`), that is on its rows and not its columns: its "components" are a rotation of the data that is not the principal axes, and the signs of GSL's eigenvectors change the distances. By default Zeit projects on the eigenvectors (the paper's PCA; with that projection the sign of an eigenvector does not matter) and takes them from a symmetric eigensolver. With `force=True` the eigenvectors are those of GSL 2.7's `gsl_eigen_symmv`, ported literally (Householder reduction, implicit QR, selection sort), and the projection is FORCE's. `pca="force"` takes FORCE's projection alone, with float means. Neither projection is better throughout on the synthetic data of the benchmarks: FORCE's was up to 2.8 times better in one year of a CF field and somewhat worse in others, and with float means (other eigenvector signs) it lost that gain and was 38% worse in the other year; the principal components do not depend on the signs, so they are the default.
+- *The seasonal means.* FORCE keeps them as 16-bit integers, truncated toward zero, and excludes the upper limit of every window, so day 365 (and 366) is in no window of the default seasons. By default the means are floats and the last window includes its upper limit. `force=True` reproduces both.
+- *An empty year.* If a year has no fine data FORCE copies the coarse field for that year and returns from the whole function, leaving the later years at 0. Zeit copies it for that year and goes on with the others.
+
+FORCE writes int16, the result truncated toward zero, and where it does not predict it writes the coarse value as it is (an L2 scene pixel that its QAI screens, a pixel without fine data), 0 (a CF pixel whose coarse value is NoData) or the NoData value (an L2 pixel whose scene is NoData). Zeit returns float and gives NaN wherever the coarse value is missing, and the coarse value where there is no fine data.
+
+**Agreement with FORCE.** On synthetic Sentinel-2A (10 m), Landsat 8 (30 m) and field (30 m) data, `zeit.improphe(..., force=True)` truncated to integers equals FORCE's built against GSL's reference CBLAS in every value (2 x 88,065 pixels for CF and 12.5 million values for L2, at radii of 10 and 20 pixels and two sets of seasons); FORCE as the reference build links it, to OpenBLAS, differs in the last bits of the eigenvectors and the results in 0.001-0.003% of the values by 1 or, rarely, more. The tables, and what the transposed projection costs in accuracy, are in [Against the Original Implementations](../benchmarks/vs-originals.md#improphe-vs-force). FORCE 3.11.00's own L2IMP does not start as released (it never fills in the settings of the secondary sensors), so that comparison used a copy of its build with those settings filled in.
+
+**Cost and memory.** The work for every year or scene is the circle of radius `kernel_size` around each pixel (`pi h^2` neighbours of a few components each): on 6 threads of a desktop, 8e5 pixels/s of one year or scene at a radius of 10 pixels, 6e4 at 50, and 25 times the cost of 50 at the default 250 (minutes for a 1000 x 1000 tile). Zeit is 1.2 to 2.4 times as fast as FORCE's compute stage on the same data (see the benchmarks). Everything is in memory (the cube, the coarse field and the result), with no chunking: the components' statistics are those of the whole extent and the circle reaches `kernel_size` beyond any block. A dask input is computed first; for a large area the caller works a tile at a time, with a margin of `kernel_size`.
+
 ## Cloud masking
 
 ### `tmask` { .api }

@@ -326,6 +326,54 @@ All four components are equal in every observation FORCE computes (the disturban
 
 The OLI and ETM+ matrices are equal to 1e-7, the float32 rounding of Zeit against the double of R. For TM the brightness is equal and greenness and wetness are not, because RStoolbox's table has `+0.0002` and `+0.6806` for the SWIR1 weight of greenness and wetness, where Crist (1985) and FORCE have `-0.0002` and `-0.6806`: with those two numbers given to Zeit as `coefficients=`, all three components are equal to 8e-8. Zeit follows the paper. RStoolbox has no matrix for Sentinel-2, and Zeit gives Sentinel-2 Crist's, as FORCE does (the comparison with FORCE above).
 
+### ImproPhe vs FORCE
+
+[`improphe`](../api/preprocessing.md#improphe) is compared with **FORCE 3.11.00**'s CF-ImproPhe (`CFIMP`) and L2-ImproPhe (`L2IMP`), the code it is ported from (Frantz et al. 2016; GPL-3.0-or-later), on one synthetic tile (`force_improphe_cube.py`): a truth map of five classes in Voronoi patches (crop, forest, grass, water, urban, each a mix of two spectra with its own seasonal weight), a smooth gradient and a static brightness texture whose strength changes from patch to patch; **297 x 297 pixels of 10 m**. The fine data are 90 Sentinel-2A dates over 2018-2019 (10 bands; irregular revisit; clouds, shadows and swaths without data on 29 of them; the doys 1, 91, 181, 271 and 365 of 2018 among them, the limits of the seasonal windows; doys 91-250 of 2019 missing, so that a window is empty in that year; one column without any observation). L2's coarse scenes are 24 Landsat 8 dates at 30 m, block means (3 x 3) of the truth with noise, clouds and a hole of NoData; CF's is the year's peak NDVI of the truth at 30 m (int16, NoData -9999, a hole in each year). FORCE reads the 30 m files at 10 m by nearest neighbour, which for the integer factor is the replication of each pixel; Zeit's `reproject_match` onto the fine grid gives exactly that (checked). The fine cube Zeit gets is FORCE's own input, the BOA with the observations that FORCE's `SCREEN_QAI` drops set to NaN, so that only the method is compared. Parameters: `RESOLUTION = 10`, `KERNEL_SIZE` 100 and 200 (radii of 10 and 20 pixels, `mink` 1 and 6), `KERNEL_TEXT = 30`, `SEASONAL_WINDOW` `1 91 181 271 365` and `1 121 241 365`, both years predicted. `zeit.improphe(..., force=True)` truncated toward zero is compared with FORCE's int16 `_IMP` files over the pixels Zeit predicts.
+
+**Two FORCE runs, and a trap in the conda package.** The principal components of FORCE take their eigenvectors from GSL's `gsl_eigen_symmv`, which calls a CBLAS, and Zeit's port follows GSL's own reference CBLAS. FORCE's reference build (conda-forge) is linked to OpenBLAS, so every configuration was run twice: **A**, as built (OpenBLAS with one thread), and **B**, with GSL's reference CBLAS preloaded (`LD_PRELOAD`). The file to preload is `libgslcblas.so.0.0.0`: conda-forge makes `libgslcblas.so.0` a symbolic link to `libcblas.so.3`, which is OpenBLAS again (a first "B" run with the link was A bit for bit; the check is that its `cblas_dnrm2` gives GSL's scaled sum of squares, not OpenBLAS's). FORCE's compute is deterministic in each run, and the two differ only in the last bits of the covariance and eigenvectors.
+
+| FORCE run | Product | Radius | Seasons | Values compared | Equal | Within 1 | Largest difference |
+|:---|:---|---:|:---|---:|---:|---:|---:|
+| B (GSL's CBLAS) | CF 2018 and 2019 | 10, 20 | 4 and 3 windows | 8 x 88,065 | **100%** | 100% | 0 |
+| B | L2, 24 scenes x 6 bands | 10, 20 | 4 and 3 windows | 4 x 12,516,660 | **100%** | 100% | 0 |
+| A (OpenBLAS) | CF | 10 | 4 windows | 2 x 88,065 | 100% | 100% | 0 |
+| A | CF | 10, 20 | 3 windows (and 20 with 4) | 6 x 88,065 | 99.998-99.999% | 100% | 1 |
+| A | L2 | 10 | 4 and 3 windows | 2 x 12,516,660 | 99.9975-99.9977% | 100% | 1 |
+| A | L2 | 20 | 4 windows | 12,516,660 | 99.9967% | 99.9997% | 11 |
+| A | L2 | 20 | 3 windows | 12,516,660 | 99.9980% | 100% | 1 |
+
+With FORCE built on GSL's own CBLAS the integer outputs are identical in every value, so are the intermediate arrays (the seasonal means, the principal components after the standardization and the texture of CF at radius 10 on the cube with band noise below, compared on a copy of FORCE's build that writes them: 100% of the pixels bit for bit, 3 and 2 components for the two years). With OpenBLAS the outputs differ in 0.002-0.003% of the values: the last bits of the eigenvectors move the standardized components by about one float32 unit, and a neighbour whose distance sits on one of the five thresholds goes in or out (perturbing the components of Zeit's own run by one unit in the last place moves the pixel with the largest difference between 3217.5 and 3221.5, FORCE's value being 3221). A second cube with a static noise of 10% of every band in every pixel (`--band-noise 0.1`, `NOISE=0.1` in the script; its seasonal means are nearly collinear in 2019, where one window is empty and takes the mean of all the scenes: the smallest eigenvalues are 0.12 against 2.9e7 for the largest, and the eigenvectors that FORCE's transposed projection uses depend on the rounding) gives the same B result, 100% equal (CF at radii 10 and 20, L2 at 10), and for A 99.98% equal in 2018 and 99.1-99.6% in 2019 (99.97% within 1, differences up to 644): in a rank-deficient case FORCE's own result depends on the BLAS it is linked to.
+
+Where FORCE does not predict (screened by its QAI in the scene, or a NoData coarse value) it writes, in the L2 outputs, the coarse value as it is (the cloud reflectance of the scene) and the NoData value for the hole, and in the CF output a 0 (all 144 pixels of the 2018 hole); Zeit leaves them NaN. The pixels without any fine observation (a column) keep the coarse value in both.
+
+**What the transposed projection costs.** `force=False` (the paper's PCA, float means, day 365 in the last window) is not meant to equal FORCE's output. Against FORCE's (B), on the first cube, it correlates 0.9996-0.99998, 30-91% of the values are within 1, 85-99% within 1% and 98-99.9% within 5% (on the cube with band noise the correlation is 0.9964-0.9995 and 2-44% are within 1). Against the truth of the cube (the RMSE, in the unit of the data, over the pixels Zeit predicts), with a third run that keeps FORCE's projection but uses float seasonal means (`pca="force"`, `force=False`): no projection is better throughout. FORCE's is much better in 2018 at radius 20 and somewhat worse elsewhere; the same projection on float means, whose eigenvectors come out with other signs, keeps part of that gain in 2018 and is 38% worse in 2019 at radius 10. The quality of FORCE's components depends on the signs GSL gives its eigenvectors, which the principal components do not; that is why they are Zeit's default. Nearest-neighbour upsampling of the coarse data is several times worse than any of them:
+
+| Data, radius | FORCE (and Zeit `force=True`) | Zeit default (principal components) | FORCE's projection, float means | Nearest neighbour |
+|:---|---:|---:|---:|---:|
+| CF peak NDVI x 10000, 2018, 10 / 20 | 77.7 / 40.8 | 102.1 / 115.4 | 78.6 / 58.8 | 647.7 |
+| CF, 2019, 10 / 20 | 67.5 / 43.7 | 64.2 / 47.7 | 93.2 / 42.3 | 632.7 |
+| L2 reflectance x 10000, 10 / 20 | 60.2 / 59.2 | 61.6 / 61.5 | 58.4 / 55.5 | 133.5 |
+| the cube with band noise: CF 2018 / 2019, 10 | 627 / 570 | 665 / 576 | 673 / 573 | 805 / 797 |
+| the cube with band noise: CF 2018 / 2019, 20 | 496 / 533 | 494 / 527 | 495 / 549 | 805 / 797 |
+| the cube with band noise: L2, 10 | 186 | 184 | 189 | 210 |
+
+**FORCE 3.11.00's L2IMP does not start as released.** `param-hl.c` registers the target sensor, main product and quality product of `phl->sen` only; for the secondary sensors (`SENSORS_LOWRES`) they stay NULL, so `retrieve_sensor(&phl->sen2)` fails with "Item with key (null) not found in JSON" and, with that fixed, the reading of the Landsat scenes dereferences a NULL `main_product` and crashes. The L2 runs use a copy of FORCE's build tree in which `param-hl.c` fills in the target sensor (`LNDLG`, the six Landsat bands) and copies the two products (`force_improphe_l2fix.sh`; the original tree and the installed binaries are untouched, and nothing of the ImproPhe code is changed). CFIMP runs with the installed binary.
+
+**How the first comparison found a flaw in Zeit.** The first run of Zeit's port of GSL's eigensolver against FORCE agreed to 99.1-99.99% and, with the two builds of FORCE then thought to be A and B (the symbolic link above), looked the same for both. A copy of FORCE's build that writes the covariance, the eigenvectors, the components and the texture (`force_improphe_dump.sh`) showed the seasonal means and the covariance equal and the eigenvectors different in the last bits; a small C program calling GSL's reduction and QR steps on that covariance (`gsl_stages.c`), against the same stages of the port (`examples/gsl_stages.rs`), put the first difference in the first Householder step: GSL calls the C library's `hypot`, which on glibc is correctly rounded, and Rust's `f64::hypot` on Windows is the C runtime's, which is not. The port now has a correctly rounded `hypot`, and its tridiagonal reduction, orthogonal factor, eigenvalues and eigenvectors equal GSL 2.7's with its reference CBLAS in every bit.
+
+**Timings.** The 153 x 153 pixel tile of the same kind (84 Sentinel-2A dates; CF, two years; L2, four Landsat 8 scenes), `RESOLUTION = 10`, `KERNEL_TEXT = 30`, FORCE's compute stage (screening, seasonal means, PCA, standardization, textures, neighbourhood step; no reading and no writing, which FORCE does in other threads; the minimum of 3 runs, `force_time_ms.c` as above) against the whole `zeit.improphe(..., force=True)` call on the same files (the best of 3; it includes the regridding of the coarse data), with 1 and 6 threads. Seconds. A tile this small cuts the circle of radius 50 at its edges, which favors both.
+
+| Product, radius | FORCE, 1 thread | Zeit | Gain | FORCE, 6 threads | Zeit | Gain |
+|:---|---:|---:|---:|---:|---:|---:|
+| CF, 10 | 0.479 | 0.329 | 1.5× | 0.115 | 0.093 | 1.2× |
+| CF, 20 | 1.169 | 0.790 | 1.5× | 0.270 | 0.194 | 1.4× |
+| CF, 50 | 3.773 | 2.224 | 1.7× | 1.296 | 0.534 | 2.4× |
+| L2, 10 | 1.683 | 1.036 | 1.6× | 0.419 | 0.274 | 1.5× |
+| L2, 20 | 4.371 | 2.689 | 1.6× | 1.131 | 0.646 | 1.8× |
+| L2, 50 | 15.293 | 7.133 | 2.1× | 3.958 | 1.675 | 2.4× |
+
+The cost is the neighbourhood step, as FORCE's (one year or scene at radius 10 on 1 thread: 34 ms for the means, components, standardization and texture, 120 ms for the neighbourhood step; radius 50: 34 and 1,124 ms). Zeit's gain comes from the two passes of the neighbourhood step (the first finds the threshold, with an early exit of the sum of differences once it exceeds the last threshold, and the weights are computed over the kept neighbours only), the rows of the circle precomputed, and the components laid out by band; the arithmetic and its order are FORCE's, which is why the results are equal. FORCE's step is O(`pi h^2`) per pixel with all its neighbours' distances computed in full.
+
 ---
 
 ## Protocol
@@ -344,7 +392,7 @@ The OLI and ETM+ matrices are equal to 1e-7, the float32 rounding of Zeit agains
 | Processor | `Intel64 Family 6 Model 183 Stepping 1, GenuineIntel` (the Intel Core i5-13600K of the other benchmarks), 20 logical processors |
 | R | 4.4.2, with sfdep 0.2.5, RecoverMetricsR 0.1.0, RStoolbox 1.0.2.2, sits 1.5.4, CAST 1.0.4, Rbeast 1.0.2, remotePARTS 1.0.4, blockCV 4.0.1 (with automap 1.1.20), scam 1.2.23 and survey 4.5 |
 | Python | pyxccd 1.1.0, in a virtual environment of its own |
-| Date | 2026-10-24 (the AR(1) trends and PARTS: 2026-10-28; the spatial cross-validation: 2026-10-29; the transitions: 2026-11-03) |
+| Date | 2026-10-24 (the AR(1) trends and PARTS: 2026-10-28; the spatial cross-validation: 2026-10-29; the transitions: 2026-11-03; ImproPhe: 2026-11-06) |
 
 ---
 
@@ -366,6 +414,11 @@ python benchmarks/vs_originals/force_tsa.py --part stm,fold,standardize,interp,t
 wsl -e bash -lc 'bash benchmarks/vs_originals/force_tsa_timing.sh ~/force-ref-work/tsa-bench 6'   # FORCE's compute stage on the 500 x 500 cube (also with 1); then:
 python benchmarks/vs_originals/force_tsa_timing.py    # Zeit's times against it (--profile: the cost by size)
 python benchmarks/vs_originals/tasseled.py            # RStoolbox 1.0.2.2, against zeit.tasseled_cap
+wsl -e bash -lc 'bash benchmarks/vs_originals/force_improphe_l2fix.sh'                      # once: the build of FORCE that L2IMP needs (one core)
+wsl -e bash -lc 'bash benchmarks/vs_originals/force_improphe.sh ~/force-ref-work/imp-ref 6'  # CFIMP and L2IMP, each with OpenBLAS (A) and GSL's CBLAS (B); then:
+python benchmarks/vs_originals/force_improphe.py --part cf,l2                              # zeit.improphe against both (--data: another cube)
+wsl -e bash -lc 'bash benchmarks/vs_originals/force_improphe_timing.sh ~/force-ref-work/imp-bench 1'   # and with 6; then:
+python benchmarks/vs_originals/force_improphe_timing.py                                    # Zeit's times against FORCE's compute stage
 python benchmarks/vs_originals/polar.py               # PolarMetrics 0.1.0 (R package from GitHub: R CMD INSTALL), against zeit.polar_metrics
 python benchmarks/vs_originals/ewmacd.py "path/to/EWMACD v1.3.0.r"   # Brooks' script, not distributed
 PYXCCD_PYTHON=path/to/pyxccd-env/python python benchmarks/vs_originals/sccd.py CCDC_Stack_Rondonia.tif CCDC_Stack_Rondonia_Dates.csv

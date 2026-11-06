@@ -105,6 +105,7 @@
 | [`bandpass_adjust`](preprocessing.md#bandpass_adjust) | Sentinel-2 (and Landsat 5/7) on Landsat 8's bands: HLS's bandpass step, for L2A cubes (HLS itself: [`build_time_series`](data.md#build_time_series)) |
 | [`spectral_adjust`](preprocessing.md#spectral_adjust) | Landsat 4-9 and MODIS on Sentinel-2A's ten bands, the red edge predicted: FORCE's spectral adjustment |
 | [`tasseled_cap`](preprocessing.md#tasseled_cap) | Tasseled Cap brightness, greenness, wetness (and FORCE's disturbance): Crist 1985 as FORCE, or each sensor's matrix |
+| [`improphe`](preprocessing.md#improphe) | Sharpens a coarse field or the scenes of a coarser sensor with the finer sensor's seasonal means: FORCE's CF-ImproPhe and L2-ImproPhe (Frantz et al. 2016) |
 | [`tmask`](preprocessing.md#tmask) | Time-series cloud and shadow detection of a cube |
 | [`smooth`](preprocessing.md#smooth) | Whittaker (uneven dates, gaps, weights) or Savitzky-Golay smoothing of a cube or series |
 | [`unmix`](preprocessing.md#unmix) | Fractions of green vegetation, NPV, soil, shade, cloud; the NDFI |

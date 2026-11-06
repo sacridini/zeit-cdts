@@ -5,12 +5,13 @@
 //!
 //! * eigen/symmv.c, Copyright (C) 2001, 2007 Brian Gough
 //! * eigen/qrstep.c, Copyright (C) 2007, 2010 Brian Gough
-//! * eigen/sort.c, Author: G. Jungman, Modified: B. Gough
-//! * linalg/symmtd.c, linalg/householder.c, Copyright (C) 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
-//!   2005, 2006, 2007 Gerard Jungman, Brian Gough (and, for the Householder functions, Patrick Alken)
-//! * the reference CBLAS of GSL (cblas/source_*.h, Copyright (C) 1996-2007 Gerard Jungman, Brian Gough) that
-//!   those functions call: `dnrm2`, `dscal`, `ddot`, `daxpy`, `dsymv`, `dsyr2`, `dgemv`, `dger`, for the row-major
-//!   storage `gsl_matrix` has.
+//! * eigen/sort.c, Copyright (C) 1996, 1997, 1998, 1999, 2000, 2006, 2007 Gerard Jungman, Patrick Alken
+//! * linalg/symmtd.c, Copyright (C) 2001, 2007 Brian Gough, Copyright (C) 2019 Patrick Alken
+//! * linalg/householder.c, Copyright (C) 1996, 1997, 1998, 1999, 2000, 2004, 2007, 2010 Gerard Jungman, Brian Gough
+//! * the reference CBLAS of GSL (cblas/source_nrm2_r.h, source_dot_r.h, source_axpy_r.h, source_scal_r.h,
+//!   source_symv.h, source_syr2.h, source_gemv_r.h, source_ger.h, Copyright (C) 1996, 1997, 1998, 1999, 2000 Gerard
+//!   Jungman) that those functions call: `dnrm2`, `dscal`, `ddot`, `daxpy`, `dsymv`, `dsyr2`, `dgemv`, `dger`, for
+//!   the row-major storage `gsl_matrix` has.
 //!
 //! This program is free software: you can redistribute it and/or modify it under the terms of the GNU General
 //! Public License as published by the Free Software Foundation, either version 3 of the License, or (at your
@@ -21,10 +22,55 @@
 //! section 8.3) with its Givens rotations applied to the factor. The operations are in GSL's order and plain
 //! IEEE (no fused multiply-add), as GSL's reference CBLAS compiles for the baseline x86-64 and arm64: if FORCE
 //! was linked to an optimized BLAS instead (OpenBLAS), the last bits of its eigenvectors differ from these.
-//! The eigenvectors are the COLUMNS of the returned row-major matrix, as in `gsl_matrix`. `hypot` is the
-//! platform's.
+//! The eigenvectors are the COLUMNS of the returned row-major matrix, as in `gsl_matrix`. `hypot` is correctly
+//! rounded, as glibc's (see `hypot` below). Checked against GSL 2.7 itself linked to its reference CBLAS
+//! (`benchmarks/vs_originals/gsl_stages.c`, `examples/gsl_stages.rs`): every stage of the reduction and the
+//! eigenvectors equal to the last bit on the covariance matrices of the ImproPhe comparison.
 
 const EPS: f64 = f64::EPSILON;
+
+/// `hypot(x, y)` correctly rounded (but for a result within 2^-100 of a tie): the square roots of the double-double
+/// sum of the exact squares, corrected once. GSL calls the C library's `hypot`, which on glibc 2.35 and later (Borges's
+/// algorithm) is correctly rounded in practice, while Rust's `f64::hypot` is the platform's: the Windows C runtime's
+/// differs from it in the last bit in about one call of ten, which a Householder reduction turns into last-bit
+/// differences in every eigenvector. This one gives glibc's values wherever both are correctly rounded.
+fn hypot(x: f64, y: f64) -> f64 {
+    let (x, y) = (x.abs(), y.abs());
+    if x.is_infinite() || y.is_infinite() {
+        return f64::INFINITY;
+    }
+    if x.is_nan() || y.is_nan() {
+        return f64::NAN;
+    }
+    let (big, small) = if x >= y { (x, y) } else { (y, x) };
+    if small == 0.0 {
+        return big;
+    }
+    // scale by a power of two so that the larger is in [1, 2): the squares neither overflow nor underflow
+    let mut pre = 1.0f64;
+    let mut bg = big;
+    if bg < f64::MIN_POSITIVE {
+        pre = 18446744073709551616.0; // 2^64
+        bg *= pre;
+    }
+    let e = ((bg.to_bits() >> 52) & 0x7ff) as i32 - 1023;
+    let pow2 = |k: i32| f64::from_bits(((1023 + k) as u64) << 52);
+    // two steps keep each factor a normal power of two even for the extreme exponents
+    let (k1, k2) = (-e / 2, -e - (-e / 2));
+    let (a, b) = (bg * pow2(k1) * pow2(k2), small * pre * pow2(k1) * pow2(k2));
+    let (ah, al) = (a * a, a.mul_add(a, -(a * a)));
+    let (bh, bl) = (b * b, b.mul_add(b, -(b * b)));
+    // (sh, sl) = ah + bh + al + bl as a normalized double-double
+    let sh0 = ah + bh;
+    let t = sh0 - ah;
+    let lo = (ah - (sh0 - t)) + (bh - t) + (al + bl);
+    let sh = sh0 + lo;
+    let sl = lo - (sh - sh0);
+    let r0 = sh.sqrt();
+    let corr = (-r0).mul_add(r0, sh) + sl;
+    let r = r0 + corr / (2.0 * r0);
+    r / pre * pow2(-k1) * pow2(-k2)
+}
 
 /// `cblas_dnrm2`: the scaled sum of squares of the reference BLAS.
 fn dnrm2(x: &[f64]) -> f64 {
@@ -63,7 +109,7 @@ fn householder_transform(v: &mut [f64]) -> f64 {
     }
     let alpha = v[0];
     let sign = if alpha >= 0.0 { 1.0 } else { -1.0 };
-    let beta = -sign * alpha.hypot(xnorm);
+    let beta = -sign * hypot(alpha, xnorm);
     let tau = (beta - alpha) / beta;
     let s = alpha - beta;
     if s.abs() > f64::MIN_POSITIVE {
@@ -235,11 +281,11 @@ fn trailing_eigenvalue(n: usize, d: &[f64], sd: &[f64]) -> f64 {
     let tab = sd[n - 2];
     let dt = (ta - tb) / 2.0;
     if dt > 0.0 {
-        tb - tab * (tab / (dt + dt.hypot(tab)))
+        tb - tab * (tab / (dt + hypot(dt, tab)))
     } else if dt == 0.0 {
         tb - tab.abs()
     } else {
-        tb + tab * (tab / ((-dt) + dt.hypot(tab)))
+        tb + tab * (tab / ((-dt) + hypot(dt, tab)))
     }
 }
 
@@ -369,6 +415,18 @@ pub fn eigen_symmv(a: &mut [f64], n: usize) -> (Vec<f64>, Vec<f64>) {
     (d, evec)
 }
 
+/// The stages of the reduction of the symmetric `a` (row-major, lower triangle read): `(tau, d, sd, q)` after
+/// `gsl_linalg_symmtd_decomp` and `_unpack`, to be compared with GSL's own (`examples/gsl_stages.rs`).
+#[doc(hidden)]
+pub fn symmtd_stages(a: &[f64], n: usize) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
+    let mut a = a.to_vec();
+    let mut tau = vec![0.0f64; n - 1];
+    symmtd_decomp(&mut a, n, &mut tau);
+    let (mut q, mut d, mut sd) = (vec![0.0f64; n * n], vec![0.0f64; n], vec![0.0f64; n - 1]);
+    symmtd_unpack(&a, n, &tau, &mut q, &mut d, &mut sd);
+    (tau, d, sd, q)
+}
+
 /// `gsl_eigen_symmv_sort(.., GSL_EIGEN_SORT_VAL_DESC)`: a selection sort, in place, swapping the columns of
 /// `evec` with the eigenvalues.
 pub fn eigen_symmv_sort_desc(eval: &mut [f64], evec: &mut [f64]) {
@@ -405,6 +463,59 @@ pub fn eigen_symmv_desc(a: &mut [f64], n: usize) -> (Vec<f64>, Vec<f64>) {
 mod tests {
     use super::*;
     use faer::{Mat, Side};
+
+    #[test]
+    fn hypot_is_correctly_rounded() {
+        assert_eq!(hypot(3.0, 4.0), 5.0);
+        assert_eq!(hypot(-3.0, 4.0), 5.0);
+        assert_eq!(hypot(1.0, 1.0).to_bits(), 0x3FF6A09E667F3BCD); // sqrt(2), correctly rounded
+        assert_eq!(hypot(0.0, 2.5), 2.5);
+        assert_eq!(hypot(1e300, 1e300), 1.4142135623730951e300);
+        assert_eq!(hypot(1e-300, 1e-300), 1.4142135623730951e-300);
+        assert_eq!(hypot(1e-320, 0.0), 1e-320);
+        assert!(hypot(f64::NAN, 1.0).is_nan());
+        assert_eq!(hypot(f64::INFINITY, f64::NAN), f64::INFINITY);
+        // against the exact value: the square of the result is within half an ulp's worth of x^2 + y^2, checked in
+        // 128-bit integers on values with a 40-bit mantissa (their squares and sum are exact)
+        let mut s = 7u64;
+        for _ in 0..20000 {
+            let a = (lcg(&mut s) * (1u64 << 40) as f64).floor() + 1.0;
+            let b = (lcg(&mut s) * (1u64 << 40) as f64).floor() + 1.0;
+            let h = hypot(a, b);
+            let (ai, bi) = (a as u128, b as u128);
+            // exact, < 2^82
+            let t = ai * ai + bi * bi;
+            // h is correctly rounded iff neither neighbouring double is closer to the root of t
+            let up = f64::from_bits(h.to_bits() + 1);
+            let dn = f64::from_bits(h.to_bits() - 1);
+            // exact test with big integers: v = m * 2^e, v^2 = m^2 * 2^(2e)
+            let exact = |v: f64| -> (u128, i32) {
+                let bits = v.to_bits();
+                let m = ((bits & ((1u64 << 52) - 1)) | (1u64 << 52)) as u128;
+                (m, ((bits >> 52) & 0x7ff) as i32 - 1075)
+            };
+            let sq_diff = |v: f64| -> f64 {
+                // |v^2 - t| as f64, computed exactly: m^2 < 2^106, shifted to the scale of t
+                let (m, e) = exact(v);
+                let (m2, e2) = (m * m, 2 * e);
+                let d: i128 = if e2 >= 0 {
+                    (m2 << e2) as i128 - t as i128
+                } else {
+                    // t * 2^-e2 vs m2
+                    (m2 as i128) - ((t << (-e2)) as i128)
+                };
+                (d.unsigned_abs() as f64) * if e2 >= 0 { 1.0 } else { 2f64.powi(e2) }
+            };
+            // v closer to the true root than h's neighbours: |v^2 - t| / (v + root) is monotone; a neighbour that is
+            // strictly closer would have a strictly smaller |v - root|, i.e. (v^2 - t)^2 / (v + root)^2 smaller
+            let root = (t as f64).sqrt();
+            let err = |v: f64| sq_diff(v) / (v + root);
+            assert!(
+                err(h) <= err(up) * (1.0 + 1e-9) && err(h) <= err(dn) * (1.0 + 1e-9),
+                "hypot({a}, {b}) = {h}"
+            );
+        }
+    }
 
     fn lcg(s: &mut u64) -> f64 {
         *s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);

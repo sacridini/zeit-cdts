@@ -426,3 +426,33 @@ def test_dask_fine_is_loaded():
     a = zeit.improphe(coarse, fine, kernel_size=60, texture_size=20, n_jobs=2)
     b = zeit.improphe(coarse.chunk({"y": 5}), fine.chunk({"time": 4}), kernel_size=60, texture_size=20, n_jobs=2)
     np.testing.assert_array_equal(a.values, b.values)
+
+
+def test_pca_choice_is_separate_from_forces_means():
+    years = (2020, 2021)
+    fine, cls = fine_cube(seed=11)
+    coarse, _ = coarse_field(cls, years)
+    kw = dict(kernel_size=60, texture_size=20, n_jobs=2)
+    default = zeit.improphe(coarse, fine, **kw)
+    assert default.attrs["improphe"].endswith("pca=principal, force=False")
+    np.testing.assert_array_equal(default.values, zeit.improphe(coarse, fine, pca="principal", **kw).values)
+    exact = zeit.improphe(coarse, fine, force=True, **kw)
+    assert exact.attrs["improphe"].endswith("pca=force, force=True")
+    np.testing.assert_array_equal(exact.values, zeit.improphe(coarse, fine, force=True, pca="force", **kw).values)
+    hybrid = zeit.improphe(coarse, fine, pca="force", **kw)            # FORCE's components, float means
+    assert hybrid.attrs["improphe"].endswith("pca=force, force=False")
+    # the components and the means are two switches: each changes the result on its own
+    assert not np.array_equal(hybrid.values, default.values)
+    assert not np.array_equal(hybrid.values, exact.values)
+    # the core's components follow force_pca, its means follow force
+    x = np.ascontiguousarray(fine.transpose("time", "band", "y", "x").values, dtype=np.float32)
+    t = pd.DatetimeIndex(fine.time.values)
+    doy, year = t.dayofyear.tolist(), t.year.tolist()
+    dwin = [1, 91, 181, 271, 365]
+    a = _core.improphe.prepare(x, doy, year, dwin, 2020, 6, 2, 0.975, False, 2, True)
+    b = _core.improphe.prepare(x, doy, year, dwin, 2020, 6, 2, 0.975, True, 2, True)
+    c = _core.improphe.prepare(x, doy, year, dwin, 2020, 6, 2, 0.975, True, 2)
+    np.testing.assert_array_equal(b[0], c[0])                       # force_pca defaults to force
+    assert a[0].shape[0] >= 1 and not np.array_equal(a[0], b[0])  # float means against truncated ones
+    with pytest.raises(ValueError, match="pca must be"):
+        zeit.improphe(coarse, fine, pca="pc", **kw)

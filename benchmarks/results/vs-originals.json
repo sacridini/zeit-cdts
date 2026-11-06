@@ -1176,6 +1176,138 @@
    "threads": 6,
    "note": "FORCE: compute stage of TC-BRIGHT TC-GREEN TC-WET TC-DI less the six bands as indices (same screening); Zeit: tasseled_cap, four components, int16 to float32, the whole cube (FORCE screens 9% out)",
    "date": "2026-11-06"
+  },
+  {
+   "method": "force improphe cf",
+   "original": "FORCE 3.11.00",
+   "size": "153x153 px, 2 years, 84 dates, radius 10 px",
+   "original_s": 0.479,
+   "zeit_s": 0.3285038000030909,
+   "speedup": 1.4581262073543535,
+   "threads": 1,
+   "note": "FORCE: compute stage, min of 3; Zeit: the whole call, best of 3",
+   "date": "2026-11-06"
+  },
+  {
+   "method": "force improphe l2",
+   "original": "FORCE 3.11.00",
+   "size": "153x153 px, 4 scenes, 84 dates, radius 10 px",
+   "original_s": 1.683,
+   "zeit_s": 1.0356156000052579,
+   "speedup": 1.6251203631844242,
+   "threads": 1,
+   "note": "FORCE: compute stage, min of 3; Zeit: the whole call, best of 3",
+   "date": "2026-11-06"
+  },
+  {
+   "method": "force improphe cf",
+   "original": "FORCE 3.11.00",
+   "size": "153x153 px, 2 years, 84 dates, radius 10 px",
+   "original_s": 0.115,
+   "zeit_s": 0.09326019999571145,
+   "speedup": 1.2331090862478127,
+   "threads": 6,
+   "note": "FORCE: compute stage, min of 3; Zeit: the whole call, best of 3",
+   "date": "2026-11-06"
+  },
+  {
+   "method": "force improphe l2",
+   "original": "FORCE 3.11.00",
+   "size": "153x153 px, 4 scenes, 84 dates, radius 10 px",
+   "original_s": 0.419,
+   "zeit_s": 0.27381870000681374,
+   "speedup": 1.5302095875467,
+   "threads": 6,
+   "note": "FORCE: compute stage, min of 3; Zeit: the whole call, best of 3",
+   "date": "2026-11-06"
+  },
+  {
+   "method": "force improphe cf",
+   "original": "FORCE 3.11.00",
+   "size": "153x153 px, 2 years, 84 dates, radius 20 px",
+   "original_s": 1.169,
+   "zeit_s": 0.7896608000010019,
+   "speedup": 1.4803824629493028,
+   "threads": 1,
+   "note": "FORCE: compute stage, min of 3; Zeit: the whole call, best of 3",
+   "date": "2026-11-06"
+  },
+  {
+   "method": "force improphe l2",
+   "original": "FORCE 3.11.00",
+   "size": "153x153 px, 4 scenes, 84 dates, radius 20 px",
+   "original_s": 4.371,
+   "zeit_s": 2.68884890001209,
+   "speedup": 1.6256026881913472,
+   "threads": 1,
+   "note": "FORCE: compute stage, min of 3; Zeit: the whole call, best of 3",
+   "date": "2026-11-06"
+  },
+  {
+   "method": "force improphe cf",
+   "original": "FORCE 3.11.00",
+   "size": "153x153 px, 2 years, 84 dates, radius 20 px",
+   "original_s": 0.27,
+   "zeit_s": 0.19416590000037104,
+   "speedup": 1.3905634305482273,
+   "threads": 6,
+   "note": "FORCE: compute stage, min of 3; Zeit: the whole call, best of 3",
+   "date": "2026-11-06"
+  },
+  {
+   "method": "force improphe l2",
+   "original": "FORCE 3.11.00",
+   "size": "153x153 px, 4 scenes, 84 dates, radius 20 px",
+   "original_s": 1.131,
+   "zeit_s": 0.6464933999959612,
+   "speedup": 1.74943781329719,
+   "threads": 6,
+   "note": "FORCE: compute stage, min of 3; Zeit: the whole call, best of 3",
+   "date": "2026-11-06"
+  },
+  {
+   "method": "force improphe cf",
+   "original": "FORCE 3.11.00",
+   "size": "153x153 px, 2 years, 84 dates, radius 50 px",
+   "original_s": 3.773,
+   "zeit_s": 2.2235281000030227,
+   "speedup": 1.6968528529029479,
+   "threads": 1,
+   "note": "FORCE: compute stage, min of 3; Zeit: the whole call, best of 3",
+   "date": "2026-11-06"
+  },
+  {
+   "method": "force improphe l2",
+   "original": "FORCE 3.11.00",
+   "size": "153x153 px, 4 scenes, 84 dates, radius 50 px",
+   "original_s": 15.293,
+   "zeit_s": 7.13320539999404,
+   "speedup": 2.1439169549236277,
+   "threads": 1,
+   "note": "FORCE: compute stage, min of 3; Zeit: the whole call, best of 3",
+   "date": "2026-11-06"
+  },
+  {
+   "method": "force improphe cf",
+   "original": "FORCE 3.11.00",
+   "size": "153x153 px, 2 years, 84 dates, radius 50 px",
+   "original_s": 1.296,
+   "zeit_s": 0.5337301999970805,
+   "speedup": 2.4281931208072716,
+   "threads": 6,
+   "note": "FORCE: compute stage, min of 3; Zeit: the whole call, best of 3",
+   "date": "2026-11-06"
+  },
+  {
+   "method": "force improphe l2",
+   "original": "FORCE 3.11.00",
+   "size": "153x153 px, 4 scenes, 84 dates, radius 50 px",
+   "original_s": 3.958,
+   "zeit_s": 1.6753280999982962,
+   "speedup": 2.3625223023502233,
+   "threads": 6,
+   "note": "FORCE: compute stage, min of 3; Zeit: the whole call, best of 3",
+   "date": "2026-11-06"
   }
  ],
  "machine": {
