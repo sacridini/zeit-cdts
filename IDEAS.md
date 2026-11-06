@@ -2548,6 +2548,26 @@ validação.
   - saídas cujas bandas a ferramenta decide (a grade nova, os anos, as janelas);
   - um parâmetro de múltipla escolha (as métricas).
 
+  As oito ferramentas do TSA saíram no Janus 1.16.0 (2026-11-06), com o "Copy Python" de cada
+  uma; o Zeit 3.1.0 saiu no mesmo dia com tudo da 23a à 23d.
+
+### O que falta (em 2026-11-06)
+
+- **Janus, J4:** o Tasseled Cap e o ajuste espectral como ferramentas, com o `zeit-core` no
+  `f20ff43` (Zeit 3.1.0). O trabalho começado está guardado no Janus como `git stash`
+  ("J4 WIP ...": `git stash pop`). Não foi compilado nem testado. Falta decidir de onde vem o
+  sensor de cada data (o agente começou um `sensors.rs`).
+- **Janus:** o NBAR (pede os ângulos por pixel como entrada) e o ImproPhe (duas resoluções).
+- **Zeit:** o merge de 20 m para 10 m do Sentinel-2 (`resolution_merge_1` e `_2` do
+  `resmerge-ll.c`, do Frantz, GPL-3; o STARFM do mesmo arquivo fica de fora). Não roda contra o
+  FORCE com ARD: só dentro do `force-l2ps` (ver a especificação do ImproPhe, seção 4.5).
+- **Zeit:** 23e (correção topográfica, paralaxe e buffer de nuvem), 23f (coregistro) e 23g
+  (correção atmosférica), como nas Etapas acima.
+- **Self-test do Janus:** a Fenologia polar é pulada nos dados de teste, que são irregulares.
+  Um dado regular no `tools/make_selftest_data.py` a cobriria.
+- A temporada final cortada do `polar_metrics` (hoje medida; poderia ser NaN): decisão do
+  usuário.
+
 ## Para depois
 
 - Fase 19: `zeit.ai.predict` com fp16 na GPU (2,4× no Siamese, medido) vale para todos os
