@@ -8,7 +8,10 @@ are quantized: Zeit's float result is converted the way FORCE writes it (truncat
     python benchmarks/vs_originals/force_tsa.py --part stm,fold,standardize [--jobs 4]
 
 Parts: ``stm`` (the 16 statistics of the whole series), ``fold`` (the ten statistics by year, quarter, month, week and
-day of the year), ``standardize``. The interpolation, trend and CSO parts come with their own functions in ``PARTS``.
+day of the year), ``standardize``, ``interp`` (the linear, moving, RBF and harmonic interpolations of FORCE's own TSS
+onto its 16-day grid, and the harmonic fit's NRT product; one pixel whose IRLS cycles is left out, see
+``CYCLING_PIXELS``). The trend and CSO parts come with their own functions in
+``PARTS``.
 
 For each product and band it prints the share of pixels that are equal, within +-1, and the largest |difference|.
 Where FORCE's result is undefined (a standard deviation, skewness or kurtosis of one value, a skewness or kurtosis
@@ -182,8 +185,79 @@ def part_standardize(jobs):
         report(f"CENTER of {product} (standardize)", bands, trunc16(c), want, None, show=12)
 
 
-# The parts; the interpolation, trend and CSO comparisons are added here.
-PARTS = {"stm": part_stm, "fold": part_fold, "standardize": part_standardize}
+# ---- interpolation -------------------------------------------------------------------------------------------------
+
+def _agreement(title, got, want, skip=None):
+    """The ``report`` plus the share within +-2 and the number of pixels x dates beyond +-1 (for the harmonic fit,
+    where two IRLS can stop at slightly different points)."""
+    got, want = np.asarray(got).astype(np.int64), np.asarray(want).astype(np.int64)
+    keep = np.ones(got.shape, bool) if skip is None else ~np.asarray(skip)
+    diff = np.abs(got - want)[keep]
+    n = max(int(keep.sum()), 1)
+    print(f"  {title}: within 2 {100.0 * (diff <= 2).sum() / n:.4f} %, beyond 1: {int((diff > 1).sum())} of {n}, "
+          f"beyond 2: {int((diff > 2).sum())}, max |dif| {int(diff.max()) if diff.size else 0}")
+
+
+# The one pixel of the synthetic cube (row-major index) whose bisquare IRLS does not converge when fit on 2018-2020: it
+# cycles between four predictions (1365-1409 at the last date) and stops after the 100 iterations at the point GSL's
+# iteration cap, rounding and the order of the sums happen to give, which differs among FORCE, GSL in numpy and Zeit.
+# The others (9999 of 10000) agree within +-1.
+CYCLING_PIXELS = (3250,)
+
+
+def part_interp(jobs):
+    from zeit import _core
+
+    # FORCE's TSS (int16, -9999 missing) at its own dates and calendar (365 days a year, so period 365)
+    a, dates = ref.load("int_none", "TSS")
+    nb, ny, nx = a.shape
+    v = a.reshape(nb, ny * nx).T.astype(np.float64)
+    v[v == NODATA] = np.nan
+    t_in = np.array([ref.ce_of(str(d)[:8]) for d in dates], dtype=np.float64)  # "20180101_SEN2A"
+    first, last = ref.ce_of(20180101), ref.ce_of(20221231)
+    grid = ref.tsi_grid(first, last, 16).astype(np.float64)
+    fit_all = (float(first), float(last))
+    fit_part = (float(ref.ce_of(20180101)), float(ref.ce_of(20201231)))
+    configs = [
+        ("int_linear", dict(method="linear")),
+        ("int_moving", dict(method="moving", window=16.0)),
+        ("int_rbf", dict(method="rbf", sigma=[8.0, 16.0, 32.0], cutoff=0.95)),
+        ("int_harmonic", dict(method="harmonic", modes=3, trend=True, fit_lo=fit_all[0], fit_hi=fit_all[1],
+                              period=365.0)),
+        ("int_harmonic_part", dict(method="harmonic", modes=3, trend=True, fit_lo=fit_part[0], fit_hi=fit_part[1],
+                                   period=365.0)),
+    ]
+    print(f"interpolation: {v.shape[0]} pixels x {v.shape[1]} dates -> {len(grid)} dates ({jobs} threads)")
+    for config, kw in configs:
+        t0 = time.perf_counter()
+        out = np.asarray(_core.tsa.interp_batch(v, t_in, grid, n_jobs=jobs, **kw))  # (pixels, grid)
+        seconds = time.perf_counter() - t0
+        want, bands = ref.load(config, "TSI")
+        assert len(bands) == len(grid), (config, len(bands), len(grid))
+        print(f"{config}: Zeit {seconds * 1000:.1f} ms")
+        got = trunc16(out.T)
+        skip = None
+        if config == "int_harmonic_part":
+            skip = np.zeros(got.shape, bool)
+            skip[:, list(CYCLING_PIXELS)] = True
+        report(f"TSI ({config})", bands, got, want, skip, show=0)
+        if kw["method"] == "harmonic":
+            _agreement("TSI", got, want.reshape(len(bands), -1), skip)
+        if config == "int_harmonic_part":
+            # the NRT product: TSS - prediction for the dates after the fit, only where TSS is valid
+            late = t_in > fit_part[1]
+            pred = np.asarray(_core.tsa.interp_batch(v, t_in, t_in[late], n_jobs=jobs, **kw))
+            nrt = trunc16((v[:, late] - pred).T)
+            want_nrt, nbands = ref.load(config, "NRT")
+            assert len(nbands) == int(late.sum()), (len(nbands), int(late.sum()))
+            skip = np.zeros(nrt.shape, bool)
+            skip[:, list(CYCLING_PIXELS)] = True
+            report("NRT (int_harmonic_part)", nbands, nrt, want_nrt, skip, show=0)
+            _agreement("NRT", nrt, want_nrt.reshape(len(nbands), -1), skip)
+
+
+# The parts; the trend and CSO comparisons are added here.
+PARTS = {"stm": part_stm, "fold": part_fold, "standardize": part_standardize, "interp": part_interp}
 
 
 def main(argv=None):

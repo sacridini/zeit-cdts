@@ -56,6 +56,14 @@ class ZeitAccessor:
         from zeit._tsa import standardize
         return standardize(self._obj, method, **kwargs)
 
+    def interpolate(self, method: str = "rbf", **kwargs: Any) -> xr.DataArray:
+        """
+        Interpolates each pixel's series to a regular grid of dates or to any dates: the same as
+        ``zeit.interpolate(cube, method, ...)``.
+        """
+        from zeit._tsa import interpolate
+        return interpolate(self._obj, method, **kwargs)
+
     def ar_trend(self, **kwargs: Any) -> xr.Dataset:
         """
         Fits the AR(1) REML trend of each pixel of this (time, y, x) cube: the same as ``zeit.ar_trend(cube, ...)``.

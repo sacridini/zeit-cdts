@@ -1,9 +1,10 @@
 //! zeit._core.tsa: the Python module (statistics of series and their folds,
-//! standardization).
+//! standardization, interpolation).
 
 use numpy::{AllowTypeChange, PyArray1, PyArray2, PyArray3, PyArrayLike1, PyArrayLike2, PyArrayMethods};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use zeit_core::tsa::interp::{self, Method};
 use zeit_core::tsa::stats::{self, Metric, Standardize};
 
 use crate::arrays::c_order;
@@ -86,11 +87,66 @@ fn standardize_batch<'py>(
     PyArray1::from_vec(py, out).reshape([n_pixels, n_time])
 }
 
+/// Every series of values (pixels, n_in) at the times `t_out` (days): (pixels,
+/// n_out). `method`: "linear", "moving" (`window`), "rbf" (`sigma`, `cutoff`)
+/// or "harmonic" (`modes`, `trend`, the fit range `fit_lo`..`fit_hi`, `period`).
+/// `t_in` increases; NaN marks a missing observation.
+#[pyfunction]
+#[pyo3(signature = (values, t_in, t_out, method = "rbf", sigma = vec![8.0, 16.0, 32.0], cutoff = 0.95, window = 16.0,
+                    modes = 3, trend = true, fit_lo = f64::NEG_INFINITY, fit_hi = f64::INFINITY, period = 365.25,
+                    n_jobs = -1))]
+#[allow(clippy::too_many_arguments)]
+fn interp_batch<'py>(
+    py: Python<'py>,
+    values: PyArrayLike2<'py, f64, AllowTypeChange>,
+    t_in: PyArrayLike1<'py, f64, AllowTypeChange>,
+    t_out: PyArrayLike1<'py, f64, AllowTypeChange>,
+    method: &str,
+    sigma: Vec<f64>,
+    cutoff: f64,
+    window: f64,
+    modes: usize,
+    trend: bool,
+    fit_lo: f64,
+    fit_hi: f64,
+    period: f64,
+    n_jobs: i32,
+) -> PyResult<Bound<'py, PyArray2<f64>>> {
+    let method = match method.trim().to_ascii_lowercase().as_str() {
+        "linear" => Method::Linear,
+        "moving" => Method::Moving { window },
+        "rbf" => Method::Rbf { sigma, cutoff },
+        "harmonic" => Method::Harmonic {
+            modes,
+            trend,
+            fit: (fit_lo, fit_hi),
+            period,
+        },
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "unknown method {other:?}: use \"linear\", \"moving\", \"rbf\" or \"harmonic\""
+            )))
+        }
+    };
+    let view = values.as_array();
+    let (n_pixels, n_in) = view.dim();
+    let t_in: Vec<f64> = t_in.as_array().iter().copied().collect();
+    let t_out: Vec<f64> = t_out.as_array().iter().copied().collect();
+    let n_out = t_out.len();
+    let v = c_order(&view);
+    let v: &[f64] = &v;
+    let out = py
+        .detach(|| interp::interp_batch(v, n_pixels, n_in, &t_in, &t_out, &method, n_jobs))
+        .map_err(PyValueError::new_err)?;
+    PyArray1::from_vec(py, out).reshape([n_pixels, n_out])
+}
+
 pub fn module(py: Python<'_>) -> PyResult<Bound<'_, PyModule>> {
     let m = PyModule::new(py, "tsa")?;
-    m.add("__doc__", "Statistics of time series and their folds, standardization")?;
+    m.add("__doc__", "Statistics of time series and their folds, standardization, interpolation")?;
     m.add_function(wrap_pyfunction!(stm_batch, &m)?)?;
     m.add_function(wrap_pyfunction!(fold_batch, &m)?)?;
     m.add_function(wrap_pyfunction!(standardize_batch, &m)?)?;
+    m.add_function(wrap_pyfunction!(interp_batch, &m)?)?;
     Ok(m)
 }
