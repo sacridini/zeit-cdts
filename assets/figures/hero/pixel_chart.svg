@@ -1,0 +1,62 @@
+<svg class="zh-chart" viewBox="0 0 340 150" role="img" aria-label="NDVI of the marked pixel, 1985 to 2024, with the LandTrendr fit: forest until 2002, cleared in 2003" xmlns="http://www.w3.org/2000/svg">
+<line class="zh-grid" x1="30" x2="330" y1="113.3" y2="113.3"/>
+<text class="zh-tick" x="25" y="116.8" text-anchor="end">0.2</text>
+<line class="zh-grid" x1="30" x2="330" y1="75.3" y2="75.3"/>
+<text class="zh-tick" x="25" y="78.8" text-anchor="end">0.5</text>
+<line class="zh-grid" x1="30" x2="330" y1="37.3" y2="37.3"/>
+<text class="zh-tick" x="25" y="40.8" text-anchor="end">0.8</text>
+<text class="zh-tick" x="73.9" y="144" text-anchor="middle">1990</text>
+<text class="zh-tick" x="147.1" y="144" text-anchor="middle">2000</text>
+<text class="zh-tick" x="220.2" y="144" text-anchor="middle">2010</text>
+<text class="zh-tick" x="293.4" y="144" text-anchor="middle">2020</text>
+<line class="zh-event" x1="165.4" x2="165.4" y1="12" y2="126"/>
+<text class="zh-label" x="170.4" y="21">cleared in 2003</text>
+<circle class="zh-obs" cx="37.3" cy="36.7" r="2.6"/>
+<circle class="zh-obs" cx="44.6" cy="31.7" r="2.6"/>
+<circle class="zh-obs" cx="52.0" cy="42.2" r="2.6"/>
+<circle class="zh-obs" cx="59.3" cy="38.6" r="2.6"/>
+<circle class="zh-obs" cx="66.6" cy="35.3" r="2.6"/>
+<circle class="zh-obs" cx="73.9" cy="32.5" r="2.6"/>
+<circle class="zh-obs" cx="81.2" cy="45.0" r="2.6"/>
+<circle class="zh-obs" cx="88.5" cy="42.0" r="2.6"/>
+<circle class="zh-obs" cx="95.9" cy="40.1" r="2.6"/>
+<circle class="zh-obs" cx="103.2" cy="31.7" r="2.6"/>
+<circle class="zh-obs" cx="110.5" cy="46.4" r="2.6"/>
+<circle class="zh-obs" cx="117.8" cy="35.9" r="2.6"/>
+<circle class="zh-obs" cx="125.1" cy="40.9" r="2.6"/>
+<circle class="zh-obs" cx="132.4" cy="38.6" r="2.6"/>
+<circle class="zh-obs" cx="139.8" cy="39.5" r="2.6"/>
+<circle class="zh-obs" cx="147.1" cy="33.1" r="2.6"/>
+<circle class="zh-obs" cx="154.4" cy="34.5" r="2.6"/>
+<circle class="zh-obs" cx="161.7" cy="37.4" r="2.6"/>
+<circle class="zh-obs" cx="169.0" cy="96.4" r="2.6"/>
+<circle class="zh-obs" cx="176.3" cy="82.6" r="2.6"/>
+<circle class="zh-obs" cx="183.7" cy="87.2" r="2.6"/>
+<circle class="zh-obs" cx="191.0" cy="91.9" r="2.6"/>
+<circle class="zh-obs" cx="198.3" cy="98.5" r="2.6"/>
+<circle class="zh-obs" cx="205.6" cy="79.5" r="2.6"/>
+<circle class="zh-obs" cx="212.9" cy="87.3" r="2.6"/>
+<circle class="zh-obs" cx="220.2" cy="88.6" r="2.6"/>
+<circle class="zh-obs" cx="227.6" cy="90.4" r="2.6"/>
+<circle class="zh-obs" cx="234.9" cy="85.6" r="2.6"/>
+<circle class="zh-obs" cx="242.2" cy="70.8" r="2.6"/>
+<circle class="zh-obs" cx="249.5" cy="85.5" r="2.6"/>
+<circle class="zh-obs" cx="256.8" cy="93.2" r="2.6"/>
+<circle class="zh-obs" cx="264.1" cy="95.7" r="2.6"/>
+<circle class="zh-obs" cx="271.5" cy="110.6" r="2.6"/>
+<circle class="zh-obs" cx="278.8" cy="103.6" r="2.6"/>
+<circle class="zh-obs" cx="286.1" cy="91.9" r="2.6"/>
+<circle class="zh-obs" cx="293.4" cy="109.4" r="2.6"/>
+<circle class="zh-obs" cx="300.7" cy="101.6" r="2.6"/>
+<circle class="zh-obs" cx="308.0" cy="92.5" r="2.6"/>
+<circle class="zh-obs" cx="315.4" cy="78.5" r="2.6"/>
+<circle class="zh-obs" cx="322.7" cy="87.8" r="2.6"/>
+<path class="zh-fit" d="M37.3,37.7 L161.7,37.1 L169.0,96.4 L198.3,91.4 L205.6,79.5 L286.1,101.9 L322.7,85.1"/>
+<circle class="zh-vertex" cx="37.3" cy="37.7" r="3.6"/>
+<circle class="zh-vertex" cx="161.7" cy="37.1" r="3.6"/>
+<circle class="zh-vertex" cx="169.0" cy="96.4" r="3.6"/>
+<circle class="zh-vertex" cx="198.3" cy="91.4" r="3.6"/>
+<circle class="zh-vertex" cx="205.6" cy="79.5" r="3.6"/>
+<circle class="zh-vertex" cx="286.1" cy="101.9" r="3.6"/>
+<circle class="zh-vertex" cx="322.7" cy="85.1" r="3.6"/>
+</svg>
