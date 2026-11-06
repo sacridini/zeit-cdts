@@ -169,6 +169,14 @@ class ZeitAccessor:
         from zeit._tmask_api import tmask
         return tmask(self._obj, **kwargs)
 
+    def nbar(self, angles: Any = None, **kwargs: Any) -> Any:
+        """
+        Nadir BRDF-adjusted reflectance of this (time, band, y, x) cube by the c-factor (Roy et al. 2016, 2017): the
+        same as ``zeit.nbar(cube, angles, **kwargs)``.
+        """
+        from zeit._nbar import nbar
+        return nbar(self._obj, angles, **kwargs)
+
     def spectral_adjust(self, **kwargs: Any) -> xr.DataArray:
         """
         FORCE's spectral adjustment of this (time, band, y, x) Landsat or MODIS cube to Sentinel-2A: the same as

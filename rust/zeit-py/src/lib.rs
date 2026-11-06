@@ -17,6 +17,7 @@ mod beast;
 mod bfast;
 mod bfastlite;
 mod bfastmonitor;
+mod brdf;
 mod ccdc;
 mod coded;
 mod ewmacd;
@@ -89,5 +90,6 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     add_submodule(m, &profile::module(m.py())?)?;
     add_submodule(m, &tsa::module(m.py())?)?;
     add_submodule(m, &specadjust::module(m.py())?)?;
+    add_submodule(m, &brdf::module(m.py())?)?;
     Ok(())
 }

@@ -18,6 +18,7 @@ pub mod bfast_monitor;
 pub mod ccdc;
 pub mod cmath;
 pub mod bayes_smooth;
+pub mod brdf;
 pub mod coded;
 pub mod dist;
 pub mod eigen;

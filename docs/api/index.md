@@ -101,6 +101,7 @@
 | [`similarity`](embeddings.md#similarity) | Where (and when) pixels look like reference samples |
 | [`embedding_change`](embeddings.md#embedding_change) | How far each pixel's embedding moved from year to year (events with `extract_events`) |
 | **Pre-processing** | |
+| [`nbar`](preprocessing.md#nbar) | Nadir BRDF-adjusted reflectance by the c-factor (Roy et al. 2016, 2017), from the per-pixel sun and view angles: HLS's view-angle step, before `bandpass_adjust` |
 | [`bandpass_adjust`](preprocessing.md#bandpass_adjust) | Sentinel-2 (and Landsat 5/7) on Landsat 8's bands: HLS's bandpass step, for L2A cubes (HLS itself: [`build_time_series`](data.md#build_time_series)) |
 | [`spectral_adjust`](preprocessing.md#spectral_adjust) | Landsat 4-9 and MODIS on Sentinel-2A's ten bands, the red edge predicted: FORCE's spectral adjustment |
 | [`tmask`](preprocessing.md#tmask) | Time-series cloud and shadow detection of a cube |

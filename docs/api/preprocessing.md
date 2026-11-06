@@ -7,7 +7,7 @@
 A dense series that mixes Landsat and Sentinel-2 has a step wherever the sensor changes, which CCDC or BFAST read as a break. There are two ways to remove it:
 
 - **HLS** (Harmonized Landsat Sentinel-2, NASA): both sensors processed alike from level 1 (the same atmospheric correction and cloud mask, view and sun angles normalized, a common 30 m grid) and Sentinel-2 adjusted to Landsat 8's bands. [`build_time_series`](data.md#build_time_series) reads it from Planetary Computer, both products in one call: `collection=["hls2-l30", "hls2-s30"]` with the bands named by role. This is the way to go wherever HLS covers the dates (from 2013 for Landsat 8, 2015 for Sentinel-2).
-- **[`bandpass_adjust`](#bandpass_adjust)** on cubes you already have (Landsat Collection 2 and Sentinel-2 L2A): only HLS's bandpass step, so only part of the step goes away.
+- **[`nbar`](#nbar)** and **[`bandpass_adjust`](#bandpass_adjust)** on cubes you already have (Landsat Collection 2 and Sentinel-2 L2A): HLS's view-angle normalization and its bandpass step, in that order (`bandpass_adjust(nbar(cube, angles))`, as in HLS). Neither is the atmospheric correction, so only part of the step goes away. `nbar` needs the per-pixel sun and view angles; `bandpass_adjust` does not.
 - **[`spectral_adjust`](#spectral_adjust)** goes the other way, Landsat and MODIS to Sentinel-2A's bands (FORCE's spectral adjustment), and predicts the red edge bands Landsat does not have.
 
 Measured over the Libya-4 desert site (2022–2023, Planetary Computer, pairs of Landsat 8/9 and Sentinel-2 observations at most a day apart, median of the area):
@@ -26,6 +26,48 @@ grid = dict(source="planetary_computer", bbox=bbox, start_date="2019-01-01", end
 hls = zeit.build_time_series(collection=["hls2-l30", "hls2-s30"],
                              bands=["blue", "green", "red", "nir", "swir1", "swir2"], **grid)
 result = zeit.ccdc(hls.sel(band=["blue", "green", "red", "nir", "swir1", "swir2"]))
+```
+
+### `nbar` { .api }
+
+<!-- sig: zeit.nbar -->
+```python
+zeit.nbar(
+    data, angles=None, *, sensor=None, sza="scene", bands=None, params=None,
+    nodata="auto", chunks=None, n_jobs=-1, return_cfactor=False,
+)
+```
+
+Normalizes reflectance to what a sensor at nadir would see with the sun at a chosen zenith (NBAR, nadir BRDF-adjusted reflectance), by the c-factor method of Roy et al. (2016, *Remote Sensing of Environment* 176:255-271; 2017, 199:25-38). Each band is multiplied by `c = ρ(sza_norm, view 0) / ρ(sza, vza, raa)`, where ρ is the MODIS Ross-Thick / Li-Sparse-Reciprocal model `f_iso + f_vol·K_vol + f_geo·K_geo` with three fixed parameters per band (Roy et al. 2016, Table 5, the global MODIS values; the HLS User Guide v2.0, Table 4, applies the same to OLI and MSI), evaluated at the pixel's observed solar zenith, view zenith and relative azimuth (view minus sun azimuth). It is the view-angle step of HLS, and goes before [`bandpass_adjust`](#bandpass_adjust). HLS cubes are refused (already normalized).
+
+**Written from the papers.** The implementation follows the equations of the papers and the HLS User Guide, not any other implementation (FORCE's, HLS's...): the checks are the published parameters, analytic values of the kernels and the c-factor, and the properties of the model (see `tests/test_nbar.py`). It is not yet compared against HLS itself. The kernels are those that Matsuoka et al. (2016, *ISPRS Annals* III-7:3-10) write after Wanner et al. (1995) and Lucht et al. (2000), with Li-Sparse's h/b = 2 and b/r = 1.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `data` | `DataArray` or path | required | Surface reflectance `(time, band, y, x)` or `(band, y, x)`, in memory or dask. Bands are found by role: `coastal`, `blue`, `green`, `red`, `rededge1`-`rededge3`, `nir` (B08), `nir08` (B8A, OLI's band 5), `swir1`, `swir2`, named as Earth Search or Planetary Computer name them (`swir16`, `B04`...). Sentinel-2's B08 is normalized (it has MODIS's NIR parameters); bands without a role (B09, QA, the angles) are copied. |
+| `angles` | `Dataset`, `DataArray` or `None` | `None` | Sun and view angles in degrees, `SZA`, `SAA`, `VZA`, `VAA`, on exactly the cube's grid and dates, `(time, y, x)` (`(y, x)` for a cube without time); nothing is resampled and a mismatch is an error. `None` takes bands of the cube with those names. Where to get them: HLS carries them (scaled by 0.01); Landsat Collection 2 has Level-1 angle bands (USGS credentials); Sentinel-2 has a 5 km grid in each tile's `MTD_TL.xml`. A pixel with a missing angle, or a zenith outside 0-90°, is NaN. |
+| `sensor` | `str` or list | `None` | As for `bandpass_adjust`. Only checks the sensors (Landsat 4-9, Sentinel-2) and keeps the Collection 2 names `SR_B1`... from being read as OLI's on Landsat 4, 5 and 7 (pass `bands=`). |
+| `sza` | `float`, list, `"scene"` or `"hls"` | `"scene"` | The normalized solar zenith: a number of degrees (or one per date); `"scene"`, the mean of each date's observed solar zenith over the pixels whose angles are valid (Roy et al. 2016, 2017; with dask the angles are read once ahead of the computation); or `"hls"`, the `NBAR_SOLAR_ZENITH` tag as an attribute or coordinate of the cube (HLS computes it from the day and latitude with overpass times its guide does not give, so Zeit does not). The view is always nadir. Roy et al. advise against a normalized zenith far from the observed ones. |
+| `bands` | `dict` | `None` | The cube's band of each role, when its names are not the usual ones. |
+| `params` | `dict` | `None` | `{role: (f_iso, f_geo, f_vol)}` replacing the parameters of those roles (reflectance 0-1). |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | Missing values besides NaN (the raster's NoData; 0 for integers without one). They stay missing. |
+| `chunks` | `"auto"`, `dict` | `None` | Inputs read from disk: `None` reads into memory; otherwise the result is lazy. |
+| `n_jobs` | `int` | `-1` | Threads (the processors zeit may use by default). |
+| `return_cfactor` | `bool` | `False` | Also return the c-factors `(time, band, y, x)` of the normalized bands. They are not clipped; in a Landsat's field of view they stay within 0.95-1.05. |
+
+</div>
+
+**Returns** the cube with the same dimensions, coordinates, type (integers are rounded) and georeferencing, lazy if the input is, plus a `nbar_sza` coordinate (each date's normalized zenith). `attrs["nbar"]` says what was done, `attrs["nbar_bands"]` which bands, and a normalized cube is refused a second time. With `return_cfactor`, `(nbar, cfactor)`.
+
+**Limits.** The red edge parameters are the linear interpolation between MODIS's red (645 nm) and NIR (858 nm) of Roy, Li and Zhang (2017, *Remote Sensing* 9:1325, Eq. 3); the paper found that interpolation not particularly suited to the red edge (a POLDER test), so treat the red edge result as less certain. The parameters are MODIS's snow-free ones: mask snow before. A pixel's c-factor is not clipped, so a geometry far from the model's range gives an extreme c: inspect `return_cfactor`. Speed: about 10 million pixels per second on one thread and 40-55 million on eight, for the ten bands at once or one.
+
+```python
+angles = xr.Dataset({"SZA": sza, "SAA": saa, "VZA": vza, "VAA": vaa})   # degrees, (time, y, x), the cube's grid
+cube_nbar = zeit.nbar(cube, angles)
+mixed = zeit.bandpass_adjust(cube_nbar)          # HLS's order: view angles first, then the bandpass
+nbar, c = zeit.nbar(cube, angles, sza=35, return_cfactor=True)
 ```
 
 ### `bandpass_adjust` { .api }
