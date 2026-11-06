@@ -223,7 +223,24 @@ The time series analysis ported from **FORCE 3.11.00** (Frantz 2019; GPL-3.0-or-
 
 **How they were checked.** For the metrics, folds, interpolation and standardization the comparison is value by value against FORCE's rasters. The two products that differ by design are checked in a second way. With the penalty, the pixels where Zeit's corrected comparison picks another change step than FORCE are all reproduced by a literal Python port of FORCE's comparison (penalized against the best one's unpenalized drop, in float32), and every other value is equal or within 1 as above; the values of those pixels are the ones counted as left out in the table. For CSO, the statistics that depend on `n` (STD, SKW, KRT and the quantiles) differ from FORCE's by design: on 1-month windows Zeit's STD equals FORCE's in 68.9% of the values, SKW in 29.2%, KRT in 21.1%, Q25 in 57.6%, Q50 in 86.2% and Q75 in 75.8%. A literal Python port of FORCE's n-for-k code reproduces FORCE's STD, quantiles and IQR exactly, and its SKW and KRT within 1 (97.9% equal for KRT on 1-month windows; 99.7% and 98.5% for SKW and KRT on 3-month ones), which is the check that the difference is the definition, not an error.
 
-**Timings.** The times against FORCE have not been measured. FORCE runs in WSL, from its own parameter files, with a startup and file I/O of its own, so the comparison needs a protocol of its own; the table of times comes in a separate measurement. For orientation only, Zeit's own times on these 10,000 pixels with 4 threads were 8.7 ms for the 16 metrics, 94 ms for the five folds, and 14 ms (linear), 17 ms (moving average and RBF) and 271 ms (harmonic) for the interpolation to 114 dates; they are not a comparison.
+**Timings.** On a larger cube, 500 × 500 pixels (250,000) with the same 325 dates over 2018-2022, FORCE's compute stage against Zeit's core (`zeit._core.tsa.*_batch`, on FORCE's own series), with 1 and with 6 threads. Seconds; the gain is FORCE's time over Zeit's (below 1: FORCE is faster).
+
+| Product | FORCE, 1 thread | FORCE, 6 threads | Zeit, 1 thread | Zeit, 6 threads | Gain, 1 thread | Gain, 6 threads |
+|:---|---:|---:|---:|---:|---:|---:|
+| Interpolation, linear (114 dates) | 0.11 | 0.01 | 0.61 | 0.22 | 0.2× | 0.06× |
+| Interpolation, moving average | 0.06 | 0.05 | 0.74 | 0.25 | 0.08× | 0.2× |
+| Interpolation, RBF | 1.75 | 0.50 | 1.11 | 0.34 | 1.6× | 1.5× |
+| Interpolation, harmonic fit to all the series | 227.8 | 49.0 | 22.3 | 5.37 | 10× | 9.1× |
+| STM, 16 metrics | 2.22 | 0.48 | 0.55 | 0.16 | 4.0× | 3.1× |
+| Folds, AVG by year, quarter, month, week and day | 4.50 | 1.29 | 1.64 | 0.55 | 2.7× | 2.4× |
+| TRY and CAY, no penalty (Zeit: yearly fold, trend and CAT) | 0.21 | 0.11 | 0.25 | 0.09 | 0.8× | 1.3× |
+| CSO, 1-month windows (59) | 2.58 | 0.64 | 1.17 | 0.49 | 2.2× | 1.3× |
+
+**How the FORCE time was isolated.** FORCE reads, computes and writes in separate threads and times the three stages itself (`progress-hl.c`, the "Virtual C-time" of its summary), but in whole seconds, too coarse for a stage of a second; the benchmark preloads a four-line library (`force_time_ms.c`) that makes `time()` count milliseconds, and FORCE's binary and code are untouched. What is timed is the compute stage alone (QAI screening, the NDVI and the analysis, no reading and no writing), the minimum of 10 runs with 6 threads, 5 with 1 (3 for the harmonic fit), one chunk, `NTHREAD_READ = NTHREAD_WRITE = 1`. Each configuration has the baseline's stage taken off, since every run also screens the QAI and computes the index (a run with no interpolation that writes the same TSS): the interpolations less the baseline's, the STM, the folds and TRY/CAY less the RBF run's (which has the baseline in it). The CSO has no baseline to take off: its input is the QAI alone and the screening is part of its stage (FORCE's own run with only NUM takes 1.61 s with 1 thread and 0.37 s with 6, the floor of its interval and moment loop). The Zeit side is the best of three after a warm-up, from the arrays already in memory (FORCE's int16 as float64), on the same machine, one after the other, never together. FORCE computes the yearly fold inside the TRY/CAY run, so Zeit's time for that row includes it (0.21 s of the 0.25 s at 1 thread).
+
+Where FORCE is faster, the linear and moving-average interpolations and, with 1 thread, TRY and CAY: FORCE's time there is the difference of two stages of 0.4-1.5 s whose runs vary by 0.1-0.2 s, so 0.01-0.2 s is its noise level and the gains of these rows are indicative only (FORCE's linear interpolation is at most about 0.1 s). Zeit's linear and moving interpolations cost 2.4-3.2 µs per pixel for 325 dates at any number of pixels (31,250 to 250,000 give the same per pixel), so there is no fixed cost: filling the output (`np.full` of 250,000 × 114: 0.04 s) is a small part, and the time goes to the per-pixel pass over the series; with 6 threads it scales only 2.2×. The yearly fold costs 0.8 µs per pixel (0.2 s of the 0.25 s of the TRY/CAY row), the trend 0.05 µs and the CAT 0.11 µs. This is not optimized yet.
+
+The accuracy holds on this cube (`force_tsa.py --part stm,interp --ref <bench folder>`): STM 100% within 1 (Q90 98.98% equal, the rest equal), linear and moving interpolation 100% equal, RBF 99.983% equal and 100% within 1, harmonic 99.992% equal and 99.999% within 1: 301 of 28.5 million values differ by more than 1 (170 by more than 2, at most 11), all in 13 of the 250,000 pixels (0.005%), a series whose robust fit differs slightly, like the one pixel of the small cube whose iteratively reweighted fit does not converge.
 
 ---
 
@@ -262,6 +279,8 @@ python benchmarks/vs_originals/parts.py               # sides 50, 100, 200; ZEIT
 python benchmarks/vs_originals/folds.py               # autocor knndm profile mahalanobis (CAST's MD takes 15 min)
 python benchmarks/vs_originals/accuracy_survey.py     # zeit.transitions against survey (and terra)
 python benchmarks/vs_originals/force_tsa.py --part stm,fold,standardize,interp,trend,cso --jobs 4   # FORCE's TSA, against its saved outputs
+wsl -e bash -lc 'bash benchmarks/vs_originals/force_tsa_timing.sh ~/force-ref-work/tsa-bench 6'   # FORCE's compute stage on the 500 x 500 cube (also with 1); then:
+python benchmarks/vs_originals/force_tsa_timing.py    # Zeit's times against it (--profile: the cost by size)
 python benchmarks/vs_originals/ewmacd.py "path/to/EWMACD v1.3.0.r"   # Brooks' script, not distributed
 PYXCCD_PYTHON=path/to/pyxccd-env/python python benchmarks/vs_originals/sccd.py CCDC_Stack_Rondonia.tif CCDC_Stack_Rondonia_Dates.csv
 ```

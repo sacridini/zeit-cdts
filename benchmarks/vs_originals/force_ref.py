@@ -19,6 +19,12 @@ REF = workdir("force_tsa") / "ref"
 _CUM = np.cumsum([0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31])
 
 
+def use(folder):
+    """Reads from another folder with the same layout (``out/<config>/...``): the measurement cube's ``bench``."""
+    global REF
+    REF = Path(folder)
+
+
 def doy_of(yyyymmdd):
     y, m, d = int(yyyymmdd) // 10000, int(yyyymmdd) // 100 % 100, int(yyyymmdd) % 100
     if m == 2 and d == 29:

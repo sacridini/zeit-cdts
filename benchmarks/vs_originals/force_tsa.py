@@ -19,6 +19,10 @@ For each product and band it prints the share of pixels that are equal, within +
 Where FORCE's result is undefined (a standard deviation, skewness or kurtosis of one value, a skewness or kurtosis
 of a constant series: 0/0, which FORCE casts to int16 as it happens) the pixels are left out, and the count is printed.
 The target is 100% equal or within +-1; the exit code is 1 when something is outside it.
+
+``--ref <folder>`` reads the outputs from another folder of the same layout: the 500 x 500 measurement cube of the timing
+(``force_tsa_timing.sh`` and ``force_tsa_timing.py``), where the parts ``stm`` and ``interp`` check that the agreement
+holds on a larger cube (``int_harmonic_part``, with its cycling pixel, is not run there).
 """
 import argparse
 import sys
@@ -211,7 +215,8 @@ def part_interp(jobs):
     from zeit import _core
 
     # FORCE's TSS (int16, -9999 missing) at its own dates and calendar (365 days a year, so period 365)
-    a, dates = ref.load("int_none", "TSS")
+    # (the measurement cube's folder has the TSS in "baseline" and only some of the configurations)
+    a, dates = ref.load("int_none" if (ref.REF / "out" / "int_none").exists() else "baseline", "TSS")
     nb, ny, nx = a.shape
     v = a.reshape(nb, ny * nx).T.astype(np.float64)
     v[v == NODATA] = np.nan
@@ -229,6 +234,7 @@ def part_interp(jobs):
         ("int_harmonic_part", dict(method="harmonic", modes=3, trend=True, fit_lo=fit_part[0], fit_hi=fit_part[1],
                                    period=365.0)),
     ]
+    configs = [c for c in configs if (ref.REF / "out" / c[0]).exists()]
     print(f"interpolation: {v.shape[0]} pixels x {v.shape[1]} dates -> {len(grid)} dates ({jobs} threads)")
     for config, kw in configs:
         t0 = time.perf_counter()
@@ -780,7 +786,11 @@ def main(argv=None):
     p.add_argument("--part", default="stm,fold,standardize", help=f"comma-separated parts of {list(PARTS)}")
     p.add_argument("--jobs", type=int, default=4, help="Zeit's threads (the machine's cap is 8 in all)")
     p.add_argument("--verbose", action="store_true", help="every band of the folds with at most 12 bands")
+    p.add_argument("--ref", help="read FORCE's outputs from this folder instead of workdir('force_tsa')/ref: the "
+                                 "measurement cube's bench folder (parts stm and interp: the configurations it has)")
     args = p.parse_args(argv)
+    if args.ref:
+        ref.use(args.ref)
     global VERBOSE
     VERBOSE = args.verbose
     parts = [s.strip() for s in args.part.split(",") if s.strip()]
