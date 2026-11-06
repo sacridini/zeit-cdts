@@ -169,6 +169,14 @@ class ZeitAccessor:
         from zeit._tmask_api import tmask
         return tmask(self._obj, **kwargs)
 
+    def spectral_adjust(self, **kwargs: Any) -> xr.DataArray:
+        """
+        FORCE's spectral adjustment of this (time, band, y, x) Landsat or MODIS cube to Sentinel-2A: the same as
+        ``zeit.spectral_adjust(cube, **kwargs)``.
+        """
+        from zeit._specadjust import spectral_adjust
+        return spectral_adjust(self._obj, **kwargs)
+
     def save(self, path: Any, **kwargs: Any) -> Path:
         """
         Writes this map, cube or result to a raster: the same as ``zeit.save_raster(da, path, **kwargs)``.

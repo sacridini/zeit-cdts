@@ -35,6 +35,7 @@ mod sma;
 mod smooth;
 mod snic;
 mod som;
+mod specadjust;
 mod texture;
 mod tmask;
 mod tsa;
@@ -87,5 +88,6 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     add_submodule(m, &knndm::module(m.py())?)?;
     add_submodule(m, &profile::module(m.py())?)?;
     add_submodule(m, &tsa::module(m.py())?)?;
+    add_submodule(m, &specadjust::module(m.py())?)?;
     Ok(())
 }

@@ -42,6 +42,8 @@ pub mod sma;
 pub mod snic;
 pub mod som;
 pub mod spatial;
+pub mod specadjust;
+mod specadjust_tables;
 pub mod stl;
 pub mod texture;
 pub mod tmask;

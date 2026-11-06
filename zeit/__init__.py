@@ -45,6 +45,7 @@ from ._tmask_api import tmask
 from ._sma import unmix
 from ._coded import coded
 from ._bandpass import bandpass_adjust
+from ._specadjust import spectral_adjust
 
 from .regularize import regularize_time_series
 
@@ -117,6 +118,7 @@ __all__ = [
     "qc_modis_summary", "qc_modis_state", "qc_sentinel2_scl",
     "build_time_series",
     "bandpass_adjust",
+    "spectral_adjust",
     "build_annual_composites",
     "build_spectral_temporal_metrics",
     "compute_indices",
