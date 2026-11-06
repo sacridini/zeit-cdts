@@ -1,140 +1,291 @@
-"""
-QC/QA-band decoders that turn a sensor's raw quality-assurance layer into
-per-observation reliability weights in [0, 1], for the ``weights=`` of
-``zeit.phenology`` and ``zeit.smooth``.
+"""Quality bands to observation weights.
 
-This mirrors phenofit's `qcFUN.R` (qc_summary, qc_StateQA, qc_sentinel2), so the
-same "good/marginal/snow-or-cloud" weighting scheme used there is available in
-zeit. A QA cube (a ``DataArray``, or a raster path) gives a weights cube with its
-dims, dates and georeferencing, ready to pass along with the data it describes;
-its NoData (and NaN) get the weight 0.
+Each decoder turns the quality band of a sensor (MODIS MOD13 SummaryQA, MODIS
+MOD09 500 m State QA, Sentinel-2 L2A Scene Classification Layer) into a weight per
+observation, for the ``weights=`` of ``zeit.smooth`` and ``zeit.phenology``.
+
+Four levels are used: ``wmax`` (good), ``wmid`` (usable, with a warning), ``wmin``
+(measures the surface with a known bias, or may be contaminated: clouds, shadows,
+snow) and ``0`` (no data: fill values, NoData, NaN and codes outside the valid
+range). The classification is Zeit's, made from the product guides cited in each
+function.
+
+A numpy array gives a numpy array of the same shape. A ``DataArray`` or a raster
+path gives a ``DataArray`` of weights with the input's dims, coordinates and
+georeferencing (lazy if the input was). The raster's NoData and NaN get the weight
+``0``, even when the NoData value would otherwise be a good code.
 """
 
-import os
-from typing import Any, Callable
+from pathlib import Path
+from typing import Any, Callable, Tuple
 
 import numpy as np
 
 __all__ = ["qc_modis_summary", "qc_modis_state", "qc_sentinel2_scl"]
 
+# Attributes that describe stored codes, not weights.
+_NOT_FOR_WEIGHTS = ("scale_factor", "add_offset", "_FillValue", "nodata", "missing_value",
+                    "units", "long_name", "valid_range")
 
-def _weights(qa: Any, decode: Callable[[np.ndarray], np.ndarray]) -> Any:
-    """``decode`` (numpy QA values -> weights) applied to ``qa`` as given: a numpy array
-    gives one, a ``DataArray`` (or a raster path, read with ``load_raster``) a
-    ``DataArray`` with its coordinates and georeferencing, lazy if it was."""
-    import xarray as xr
 
-    if isinstance(qa, (str, os.PathLike)):
+def _check_weights(wmin: float, wmid: float, wmax: float) -> Tuple[float, float, float]:
+    try:
+        ok = 0 <= wmin <= wmid <= wmax
+    except TypeError as exc:
+        raise TypeError("wmin, wmid and wmax must be numbers") from exc
+    if not ok:
+        raise ValueError(f"weights must satisfy 0 <= wmin <= wmid <= wmax, got "
+                         f"wmin={wmin}, wmid={wmid}, wmax={wmax}")
+    return float(wmin), float(wmid), float(wmax)
+
+
+def _integers(a: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """Codes as int64 and a mask of the valid ones (finite, whole numbers)."""
+    if a.dtype.kind == "f":
+        with np.errstate(invalid="ignore"):
+            ok = np.isfinite(a) & (a == np.round(a)) & (np.abs(a) < 2.0 ** 62)
+        return np.where(ok, a, 0).astype(np.int64), ok
+    if a.dtype.kind in "iu":
+        ok = np.ones(a.shape, dtype=bool)
+        if a.dtype.kind == "u" and a.dtype.itemsize == 8:
+            ok = a <= np.iinfo(np.int64).max
+        return a.astype(np.int64), ok
+    raise TypeError(f"quality codes must be integer or float numbers, got {a.dtype}")
+
+
+def _nodata_of(da: Any) -> Any:
+    for source in (da.attrs, da.encoding):
+        for key in ("_FillValue", "nodata"):
+            if source.get(key) is not None:
+                return source[key]
+    try:
+        return da.rio.nodata
+    except Exception:  # no rio accessor or no georeferencing
+        return None
+
+
+def _apply(source: Any, decode: Callable[..., np.ndarray], *args: float) -> Any:
+    """Run ``decode(codes, *args)`` on a numpy array, a DataArray or a raster path."""
+    if isinstance(source, (str, Path)):
         from ._load import load_raster
 
-        qa = load_raster(qa, masked=False)
-    if not isinstance(qa, xr.DataArray):
-        values = np.asarray(qa)
-        return np.where(_missing(values, None), 0.0, decode(values))
-    nodata = qa.rio.nodata if "y" in qa.dims and "x" in qa.dims else None
-    crs = qa.rio.crs if "y" in qa.dims and "x" in qa.dims else None
+        source = load_raster(str(source), masked=False)
 
-    def _block(values):
-        return np.where(_missing(values, nodata), 0.0, decode(values))
+    if hasattr(source, "dims") and hasattr(source, "coords"):
+        if source.dtype.kind not in "iuf":
+            raise TypeError(f"quality codes must be integer or float numbers, got {source.dtype}")
+        nodata = _nodata_of(source)
+        if nodata is not None:
+            nodata = float(nodata)
+            if np.isnan(nodata):
+                nodata = None
 
-    out = xr.apply_ufunc(_block, qa, dask="parallelized", output_dtypes=[np.float64])
-    out = out.rename("weights")
-    out.attrs = {"long_name": "observation weight"}
-    if crs is not None:
-        out = out.rio.write_crs(crs)
-    return out
+        def run(values: np.ndarray) -> np.ndarray:
+            weights = decode(values, *args)
+            if nodata is not None:
+                weights = np.where(values.astype(np.float64) == nodata, 0.0, weights)
+            return weights
+
+        data = source.data
+        if hasattr(data, "map_blocks"):  # dask: stay lazy
+            data = data.map_blocks(run, dtype=np.float64)
+        else:
+            data = run(np.asarray(data))
+        # copy keeps the coordinates with their attributes (the CRS lives in spatial_ref)
+        out = source.copy(data=data)
+        out.attrs = {k: v for k, v in source.attrs.items() if k not in _NOT_FOR_WEIGHTS}
+        out.encoding = {k: v for k, v in source.encoding.items()
+                        if k in ("grid_mapping", "preferred_chunks")}
+        out.name = "weights"
+        return out
+
+    if isinstance(source, (bool, np.bool_, str, bytes)):
+        raise TypeError(f"quality codes must be numbers, got {type(source).__name__}")
+    values = np.asarray(source)
+    if values.dtype.kind not in "iuf":
+        raise TypeError(f"quality codes must be integer or float numbers, got {values.dtype}")
+    weights = decode(values, *args)
+    return weights[()] if weights.ndim == 0 else weights
 
 
-def _missing(values: np.ndarray, nodata: Any) -> np.ndarray:
-    missing = np.isnan(values) if np.issubdtype(values.dtype, np.floating) else np.zeros(values.shape, bool)
-    if nodata is not None and not np.isnan(nodata):
-        missing |= values == nodata
-    return missing
+def _summary(values: np.ndarray, wmin: float, wmid: float, wmax: float) -> np.ndarray:
+    v, ok = _integers(values)
+    table = np.array([wmax, wmid, wmin, wmin])
+    weights = table[np.clip(v, 0, 3)]
+    return np.where(ok & (v >= 0) & (v <= 3), weights, 0.0)
 
 
-def _get_bits(x: np.ndarray, start: int, end: int) -> np.ndarray:
-    """Extract bits [start, end] (inclusive, 0-indexed from the LSB)."""
-    n_bits = end - start + 1
-    mask = (1 << n_bits) - 1
-    return (np.asarray(x).astype(np.int64) >> start) & mask
+def _state(values: np.ndarray, wmin: float, wmid: float, wmax: float) -> np.ndarray:
+    v, ok = _integers(values)
+    # An int16 holding the bits of a uint16 reads as negative: -1 is the fill value.
+    v = np.where((v >= -32768) & (v < 0), v & 0xFFFF, v)
+    ok = ok & (v >= 0) & (v <= 65535)
+    v = np.where(ok, v, 65535)
+
+    def bits(i: int, j: int) -> np.ndarray:
+        return (v >> i) & ((1 << (j - i + 1)) - 1)
+
+    cloud, shadow, aerosol = bits(0, 1), bits(2, 2), bits(6, 7)
+    cirrus, internal_cloud, fire = bits(8, 9), bits(10, 10), bits(11, 11)
+    snow_mod35, adjacent, snow_internal = bits(12, 12), bits(13, 13), bits(15, 15)
+
+    weights = np.full(v.shape, wmax, dtype=np.float64)
+
+    def cap(condition: np.ndarray, value: float) -> None:
+        np.copyto(weights, np.minimum(weights, value), where=condition)
+
+    cap((cloud == 1) | (cloud == 2), wmin)
+    cap(shadow == 1, wmin)
+    cap(internal_cloud == 1, wmin)
+    cap(cirrus == 3, wmin)
+    cap(cirrus == 2, wmin)
+    cap(cirrus == 1, wmid)
+    cap(aerosol == 3, wmin)
+    cap(aerosol == 0, wmid)
+    cap(adjacent == 1, wmid)
+    cap((snow_mod35 == 1) | (snow_internal == 1), wmin)
+    cap(fire == 1, wmin)
+    return np.where(ok & (v != 65535), weights, 0.0)
+
+
+def _scl(values: np.ndarray, wmin: float, wmid: float, wmax: float) -> np.ndarray:
+    v, ok = _integers(values)
+    #               0  1     2     3     4     5     6     7     8     9     10    11
+    table = np.array([0, 0, wmin, wmin, wmax, wmax, wmid, wmid, wmin, wmin, wmin, wmin])
+    return np.where(ok & (v >= 0) & (v <= 11), table[np.clip(v, 0, 11)], 0.0)
 
 
 def qc_modis_summary(qa: Any, wmin: float = 0.2, wmid: float = 0.5, wmax: float = 1.0) -> Any:
+    """Weights from the MOD13 / MYD13 SummaryQA ("pixel reliability") band.
+
+    The layer is an 8-bit signed band with valid range 0 to 3 and fill value -1
+    (255 when read as unsigned). Source: MODIS Vegetation Indices (MOD13) C5
+    User's Guide, v1.00 (Solano, Didan, Jacobson and Huete), section 5.5.2,
+    Table 4. The classification into weights is Zeit's, made from that guide.
+
+    ======  ======================  ======================================
+    Code    Meaning (guide)         Weight
+    ======  ======================  ======================================
+    0       Good data               ``wmax``
+    1       Marginal data           ``wmid``
+    2       Snow/ice                ``wmin``
+    3       Cloudy                  ``wmin``
+    -1/255  Fill / not processed    ``0``
+    other   Outside the valid 0-3   ``0``
+    ======  ======================  ======================================
+
+    Parameters
+    ----------
+    qa
+        SummaryQA values of any shape: a numpy array, a ``DataArray`` or the path
+        of a raster. NaN, non-integer values and the raster's NoData get ``0``.
+    wmin, wmid, wmax
+        Weights for bad, doubtful and good observations, with
+        ``0 <= wmin <= wmid <= wmax``.
+
+    Returns
+    -------
+    A numpy array (numpy input) or a ``DataArray`` with the input's dims, coordinates
+    and georeferencing, of float weights.
     """
-    Weights from the MOD13A1/A2/Q1 "SummaryQA" (pixel reliability) band.
-    Port of phenofit's `qc_summary()` (R/qcFUN.R).
-
-        0 good      -> wmax
-        1 marginal  -> wmid
-        2 snow/ice  -> wmin
-        3 cloudy    -> wmin
-        other/fill  -> 0.0 (excluded)
-
-    ``qa``: a numpy array (weights of the same shape), or a ``DataArray`` or raster path
-    (a ``DataArray`` of weights, NoData -> 0).
-    """
-    def decode(qa):
-        w = np.zeros(qa.shape, dtype=np.float64)
-        w[qa == 0] = wmax
-        w[qa == 1] = wmid
-        w[(qa >= 2) & (qa <= 3)] = wmin
-        return w
-
-    return _weights(qa, decode)
+    args = _check_weights(wmin, wmid, wmax)
+    return _apply(qa, _summary, *args)
 
 
 def qc_modis_state(qa: Any, wmin: float = 0.2, wmid: float = 0.5, wmax: float = 1.0) -> Any:
+    """Weights from the MOD09 / MYD09 500 m State QA band (``sur_refl_state_500m``).
+
+    A 16-bit unsigned layer with fill value 65535. Source: MODIS Collection 6.1
+    Land Surface Reflectance (MOD09) User Guide, section 3.3, Table 13 (State QA
+    description); section 4.1 of the guide says cloud information must come from
+    this layer. The classification into weights is Zeit's, made from that guide.
+    Bit 0 is the least significant. The final weight is the minimum over all rows.
+
+    ====================================  =============================
+    Condition                             Weight
+    ====================================  =============================
+    Fill value 65535 or invalid code      ``0``
+    Bits 0-1 = 01 (cloudy)                ``wmin``
+    Bits 0-1 = 10 (mixed)                 ``wmin``
+    Bits 0-1 = 11 (not set, clear)        no penalty
+    Bit 2 (cloud shadow)                  ``wmin``
+    Bit 10 (internal cloud algorithm)     ``wmin``
+    Bits 8-9 = 11 (high cirrus)           ``wmin``
+    Bits 8-9 = 10 (average cirrus)        ``wmin``
+    Bits 8-9 = 01 (small cirrus)          ``wmid``
+    Bits 6-7 = 11 (high aerosol)          ``wmin``
+    Bits 6-7 = 00 (climatology aerosol)   ``wmid``
+    Bits 6-7 = 01 or 10 (low, average)    no penalty
+    Bit 13 (adjacent to cloud)            ``wmid``
+    Bit 12 or bit 15 (snow/ice)           ``wmin``
+    Bit 11 (fire)                         ``wmin``
+    None of the above                     ``wmax``
+    ====================================  =============================
+
+    Bits 3-5 (land/water) and 14 (salt pan) are not used: they describe the target,
+    not the quality of the observation, and masking water is a job for a land-cover
+    mask. Signed input that holds the bit pattern of a uint16 (an int16 where -1 is
+    the fill value) is read as unsigned.
+
+    Parameters
+    ----------
+    qa
+        State QA values of any shape: a numpy array, a ``DataArray`` or the path of
+        a raster. NaN, non-integer values, values outside 0-65535 and the raster's
+        NoData get ``0``.
+    wmin, wmid, wmax
+        Weights for bad, doubtful and good observations, with
+        ``0 <= wmin <= wmid <= wmax``.
+
+    Returns
+    -------
+    A numpy array (numpy input) or a ``DataArray`` with the input's dims, coordinates
+    and georeferencing, of float weights.
     """
-    Weights from the MOD09A1/MYD09A1 500m "State QA" 16-bit flag.
-    Port of phenofit's `qc_StateQA()` (R/qcFUN.R): decodes cloud state
-    (bits 0-1), cloud shadow (bit 2), aerosol quantity (bits 6-7) and snow/ice
-    (bit 12).
-
-        clear/climatology-aerosol, no shadow, no snow -> wmax (good)
-        snow, or cloudy/mixed cloud, or high aerosol   -> wmin (bad)
-        everything else                                -> wmid (marginal)
-
-    ``qa``: a numpy array, a ``DataArray`` or a raster path, as in ``qc_modis_summary``.
-    """
-    def decode(qa):
-        qa = np.where(np.isfinite(qa), qa, 0) if np.issubdtype(qa.dtype, np.floating) else qa
-        qc_cloud = _get_bits(qa, 0, 1)
-        qc_aerosol = _get_bits(qa, 6, 7)
-        qc_snow = _get_bits(qa, 12, 12).astype(bool)
-
-        w = np.full(qa.shape, wmid, dtype=np.float64)
-
-        is_good = np.isin(qc_cloud, [0, 3]) & np.isin(qc_aerosol, [0, 1, 2]) & ~qc_snow
-        is_bad = qc_snow | np.isin(qc_cloud, [1, 2]) | (qc_aerosol == 3)
-
-        w[is_good] = wmax
-        w[is_bad] = wmin
-        return w
-
-    return _weights(qa, decode)
+    args = _check_weights(wmin, wmid, wmax)
+    return _apply(qa, _state, *args)
 
 
 def qc_sentinel2_scl(scl: Any, wmin: float = 0.2, wmid: float = 0.5, wmax: float = 1.0) -> Any:
+    """Weights from the Sentinel-2 L2A Scene Classification Layer (SCL).
+
+    Source: ESA/Copernicus SentiWiki, "S2 Processing", Table 3 (SCL classes), and the
+    Sen2Cor Configuration and User Manual. The classification into weights is Zeit's,
+    made from those guides.
+
+    =====  ==========================  ==========
+    Code   Class (ESA)                 Weight
+    =====  ==========================  ==========
+    0      NO_DATA                     ``0``
+    1      SATURATED_OR_DEFECTIVE      ``0``
+    2      CAST_SHADOWS                ``wmin``
+    3      CLOUD_SHADOWS               ``wmin``
+    4      VEGETATION                  ``wmax``
+    5      NOT_VEGETATED               ``wmax``
+    6      WATER                       ``wmid``
+    7      UNCLASSIFIED                ``wmid``
+    8      CLOUD_MEDIUM_PROBABILITY    ``wmin``
+    9      CLOUD_HIGH_PROBABILITY      ``wmin``
+    10     THIN_CIRRUS                 ``wmin``
+    11     SNOW or ICE                 ``wmin``
+    other  (>= 12, negative, NaN,      ``0``
+           non-integer)
+    =====  ==========================  ==========
+
+    Parameters
+    ----------
+    scl
+        SCL values of any shape: a numpy array, a ``DataArray`` or the path of a
+        raster. NaN, fractional values (as in a bilinearly resampled SCL) and the
+        raster's NoData get ``0``.
+    wmin, wmid, wmax
+        Weights for bad, doubtful and good observations, with
+        ``0 <= wmin <= wmid <= wmax``.
+
+    Returns
+    -------
+    A numpy array (numpy input) or a ``DataArray`` with the input's dims, coordinates
+    and georeferencing, of float weights.
     """
-    Weights from the Sentinel-2 L2A Scene Classification Layer (SCL).
-    Port of phenofit's `qc_sentinel2()` (R/qcFUN.R).
-
-        4 vegetation, 5 bare soil, 6 water, 7 unclassified, 10 thin cirrus -> wmax
-        8 cloud medium probability                                        -> wmid
-        1 saturated/defective, 2 dark area, 3 cloud shadow, 9 cloud high  -> wmin
-        11 snow (kept usable for phenology, per phenofit)                 -> wmin
-        other (e.g. 0 no-data)                                            -> wmin
-
-    ``scl``: a numpy array, a ``DataArray`` or a raster path, as in ``qc_modis_summary``
-    (a NoData stored with the raster, often 0, gets 0).
-    """
-    qc_good = (4, 5, 6, 7, 10)
-    qc_mid = (8,)
-
-    def decode(scl):
-        w = np.full(scl.shape, wmin, dtype=np.float64)
-        w[np.isin(scl, qc_good)] = wmax
-        w[np.isin(scl, qc_mid)] = wmid
-        return w
-
-    return _weights(scl, decode)
+    args = _check_weights(wmin, wmid, wmax)
+    return _apply(scl, _scl, *args)

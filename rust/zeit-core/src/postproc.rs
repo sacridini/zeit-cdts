@@ -1,116 +1,14 @@
-//! Post-processing of classifications: the Bayesian smoothing of class probabilities of sits
-//! (sits_smooth, Camara et al.; from sits' smooth_bayes.cpp, GPL-2), a majority filter, a minimum
-//! mapping unit that merges small patches into the neighbouring class (a sieve), and the removal of
-//! short excursions from the class series of pixels (A B A -> A A A). Missing values (NaN) stay
-//! missing and take no part.
+//! Post-processing of classifications: the Bayesian smoothing of class probabilities
+//! (`smooth_probs`, from bayes_smooth.rs), a majority filter, a minimum mapping unit that merges
+//! small patches into the neighbouring class (a sieve), and the removal of short excursions from
+//! the class series of pixels (A B A -> A A A). Missing values (NaN) stay missing and take no part.
 
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
 
 use crate::parallel;
 
-/// `i` mirrored into `0..size` as sits' locus_neigh: the edge pixel repeated (-1 -> 0, -2 -> 1,
-/// size -> size - 1).
-fn mirror(mut i: isize, size: isize) -> usize {
-    loop {
-        if i < 0 {
-            i = -i - 1;
-        } else if i >= size {
-            i = 2 * size - i - 1;
-        } else {
-            return i as usize;
-        }
-    }
-}
-
-/// sits' Bayesian smoothing of the probabilities `probs` (class, row, col) of `n_classes` classes:
-/// each class's logit against the others, log(p / (sum - p)), is pulled towards the mean of the
-/// highest `neigh_fraction` of the logits of its `window` x `window` neighbourhood (mirrored at the
-/// edges), as much as that neighbourhood varies little against `smoothness` (one per class):
-/// w = s² / (s² + smoothness), x' = w x + (1 - w) m; a neighbourhood that hardly varies (s² < 1e-4)
-/// gives its mean. The probabilities are given back from the logits (they no longer sum to one,
-/// as sits'). A pixel missing in any class stays missing (sits gives it its neighbours' mean), and
-/// a pixel alone in its window keeps its value.
-#[allow(clippy::too_many_arguments)]
-pub fn smooth_probs(
-    probs: &[f64],
-    n_classes: usize,
-    nrows: usize,
-    ncols: usize,
-    window: usize,
-    smoothness: &[f64],
-    neigh_fraction: f64,
-    n_jobs: i32,
-) -> Vec<f64> {
-    let n = nrows * ncols;
-    assert_eq!(probs.len(), n_classes * n, "probs must be classes x rows x cols");
-    assert_eq!(smoothness.len(), n_classes, "one smoothness per class");
-    let mut logits = vec![f64::NAN; n_classes * n];
-    let clamp = |v: f64| {
-        if v == 1.0 {
-            0.999999
-        } else if v == 0.0 {
-            1e-6
-        } else {
-            v
-        }
-    };
-    for k in 0..n {
-        let sum: f64 = (0..n_classes).map(|c| clamp(probs[c * n + k])).sum();
-        for c in 0..n_classes {
-            let v = clamp(probs[c * n + k]);
-            logits[c * n + k] = (v / (sum - v)).ln();
-        }
-    }
-    let leg = (window / 2) as isize;
-    let (rows, cols) = (nrows as isize, ncols as isize);
-    let mut out = vec![f64::NAN; n_classes * n];
-    parallel::for_each_row(
-        &mut out,
-        ncols,
-        n_jobs,
-        || Vec::with_capacity(window * window),
-        |neigh: &mut Vec<f64>, r, row| {
-            let (c, i) = (r / nrows, (r % nrows) as isize);
-            let band = &logits[c * n..(c + 1) * n];
-            for (j, o) in row.iter_mut().enumerate() {
-                let x0 = band[i as usize * ncols + j];
-                if x0.is_nan() {
-                    continue;
-                }
-                neigh.clear();
-                for wi in -leg..=leg {
-                    let ii = mirror(i + wi, rows) * ncols;
-                    for wj in -leg..=leg {
-                        let v = band[ii + mirror(j as isize + wj, cols)];
-                        if !v.is_nan() {
-                            neigh.push(v);
-                        }
-                    }
-                }
-                let k = ((neigh_fraction * neigh.len() as f64).ceil() as usize).clamp(1, neigh.len());
-                if k < neigh.len() {
-                    neigh.select_nth_unstable_by(k - 1, |a, b| b.total_cmp(a));
-                }
-                let high = &neigh[..k];
-                let v = if k < 2 {
-                    x0
-                } else {
-                    let m0 = high.iter().sum::<f64>() / k as f64;
-                    let s0 = high.iter().map(|h| (h - m0) * (h - m0)).sum::<f64>() / (k - 1) as f64;
-                    if s0 < 1e-4 {
-                        m0
-                    } else {
-                        let w = s0 / (s0 + smoothness[c]);
-                        w * x0 + (1.0 - w) * m0
-                    }
-                };
-                *o = v.exp() / (v.exp() + 1.0);
-            }
-        },
-    );
-    out
-}
+pub use crate::bayes_smooth::smooth_probs;
 
 /// The classes of a map as indices into its sorted distinct values (u32::MAX: missing).
 fn class_index(classes: &[f64]) -> (Vec<f64>, Vec<u32>) {
@@ -418,37 +316,6 @@ pub fn desawtooth(classes: &[f64], n_pixels: usize, n_dates: usize, max_length: 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn mirror_repeats_the_edge() {
-        let got: Vec<usize> = (-3..8).map(|i| mirror(i, 5)).collect();
-        assert_eq!(got, vec![2, 1, 0, 0, 1, 2, 3, 4, 4, 3, 2]);
-        assert_eq!(mirror(-3, 1), 0);
-    }
-
-    #[test]
-    fn smoothing_pulls_an_odd_pixel_to_its_neighbours() {
-        // two classes, a 7 x 7 map of class 0 at 0.9 but its centre at 0.2
-        let (r, c) = (7, 7);
-        let mut p0 = vec![0.9; r * c];
-        p0[3 * c + 3] = 0.2;
-        p0[c + 5] = 0.85;
-        let p1: Vec<f64> = p0.iter().map(|v| 1.0 - v).collect();
-        let probs = [p0.clone(), p1].concat();
-        let s = smooth_probs(&probs, 2, r, c, 5, &[20.0, 20.0], 0.5, 1);
-        assert!(
-            s[3 * c + 3] > 0.5,
-            "the centre takes its neighbours' class: {}",
-            s[3 * c + 3]
-        );
-        // a uniform neighbourhood (s² < 1e-4) gives its mean
-        assert!((s[0] - 0.9).abs() < 1e-9);
-        // a missing pixel stays missing, and is left out of its neighbours'
-        let mut probs2 = probs.clone();
-        probs2[0] = f64::NAN;
-        let s2 = smooth_probs(&probs2, 2, r, c, 5, &[20.0, 20.0], 1.0, 2);
-        assert!(s2[0].is_nan() && s2[r * c].is_nan() && s2[1].is_finite());
-    }
 
     #[test]
     fn majority_removes_salt_and_pepper() {

@@ -4,7 +4,7 @@ site_url: https://sacridini.github.io/zeit-cdts/
 repo_url: https://github.com/sacridini/zeit-cdts
 repo_name: sacridini/zeit-cdts
 edit_uri: edit/main/docs/
-copyright: Zeit is free software released under the GPL-2.0-or-later license.
+copyright: Zeit is free software released under the GPL-3.0-or-later license.
 
 theme:
   name: material

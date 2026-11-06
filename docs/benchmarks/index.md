@@ -9,9 +9,9 @@ Welcome to the **Zeit Fidelity & Performance Validation Suite**. This section pr
 Earth Observation (EO) time-series analysis has historically suffered from fragmented software ecosystems. Canonical algorithms were originally authored across diverse, often proprietary or single-threaded environments:
 
 - **LandTrendr** was authored in proprietary **IDL** (Kennedy *et al.* 2010).
-- **CCDC** was authored in **MATLAB** with compiled Fortran GLMnet (Zhu & Woodcock 2014).
+- **CCDC** was authored in **MATLAB** with a compiled Fortran GLMnet lasso (Zhu & Woodcock 2014).
 - **BFAST, Phenology, and TWDTW** gained widespread adoption through **R** packages (`bfast`, `phenofit`, `dtwSat`/`twdtw`).
-- **Deep learning models** for satellite time-series (TempCNN, LightTAE, U-TAE) were scattered between R `sits` and standalone PyTorch repositories.
+- **Deep learning models** for satellite time-series (TempCNN, LightTAE, U-TAE) were scattered between R `sits` and standalone PyTorch repositories; Zeit's TempCNN and LightTAE are written from the papers and the authors' code.
 - Researchers have frequently relied on cloud platforms like **Google Earth Engine (GEE)**, trading off local control, customization, and queue times for scalability.
 
 **Zeit** was engineered to unify these algorithms into a modern, cloud-native architecture written in a **high-performance compiled core** (C++ with `Eigen3` and OpenMP up to 1.7, **Rust** from 2.0) and **PyTorch** (`zeit.ai`), exposed through Python, Dask, and Xarray. The compiled core's timings in this section were taken with the Rust core of zeit 2.3, which gives the same results as the C++ one (see [Performance](performance.md)).
@@ -37,13 +37,19 @@ To verify that Zeit can serve as a drop-in, scientifically reliable replacement 
   <div class="bm-kpi-card">
     <div class="bm-kpi-label">Algorithm Parity</div>
     <div class="bm-kpi-value">100%</div>
-    <div class="bm-kpi-sub">Exact model/vertex/label/codebook match on LandTrendr, CCDC, SNIC, SOM, TWDTW</div>
+    <div class="bm-kpi-sub">Exact vertex/label/codebook match on LandTrendr, SNIC, SOM, TWDTW; CCDC with identical segment dates and categories</div>
+  </div>
+
+  <div class="bm-kpi-card">
+    <div class="bm-kpi-label">Phenology, Start of Season</div>
+    <div class="bm-kpi-value">4.1 d</div>
+    <div class="bm-kpi-sub">90th-percentile error of Beck's TRS5 on a synthetic cube with known truth (10.7 d in Zeit 1.x)</div>
   </div>
 
   <div class="bm-kpi-card">
     <div class="bm-kpi-label">Max Single-Core Speedup</div>
-    <div class="bm-kpi-value">370×</div>
-    <div class="bm-kpi-sub">Phenology vs R <code>phenofit</code> on real 25-yr EVI raster</div>
+    <div class="bm-kpi-value">30,000×</div>
+    <div class="bm-kpi-sub">The fastest of the newer ports against its R original (see Against the Originals)</div>
   </div>
 
   <div class="bm-kpi-card">
@@ -90,15 +96,15 @@ The table below summarizes the scope of our validation suite. Each comparison re
 | Algorithm | Reference Implementation | Language / Engine | Test Scope | Primary Fidelity Metric | Single-Core Speedup | Status |
 |:---|:---|:---|:---|:---|:---:|:---:|
 | **LandTrendr** | Kennedy *et al.* (2010) `LandTrendr-2012` | Original IDL (via GDL) | 330 synthetic series + 54.7M px tile | **100%** identical vertex years (330/330) | **232×** | <span class="bm-pill bm-pill--compared">compared</span> |
-| **CCDC** | Zhu & Woodcock (2014) GERSL `CCDC` | Original MATLAB (GNU Octave) | 200 synthetic + 150 real Landsat px | **100%** full model match (dates, categories, coeffs) | **218×–260×** | <span class="bm-pill bm-pill--compared">compared</span> |
+| **CCDC** | Zhu & Woodcock (2014) GERSL `CCDC` | Original MATLAB (GNU Octave) | 200 synthetic + 150 real Landsat px | **100%** identical dates, categories and observation counts; coefficients within test tolerances | **218×–260×** | <span class="bm-pill bm-pill--compared">compared</span> |
 | **SNIC (Superpixels)** | Achanta & Süsstrunk (2017) CVPR | C reference (`snic.c`) | Reference test fixtures (f32/f64) | **100%** identical segment labels (bitwise) | **1.8×–3.5×** | <span class="bm-pill bm-pill--compared">compared</span> |
 | **SOM** | Vettigli `minisom` (online & batch Kohonen SOM) | Python (`minisom`) | 1,500 + 20,000 samples, 6 scenarios | **max weight diff = 0.0** (exact codebook match) | **41×–67×** (training) | <span class="bm-pill bm-pill--compared">compared</span> |
-| **Phenology (Beck)** | R `phenofit` (Zheng *et al.* 2021) | R (`nloptr` curve fitting) | Real EVI raster (638 px × 25 yrs) | **MAE 3.7d** on Start-of-Season (99.1% within 15d) | **370×** | <span class="bm-pill bm-pill--compared">compared</span> |
 | **TWDTW** | Maus *et al.* (2016) `dtwSat` / `twdtw` | R (`twdtw` C core) | 45 multi-class temporal series | **Distances identical** to R (1e-12) | **71.5×** | <span class="bm-pill bm-pill--compared">compared</span> |
 | **Mann-Kendall** | `pymannkendall` (3 variants) | Python (pure Python) | 270 scenarios (90 series × 3 variants) | **100%** trend agreement (mean diff p-val = 0.0) | **65×–75×** | <span class="bm-pill bm-pill--compared">compared</span> |
 | **BFAST Monitor** | Verbesselt *et al.* (2012) `bfast` | R (`bfast::bfastmonitor`) | 40 scenarios (breaks, noise, NaN gaps) | **100%** break agreement (mag. corr = 1.0) | **16.9×** | <span class="bm-pill bm-pill--compared">compared</span> |
-| **TempCNN** | Pelletier *et al.* (2019) via R `sits` | R `torch` (LibTorch backend) | 1:1 weight-ported forward passes | **max abs diff = 5.6e-9** (corr = 1.000000) | **11.1×** | <span class="bm-pill bm-pill--compared">compared</span> |
-| **LightTAE (LTAE)** | Sainte Fare Garnot *et al.* via R `sits` | R `torch` (LibTorch backend) | 1:1 weight-ported forward passes | **max abs diff = 8.9e-8** (corr = 1.000000) | **5.8×** | <span class="bm-pill bm-pill--compared">compared</span> |
+| **Phenology (Beck)** | Zeit 1.x (derived from `phenofit`); the truth of a synthetic generator | Python / Rust (Zeit) | Synthetic cube, 2,000 px, 5 years of 16 days, clouds, weights and gaps | **Start of season: median 1.50 d, 90th percentile 4.12 d** (Zeit 1.x: 2.43 / 10.7 d) | Same or faster than Zeit 1.x (Beck 0.25 s, 2,000 px, 4 jobs); not compared with `phenofit` | <span class="bm-pill bm-pill--compared">compared</span> |
+| **TempCNN** | Pelletier *et al.* (2019), the authors' code | R `sits` (accuracy only) | `samples_modis_ndvi`, 12 dates, 4 classes, 5 seeds | **accuracy 0.861 ± 0.024** (`sits`: 0.879 ± 0.027) | Not compared | <span class="bm-pill bm-pill--compared">compared</span> |
+| **LightTAE (LTAE)** | Sainte Fare Garnot & Landrieu (2020), the authors' code | R `sits` (accuracy only) | `samples_modis_ndvi`, 12 dates, 4 classes, 5 seeds | **accuracy 0.915 ± 0.011** (`sits`: 0.902 ± 0.016) | Not compared | <span class="bm-pill bm-pill--compared">compared</span> |
 | **BFAST (Classic)** | Verbesselt *et al.* (2010) `bfast` | R (`bfast::bfast`) | 40 scenarios (trend/season breaks) | **87.5%** break count match (100% pos. match) | **13.2×** | <span class="bm-pill bm-pill--compared">compared</span> |
 | **BFAST Lite** | Jan Hackman *et al.* `bfast` | R (`bfast::bfastlite`) | 40 scenarios (single/multi breaks) | **100%** break count match (80% exact index) | **5.2×** | <span class="bm-pill bm-pill--compared">compared</span> |
 | **Official U-TAE** | Garnot & Landrieu (2021) `utae-paps` | Python (official PyTorch repo) | Regular and padded sequence paths | **max abs diff = 0.0** (exact numerical match) | **1.08×** | <span class="bm-pill bm-pill--compared">compared</span> |
@@ -142,7 +148,7 @@ All performance benchmarks were measured on a modern workstation environment:
 Empirical validation demonstrates that reproducing published remote sensing algorithms requires rigorous line-by-line fidelity to author reference implementations rather than high-level approximations:
 
 - **LandTrendr:** Replicating Kennedy *et al.* (2010) with 100% vertex year agreement (330/330 series) required reproducing subtle source behaviors: fitting on the despiked series, in-place `take_out_weakest2` mutation, whole-ladder Levenberg-Marquardt fallback, flat-line non-significance fallback, and single-precision F-test p-value tie-breaking.
-- **CCDC:** Matching Zhu & Woodcock (2014) across 350 pixels (599 models, 249 breaks) required a native float32 port of Fortran GLMnet lasso, MATLAB `datenum` coordinate alignment, and bisquare Tmask outlier detection.
+- **CCDC:** Matching Zhu & Woodcock (2014) across 350 pixels (599 models, 249 breaks) required MATLAB `datenum` coordinate alignment and bisquare Tmask outlier detection. The lasso, once a port of the Fortran GLMnet, is now written from the paper (Friedman, Hastie & Tibshirani 2010): segment dates, categories and observation counts stay exact, and the coefficients agree within the tolerances of the parity test.
 - **SNIC:** Achieving bit-for-bit label parity with Achanta & Süsstrunk (2017) required reproducing priority queue heap tie-breaking order, while resolving upstream heap underflow crashes on edge-case inputs.
 - **SOM:** Reproducing Python `minisom` codebooks bit-for-bit required matching its `RandomState` draw sequence, NumPy's pairwise summation inside the distance norm, `argmin` tie-breaking on square-rooted distances, and sample-order accumulation in the batch update. An earlier Zeit variant that only *resembled* the batch algorithm (different decay, no learning rate, epoch-based `num_iters`) agreed with `minisom` at just ARI = 0.39 and ran 6–10× slower on the same call; the exact port is identical and 41–67× faster on one core.
 
@@ -184,13 +190,23 @@ When both sides run in parallel, the gap stays wide for the statistical tools, w
 </div>
 </div>
 
-### 3. Phenology: Start-of-Season is Robust; Senescence is Ambiguous
+### 3. Phenology: written from the papers
 
-Testing Zeit against R `phenofit` on 25 years of real satellite data (178,710 joined observations across 17 phenometrics) uncovered a vital scientific nuance:
-- **Green-up and Start-of-Season (SOS)** metrics agree remarkably well (MAE **3.7 to 5.3 days**, with 99.1% of pixels matching within 15 days).
-- **End-of-Season (EOS) and senescence** metrics diverge significantly (Dormancy MAE **76.9 days**).
-- This divergence is not an error in either implementation; it reflects fundamental mathematical differences in how asymmetric logistic curves fit noisy, moisture-stressed post-harvest tail observations. Researchers are strongly advised to analyze SOS and EOS metrics separately.
+Zeit's phenology is written from the papers (Whittaker: Eilers 2003; HANTS: Roerink et al. 2000; the curves of Beck 2006, Elmore 2012, Gu 2009, Klosterman 2014, Zhang 2003, Jönsson & Eklundh, Fisher 2006), not from the code of R `phenofit`. R `phenofit` remains a useful reference to compare outputs with, but the earlier comparison on the real EVI raster no longer applies and was not redone, nor was the speed comparison with it.
 
+What was measured is the error against a known truth: a synthetic cube of 2,000 pixels (5 years of 16 days, half with one season a year and half with two, with clouds, weights and gaps), the truth being the 50% crossings of the generator. The error of TRS5 at the start of season in the single-season pixels, median / 90th percentile in days:
+
+| Curve | Zeit 1.x (derived from `phenofit`) | Current Zeit |
+|:---|---:|---:|
+| Beck | 2.43 / 10.7 | **1.50 / 4.12** |
+| Elmore | 1.71 / 7.28 | **1.51 / 4.23** |
+| Gu | 1.90 / 8.55 | **1.80 / 4.99** |
+| Klosterman | 1.94 / 8.84 | **1.74 / 4.97** |
+| Zhang | 1.71 / 7.51 | **1.50 / 4.12** |
+| Asymmetric Gaussian | 1.95 / 10.5 | **1.70 / 5.15** |
+| Double logistic | 1.73 / 8.39 | **1.49 / 4.15** |
+
+The end of season stays at the same level (Beck: 1.43 / 4.63 d). With 4 jobs, on the cube, Beck takes 0.25 s, Gu 0.68 s and Klosterman 0.79 s (Zeit 1.x: 0.27, 1.58 and 3.56 s); on the real EVI raster (638 pixels, 575 dates), Beck takes 0.30 s and Gu 0.95 s.
 ---
 
 ## Explore the Deep Dives
@@ -203,7 +219,7 @@ To examine the detailed evidence, methodology, and visualizations, navigate to t
 
     ---
 
-    Detailed test batteries, root-cause parity analyses, weight porting verifications, and per-metric accuracy breakdowns for LandTrendr, CCDC, BFAST, Phenology, TWDTW, SOM, and Deep Learning.
+    Detailed test batteries, root-cause parity analyses, verifications against the authors' code, and per-metric accuracy breakdowns for LandTrendr, CCDC, BFAST, Phenology, TWDTW, SOM, and Deep Learning.
 
     [:octicons-arrow-right-24: Read Algorithm Fidelity](fidelity.md)
 
@@ -219,7 +235,7 @@ To examine the detailed evidence, methodology, and visualizations, navigate to t
 
     ---
 
-    The newer ports timed against their R originals on the same inputs (sfdep, RecoverMetricsR, Brooks' EWMACD, RStoolbox, sits, CAST): 3× to 30,000× faster on one thread, the outputs checked to agree on every run.
+    The newer ports timed against their R originals on the same inputs (sfdep, RecoverMetricsR, Brooks' EWMACD, RStoolbox, CAST): 3× to 30,000× faster on one thread, the outputs checked to agree on every run.
 
     [:octicons-arrow-right-24: Read Against the Originals](vs-originals.md)
 

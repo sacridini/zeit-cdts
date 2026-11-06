@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-License-Identifier: GPL-3.0-or-later
 """GDAL's coordinate transformer, from the GDAL library rasterio loads (through ctypes).
 
 From landschaft 1.35.0 (_gdaltransform.py, by the same author).

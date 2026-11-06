@@ -20,14 +20,13 @@ To ensure transparent and reproducible validation, Zeit benchmarks its **8 core 
    - **Protocol:** Parameterized synthetic time series with known disturbance dates, recovery slopes, noise amplitudes, and missing observation gaps (NaN dropout) to verify breakpoint recovery and pattern classification against mathematical ground truth.
 2. **Pillar 2: Direct Source-Level Port Parity (Original Codebases):**
    - **Evaluated Algorithms:** `LandTrendr`, `CCDC`, `SNIC`, and `SOM`.
-   - **Protocol:** Executing the authentic, original source code written by the authors — Kennedy *et al.* (2010) IDL source (`fit_trajectory_v2.pro` / `tbcd_v2.pro`) executed via GNU Data Language (GDL 1.1.2), Zhu & Woodcock (2014) MATLAB source (`TrendSeasonalFit_v12_30Line.m`) with compiled Fortran GLMnet (`glmnetMex.F`) executed unmodified under GNU Octave 11.3, Achanta & Süsstrunk (2017) canonical C reference (`snic.c`, EPFL), and Python `minisom` (Vettigli) for SOM — validating model dates, vertex coordinates, superpixel segment labels, and SOM codebooks bit-for-bit.
-3. **Pillar 3: State-Dict Weight Porting (Deep Learning Architectures):**
+   - **Protocol:** Executing the authentic, original source code written by the authors — Kennedy *et al.* (2010) IDL source (`fit_trajectory_v2.pro` / `tbcd_v2.pro`) executed via GNU Data Language (GDL 1.1.2), Zhu & Woodcock (2014) MATLAB source (`TrendSeasonalFit_v12_30Line.m`) with its bundled GLMnet lasso executed unmodified under GNU Octave 11.3, Achanta & Süsstrunk (2017) canonical C reference (`snic.c`, EPFL), and Python `minisom` (Vettigli) for SOM — validating model dates, vertex coordinates, superpixel segment labels, and SOM codebooks (CCDC's coefficients within the tolerances given in section 2; the rest bit for bit).
+3. **Pillar 3: Architectures Written from the Authors (Deep Learning):**
    - **Evaluated Algorithms:** `TempCNN`, `LightTAE (LTAE)`, and `Official U-TAE`.
-   - **Protocol:** Untrained random weights (seeded identically) exported from R `torch` (Lantern/LibTorch) and loaded into `zeit.ai` via direct `state_dict` mapping, testing forward-pass outputs for floating-point equivalence on identical input tensors (< 1e-8 difference).
-4. **Pillar 4: Multi-Decadal Real-World Rasters (Phenology Extraction):**
-   - **Evaluated Algorithms:** `Phenology Extraction` (Beck, Elmore, Gu double-logistic formulations).
-   - **Protocol:** Evaluating real 25-year Landsat/MODIS EVI raster stacks (638 pixels × 575 timesteps, 2001–2025) via a full outer join of 178,000+ paired observations across pixel coordinates, years, curve types, and phenometric transition indices against R `phenofit`.
-
+   - **Protocol:** `TempCNN` and `LightTAE` are written from the papers and the authors' code, not ported from R `sits`, so their weights are no longer compared with `sits`'s: the two are compared by accuracy on `sits`'s `samples_modis_ndvi` (12 dates, 4 classes; 5 seeds, the same 80/20 split on both sides). `Official U-TAE` is run against the authors' code with the same weights, testing forward-pass outputs for floating-point equivalence on identical input tensors.
+4. **Pillar 4: Synthetic Cube with Known Truth (Phenology Extraction):**
+   - **Evaluated Algorithms:** `Phenology Extraction` (Beck, Elmore, Gu, Klosterman, Zhang, asymmetric Gaussian and double logistic curves).
+   - **Protocol:** A synthetic cube of 2,000 pixels (5 years of 16 days, half of the pixels with one season a year and half with two), with clouds, weights and gaps. The truth is the 50% crossings of the generator; the error is that of TRS5 in the single-season pixels, as median / 90th percentile in days. Zeit's phenology is written from the papers, not from phenofit's code, so it is no longer compared with phenofit's outputs record by record; the comparison with the earlier Zeit 1.x, derived from phenofit, is in section 4.
 ---
 
 ## Comprehensive Fidelity Matrix
@@ -37,23 +36,23 @@ The table below reports the primary and secondary agreement metrics for all eval
 | Algorithm | Reference Package | Scope / Sample Size | Primary Metric | Secondary Metric / Context | Status |
 |:---|:---|:---|:---|:---|:---:|
 | **LandTrendr** | Kennedy *et al.* (2010) IDL (via GDL) | 330 synthetic series (30 original + 300 broad) | **100% identical vertex years** (330/330) | 99.7% vertex values within 1 unit; p-val tie nuance resolved in 0.18.0 | <span class="bm-pill bm-pill--compared">compared</span> |
-| **CCDC** | Zhu & Woodcock (2014) MATLAB (Octave) | 200 synthetic + 150 real Landsat pixels | **100% identical model dates** (350/350 px) | 599 models, 249 breaks match; coeffs agree to ~5e-10 relative | <span class="bm-pill bm-pill--compared">compared</span> |
+| **CCDC** | Zhu & Woodcock (2014) MATLAB (Octave) | 11 cases of the parity suite (`tests/test_ccdc_matlab_parity.py`); lasso swap measured on 2,812 pixels | **Identical segment dates, categories and `num_obs`** | Coefficients, RMSE and magnitude within the tolerances of the test (predictions at the segment's start, middle and end within 0.5, i.e. at most 0.2% of the segment's RMSE) | <span class="bm-pill bm-pill--compared">compared</span> |
 | **SNIC (Superpixels)** | Achanta & Süsstrunk (2017) C (`snic.c`) | Reference test fixtures (float32 & float64) | **100% identical segment labels** (bitwise match) | Fixes upstream C crashes on single seeds & 2×2; R `snic` grid 1:1 match | <span class="bm-pill bm-pill--compared">compared</span> |
 | **SOM (Clustering)** | Python `minisom` | 1,500 + 20,000 samples, online & batch | **max weight diff = 0.0 (exact match)** | Identical codebooks, BMUs (ARI = 1.0) and quantization error in all 6 scenarios | <span class="bm-pill bm-pill--compared">compared</span> |
 | **BFAST Monitor** | R `bfast::bfastmonitor` | 40 scenarios (breaks, noise, NaN gaps) | **100% break agreement** (has_break) | Magnitude correlation = 1.000; matches R's 44% false positive rate on noise | <span class="bm-pill bm-pill--compared">compared</span> |
 | **BFAST Lite** | R `bfast::bfastlite` | 40 scenarios (single, multi, noise) | **100% break count match** (n_breaks) | 80% exact breakpoint match (mean diff = 1.6 observations) | <span class="bm-pill bm-pill--compared">compared</span> |
 | **BFAST (Classic)** | R `bfast::bfast` | 40 scenarios (trend & season breaks) | **87.5% trend break count match** | 100% position match and mag correlation = 0.998 where breaks agree | <span class="bm-pill bm-pill--compared">compared</span> |
-| **Phenology (Beck)** | R `phenofit::curvefits` | Real 25-yr EVI raster (178,710 joined rows) | **MAE = 17.02 days** (across 17 metrics) | SOS metrics agree tightly (MAE 3.7d, 99.1% in 15d); EOS/senescence diverges | <span class="bm-pill bm-pill--compared">compared</span> |
-| **Phenology (Elmore)**| R `phenofit::curvefits` | Real 25-yr EVI raster (179,805 joined rows) | **MAE = 18.48 days** (across 17 metrics) | 82.4% of observations within 15 days of reference | <span class="bm-pill bm-pill--compared">compared</span> |
-| **Phenology (Gu)** | R `phenofit::curvefits` | Real 25-yr EVI raster (177,983 joined rows) | **MAE = 35.38 days** (across 17 metrics) | Asymmetric Gu formulation exhibits highest sensitivity in tail fitting | <span class="bm-pill bm-pill--compared">compared</span> |
 | **TWDTW** | R `twdtw` / `dtwSat` | 45 multi-class temporal trajectories; 12 series × pattern pairs | **Distances identical to R `twdtw` (1e-12)** with `zeit.twdtw` | 100% classification agreement on the 45 trajectories; both hit 100% accuracy vs ground truth | <span class="bm-pill bm-pill--compared">compared</span> |
-| **TempCNN** | R `sits::sits_tempcnn` | 4 bands, 24 timesteps, 5 classes | **max abs diff = 5.59e-9** | Pearson correlation = 1.000000; 1:1 parameter name mapping | <span class="bm-pill bm-pill--compared">compared</span> |
-| **LightTAE (LTAE)** | R `sits::sits_lighttae` | 4 bands, 24 steps, 16 heads, 5 classes | **max abs diff = 8.94e-8** | Pearson correlation = 1.000000; exact layer-for-layer port | <span class="bm-pill bm-pill--compared">compared</span> |
+| **Phenology (Beck)** | Zeit 1.x (derived from phenofit) | Synthetic cube, 2,000 px (one season a year: TRS5 error vs the generator's 50% crossings) | **Start of season: median 1.50 d, 90th percentile 4.12 d** | Zeit 1.x: 2.43 / 10.7 d; end of season at the same level (1.43 / 4.63 d) | <span class="bm-pill bm-pill--compared">compared</span> |
+| **Phenology (Elmore)** | Zeit 1.x (derived from phenofit) | Same cube | **Start of season: median 1.51 d, 90th percentile 4.23 d** | Zeit 1.x: 1.71 / 7.28 d | <span class="bm-pill bm-pill--compared">compared</span> |
+| **Phenology (Gu)** | Zeit 1.x (derived from phenofit) | Same cube | **Start of season: median 1.80 d, 90th percentile 4.99 d** | Zeit 1.x: 1.90 / 8.55 d | <span class="bm-pill bm-pill--compared">compared</span> |
+| **TempCNN** | R `sits::sits_tempcnn` (accuracy only) | `samples_modis_ndvi`: 12 dates, 4 classes, 5 seeds, 80/20 split | **accuracy 0.861 ± 0.024** (Zeit, the pipeline's defaults) | `sits`, its defaults: 0.879 ± 0.027; Zeit, the authors' defaults: 0.839 ± 0.031 | <span class="bm-pill bm-pill--compared">compared</span> |
+| **LightTAE (LTAE)** | R `sits::sits_lighttae` (accuracy only) | Same samples and split | **accuracy 0.915 ± 0.011** (Zeit, the pipeline's defaults) | `sits`, its defaults: 0.902 ± 0.016; Zeit, the authors' defaults: 0.892 ± 0.020 | <span class="bm-pill bm-pill--compared">compared</span> |
 | **Official U-TAE** | Official `utae-paps` repo | Segmentation U-Net + LTAE2d (B=1, T=6) | **max abs diff = 0.0 (exact match)** | Exact bitwise agreement on both regular and padded sampling paths | <span class="bm-pill bm-pill--compared">compared</span> |
 | **Siamese CNN (FC-Siam-diff)** | Daudt *et al.* official PyTorch code | 40 same-weight cases (3-13 bands, 16 to 130 px, odd sizes); 5 training seeds | **max abs diff = 5.6e-16** (float64; 4.8e-7 in float32), labels 40/40 | Trained the same way: F1 0.979 (zeit) vs 0.971 (reference), same label on 99.5-99.9% of pixels | <span class="bm-pill bm-pill--compared">compared</span> |
 | **Presto** | Official `nasaharvest/presto` (`presto.py` + its input construction) | 2,560 pixel series, 5 cases | **max abs diff = 1.2e-6** (0.0 in 3 of 5 cases) | zeit reads the cube's units with NaN for gaps; the reference gets its own normalization and masks | <span class="bm-pill bm-pill--compared">compared</span> |
 | **Prithvi-EO-2.0** | Official `prithvi_mae.py` (loaded as its `inference.py`) | All six models, 5 cases each | **max relative diff = 7.9e-7** (encoder tokens) | With and without dates and place, 1-4 dates, windows of 112-224 px (positions interpolated); patches of 16 and of 14 | <span class="bm-pill bm-pill--compared">compared</span> |
-| **Bayesian smoothing** (`smooth_probs`) | R `sits` 1.5.4 (`sits_smooth`'s block smoothing) | 200² and 1000² px × 4 classes; `tests/test_postproc.py` | **max abs diff = 7.8e-16** (1e-15) | A missing pixel stays missing, where sits gives it its neighbours' mean | <span class="bm-pill bm-pill--compared">compared</span> |
+| **Bayesian smoothing** (`smooth_probs`) | R `bayesEO` (`bayes_smooth`), the method of Camara et al. (2024) | `tests/test_postproc.py` | **agrees to about 2e-3**, the same class everywhere in the tests | Written from the paper; a missing pixel stays missing | <span class="bm-pill bm-pill--compared">compared</span> |
 | **Area of applicability** (`aoa`, `train_di`) | R `CAST` 1.0.4 (`trainDI`, `aoa`) | 500-2000 training × 10,000-100,000 new points, 8 and 64 predictors, with and without LPD | **DI equal to 1e-13** (max diff 4.0e-15 in the benchmarks) | The Mahalanobis distance (DI max diff 3.3e-13 on 2000 × 100,000 points) and a buffered leave-one-out (`CVtrain`, on the test cases) to 1e-13 as well | <span class="bm-pill bm-pill--compared">compared</span> |
 | **kNNDM** (`spatial_folds(method="knndm")`) | R `CAST` 1.0.4 (`knndm`) | 1000 and 5000 clustered points, k = 5; `tests/data/make_knndm_cast_fixtures.R` | **W of CAST's folds equal to 1e-9** | Zeit draws its own folds: their W was 0.572 against CAST's 0.685 on 1000 points, 0.267 against 0.269 on 5000 (smaller is better) | <span class="bm-pill bm-pill--compared">compared</span> |
 | **Error profile** (`error_profile`) | R `CAST` 1.0.4 (`errorProfiles`) with `scam` 1.2.23 | 2000 cross-validated points; `tests/data/make_error_profile_cast_fixtures.R` | **windows equal to 1e-14** (5.3e-15) | The monotone curve is a P-spline of Zeit's, within 1.2% of scam's; a window of one class all predicted right has accuracy 1, where CAST gives 0 | <span class="bm-pill bm-pill--compared">compared</span> |
@@ -100,21 +99,19 @@ Across both original and expanded test batteries:
 
 CCDC models surface reflectance across multiple spectral bands using harmonic regressions, detecting breaks when consecutive residuals exceed a Chi-square threshold.
 
-#### Line-by-Line MATLAB & Fortran GLMnet Parity
+#### MATLAB Parity and the Clean-Room Lasso
 
-Zeit (`rust/zeit-core/src/ccdc.rs`; C++ up to 1.7, with the same results) provides a line-by-line port of the canonical MATLAB codebase (`TrendSeasonalFit_v12_30Line.m`) by Zhu & Woodcock (2014):
+Zeit (`rust/zeit-core/src/ccdc.rs`) follows the canonical MATLAB codebase (`TrendSeasonalFit_v12_30Line.m`) by Zhu & Woodcock (2014). Until the swap the lasso was a port of the GLMnet Fortran solver bundled with it, and the results matched the MATLAB's coefficients to about 5e-10. That solver is GPL-2.0-only, so the lasso is now written from the paper (Friedman, Hastie & Tibshirani 2010, coordinate descent; `rust/zeit-core/src/lasso.rs`), and CCDC is no longer bit for bit with the MATLAB.
 
-- **Float32 GLMnet Lasso:** High-performance native port of the Fortran GLMnet lasso algorithm in single precision, reproducing the exact memory layout and numerical path of `glmnetMex.F`.
+- **Lasso swap (before against after, 2,812 pixels).** Same number of segments, same start, end and break dates (exactly), same category and same `num_obs` in every pixel; `change_prob` is the same. The RMSE of the optical bands differs by a median of about 5e-6 (absolute) and the harmonic coefficients by a median of 0 (p99 about 2e-4; the largest 0.03 on a coefficient near zero).
+- **Against the MATLAB (11 cases, `LASSO_THRESH = 1e-8`).** Same segments, category, `num_obs` and `change_prob`, and the same predictors kept by the lasso in every segment of every band. The predicted value at the start, middle and end of a segment differs by at most 0.234 (reflectance x 10000), 0.2% of the segment's RMSE; the harmonic coefficients by at most 0.035; the RMSE by 7.9e-4. The intercept `a0` is collinear with the trend `c1` on the datenum axis, so the two differ together (c1 by at most 1.3e-5 per day) and their sum, the prediction, stays. The MATLAB's single precision leaves 1e-3 to 1e-2 of noise in the RMSE of a constant band; the new fit gives 0.
 - **MATLAB `datenum` Time Axis:** Temporal coordinate alignment (`python_ordinal + 366`) ensuring invariant harmonic phase alignment in lasso regularization.
 - **Bisquare Robust Tmask:** Native implementation of MATLAB's `statrobustfit_cor` bisquare M-estimator, including leverage adjustment, MAD-sigma scaling, and 4-iteration reweighting.
 - **Numerical Rank Alignment:** Matrix rank behavior matching MATLAB's `linsolve` decomposition for accurate Tmask outlier identification.
 
 #### Verification & Parity Results
 
-Testing on 200 synthetic Landsat pixels and 150 real Landsat Collection 2 pixels in Rondônia (599 models, 249 breaks):
-- **100% model match rate:** Every single pixel produced identical start dates, end dates, break dates, categories, and observation counts.
-- Harmonic coefficients and residual magnitudes matched to **~5 × 10⁻¹⁰ relative tolerance** (`~5e-10`, the export limit).
-- Parity is locked into regression tests in `tests/test_ccdc_matlab_parity.py`.
+- Segment dates, categories and observation counts are exact. Coefficients, RMSE and magnitude are compared within tolerances (`tests/test_ccdc_matlab_parity.py`): the model through its predictions at the segment's start, middle and end (atol 0.5), `c1` (atol 1e-4), the harmonics (atol 0.1), the RMSE (rtol 1e-4, atol 0.01) and the magnitude (atol 0.25), about twice the largest differences measured.
 
 ---
 
@@ -128,30 +125,32 @@ The BFAST suite represents one of the most widely used statistical change detect
 
 ---
 
-### 4. Phenology Extraction vs. R `phenofit`
+### 4. Phenology Extraction
 
-Phenology extraction fits parametric double-logistic curves (Beck, Elmore, Gu) to multi-year vegetation index time series and derives critical transition dates (Start of Season, End of Season, Peak, Maturity, Senescence, Dormancy).
+Phenology extraction fits parametric curves (Beck, Elmore, Gu, Zhang, asymmetric Gaussian, double logistic) to multi-year vegetation index time series and derives critical transition dates (Start of Season, End of Season, Peak, Maturity, Senescence, Dormancy).
 
-Using a real 25-year Landsat/MODIS EVI raster stack (638 pixels × 25 years = 178,710 joined records for Beck):
+Zeit's phenology is written from the papers (Whittaker: Eilers 2003; HANTS: Roerink et al. 2000; Beck et al. 2006; Elmore et al. 2012; Gu et al. 2009; Klosterman et al. 2014; Zhang et al. 2003; the asymmetric Gaussian of Jönsson & Eklundh; the double logistic of Fisher et al. 2006), not from the code of R `phenofit`, so it is no longer comparable with phenofit's outputs record by record. The earlier comparison on the real 25-year EVI raster (against phenofit) no longer applies and was not redone. What was measured is the error against a known truth, on a synthetic cube of 2,000 pixels (5 years of 16 days, half of the pixels with one season a year and half with two, with clouds, weights and gaps). The truth is the 50% crossings of the generator; the table gives the error of TRS5 in the single-season pixels, as median / 90th percentile in days, for Zeit 1.x (derived from phenofit) and for the current Zeit.
+
+| Curve (start of season) | Zeit 1.x (derived from phenofit) | Current Zeit |
+|:---|---:|---:|
+| Beck | 2.43 / 10.7 | **1.50 / 4.12** |
+| Elmore | 1.71 / 7.28 | **1.51 / 4.23** |
+| Gu | 1.90 / 8.55 | **1.80 / 4.99** |
+| Klosterman | 1.94 / 8.84 | **1.74 / 4.97** |
+| Zhang | 1.71 / 7.51 | **1.50 / 4.12** |
+| Asymmetric Gaussian | 1.95 / 10.5 | **1.70 / 5.15** |
+| Double logistic | 1.73 / 8.39 | **1.49 / 4.15** |
 
 ```mermaid
 xychart-beta
-    title "Mean Absolute Error (Days) across Phenometrics (Beck Model vs R phenofit)"
-    x-axis ["TRS2.sos", "TRS5.sos", "TRS6.sos", "DER.sos", "UD", "Peak", "Maturity", "Senescence", "RD", "Dormancy"]
-    y-axis "MAE (Days)" 0 --> 85
-    bar [4.1, 3.7, 4.3, 5.1, 5.3, 6.8, 9.4, 16.1, 67.0, 76.9]
+    title "TRS5 error at the start of season, 90th percentile (days)"
+    x-axis ["Beck", "Elmore", "Gu", "Klosterman", "Zhang", "Ag", "Dl"]
+    y-axis "Days" 0 --> 12
+    bar [4.12, 4.23, 4.99, 4.97, 4.12, 5.15, 4.15]
+    bar [10.7, 7.28, 8.55, 8.84, 7.51, 10.5, 8.39]
 ```
 
-#### The Scientific Divergence: Spring vs. Autumn Dynamics
-
-Our analysis revealed a critical finding for Earth Observation researchers:
-- **Start-of-Season (SOS) Metrics Agree Closely:** Transition thresholds (`TRS2.sos`, `TRS5.sos`, `TRS6.sos`, `DER.sos`, `UD`) exhibit an MAE of **3.7 to 5.3 days**, with **99.12% of observations agreeing within 15 days**. Zeit and `phenofit` capture the rapid spring green-up trajectory with near-identical precision.
-- **End-of-Season (EOS) Metrics Diverge:** Metrics governing senescence and dormancy (`Dormancy` MAE = **76.9 days**, `RD` MAE = **67.0 days**).
-- **Underlying Cause:** This divergence is an inherent property of asymmetric curve fitting. Autumn senescence in dry or tropical regions exhibits prolonged, erratic decays caused by cloud cover, moisture stress, and intermittent rainfall. Small differences in objective function weighting between Zeit's Levenberg-Marquardt and R's `nloptr` optimizer produce different asymptotic tail fits without altering the primary seasonal peak.
-
-!!! warning "Recommendation for Applied Research"
-    When reporting phenological shifts in publications, evaluate green-up (SOS) and brown-down (EOS) metrics separately. Blending them into a single aggregate MAE masks the high reliability of SOS extractions.
-
+The first series is the current Zeit and the second Zeit 1.x. The end of season stays at the same level (Beck: median 1.43 d, 90th percentile 4.63 d). Fitted with 4 jobs on this cube (annual mode), Beck takes 0.25 s, Gu 0.68 s and Klosterman 0.79 s; on the real EVI raster (638 pixels, 575 dates), Beck takes 0.30 s and Gu 0.95 s. Zeit 1.x took 0.27 s, 1.58 s and 3.56 s for Beck, Gu and Klosterman on the cube.
 ---
 
 ### 5. Time-Weighted Dynamic Time Warping (TWDTW)
@@ -176,18 +175,22 @@ TWDTW (Maus *et al.* 2016) calculates the optimal alignment between satellite ti
 
 ---
 
-### 7. Deep Learning Weight-Porting (`zeit.ai`)
+### 7. Deep Learning (`zeit.ai`)
 
-For deep-learning architectures, we verified that `zeit.ai` represents an exact structural and numerical reproduction of published networks.
+`TempCNN` and `LightTAE` are written from the papers and from the authors' code (Pelletier et al. 2019, [temporalCNN](https://github.com/charlotte-pel/temporalCNN); Sainte Fare Garnot & Landrieu 2020, [lightweight-temporal-attention-pytorch](https://github.com/VSainteuf/lightweight-temporal-attention-pytorch)). They are no longer ports of R `sits`, and weights trained in `sits` do not load into them, so the forward-pass comparison with `sits` that was made for the earlier port no longer applies.
 
-#### TempCNN & LightTAE (vs. R `sits`)
-Weights from freshly initialized models in R `sits` (seed 42) were serialized and loaded directly into `zeit.ai.TempCNN` and `zeit.ai.utae.LightTAE`:
-- Parameter tensor shapes and layer names matched **1:1 with zero translation tables required**.
-- Given identical random inputs, the maximum absolute difference between Zeit outputs and R `sits` outputs was **5.59 × 10⁻⁹** (`5.59e-9`) for TempCNN and **8.94 × 10⁻⁸** (`8.94e-8`) for LightTAE, with a Pearson correlation of **1.000000**.
-- Zeit reproduces LibTorch forward passes down to machine floating-point precision.
+#### TempCNN & LightTAE (accuracy vs. R `sits`)
+Measured on `samples_modis_ndvi` of `sits` (12 dates, 4 classes), with the same 80/20 split on both sides and 5 seeds, the mean accuracy was:
+
+| | `sits`, with its defaults | Zeit, the authors' defaults | Zeit, the pipeline's defaults (150 epochs) |
+|---|---|---|---|
+| TempCNN | 0.879 ± 0.027 | 0.839 ± 0.031 | 0.861 ± 0.024 |
+| LightTAE | 0.902 ± 0.016 | 0.892 ± 0.020 | 0.915 ± 0.011 |
+
+The authors' defaults for TempCNN (20 epochs, patience 0, 5% of the samples for validation) stop early on a set as small as this one.
 
 #### Bonus Finding: Official U-TAE Segmentation Architecture
-During code inspection, `zeit.ai.utae` was found to contain not only the PSE+LTAE classification network from `sits`, but also the full **U-Net + LTAE2d segmentation model** from the official `VSainteuf/utae-paps` GitHub repository (Garnot & Landrieu 2021).
+During code inspection, `zeit.ai.utae` contains the full **U-Net + LTAE2d segmentation model** from the official `VSainteuf/utae-paps` GitHub repository (Garnot & Landrieu 2021).
 - Comparing Zeit against the official reference repository on both standard and irregular temporal padded sampling paths yielded an **exact numerical match (max abs diff = 0.0)**.
 
 ---
@@ -227,14 +230,14 @@ Analysis of the authors' original C code (`snic.c`) revealed critical edge-case 
 
 The methods below were ported from R packages and scripts (and S-CCD written from its paper), and each is checked against the original on the same inputs. The timings, the workloads and the scripts that check the agreement on every run are on [Against the Original Implementations](vs-originals.md).
 
-- **Bayesian smoothing (`zeit.smooth_probs`) vs R `sits` 1.5.4.** The smoothing that `sits_smooth` applies to each block of probabilities: the same values to 1e-15 (`tests/test_postproc.py`; 7.8e-16 at most in the benchmark). The one difference is deliberate: a pixel with no probabilities stays missing, where sits gives it its neighbours' mean.
+- **Bayesian smoothing (`zeit.smooth_probs`) vs R `bayesEO`.** Written from the paper (Camara et al. 2024, Remote Sensing 16(23):4572): it agrees with bayesEO's `bayes_smooth` to about 2e-3, with the same class everywhere in the tests (`tests/test_postproc.py`). A pixel with no probabilities stays missing.
 - **Area of applicability (`zeit.aoa`, `zeit.train_di`) vs R `CAST` 1.0.4.** The same dissimilarity index as `trainDI` and `aoa`, to 1e-13, with and without the local point density, for 8 and 64 predictors. The Mahalanobis distance (`method = "MD"`) and a leave-one-out without the neighbours within a buffer (`CVtrain`) give CAST's DI to 1e-13 too, on the test cases (`tests/data/make_aoa_cast_fixtures.R`) and on 100,000 new points in the benchmark.
 - **Spatial folds and the error profile vs R `CAST` 1.0.4 and `blockCV` 4.0.1.** kNNDM's statistics (the nearest-neighbour distances Gij, Gj* and their W) equal CAST's on its own folds to 1e-9; the folds themselves are drawn by Zeit's own clustering of other candidates, and their W was as small as CAST's or smaller on the benchmark's points (`tests/data/make_knndm_cast_fixtures.R`). The error profile's windows of the DI and their RMSE or accuracy equal CAST's `errorProfiles` to 1e-14 (`tests/data/make_error_profile_cast_fixtures.R`); the monotone curve is a P-spline (Bollaerts et al. 2006) within about 1% of scam's. One difference is deliberate: CAST gives a window of a single class, all predicted right, an accuracy of 0 (17 of the 145 windows of the test case), Zeit gives it 1. The range of a map's autocorrelation is within 2% of blockCV's `cv_spatial_autocor` at ranges of 7 and 15 pixels, and 1-11% shorter at 3 pixels; each draws its own pixels.
 - **Emerging hot spots (`zeit.emerging_hotspots`) vs R `sfdep` 0.2.5.** The Getis-Ord Gi* of every cell and date equals sfdep's (`include_gi = TRUE`, queen neighbours, `k` the lag) to 1e-14, and the Mann-Kendall test of each series equals R `Kendall`'s to its single precision (`tests/data/make_hotspots_sfdep_fixtures.R`). The patterns are not compared: sfdep takes the significance of each Gi* from permutations and has rules of its own, while Zeit follows ESRI's definitions with the normal p-values of the Gi*.
 - **EWMACD (`zeit.ewmacd`) vs Brooks' EWMACD v1.3.0 script.** With `persistence=1`, the flags are identical date by date, on synthetic series (`tests/data/make_ewmacd_parity_fixtures.R`), on 400 pixels of the paper's sample data and on the 11,000 pixels of the benchmark. With more persistence, the first disturbance is the same but a few later dates differ: there the script means to keep the previous sustained state but reads another date's flag.
 - **Recovery metrics (`zeit.recovery_metrics`) vs R `RecoverMetricsR` 0.1.0.** RRI, R80P, YrYr and the years to recovery agree to a relative 6e-8 (float32, Zeit's output) on series that regrow steadily. The two define the metrics a little differently (RecoverMetricsR takes the best of the 5 years after the trough where Zeit, after Frazier et al. 2018, takes years 4 and 5, and counts the years to recovery from the year after the trough), so on irregular regrowth they can differ by design.
 - **Spectral unmixing vs R `RStoolbox` 1.0.2.2 (`mesma`, NNLS).** With the same constraints (non-negative fractions, free sum), the fractions agree to 4e-4 (a median of 7e-5): mesma's NNLS stops at a tolerance, while Zeit's active set solves each pixel exactly, and its residual is never larger than mesma's.
-- **S-CCD (`zeit.sccd`) vs `pyxccd` 1.1.0 (`sccd_detect`).** pyxccd is Apache-2.0, which Zeit (GPL-2.0-only) cannot take code from, so Zeit's S-CCD is written from the paper (Ye et al. 2021 and its preprint) and pyxccd only run on the same data. On series with clear changes the two agree on every break (1000 synthetic pixels of 35 years). On 4096 Landsat pixels of Rondonia (2020–2026, about 27 clear observations each), 85% of the pixels have as many breaks in both, 56% of pyxccd's breaks are on the same date in Zeit and 75% within one observation (76% on the 61 dates of the timing benchmark, which leaves out the dates without data anywhere); the magnitudes of the breaks found by both correlate at 0.99, and the near-real-time mode (monitoring, or waiting for a model) is the same in 89% of the pixels (`tests/test_sccd.py`, on 384 of them, from `tests/data/make_sccd_pyxccd_fixtures.py`). The paper leaves the filter partly open, and the differences come from there: (1) the process noise: the paper estimates it from a first filtering of the initialisation window (its Eq. 9), which Zeit does, while pyxccd's states adapt faster on irregular dates than that estimate gives; (2) the RMSE that standardizes the test: Zeit's is that of the filter's one-step-ahead predictions and comes out about 15% smaller than pyxccd's, whose definition is not documented. Zeit's extra breaks (about 20% more) have statistics near the threshold (a median of 1.5× it, against 2× for the breaks both find), where that 15% decides: with its RMSE scaled by 1.1, Zeit finds as many breaks as pyxccd. Zeit starts a model with COLD's stability test (Zhu et al. 2020, which S-CCD inherits), not CCDC's, which kept many Amazon pixels from ever starting one. The paper's temporally adjusted RMSE (from the observations nearest in the day of the year) was tried and left out: it found more breaks still, further from pyxccd.
+- **S-CCD (`zeit.sccd`) vs `pyxccd` 1.1.0 (`sccd_detect`).** pyxccd is Apache-2.0, but Zeit's S-CCD is written from the paper (Ye et al. 2021 and its preprint) and pyxccd only run on the same data. On series with clear changes the two agree on every break (1000 synthetic pixels of 35 years). On 4096 Landsat pixels of Rondonia (2020–2026, about 27 clear observations each), 85% of the pixels have as many breaks in both, 56% of pyxccd's breaks are on the same date in Zeit and 75% within one observation (76% on the 61 dates of the timing benchmark, which leaves out the dates without data anywhere); the magnitudes of the breaks found by both correlate at 0.99, and the near-real-time mode (monitoring, or waiting for a model) is the same in 89% of the pixels (`tests/test_sccd.py`, on 384 of them, from `tests/data/make_sccd_pyxccd_fixtures.py`). The paper leaves the filter partly open, and the differences come from there: (1) the process noise: the paper estimates it from a first filtering of the initialisation window (its Eq. 9), which Zeit does, while pyxccd's states adapt faster on irregular dates than that estimate gives; (2) the RMSE that standardizes the test: Zeit's is that of the filter's one-step-ahead predictions and comes out about 15% smaller than pyxccd's, whose definition is not documented. Zeit's extra breaks (about 20% more) have statistics near the threshold (a median of 1.5× it, against 2× for the breaks both find), where that 15% decides: with its RMSE scaled by 1.1, Zeit finds as many breaks as pyxccd. Zeit starts a model with COLD's stability test (Zhu et al. 2020, which S-CCD inherits), not CCDC's, which kept many Amazon pixels from ever starting one. The paper's temporally adjusted RMSE (from the observations nearest in the day of the year) was tried and left out: it found more breaks still, further from pyxccd.
 - **PARTS (`zeit.ar_trend`, `zeit.parts`) vs R `remotePARTS` 1.0.4.** The GLS, each partition's fit and nugget and the combined coefficients match to 1e-8; the AR(1) fits match `fitAR` to about 1e-6, the correlation's range `fitCor` to 1e-5, and the chi-square p-value to 1e-6 (`rust/zeit-core/tests/remoteparts.rs`). remotePARTS 1.0.4 computes the correlation between partitions after the first without their nugget; Zeit uses each partition's own, so the two agree for a fixed `nugget=`. Details in [Regional Trends: parity with remotePARTS](../tutorials/regional-trends/advanced.md#parity-with-remoteparts).
 - **BEAST (`zeit.beast`) vs R `Rbeast` 1.0.2.** Zeit's BEAST is a port of Rbeast's C code, with its generic kernels (`cputype = "sse"`), its random number generator and its float32 arithmetic. From the same seed it runs the same chain and returns the same float32 outputs, to the last bit. That holds for the season, the trend, their credible intervals, the changepoints and their probabilities, the slope, the amplitude and the fit, on the Nile, Rbeast's simulated series, its Yellowstone NDVI with gaps, its irregular Ohio Landsat series (`beast.irreg`), a short series, and the uniform and constant priors (`tests/data/make_beast_fixtures.R`). Two outputs differ on purpose. The slope's interval is the mean over the chains, per unit of time; Rbeast sums it over the chains, per time step. And with one chain, Zeit gives the mode, median and percentiles of the number of changepoints, which Rbeast leaves at 0. Rbeast's default AVX2 kernels sum in another order, so their chain departs from the generic one after a few hundred iterations and the two agree in distribution only. Each pixel of a cube is fitted as `beast()` fits one series; `beast123()` carries its random stream from one pixel to the next.
 

@@ -196,7 +196,7 @@ def test_gof_metrics_are_nan_when_no_season_converges():
     assert np.all(np.isnan(out[20]))
 
 
-def test_weights_array_downweighting_outlier_improves_fit_quality():
+def test_weights_array_downweighting_outlier_keeps_the_clean_start_of_season():
     dates, clean = _synthetic_evi_curve()
     noisy = clean.copy()
     spike_idx = 5  # simulated cloud/snow contamination on the rising limb
@@ -213,14 +213,16 @@ def test_weights_array_downweighting_outlier_improves_fit_quality():
     w[0, spike_idx] = 0.02  # QC flags this single observation as unreliable
     out_weighted = real_fit_phenology_batch(values_array=vals, weights_array=w, **kwargs)
 
-    r2_unweighted, rmse_unweighted = out_unweighted[19, 0, 0], out_unweighted[20, 0, 0]
-    r2_weighted, rmse_weighted = out_weighted[19, 0, 0], out_weighted[20, 0, 0]
+    out_clean = real_fit_phenology_batch(values_array=clean.reshape(1, -1), **kwargs)
 
-    assert np.isfinite(r2_weighted) and np.isfinite(rmse_weighted)
-    # Down-weighting the contaminated observation should give a fit that
-    # tracks the (mostly clean) rest of the series more closely.
-    assert r2_weighted > r2_unweighted
-    assert rmse_weighted < rmse_unweighted
+    assert np.isfinite(out_weighted[19, 0, 0]) and np.isfinite(out_weighted[20, 0, 0])
+    # Down-weighting the contaminated observation should give the start of season
+    # of the clean series. The R2 of the two fits are not comparable: unweighted,
+    # the spike moves the season's limits and the segment fitted is another one.
+    sos_clean, sos_w, sos_u = out_clean[2, 0, 0], out_weighted[2, 0, 0], out_unweighted[2, 0, 0]
+    assert np.isfinite(sos_clean) and np.isfinite(sos_w)
+    assert abs(sos_w - sos_clean) < 10
+    assert not np.isfinite(sos_u) or abs(sos_u - sos_clean) > abs(sos_w - sos_clean)
 
 
 def test_weights_array_shape_mismatch_raises():
@@ -234,16 +236,15 @@ def test_weights_array_shape_mismatch_raises():
 
 
 def test_season_retry_recovers_a_season_a_strict_pass_misses():
-    # Shallow troughs (0.75) flanking a strong interior peak (1.0), with the
-    # true series minimum (0.0) sitting where it never registers as a local
-    # extremum. At the default rtrough_max=0.6 these troughs get rejected
-    # (0.75 - 0.0 = 0.75 > 0.6 * amplitude), so a strict single pass finds no
-    # season; season_retry relaxes the threshold once and recovers one.
-    y = [1.0] * 3 + [0.0, 1.0, 0.75, 1.0, 0.75, 1.0, 0.0] + [1.0] * 3
+    # Three years of a weak annual cycle (amplitude 0.12) against a minimum
+    # amplitude of 0.18: a strict single pass finds no season; season_retry
+    # halves the threshold once and recovers the three.
+    t = 16.0 * np.arange(69)
+    y = list(0.5 + 0.06 * np.sin(2 * np.pi * (t - 80) / 365.25))
 
-    strict = debug_split_seasons(y, min_season_length=0, min_amplitude=0.0,
+    strict = debug_split_seasons(y, dates=list(t), min_season_length=0, min_amplitude=0.18,
                                   rtrough_max=0.6, r_min_filter=0.02, retry_on_empty=False)
-    retried = debug_split_seasons(y, min_season_length=0, min_amplitude=0.0,
+    retried = debug_split_seasons(y, dates=list(t), min_season_length=0, min_amplitude=0.18,
                                    rtrough_max=0.6, r_min_filter=0.02, retry_on_empty=True)
 
     assert strict == []

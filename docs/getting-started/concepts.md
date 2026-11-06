@@ -101,4 +101,4 @@ More in [Parallel & Cloud Processing](../tutorials/parallel-cloud-processing.md)
 
 ## Faithful ports, validated
 
-Each algorithm is a port of a specific reference implementation (the original IDL LandTrendr, the MATLAB CCDC, R's `bfast`, `phenofit`, `sits` and so on). Parameters keep their original names and defaults where possible, so published parameter choices carry over. The [Benchmarks](../benchmarks/index.md) section documents how each port was compared with its reference, and where it differs on purpose.
+Each algorithm is a port of a specific reference implementation (the original IDL LandTrendr, the MATLAB CCDC, R's `bfast` and so on; phenology, the Bayesian smoothing of probabilities and the QA weights are written from papers and product documentation instead). Parameters keep their original names and defaults where possible, so published parameter choices carry over. The [Benchmarks](../benchmarks/index.md) section documents how each port was compared with its reference, and where it differs on purpose.

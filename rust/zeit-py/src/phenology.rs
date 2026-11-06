@@ -179,24 +179,29 @@ fn debug_split_seasons(
     r_min_filter: f64,
     retry_on_empty: bool,
 ) -> PyResult<Vec<(i64, i64, i64)>> {
-    let dates = match dates {
+    // Without dates the index is the time and a year has 12 observations.
+    let (dates, nptperyear) = match dates {
         Some(d) => {
             if d.len() != y.len() {
                 return Err(PyRuntimeError::new_err("dates must have the same length as y"));
             }
-            d
+            let npt = ph::nptperyear(&d).unwrap_or(12);
+            (d, npt)
         }
-        None => (0..y.len()).map(|i| i as f64).collect(),
+        None => ((0..y.len()).map(|i| i as f64).collect(), 12),
     };
-    let seasons = ph::split_growing_seasons(
-        &y,
-        &dates,
+    let settings = ph::Settings {
         min_season_length,
         min_amplitude,
         rtrough_max,
         r_min_filter,
-        retry_on_empty,
-    );
+        season_retry: retry_on_empty,
+        min_pixel_amplitude: 0.0,
+        ..ph::Settings::default()
+    };
+    let season_settings = ph::season_settings(&settings, &dates, &y);
+    let observed: Vec<bool> = y.iter().map(|v| v.is_finite()).collect();
+    let seasons = ph::split_growing_seasons(&y, &dates, &season_settings, nptperyear, Some(&observed));
     Ok(seasons
         .iter()
         .map(|s| (s.start as i64, s.peak as i64, s.end as i64))

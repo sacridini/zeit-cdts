@@ -42,7 +42,7 @@ Built on a compiled core written in Rust (parallel across all cores, outside the
   - **remotePARTS (AR(1) trends and PARTS)**: Pixel-wise trends with AR(1) errors, and the regional test of them (is the mean trend of a region, or of each land-cover class, different from 0? do covariates explain it?) that accounts for the spatial correlation of the pixels, after Ives et al. (2021); 20 to 100 times faster than the R package.
   - **Emerging hot spots**: `emerging_hotspots`, ESRI's Space Time Pattern Mining: the Getis-Ord Gi* of every date (R sfdep's to 1e-14), the trend of each pixel's Gi* and its pattern (new, consecutive, intensifying, persistent, diminishing, sporadic, oscillating, historical hot or cold spot).
   - **SNIC Segmentation**: Superpixel segmentation of images and whole time series cubes (one segment = similar trajectories), matching the original SNIC's labels pixel for pixel, with tile-parallel processing for large scenes.
-- **Post-processing and the area of applicability:** `smooth_probs` (sits' Bayesian smoothing of class probabilities), `mmu_sieve`, a majority filter and `desawtooth_classes` clean a class map; `aoa` and `train_di` map where a model can be applied (Meyer & Pebesma 2021, CAST's DI to 1e-13).
+- **Post-processing and the area of applicability:** `smooth_probs` (Bayesian smoothing of class probabilities, Camara et al. 2024), `mmu_sieve`, a majority filter and `desawtooth_classes` clean a class map; `aoa` and `train_di` map where a model can be applied (Meyer & Pebesma 2021, CAST's DI to 1e-13).
 - **Checked against the originals, for speed too:** `benchmarks/vs_originals/` runs each ported method and its original (R packages, the authors' scripts) on the same data and times both; the results are in the documentation's Benchmarks.
 - **Validation:** `sampling_design`, `stratified_sample` and `accuracy` follow the good practices of Olofsson et al. (2014): a stratified random sample of any map, then its accuracies and error-adjusted areas with confidence intervals (checked against the paper's example and R's `sits`), by the direct or the model-assisted difference and ratio estimators (R's `survey` to 1e-10); `transitions` gives the area of each transition between two dates of a map of classes. `interpret` labels the sample by eye, point after point, with yearly image chips, the pixel's series, the keyboard, and a review of the error matrix.
 - **Foundation-model embeddings:** `load_embeddings` reads the yearly embeddings of TESSERA (128 dimensions) and Google's AlphaEarth Foundations (64) at 10 m as a `(time, band, y, x)` cube, on the products' own grids, lazily. Classify them from few samples, cluster or segment them as any cube; `similarity` finds places like a sample, and `embedding_change` follows each pixel from year to year into the same events as LandTrendr or CCDC. In `zeit.plot` the vectors themselves go to the GPU: hover any pixel to see how much every other one looks like it, pin it to follow it across the years, or see what changed from one year to the next. The cube remembers which embeddings it holds, and a model refuses another product's.
@@ -212,7 +212,7 @@ applicable = zeit.aoa(segments, model=rf_model, date="2020-07-01")   # DI and AO
 
 Extract 19 simultaneous phenological metrics (Gu, Zhang, Thresholds, Derivatives, LOS, POP) across massive datasets using optimized curve-fitting models (Beck, Elmore, Gu, Zhang, Asymmetric Gaussian, Double Logistic) over Dask clusters.
 
-> The smoothing, curve-fitting, and metric-extraction methodology is based on the R package [`phenofit`](https://github.com/eco-hydro/phenofit) (Kong *et al.*, 2022, *Methods in Ecology and Evolution*, [doi:10.1111/2041-210X.13870](https://doi.org/10.1111/2041-210X.13870)), reimplemented in Rust. See the [Phenology tutorial](https://sacridini.github.io/zeit-cdts/tutorials/phenology/#7-references) for the full reference list and a real-world walkthrough.
+> The smoothing, curve-fitting and metric-extraction code is written in Rust from the papers (Whittaker: Eilers 2003; HANTS: Roerink *et al.* 2000; the curves of Beck 2006, Elmore 2012, Gu 2009, Klosterman 2014, Zhang 2003, the asymmetric Gaussian of Jönsson & Eklundh and the double logistic of Fisher *et al.* 2006), not from the code of the R package [`phenofit`](https://github.com/eco-hydro/phenofit) (Kong *et al.*, 2022, [doi:10.1111/2041-210X.13870](https://doi.org/10.1111/2041-210X.13870)), which stays a useful reference to compare outputs with. See the [Phenology tutorial](https://sacridini.github.io/zeit-cdts/tutorials/phenology/#7-references) for the full reference list and a real-world walkthrough.
 
 ```python
 import zeit
@@ -243,7 +243,7 @@ greenup_map = pheno["Greenup"].sel(season=1)    # Zhang's Greenup, first season
 zeit.save_raster(pheno, "output/phenology")      # one GeoTIFF per metric
 ```
 
-**Down-weighting cloud/snow-contaminated observations:** `zeit.qc` decodes a sensor's QA/QC band into per-observation reliability weights in `[0, 1]` (ported from phenofit's `qcFUN.R`), which feed the Whittaker/HANTS smoothing and the iterative curve fit instead of trusting every observation equally:
+**Down-weighting cloud/snow-contaminated observations:** `zeit.qc` decodes a sensor's QA/QC band into per-observation reliability weights in `[0, 1]` (written from the products' documentation: MODIS MOD13 and MOD09, Sentinel-2 SCL), which feed the Whittaker/HANTS smoothing and the iterative curve fit instead of trusting every observation equally:
 
 ```python
 from zeit.qc import qc_modis_summary
@@ -414,7 +414,7 @@ regularized_map = apply_majority_filter(land_cover.label, size=3)
 final_map = apply_mmu_filter(regularized_map, mmu_pixels=11)
 save_raster(final_map, "results/classified_final.tif")
 
-# Or, as sits: Bayesian smoothing of the probabilities (sits_smooth, the same values),
+# Or Bayesian smoothing of the probabilities (Camara et al. 2024),
 # the small patches merged into their neighbours, and yearly maps made consistent
 probs = zeit.smooth_probs(land_cover.probability, window_size=9, smoothness=20)
 label = zeit.mmu_sieve(probs.argmax("class") + 1, min_size=11)
@@ -480,4 +480,4 @@ From 1.0, Zeit follows [semantic versioning](https://semver.org/): a minor versi
 
 ## License
 
-Zeit is free software, licensed under the [GNU General Public License v2.0 or later](https://github.com/sacridini/zeit-cdts/blob/main/LICENSE) (`GPL-2.0-or-later`). Several algorithms are ports of existing open-source implementations (bfast, strucchangeRcpp, GLMnet, pymannkendall, GERSL/CCDC, ...); their origins, licenses and copyright notices are listed in [THIRD_PARTY_NOTICES.md](https://github.com/sacridini/zeit-cdts/blob/main/THIRD_PARTY_NOTICES.md). Because the CCDC lasso solver derives from GPL-2.0-only code, the compiled extension as a whole is distributed under GPL version 2.
+Zeit is free software, licensed under the [GNU General Public License v3.0 or later](https://github.com/sacridini/zeit-cdts/blob/main/LICENSE) (`GPL-3.0-or-later`). Several algorithms are ports of existing open-source implementations (bfast, strucchangeRcpp, Rbeast, MiniSom, pymannkendall, GERSL/CCDC, ...); their origins, licenses and copyright notices are listed in [THIRD_PARTY_NOTICES.md](https://github.com/sacridini/zeit-cdts/blob/main/THIRD_PARTY_NOTICES.md). The parts that used to derive from GPL-2.0-only code (the CCDC lasso, the phenology, the Bayesian smoothing of probabilities and the QA weights) were rewritten from the papers and the products' documentation, so the whole is GPL-3.0-or-later.

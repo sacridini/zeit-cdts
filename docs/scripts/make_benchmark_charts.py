@@ -28,7 +28,6 @@ TIERS = {
     "analog": ("Analog", "No reference with the same architecture; compared to a conceptual analog"),
 }
 SINGLE_CORE = [
-    ("Phenology", "R phenofit", (370.3, None), "close", "Start of season within 3.7 days (MAE), 99.1% within 15 days"),
     ("LandTrendr", "IDL original (GDL)", (231.7, None), "same", "100% identical vertex years (330/330 series)"),
     ("CCDC", "MATLAB original (Octave)", (217.9, 259.9), "same", "100% model match: dates, categories, coefficients"),
     ("TWDTW", "R twdtw / dtwSat", (71.5, None), "float", "Distances identical to R within 1e-12"),
@@ -36,8 +35,6 @@ SINGLE_CORE = [
     ("SOM", "Python minisom", (41.5, 66.6), "same", "Bit-exact codebooks (max weight difference 0.0)"),
     ("BFAST Monitor", "R bfast::bfastmonitor", (16.9, None), "same", "100% break agreement, magnitude correlation 1.0"),
     ("BFAST", "R bfast::bfast", (13.2, None), "close", "87.5% same break count, 100% same positions"),
-    ("TempCNN", "R sits (torch)", (11.1, None), "float", "Max absolute difference 5.6e-9"),
-    ("LightTAE", "R sits (torch)", (5.8, None), "float", "Max absolute difference 8.9e-8"),
     ("BFAST Lite", "R bfast::bfastlite", (5.2, None), "close", "100% same break count, 80% same index"),
     ("SNIC", "C reference (snic.c)", (1.8, 3.5), "same", "Bitwise-identical segment labels"),
     ("Presto", "Official nasaharvest/presto", (1.17, None), "float", "Encodings within 1.2e-6 (identical in 3 of 5 cases)"),
@@ -50,12 +47,9 @@ SINGLE_CORE = [
 FINISH_FIRST = [
     ("Mann-Kendall", "5,000 series", 3.622, 20109, "Python multiprocessing, 19 workers"),
     ("BFAST Monitor", "20,000 series", 10.03, 5003, "R PSOCK cluster, 19 workers"),
-    ("Phenology", "638 px × 25 years", 209.1, 93504, "R foreach + doParallel, 19 workers"),
     ("TWDTW", "3,000 series", 2.125, 188.67, "R PSOCK cluster, 19 workers"),
     ("BFAST", "400 series", 239.2, 3335, "R PSOCK cluster, 19 workers"),
     ("BFAST Lite", "2,000 series", 1485, 4551, "R PSOCK cluster, 19 workers"),
-    ("TempCNN", "batch of 512", 3.94, 7.78, "R torch intra-op threads"),
-    ("LightTAE", "batch of 512", 14.61, 26.98, "R torch intra-op threads"),
     ("U-TAE", "batch of 32", 126.0, 124.67, "PyTorch intra-op threads"),
 ]
 

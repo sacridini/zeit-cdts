@@ -9,7 +9,7 @@ resolver = "2"
 [workspace.package]
 version = "1.7.0"
 edition = "2021"
-license = "GPL-2.0-or-later"
+license = "GPL-3.0-or-later"
 
 [profile.release]
 # One codegen unit and LTO let zeit-core's kernels inline into the bindings.

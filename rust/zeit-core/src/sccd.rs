@@ -1,7 +1,7 @@
 //! S-CCD: Stochastic Continuous Change Detection (Ye, Rogan, Zhu & Eastman 2021, Remote Sensing
 //! of Environment 252:112167), written from the paper (its preprint, EarthArXiv
 //! 10.31223/osf.io/cqhsj) and the documented outputs of pyxccd, the authors' package, whose
-//! source was not read (it is Apache-2.0; this file is GPL-2.0-only).
+//! source was not read (it is Apache-2.0).
 //!
 //! S-CCD is CCDC/COLD (`ccdc.rs`) whose harmonic model, once initialised, is no longer refitted by
 //! a lasso at every observation but updated by a Kalman filter: the trend and the seasons are

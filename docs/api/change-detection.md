@@ -315,7 +315,7 @@ zeit.ccdc(
 )
 ```
 
-Continuous Change Detection and Classification (Zhu & Woodcock 2014): fits a harmonic model to every stable period of each pixel's multi-band series and dates the breaks between them, every pixel in parallel in the Rust core. The engine is a port of the original MATLAB code, validated segment for segment against it. One function for every input: it reads what `data` is and returns the same `xarray.Dataset` of segments, georeferenced when the input is. All parameters but `data` are keyword-only. It replaces `zeit.ccdc.run_ccdc`, `run_ccdc_array`, `run_ccdc_image` and `DataArray.zeit.run_ccdc`; the accessor form is now [`DataArray.zeit.ccdc`](xarray.md#ccdc).
+Continuous Change Detection and Classification (Zhu & Woodcock 2014): fits a harmonic model to every stable period of each pixel's multi-band series and dates the breaks between them, every pixel in parallel in the Rust core. The engine follows the original MATLAB code and is validated segment for segment against it: the same segments, break dates, categories and observation counts, with coefficients, RMSE and magnitudes within small tolerances (the lasso is written from the paper, not ported from GLMnet; see [Algorithm Fidelity](../benchmarks/fidelity.md#2-ccdc-zhu-woodcock-2014)). One function for every input: it reads what `data` is and returns the same `xarray.Dataset` of segments, georeferenced when the input is. All parameters but `data` are keyword-only. It replaces `zeit.ccdc.run_ccdc`, `run_ccdc_array`, `run_ccdc_image` and `DataArray.zeit.run_ccdc`; the accessor form is now [`DataArray.zeit.ccdc`](xarray.md#ccdc).
 
 `data` can be:
 

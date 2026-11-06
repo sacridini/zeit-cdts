@@ -6,7 +6,8 @@ except ImportError as e:
                       "version)") from e
 
 from .siamese import SiameseChangeDetector
-from .utae import UTAE, LTAE, LightTAE
+from .utae import UTAE
+from .ltae import LTAE, LightTAE
 from .tempcnn import TempCNN
 from .presto import Presto, presto_embeddings
 from .prithvi import Prithvi, GeoFoundationViT

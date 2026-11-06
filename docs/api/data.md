@@ -539,7 +539,7 @@ Extracts `{"crs": ..., "transform": ...}` from a rasterio dataset or an xarray o
 
 ## Quality bands to weights
 
-Decoders ported from `phenofit`'s `qcFUN.R`. Each turns a sensor's QA band into per-observation reliability weights in `[0, 1]` for the `weights=` of [`zeit.smooth`](preprocessing.md#smooth) and [`zeit.phenology`](time-series.md#phenology). A QA cube (a `DataArray`, or a raster path) gives a weights cube with its dims, dates and georeferencing, lazy if it was, ready to pass along with the data it describes; the raster's NoData (and NaN) get the weight `0`. A numpy array gives a numpy array. All three are exported at the top level.
+Decoders written from the products' documentation (the MODIS MOD13 and MOD09 user guides, ESA's description of the Sentinel-2 SCL), with weights of Zeit's own. Each turns a sensor's QA band into per-observation reliability weights in `[0, 1]` for the `weights=` of [`zeit.smooth`](preprocessing.md#smooth) and [`zeit.phenology`](time-series.md#phenology). A QA cube (a `DataArray`, or a raster path) gives a weights cube with its dims, dates and georeferencing, lazy if it was, ready to pass along with the data it describes; the raster's NoData (and NaN) get the weight `0`. A numpy array gives a numpy array. All three are exported at the top level.
 
 ```python
 cube = zeit.build_time_series(..., bands=["red", "nir", "scl"])
@@ -555,7 +555,7 @@ pheno = zeit.phenology(ndvi, weights=weights)
 zeit.qc.qc_sentinel2_scl(scl, wmin=0.2, wmid=0.5, wmax=1.0)
 ```
 
-Sentinel-2 L2A Scene Classification Layer: vegetation, bare soil, water, unclassified and thin cirrus get `wmax`; medium-probability cloud gets `wmid`; everything else (saturated, shadow, high-probability cloud, snow, no data) gets `wmin`.
+Sentinel-2 L2A Scene Classification Layer: vegetation and bare soil get `wmax`; water and unclassified get `wmid`; shadows, medium- and high-probability cloud, thin cirrus and snow get `wmin`; no data, saturated or defective pixels and codes outside 0-11 get `0`.
 
 <div class="params" markdown>
 

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-License-Identifier: GPL-3.0-or-later
 """The warp of ``load_raster(..., like=)``: a cube onto the grid of another raster.
 
 From landschaft 1.35.0 (``_reproject.py``, by the same author), the raster part. Rasters are

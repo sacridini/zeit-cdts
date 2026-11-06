@@ -1,33 +1,42 @@
 # Third-party notices
 
-Zeit is licensed under the GNU General Public License, version 2 or (at your
-option) any later version (`GPL-2.0-or-later`, see `LICENSE`).
+Zeit is licensed under the GNU General Public License, version 3 or (at your
+option) any later version (`GPL-3.0-or-later`, see `LICENSE`).
 
 Several algorithms in Zeit are ports of, or are derived from, the software
 listed below. Their licenses are all compatible with distributing Zeit under
-the GPL. Because the CCDC lasso solver is derived from GPL-2.0-only code, the
-compiled `zeit._core` extension (the Rust core, `rust/`) as a whole is
-distributed under the terms of **GPL version 2**.
+the GPL-3.0-or-later. The parts that used to derive from GPL-2.0-only code were
+rewritten from the papers and the products' documentation, without reading the
+original code: the CCDC lasso (`rust/zeit-core/src/lasso.rs`, from Friedman,
+Hastie & Tibshirani 2010, instead of GLMnet), the Bayesian smoothing of class
+probabilities (`rust/zeit-core/src/bayes_smooth.rs`, from Camara et al. 2024,
+instead of sits), the phenology (`rust/zeit-core/src/phenology/`, from the
+papers, instead of phenofit), the QA weights (`zeit/qc.py`, from the
+products' guides, instead of phenofit's `qcFUN.R`), and the TempCNN and
+LightTAE networks (`zeit/ai/tempcnn.py`, `zeit/ai/ltae.py`, from the papers and
+the authors' repositories, instead of sits). None of GLMnet, phenofit or sits
+is in Zeit any more.
 
 ## Ported or derived code
 
 | Zeit component | Derived from | License |
 | :--- | :--- | :--- |
-| `rust/zeit-core/src/ccdc.rs` (CCDC), `rust/zeit-core/src/robustfit.rs` | [GERSL/CCDC](https://github.com/GERSL/CCDC), Zhu & Woodcock (2014), MATLAB | MIT |
-| `rust/zeit-core/src/ccdc.rs`, the lasso solver | GLMnet Fortran (Friedman, Hastie & Tibshirani), as bundled with GERSL/CCDC | GPL-2.0-only |
+| `rust/zeit-core/src/ccdc.rs` (CCDC, apart from the lasso, which is written from the paper), `rust/zeit-core/src/robustfit.rs` | [GERSL/CCDC](https://github.com/GERSL/CCDC), Zhu & Woodcock (2014), MATLAB | MIT |
 | `rust/zeit-core/src/bfast.rs`, `bfast_monitor.rs`, `bfast_lite.rs` | R package [bfast](https://github.com/bfast2/bfast), Verbesselt et al. | GPL-2.0-or-later |
 | `rust/zeit-core/src/bfast*.rs` (efp/MOSUM process, critical values, breakpoints) | R package [strucchangeRcpp](https://github.com/bfast2/strucchangeRcpp), Zeileis et al. | GPL-2.0 or GPL-3.0 |
 | `rust/zeit-core/src/stl.rs` | R `stats::stl()` (`src/library/stats/src/stl.c`), R Core Team | GPL-2.0 or GPL-3.0 |
 | `rust/zeit-core/src/optimize.rs` (Brent's minimizer, `fmin` and `fmin_netlib`) | R `stats::optimize()` (`src/library/stats/src/optimize.c`, `Brent_fmin`, itself a translation of netlib's `fmin.f`, Forsythe, Malcolm & Moler 1977), R Core Team | GPL-2.0 or GPL-3.0 |
 | `rust/zeit-core/src/mann_kendall.rs` | [pymannkendall](https://github.com/mmhs013/pymannkendall), Hussain & Mahmud (2019) | MIT |
-| `rust/zeit-core/src/phenology.rs`, `phenology/` (methodology) | R package [phenofit](https://github.com/eco-hydro/phenofit), Kong et al. (2022) | GPL-2.0 |
 | `rust/zeit-core/src/eigen.rs`, `eigen/` (QR, LDLT, matrix products, sparse Cholesky with AMD ordering, Levenberg-Marquardt), ported operation by operation so the results are those of zeit 1.x | [Eigen](https://eigen.tuxfamily.org) 3.4 | MPL-2.0 |
 | `rust/zeit-core/src/eigen/lm.rs` (Levenberg-Marquardt, from Eigen's `unsupported/NonLinearOptimization`) | MINPACK, University of Chicago | MINPACK license (see below) |
 | `zeit/ai/utae.py` (U-TAE, L-TAE) | [VSainteuf/utae-paps](https://github.com/VSainteuf/utae-paps), Garnot & Landrieu (2021) | MIT |
 | `zeit/ai/presto.py` (Presto encoder; its pretrained weights are downloaded, not bundled) | [nasaharvest/presto](https://github.com/nasaharvest/presto), Tseng et al. (2023) | MIT |
 | `zeit/ai/prithvi.py` (Prithvi-EO-2.0 encoder; its pretrained weights are downloaded, not bundled) | `prithvi_mae.py` of [ibm-nasa-geospatial/Prithvi-EO-2.0](https://huggingface.co/ibm-nasa-geospatial), Szwarcman et al. (2024), IBM Corp. | Apache-2.0 |
-| `zeit/ai/tempcnn.py` (architecture) | R package [sits](https://github.com/e-sensing/sits), `sits_tempcnn()` | GPL-2.0 |
-| `zeit/segmentation.py` (seed grids) | R package [snic](https://github.com/rolfsimoes/snic), `snic_grid()` | GPL-2.0 |
+| `rust/zeit-core/src/beast.rs`, `beast/` (BEAST) | C code of the R package [Rbeast](https://github.com/zhaokg/Rbeast) 1.0.2, Zhao et al. (2019) | GPL (>= 2) |
+| `rust/zeit-core/src/som.rs`, `zeit/_som.py` (SOM) | [MiniSom](https://github.com/JustGlowing/minisom) 2.3.x, Vettigli | MIT |
+| `zeit/ai/tempcnn.py` (TempCNN) | [charlotte-pel/temporalCNN](https://github.com/charlotte-pel/temporalCNN), Pelletier et al. (2019) | GPL-3.0 |
+| `zeit/ai/ltae.py` (LightTAE, the L-TAE) | [VSainteuf/lightweight-temporal-attention-pytorch](https://github.com/VSainteuf/lightweight-temporal-attention-pytorch), Sainte Fare Garnot & Landrieu (2020) | MIT |
+| `zeit/segmentation.py` (seed grids) | R package [snic](https://github.com/rolfsimoes/snic), `snic_grid()` | GPL (>= 2) |
 | `rust/zeit-core/src/warp.rs`, `warp/` (resampling kernels of `load_raster(..., like=)`) | [GDAL](https://gdal.org) 3.12, `alg/gdalwarpkernel.cpp`, Warmerdam, Rouault et al. (via landschaft, same author as Zeit) | MIT |
 | `rust/zeit-core/src/landtrendr.rs` (LandTrendr) | [KennedyResearch/LandTrendr-2012](https://github.com/KennedyResearch/LandTrendr-2012), Kennedy et al. (2010), IDL | no license published — see below |
 
@@ -42,10 +51,11 @@ Sensing of Environment 266, 112678, 2021) and the statistics it defines; the
 AR(1) fit, the nugget of a fit alone and the statistics between partitions
 are computed by other algorithms than the R package's. The p-value of the
 correlated chi-square test integrates Imhof's (1961) formula. The package's code
-(GPL-3.0-or-later, which could not be part of the GPL-2.0 `zeit._core`) is not
-included; the test suite only stores outputs of it
+(GPL-3.0-or-later) is not included, because Zeit's algorithms are other ones; the test suite only stores outputs of it
 (`rust/zeit-core/tests/data/remoteparts_*.json`, made by
 `tests/data/make_remoteparts_fixtures.R`) to check that Zeit gives the same fits.
+
+The seed grids of `snic_grid` (`zeit/segmentation.py`) follow the R package snic, which is GPL (>= 2).
 
 **LandTrendr-2012**: the original repository does not state a license. Zeit's
 port is a derivative of that code; permission from the authors is being
@@ -194,6 +204,7 @@ The following copyright notices apply to the MIT-licensed code listed above:
 - The Rust Project Developers (libm)
 - Copyright (c) 2019 Md. Manjurul Hussain Shourov (pymannkendall)
 - Copyright (c) 2021 VSainteuf (utae-paps)
+- Copyright (c) 2020 VSainteuf (lightweight-temporal-attention-pytorch)
 - Copyright (c) 2024 Presto Authors (nasaharvest/presto)
 
 > Permission is hereby granted, free of charge, to any person obtaining a copy

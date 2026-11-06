@@ -210,7 +210,7 @@ The blocks running at once share the core's threads, so `n_jobs` stays at its de
 - **Masking is everything.** A missed cloud looks like a change. Use the best QA you have. CCDC's internal Tmask catches most leftovers.
 - **Density matters.** CCDC shines with every clear Landsat image, or harmonised Landsat and Sentinel-2 (HLS). Annual composites are a job for LandTrendr.
 - **Detect fewer false breaks** by raising `conseq_anom`. This is what the COLD variant does to trade sensitivity for robustness.
-- **Validation.** Zeit reproduces the original MATLAB model for model: same dates, categories and observation counts, coefficients within about 1e-9. See [Algorithm Fidelity](../benchmarks/fidelity.md#2-ccdc-zhu-woodcock-2014).
+- **Validation.** Zeit reproduces the original MATLAB segment for segment: the same dates, categories and observation counts, with the coefficients, RMSE and magnitudes within small tolerances (predictions at the start, middle and end of a segment within 0.5 reflectance units x 10000, at most 0.2% of the segment's RMSE in the cases measured). The lasso is written from the paper (Friedman, Hastie & Tibshirani 2010), not ported from GLMnet, so the results are no longer bit for bit. See [Algorithm Fidelity](../benchmarks/fidelity.md#2-ccdc-zhu-woodcock-2014).
 
 ## References
 

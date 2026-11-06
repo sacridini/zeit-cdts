@@ -145,7 +145,7 @@ Every image below was produced by Zeit itself. Click one to open its tutorial.
 
 <a class="tile" href="tutorials/tempcnn/">
   <img src="assets/figures/thumbs/tempcnn.webp" alt="" loading="lazy">
-  <span class="tile-body"><span class="tile-kicker">Deep learning</span><span class="tile-title">Train land-cover classifiers</span><span class="tile-text">PyTorch models (TempCNN, LightTAE, U-TAE) that are weight-compatible with R <code>sits</code>.</span></span>
+  <span class="tile-body"><span class="tile-kicker">Deep learning</span><span class="tile-title">Train land-cover classifiers</span><span class="tile-text">PyTorch models (TempCNN, LightTAE, U-TAE) written from the papers and the authors' code.</span></span>
 </a>
 
 <a class="tile" href="tutorials/postprocessing/">
@@ -242,7 +242,7 @@ The same analysis in three styles. Pick the one that fits your data:
 ## Built for trustworthy results at scale
 
 <div class="stats" markdown>
-<div><span class="n">100%</span><span class="l">vertex-for-vertex agreement with the original LandTrendr IDL code, and model-for-model with CCDC MATLAB</span></div>
+<div><span class="n">100%</span><span class="l">vertex-for-vertex agreement with the original LandTrendr IDL code, and segment-for-segment (dates, categories, observation counts) with CCDC MATLAB</span></div>
 <div><span class="n">232×</span><span class="l">faster than the reference LandTrendr on one core, with more from its threads</span></div>
 <div><span class="n">19×</span><span class="l">higher throughput than Google Earth Engine on a full Landsat tile, with no queue</span></div>
 <div><span class="n">0</span><span class="l">compilers needed. Pre-built wheels for Windows, macOS and Linux</span></div>

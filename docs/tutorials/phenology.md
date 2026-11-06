@@ -6,7 +6,7 @@
 <div><span class="k">Answers</span><span class="v">When does the season start, peak and end? Is this year different?</span></div>
 <div><span class="k">Input</span><span class="v">A dense vegetation-index series (8- or 16-day), optional QA weights</span></div>
 <div><span class="k">Output</span><span class="v">19 phenology metrics plus fit quality, per season and pixel</span></div>
-<div><span class="k">Reference</span><span class="v">Methodology of the R package <code>phenofit</code> (Kong et al., 2022)</span></div>
+<div><span class="k">Reference</span><span class="v">Written from the papers listed in the references; R <code>phenofit</code> (Kong et al., 2022) is a useful reference to compare outputs with</span></div>
 </div>
 
 <figure markdown>
@@ -216,18 +216,18 @@ pheno_results = zeit.phenology(
 )
 ```
 
-`qc_modis_state` (MOD09 500m 16-bit "State QA": cloud state, cloud shadow, aerosol quantity, snow/ice) and `qc_sentinel2_scl` (Sentinel-2 L2A Scene Classification Layer) follow the same `[0, 1]` convention for their respective sensors. All three are ports of phenofit's `qcFUN.R` (see [References](#references)).
+`qc_modis_state` (MOD09 500m 16-bit "State QA": cloud state, cloud shadow, aerosol quantity, snow/ice) and `qc_sentinel2_scl` (Sentinel-2 L2A Scene Classification Layer) follow the same `[0, 1]` convention for their respective sensors. All three are written from the products' documentation, with weights of Zeit's own.
 
 ## Performance
 
-The whole pipeline runs in Rust outside the Python GIL, every pixel in parallel. On a real 25-year EVI raster it is 370 times faster than R `phenofit` on one core, with a mean start-of-season difference of 3.7 days. See [Benchmarks](../benchmarks/fidelity.md#4-phenology-extraction-vs-r-phenofit).
+The whole pipeline runs in Rust outside the Python GIL, every pixel in parallel.
 
 
 ## References
 
-The methodology of this module — the smoothing methods, the iterative curve-fitting scheme, and the simultaneous multi-method metric extraction — is based on the R package **`phenofit`**:
+The smoothing methods, the curve-fitting scheme and the metric extraction of this module are written from the papers below, not from the code of R `phenofit` (Kong *et al.*, 2022, *Methods in Ecology and Evolution* 13(7), 1508–1527, [doi:10.1111/2041-210X.13870](https://doi.org/10.1111/2041-210X.13870)), which stays a useful reference to compare outputs with; the comparison with it was not redone. On a synthetic cube of 2,000 pixels with known truth, the 90th-percentile error of the start of season (TRS5) is 4.12 days with Beck's curve, against 10.7 days for the Zeit 1.x derived from phenofit; with 4 jobs the cube takes 0.25 s with Beck, and the real EVI raster of 638 pixels and 575 dates 0.30 s. See [Fidelity](../benchmarks/fidelity.md#4-phenology-extraction). The metrics TRS2, TRS5 and TRS6 are the dates where the fitted curve crosses 20%, 50% and 60% of its amplitude.
 
-- Kong, D., McVicar, T. R., Xiao, M., Zhang, Y., Peña-Arancibia, J. L., Filippa, G., Xie, Y., & Gu, X. (2022). *phenofit*: An R package for extracting vegetation phenology from time series remote sensing. **Methods in Ecology and Evolution**, 13(7), 1508–1527. [https://doi.org/10.1111/2041-210X.13870](https://doi.org/10.1111/2041-210X.13870)
+The smoothers: Whittaker (Eilers 2003) and HANTS (Roerink et al. 2000). The asymmetric Gaussian (Ag) is that of Jönsson & Eklundh (TIMESAT) and the double logistic (Dl) the multiplicative one of Fisher et al. (2006).
 
 The individual curve-fitting models and extraction methods available via `curve` and `method` originate from:
 
@@ -236,3 +236,7 @@ The individual curve-fitting models and extraction methods available via `curve`
 - Gu, L., Post, W. M., Baldocchi, D. D., Black, T. A., Suyker, A. E., Verma, S. B., Vesala, T., & Wofsy, S. C. (2009). Characterizing the seasonal dynamics of plant community photosynthesis across a range of vegetation types. In A. Noormets (Ed.), *Phenology of Ecosystem Processes* (pp. 35–58). Springer. [https://doi.org/10.1007/978-1-4419-0026-5_2](https://doi.org/10.1007/978-1-4419-0026-5_2)
 - Elmore, A. J., Guinn, S. M., Minsley, B. J., & Richardson, A. D. (2012). Landscape controls on the timing of spring, autumn, and growing season length in mid-Atlantic forests. **Global Change Biology**, 18(2), 656–674. [https://doi.org/10.1111/j.1365-2486.2011.02521.x](https://doi.org/10.1111/j.1365-2486.2011.02521.x)
 - Klosterman, S. T., Hufkens, K., Gray, J. M., Melaas, E., Sonnentag, O., Lavine, I., Mitchell, L., Norman, R., Friedl, M. A., & Richardson, A. D. (2014). Evaluating remote sensing of deciduous forest phenology at multiple spatial scales using PhenoCam imagery. **Biogeosciences**, 11(16), 4305–4320. [https://doi.org/10.5194/bg-11-4305-2014](https://doi.org/10.5194/bg-11-4305-2014)
+- Eilers, P. H. C. (2003). A perfect smoother. **Analytical Chemistry**, 75(14), 3631–3636. [https://doi.org/10.1021/ac034173t](https://doi.org/10.1021/ac034173t)
+- Roerink, G. J., Menenti, M., & Verhoef, W. (2000). Reconstructing cloudfree NDVI composites using Fourier analysis of time series. **International Journal of Remote Sensing**, 21(9), 1911–1917. [https://doi.org/10.1080/014311600209814](https://doi.org/10.1080/014311600209814)
+- Jönsson, P., & Eklundh, L. (2002). Seasonality extraction by function fitting to time-series of satellite sensor data. **IEEE Transactions on Geoscience and Remote Sensing**, 40(8), 1824–1832. [https://doi.org/10.1109/TGRS.2002.802519](https://doi.org/10.1109/TGRS.2002.802519)
+- Fisher, J. I., Mustard, J. F., & Vadeboncoeur, M. A. (2006). Green leaf phenology at Landsat resolution: Scaling from the field to the satellite. **Remote Sensing of Environment**, 100(2), 265–279. [https://doi.org/10.1016/j.rse.2005.10.022](https://doi.org/10.1016/j.rse.2005.10.022)

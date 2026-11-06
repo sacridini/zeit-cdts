@@ -108,7 +108,7 @@ Trends, seasons, patterns and objects.
 
 ## Deep learning
 
-PyTorch models for classification and change detection, weight-compatible with their reference implementations.
+PyTorch models for classification and change detection, checked against their reference implementations (TempCNN and LightTAE are written from the authors' papers and code).
 
 <div class="gallery" markdown>
 

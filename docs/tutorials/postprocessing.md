@@ -55,7 +55,7 @@ How unlike the training data each pixel is, and where it is too unlike.
 
 </div>
 
-**Bayesian smoothing.** The method of sits' `sits_smooth` (Câmara et al.). Each class's probability `p` becomes a logit, `x = log(p / (sum - p))`. In a window around the pixel, the highest half (`neigh_fraction`) of that class's logits gives a mean `m` and a variance `s²`. The pixel's logit moves towards `m` by a weight that depends on how the neighbourhood varies against a prior variance, `smoothness`:
+**Bayesian smoothing.** After Camara et al. (2024, Remote Sensing 16(23):4572), the method of the sits book's Bayesian smoothing. Each class's probability `p` becomes a logit, `x = log(p / (sum - p))`. In a window around the pixel, the highest half (`neigh_fraction`) of that class's logits gives a mean `m` and a variance `s²`. The pixel's logit moves towards `m` by a weight that depends on how the neighbourhood varies against a prior variance, `smoothness`:
 
 ```
 w  = s² / (s² + smoothness)
@@ -100,7 +100,7 @@ label = probs.fillna(-1).argmax("class") + 1
 label = label.where(land_cover.label > 0, 0)        # 0: no data, as classify's
 ```
 
-The smoothed probabilities no longer sum to one (as sits'); the class of a pixel is their `argmax`. `label` uses `classify`'s numbering: `1` for the first class of `rf.classes_`, `0` where a predictor is missing. The `fillna(-1)` matters: a pixel with no data has NaN probabilities, and xarray's `argmax` refuses a pixel where all of them are NaN.
+The smoothed probabilities no longer sum to one (as in the method); the class of a pixel is their `argmax`. `label` uses `classify`'s numbering: `1` for the first class of `rf.classes_`, `0` where a predictor is missing. The `fillna(-1)` matters: a pixel with no data has NaN probabilities, and xarray's `argmax` refuses a pixel where all of them are NaN.
 
 | Parameter | Default | Effect |
 | :--- | :---: | :--- |
@@ -239,15 +239,15 @@ For a table of points (predictors in columns), `aoa` returns a `DataFrame` of `D
 !!! warning "Pitfalls"
     - **Smoothing erases what is narrower than its window.** Roads, rivers, hedges, and the edges of small clearings go first. Lower `smoothness` or `window_size` when they matter, or give a class its own `smoothness` (one value per class, in the order of the `class` dimension).
     - **The smoothed probabilities are not probabilities.** They do not sum to one; use them for the `argmax`, not as a measure of confidence.
-    - **NaN probabilities.** A pixel with a missing predictor has no probabilities; `smooth_probs` keeps it missing (sits fills it with its neighbours' mean), and `argmax` needs `fillna(-1)`.
+    - **NaN probabilities.** A pixel with a missing predictor has no probabilities; `smooth_probs` keeps it missing, and `argmax` needs `fillna(-1)`.
     - **The AOA is about the predictors, not the classes.** A pixel inside can be misclassified, and the AOA cannot see a class the samples never had if its predictors look like a sampled class.
     - **The weights matter.** With a model's importance, a predictor the model hardly uses hardly counts in the DI. Pass `weights=None` with `train=` (all 1) to measure dissimilarity in every predictor.
     - **Spatial folds are for choosing and calibrating, not for the map's accuracy.** They keep the validation from looking better than it is near the samples, but the points still come from where the samples are; the accuracy of the map, and its areas, need a probability sample.
     - **kNNDM needs the area to predict.** The folds mimic the distances from `data`'s cells (or `prediction_points`) to the samples: give the whole area the map will cover, not just where the samples are.
     - **Correlated predictors count twice in the Euclidean distance.** Eight years of NDVI count the same information several times; `distance="mahalanobis"` (CAST's `method = "MD"`) whitens them first. The weights then only choose the predictors, as the Mahalanobis distance does not change with their scale.
 
-!!! tip "Checked against sits and CAST, and faster"
-    `zeit.smooth_probs` gives sits 1.5.4's smoothing to 1e-15 (except that a missing pixel stays missing). On 1000 × 1000 pixels and 4 classes, sits takes 10.7 s; Zeit 1.1 s on one thread and 0.15 s on 19. `zeit.aoa` gives CAST 1.0.4's DI to 1e-13. With 2000 training points and 100,000 pixels, CAST takes 1.2 s with 8 predictors and 5.8 s with 64; Zeit 0.45 s and 1 s on one thread, 0.04 s and 0.3 s on 19. The nearest training points are found in a k-d tree up to 9 predictors and by a matrix product beyond, the distances exact either way. With the Mahalanobis distance, 500 training points and 10,000 new ones, CAST takes 20.8 s; Zeit 0.015 s on one thread, the same DI to 1e-13. kNNDM's W statistic is CAST's on CAST's own folds; on 5000 clustered points CAST's `knndm` takes 40 s and Zeit's 0.57 s, its folds matching as well (W 0.267 against 0.269). The error profile's windows are CAST's `errorProfiles`' to 1e-14 (but where five points of one class are all predicted right: accuracy 1 here, 0 in CAST), its curve within 1.2% of `scam`'s. See [Against the Original Implementations](../benchmarks/vs-originals.md).
+!!! tip "Checked against bayesEO and CAST, and faster"
+    `zeit.smooth_probs`, written from the paper, agrees with bayesEO's `bayes_smooth` to about 2e-3, with the same class everywhere in the tests. `zeit.aoa` gives CAST 1.0.4's DI to 1e-13. With 2000 training points and 100,000 pixels, CAST takes 1.2 s with 8 predictors and 5.8 s with 64; Zeit 0.45 s and 1 s on one thread, 0.04 s and 0.3 s on 19. The nearest training points are found in a k-d tree up to 9 predictors and by a matrix product beyond, the distances exact either way. With the Mahalanobis distance, 500 training points and 10,000 new ones, CAST takes 20.8 s; Zeit 0.015 s on one thread, the same DI to 1e-13. kNNDM's W statistic is CAST's on CAST's own folds; on 5000 clustered points CAST's `knndm` takes 40 s and Zeit's 0.57 s, its folds matching as well (W 0.267 against 0.269). The error profile's windows are CAST's `errorProfiles`' to 1e-14 (but where five points of one class are all predicted right: accuracy 1 here, 0 in CAST), its curve within 1.2% of `scam`'s. See [Against the Original Implementations](../benchmarks/vs-originals.md).
 
 The full parameters are in the API reference: [`smooth_probs`](../api/post-processing.md#smooth_probs), [`mmu_sieve`](../api/post-processing.md#mmu_sieve), [`apply_majority_filter`](../api/post-processing.md#apply_majority_filter), [`desawtooth_classes`](../api/post-processing.md#desawtooth_classes), [`aoa`](../api/post-processing.md#aoa), [`train_di`](../api/post-processing.md#train_di), [`error_profile`](../api/post-processing.md#error_profile), [`spatial_folds`](../api/post-processing.md#spatial_folds) and [`autocorrelation_range`](../api/post-processing.md#autocorrelation_range). To assess the cleaned map and estimate areas from it, see [Accuracy & Area](accuracy.md).
 

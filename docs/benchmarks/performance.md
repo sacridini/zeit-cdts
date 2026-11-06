@@ -3,7 +3,7 @@
 This page documents the **computational performance** of `zeit` across single-core CPU execution, multi-core CPU scaling, and distributed cloud comparison (Google Earth Engine), measured on an **Intel Core i5-13600K** workstation (20 logical threads).
 
 !!! note "Measured with the Rust core of zeit 2.3"
-    Zeit's side of every table on this page was measured with the Rust core of zeit 2.3, in October 2026, on the same workloads as before. Two kinds of rows keep their earlier numbers: the deep-learning models (TempCNN, LightTAE, U-TAE), which run on PyTorch and not on the compiled core, and SNIC, whose published workload could not be rebuilt exactly. The reference tools (R, GDL, Octave, `snic.c`) were timed on this same machine in September 2026 and not again; `minisom`, first timed on another computer, was timed again here. The multi-thread runs use **8 of the 20 logical processors**, leaving the rest to the machine; the reference tools' parallel runs use 19 workers. The scripts are in `benchmarks/vs_references/` and the results in `benchmarks/results/vs-references-rust.json`.
+    Zeit's side of every table on this page was measured with the Rust core of zeit 2.3, in October 2026, on the same workloads as before. Two kinds of rows keep their earlier numbers: the deep-learning model U-TAE, which runs on PyTorch and not on the compiled core, and SNIC, whose published workload could not be rebuilt exactly. The reference tools (R, GDL, Octave, `snic.c`) were timed on this same machine in September 2026 and not again; `minisom`, first timed on another computer, was timed again here. The multi-thread runs use **8 of the 20 logical processors**, leaving the rest to the machine; the reference tools' parallel runs use 19 workers. The scripts are in `benchmarks/vs_references/` and the results in `benchmarks/results/vs-references-rust.json`.
 
 ---
 
@@ -70,21 +70,22 @@ Single-core execution evaluates algorithmic efficiency without the confounding f
 
 | Algorithm | Reference Package | Input Scale | Zeit Time (ms) | Reference Time (ms) | Speedup | Architectural Rationale |
 |:---|:---|:---|:---:|:---:|:---:|:---|
-| **Phenology** | R `phenofit` | Real EVI raster (638 px) | **2.22 ms / px** | 823.50 ms / px | **370.3×** | Compiled Levenberg-Marquardt fits vs R's non-linear `nloptr` interpreter overhead |
 | **LandTrendr** | Original IDL (GDL) | 30-year synthetic series | **0.0187 ms / call** | 4.33 ms / call | **231.7×** | Compiled segmented regression vs GDL interpreter execution (warm second pass) |
-| **CCDC** | Original MATLAB (Octave) | Landsat C2 pixel stack | **0.650 ms / px** | 141.51 ms / px | **217.9×** | Compiled float32 GLMnet lasso vs Octave runtime dispatch (real 150-pixel stack: 259.9×) |
+| **CCDC** | Original MATLAB (Octave) | Landsat C2 pixel stack | **0.650 ms / px** | 141.51 ms / px | **217.9×** | Compiled coordinate-descent lasso vs Octave runtime dispatch (real 150-pixel stack: 259.9×) |
 | **TWDTW** | R `twdtw` / `dtwSat` | 40-step temporal series | **0.0180 ms / call** | 1.29 ms / call | **71.5×** | Pre-allocated dynamic programming tables vs R data.frame boxing |
 | **Mann-Kendall** | Python `pymannkendall` | 30-obs series (3 tests) | **0.0111 ms / call** | 0.77 ms / call | **68.9×** | Compiled accumulator loops vs pure Python nested loops (the variants: 64.6×–75.0×) |
 | **SOM (Training)** | Python `minisom` | 1,500 samples, 5×5 grid (500 online iters) | **0.104 ms / fit** | 6.92 ms / fit | **66.6×** | Bit-exact port of `MiniSom.train`; per-sample Python/NumPy dispatch replaced by a native loop (batch SOM: 41.5× on 1 thread) |
 | **BFAST Monitor** | R `bfast::bfastmonitor` | 100-obs satellite series | **0.0870 ms / call** | 1.47 ms / call | **16.9×** | Closed-form recursive OLS update vs R formula interface |
 | **BFAST (Classic)**| R `bfast::bfast` | Multi-year decomposition | **7.62 ms / call** | 100.67 ms / call | **13.2×** | Compiled iterative STL decomposition vs R `ts` object overhead |
-| **TempCNN** † | R `sits::sits_tempcnn` | 4 bands, 24 timesteps | **0.212 ms / pass** | 2.34 ms / pass | **11.1×** | PyTorch (LibTorch) vs R `torch` Lantern bridge |
-| **LightTAE (LTAE)** †| R `sits::sits_lighttae` | 4 bands, 16-head attention | **0.736 ms / pass** | 4.28 ms / pass | **5.8×** | Efficient spatial-temporal pooling vs R memory copies |
 | **BFAST Lite** | R `bfast::bfastlite` | Structural break series | **4.29 ms / call** | 22.22 ms / call | **5.2×** | Compiled segmented linear regression vs R vector dispatch |
 | **SNIC (Superpixels)** † | Achanta & Süsstrunk (2017) C | Multi-spectral image (512×512×4) | **18.4 ms / pass** | 42.3 ms / pass | **2.3×** | Contiguous pixel-major distances vs the reference C's float64 copy |
 | **Official U-TAE** † | Official `utae-paps` repo | Segmentation patch 32×32 | **9.26 ms / pass** | 9.96 ms / pass | **1.08×** | Both run on PyTorch CPU backend (parity validation) |
 
-† Earlier measurements, kept: the deep-learning models run on PyTorch, not on the compiled core, and SNIC's workload could not be rebuilt exactly (see the note at the top).
+† Earlier measurements, kept: U-TAE runs on PyTorch, not on the compiled core, and SNIC's workload could not be rebuilt exactly (see the note at the top).
+
+TempCNN and LightTAE are not in this table any more: they were rewritten from the papers and the authors' code, and the timings against R `sits` were those of the earlier port, so they were removed and not measured again (their accuracy against `sits` is in [Fidelity](fidelity.md)).
+
+Phenology is not in this table either. Zeit's phenology is written from the papers, and the speed comparison with R `phenofit` (370×) was that of the earlier code; it was not redone. Alone, with 4 jobs, the current code fits a synthetic cube of 2,000 pixels (annual mode) in 0.25 s with Beck, 0.68 s with Gu and 0.79 s with Klosterman, and the real EVI raster (638 pixels, 575 dates) in 0.30 s with Beck and 0.95 s with Gu; Zeit 1.x took 0.27, 1.58 and 3.56 s on the cube.
 
 ---
 
@@ -113,18 +114,17 @@ The table below lines up **absolute wall-clock times** to show who finishes firs
 | **LandTrendr** | **54.7M px** × 41 yrs | — (GDL has no native parallel) | 643.35 s | **103.92 s** | **6.19×** | — | — | — | **Zeit finishes tile in 1.7 min** |
 | **CCDC** | **2.83M px** × 125 dates | — (Octave has no native parallel) | 147.09 s | **28.50 s** | **5.16×** | — | — | — | **Zeit finishes stack in 28.5 s** |
 | **SNIC (Tiled)** † | 2048×2048 × 6 bands (16 tiles) | — (`snic.c` has no parallel mode) | 482 ms | **59 ms** (20 threads) | **8.17×** | — | — | — | **Zeit finishes scene in 59 ms** |
-| **Phenology** | 638 px × 25 yrs | R `foreach` + `doParallel` (19w) | 1,158 ms | **209 ms** | **5.54×** | 525,395 ms | 93,504 ms | 5.62× | **Zeit 447× faster** (0.21s vs 93.5s) |
 | **Mann-Kendall** | 5,000 series | Python `multiprocessing.Pool` (19w) | 17.65 ms | **3.62 ms** | **4.87×** | 4,058 ms | 20,109 ms | 0.20× | **Zeit 5,552× faster** (3.6ms vs 20.1s) |
 | **BFAST Monitor**| 20,000 series | R `parallel` PSOCK cluster (19w) | 63.16 ms | **10.03 ms** | **6.30×** | 26,872 ms | 5,003 ms | 5.37× | **Zeit 499× faster** (10.0ms vs 5.0s) |
 | **BFAST Lite** | 2,000 series | R `parallel` PSOCK cluster (19w) | 8,595 ms | **1,485 ms** | **5.79×** | 42,463 ms | 4,551 ms | 9.33× | **Zeit 3.06× faster** (1.5s vs 4.6s) |
 | **BFAST (Classic)**| 400 series | R `parallel` PSOCK cluster (19w) | 1,413 ms | **239 ms** | **5.91×** | 25,119 ms | 3,335 ms | 7.53× | **Zeit 13.9× faster** (0.24s vs 3.3s) |
 | **TWDTW** | 3,000 series × 1 pat | R `parallel` PSOCK cluster (19w) | 10.16 ms | **2.13 ms** | **4.78×** | 1,406 ms | 188.67 ms | 7.45× | **Zeit 88.8× faster** (2.1ms vs 188.7ms) |
 | **SOM (Batch)** | 20,000 samples, 10×10, 200 iters | — (`minisom` has no parallel mode)| 1,530 ms | **256 ms** | **5.98×** | 63.5 s | — | — | **Zeit 248× faster** (0.26 s vs `minisom` `train_batch_offline` on 1 thread, 63.5 s) |
-| **TempCNN** † | Batch = 512 | R `torch` intra-op threads | 15.68 ms | **3.94 ms** | **3.98×** | 15.06 ms | 7.78 ms | 1.94× | **Zeit 1.97× faster** (3.9ms vs 7.8ms) |
 | **Official U-TAE** † | Batch = 32 | PyTorch CPU intra-op threads | 317.66 ms | **126.00 ms** | **2.52×** | 324.40 ms | 124.67 ms | 2.60× | **Tied** (both PyTorch backend) |
-| **LightTAE** † | Batch = 512 | R `torch` intra-op threads | 32.77 ms | **14.61 ms** | **2.24×** | 42.08 ms | 26.98 ms | 1.56× | **Zeit 1.85× faster** (14.6ms vs 27.0ms) |
 
 † Earlier measurements on 20 threads, kept (see the note at the top).
+
+The TempCNN, LightTAE and phenology rows of the earlier tables were removed: the networks were rewritten and phenology was rewritten from the papers, and the comparisons with R `sits` and `phenofit` were not repeated (see the note after the single-core table).
 
 !!! warning "The Python IPC Penalty on Mann-Kendall"
     On a batch of 5,000 short time series, running Python's standard `multiprocessing.Pool(19)` caused execution time to explode from **4.06 seconds** (sequential) to **20.11 seconds** (parallel) — a **5× slowdown** (0.20× speedup). The operating system overhead of pickling objects, IPC socket transfers, and process synchronization dwarfed the actual statistical computation. In contrast, Zeit's threads share memory with sub-microsecond synchronization overhead, achieving a true **4.87× speedup** on 8 threads (down to **3.62 milliseconds**).

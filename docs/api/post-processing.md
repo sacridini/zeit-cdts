@@ -106,7 +106,7 @@ zeit.spatial.smooth_probs(
 )
 ```
 
-Bayesian smoothing of class probabilities, as sits' `sits_smooth` (Câmara et al.). Each class's logit, `log(p / (sum - p))`, is pulled towards the mean `m` of the highest `neigh_fraction` of the logits of its window (mirrored at the edges), the more the less that neighbourhood varies (`s²`) against `smoothness`: `w = s² / (s² + smoothness)`, `x' = w x + (1 - w) m`. A pixel whose model is confident keeps its class against consistent neighbours, while the noise among uncertain pixels goes. The result equals sits 1.5.4's to 1e-15 (tests/test_postproc.py), except that a missing pixel stays missing where sits gives it its neighbours' mean. On 1000 x 1000 pixels and 4 classes, sits takes 10.7 s; Zeit 1.1 s on one thread, 0.15 s on 19 (benchmarks/vs_originals/smooth_probs.py). Also exported as `zeit.smooth_probs`.
+Bayesian smoothing of class probabilities, after Camara et al. (2024, Remote Sensing 16(23):4572), written from the paper. Each class's logit, `log(p / (sum - p))`, is pulled towards the mean `m` of the highest `neigh_fraction` of the logits of its window (mirrored at the edges), the more the less that neighbourhood varies (`s²`) against `smoothness`: `w = s² / (s² + smoothness)`, `x' = w x + (1 - w) m`. A pixel whose model is confident keeps its class against consistent neighbours, while the noise among uncertain pixels goes. The result agrees with bayesEO's `bayes_smooth` to about 2e-3, with the same class everywhere in the tests (tests/test_postproc.py); a missing pixel stays missing and is left out of its neighbours'. Also exported as `zeit.smooth_probs`.
 
 <div class="params" markdown>
 
@@ -120,7 +120,7 @@ Bayesian smoothing of class probabilities, as sits' `sits_smooth` (Câmara et al
 
 </div>
 
-**Returns** the smoothed probabilities, of the input's kind. As sits', they no longer sum to one: the class of a pixel is their `argmax` over `class`.
+**Returns** the smoothed probabilities, of the input's kind. As in the method, they no longer sum to one: the class of a pixel is their `argmax` over `class`.
 
 ```python
 land_cover = zeit.classify(stack, rf, probability=True)

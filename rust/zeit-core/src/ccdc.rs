@@ -1,16 +1,17 @@
 //! CCDC (Zhu & Woodcock 2014): a port of src/ccdc.cpp, itself a port of the
 //! original MATLAB (GERSL/CCDC TrendSeasonalFit_v12_30Line.m with autoTSFit,
-//! autoTSPred, autoTmask, robustfit_cor, update_cft and the bundled Fortran
-//! GLMnet). Same operations in the same order, so the same bits as the C++:
-//! every model fit is a lasso (lambda = 20) in single precision, like the
-//! Fortran's `real` arrays, on MATLAB datenum time; Tmask's robust fit is the
-//! one of robustfit.rs. Being derived from GLMnet (GPL-2.0-only), this file is
-//! distributed under GPL version 2; see THIRD_PARTY_NOTICES.md.
+//! autoTSPred, autoTmask, robustfit_cor and update_cft). Same operations in
+//! the same order: every model fit is a lasso (lambda = 20), the one of
+//! lasso.rs (Friedman, Hastie & Tibshirani 2010, written from the paper, with
+//! the descent in single precision), on MATLAB datenum time; Tmask's robust fit
+//! is the one of robustfit.rs. The lasso is no longer derived from the
+//! Fortran GLMnet, so the bits are no longer the C++'s: the models agree to
+//! the lasso's tolerance (see tests/test_ccdc_matlab_parity.py).
 //!
 //! What the C++ computes again and again is computed once, to the same values:
 //! the harmonic terms of every date (once per batch: the dates are the same for
-//! every pixel), and the lasso's standardized design with its inner products
-//! (once per fit of all the bands, which share the dates).
+//! every pixel), and the lasso's design columns (once per fit of all the
+//! bands, which share the dates).
 
 // The loops index observations and bands as the C++ does; the observation
 // indices are 1-based like the original's (i, i_start, i_break, ...).
@@ -18,6 +19,7 @@
 
 use crate::cmath::{lgamma, sin_cos};
 use crate::eigen::qr::{Mat, Order};
+use crate::lasso::{lasso_gaussian, LassoError};
 use crate::parallel;
 use crate::robustfit::{median_of, robust_fit};
 
@@ -35,8 +37,6 @@ pub(crate) const MINI_YRS: f64 = 1.0;
 pub(crate) const T_SN: f64 = 0.75;
 pub(crate) const T_CLR: f64 = 0.25;
 const CLOUD_SCREEN_OFFSET: f64 = 400.0; // "median(green) + 400" in the insufficient-clear branch
-const GLMNET_LAMBDA: f32 = 20.0;
-const GLMNET_THRESH: f32 = 1e-4;
 
 /// The parameters of CCDCParams.
 #[derive(Clone, Debug, PartialEq)]
@@ -220,326 +220,55 @@ fn ts_pred(terms: &[f64; 8], c: &[f64; 8]) -> f64 {
 }
 
 // ---------------------------------------------------------------------------
-// GLMnet (5/17/08) elnetu -> standard -> elnet1, gaussian lasso (alpha = 1),
-// one user lambda, standardize = true, unit weights and penalty factors.
-// Single precision throughout, exactly like the original's `real` Fortran.
-// The design part of `standard` (chkvars, the centred and scaled columns) and
-// the inner products of the columns do not depend on y: they are computed once
-// for all the bands fitted on the same observations.
+// The lasso of every model fit: crate::lasso (Friedman, Hastie & Tibshirani
+// 2010), lambda = 20 on the original's scale, the descent in single precision.
+// The columns of the design do not depend on y: they are built once for all
+// the bands fitted on the same observations.
 
-/// At most 7 predictors: t and three harmonics.
-const MAX_NI: usize = 7;
+const LASSO_LAMBDA: f64 = 20.0;
+// The original's GLMnet (2008) stops when the largest step of a coefficient,
+// with y standardized to unit variance, is below 1e-4; lasso.rs stops when the
+// largest squared step is below `thresh` times the variance of y. The same
+// stopping point is thresh = (1e-4)^2 (1e-4 there would stop about 100 times
+// earlier and, on the short models of a few dozen observations, pick other
+// predictors than the original does).
+const LASSO_THRESH: f64 = 1e-8;
+const LASSO_MAX_ITER: usize = 10000;
 
+/// The design of autoTSFit: the columns t, cos(wt), sin(wt), ... (`df - 1` of them).
 pub(crate) struct Lasso {
-    no: usize,
-    ni: usize,
-    ju: [bool; MAX_NI],
-    any_ju: bool,
-    /// The standardized design, column-major no x ni.
-    x: Vec<f32>,
-    xm: [f32; MAX_NI],
-    xs: [f32; MAX_NI],
-    /// The weights w[i] = 1 / sw and their square roots v[i], equal for every i.
-    w: f32,
-    v: f32,
-    /// The inner products of the columns, symmetric, computed when first needed.
-    gram: [f32; MAX_NI * MAX_NI],
-    known: [bool; MAX_NI * MAX_NI],
+    cols: Vec<Vec<f64>>,
 }
 
 impl Lasso {
-    /// The design of autoTSFit with `df` coefficients at the dates `rows` of
-    /// `terms`: t, cos(wt), sin(wt), ... in single precision.
+    /// The design of autoTSFit with `df` coefficients at the dates `rows` of `terms`.
     pub(crate) fn new(terms: &[[f64; 8]], rows: &[usize], df: i32) -> Fit<Lasso> {
         if df < 1 {
             // std::vector of a negative size in the C++: std::length_error
             return Err("num_c must be at least 1");
         }
-        let (no, ni) = (rows.len(), (df - 1) as usize);
-        let mut x = vec![0f32; no * ni];
-        for j in 0..ni {
-            for (i, &r) in rows.iter().enumerate() {
-                x[j * no + i] = terms[r][j + 1] as f32;
-            }
-        }
-
-        // chkvars
-        let mut ju = [false; MAX_NI];
-        for j in 0..ni {
-            let col = &x[j * no..(j + 1) * no];
-            ju[j] = no > 0 && col[1..].iter().any(|&e| e != col[0]);
-        }
-        let any_ju = ju.iter().any(|&u| u);
-        let (mut xm, mut xs) = ([0f32; MAX_NI], [1f32; MAX_NI]);
-        let (mut w, mut v) = (1f32, 1f32);
-        if any_ju {
-            // standard
-            let mut sw = 0f32;
-            for _ in 0..no {
-                sw += 1.0;
-            }
-            w = 1.0 / sw;
-            v = w.sqrt();
-            let mut xv = [0f32; MAX_NI];
-            for j in 0..ni {
-                if !ju[j] {
-                    continue;
-                }
-                let col = &mut x[j * no..(j + 1) * no];
-                let mut s = 0f32;
-                for &e in col.iter() {
-                    s += w * e;
-                }
-                xm[j] = s;
-                for e in col.iter_mut() {
-                    *e = v * (*e - xm[j]);
-                }
-                let mut s = 0f32;
-                for &e in col.iter() {
-                    s += e * e;
-                }
-                xv[j] = s;
-            }
-            for j in 0..ni {
-                if !ju[j] {
-                    continue;
-                }
-                xs[j] = xv[j].sqrt();
-                for e in x[j * no..(j + 1) * no].iter_mut() {
-                    *e /= xs[j];
-                }
-            }
-        }
-        Ok(Lasso {
-            no,
-            ni,
-            ju,
-            any_ju,
-            x,
-            xm,
-            xs,
-            w,
-            v,
-            gram: [0.0; MAX_NI * MAX_NI],
-            known: [false; MAX_NI * MAX_NI],
-        })
-    }
-
-    /// The sum over the observations of X(i, j) * X(i, k).
-    fn gram(&mut self, j: usize, k: usize) -> f32 {
-        let ni = self.ni;
-        if !self.known[j * ni + k] {
-            let no = self.no;
-            let (xj, xk) = (&self.x[j * no..(j + 1) * no], &self.x[k * no..(k + 1) * no]);
-            let mut s = 0f32;
-            for i in 0..no {
-                s += xj[i] * xk[i];
-            }
-            // the products, and so the sum, are the same either way round
-            self.gram[j * ni + k] = s;
-            self.gram[k * ni + j] = s;
-            self.known[j * ni + k] = true;
-            self.known[k * ni + j] = true;
-        }
-        self.gram[j * ni + k]
-    }
-
-    /// a0 and beta of y (the standardized in place).
-    fn solve(&mut self, y: &mut [f32]) -> (f32, [f32; MAX_NI]) {
-        let (no, ni) = (self.no, self.ni);
-        let mut beta = [0f32; MAX_NI];
-        if !self.any_ju {
-            // jerr = 7777: the MATLAB wrapper then gets no fit at all
-            let mut ym = 0f32;
-            for &e in y.iter() {
-                ym += (1.0 / no as f32) * e;
-            }
-            return (ym, beta);
-        }
-
-        // the y part of standard
-        let ju = self.ju;
-        let mut ym = 0f32;
-        for &e in y.iter() {
-            ym += self.w * e;
-        }
-        for e in y.iter_mut() {
-            *e = self.v * (*e - ym);
-        }
-        let mut ys = 0f32;
-        for &e in y.iter() {
-            ys += e * e;
-        }
-        let ys = ys.sqrt();
-        for e in y.iter_mut() {
-            *e /= ys;
-        }
-        let mut g = [0f32; MAX_NI];
-        for j in 0..ni {
-            if !ju[j] {
-                continue;
-            }
-            let col = &self.x[j * no..(j + 1) * no];
-            let mut s = 0f32;
-            for i in 0..no {
-                s += y[i] * col[i];
-            }
-            g[j] = s;
-        }
-        let xv = [1f32; MAX_NI];
-        let alm = GLMNET_LAMBDA / ys;
-        let thr = GLMNET_THRESH;
-
-        // elnet1 (flmin >= 1: the single given lambda; beta = alpha = 1). The
-        // Fortran's rsq is left out: it changes nothing returned.
-        let nx = ni;
-        let (ab, dem) = (alm * 1.0, alm * 0.0);
-        let mut a = [0f32; MAX_NI];
-        let mut da = [0f32; MAX_NI];
-        let mut c = [0f32; MAX_NI * MAX_NI]; // C(j, l) = c[l * ni + j]
-        let mut mm = [0usize; MAX_NI];
-        let mut ia = [0usize; MAX_NI];
-        let (mut nin, mut iz, mut jz) = (0usize, 0, 1);
-        loop {
-            if !(iz * jz != 0) {
-                let mut dlx = 0f32;
-                let mut overflow = false;
-                for k in 0..ni {
-                    if !ju[k] {
-                        continue;
-                    }
-                    let ak = a[k];
-                    let u = g[k] + ak * xv[k];
-                    let vv = u.abs() - 1.0 * ab;
-                    a[k] = 0.0;
-                    if vv > 0.0 {
-                        a[k] = vv.copysign(u) / (xv[k] + 1.0 * dem);
-                    }
-                    if a[k] == ak {
-                        continue;
-                    }
-                    if mm[k] == 0 {
-                        nin += 1;
-                        if nin > nx {
-                            overflow = true;
-                            break;
-                        }
-                        for j in 0..ni {
-                            if !ju[j] {
-                                continue;
-                            }
-                            if mm[j] != 0 {
-                                c[(nin - 1) * ni + j] = c[(mm[j] - 1) * ni + k];
-                                continue;
-                            }
-                            if j == k {
-                                c[(nin - 1) * ni + j] = xv[j];
-                                continue;
-                            }
-                            c[(nin - 1) * ni + j] = self.gram(j, k);
-                        }
-                        mm[k] = nin;
-                        ia[nin - 1] = k;
-                    }
-                    let del = a[k] - ak;
-                    dlx = cmax(del.abs() / xv[k].sqrt(), dlx);
-                    let ck = (mm[k] - 1) * ni;
-                    for j in 0..ni {
-                        if ju[j] {
-                            g[j] -= c[ck + j] * del;
-                        }
-                    }
-                }
-                if overflow || dlx < thr {
-                    break;
-                }
-                if nin > nx {
-                    break;
-                }
-            }
-            iz = 1;
-            for l in 0..nin {
-                da[l] = a[ia[l]];
-            }
-            loop {
-                let mut dlx = 0f32;
-                for l in 0..nin {
-                    let k = ia[l];
-                    let ak = a[k];
-                    let u = g[k] + ak * xv[k];
-                    let vv = u.abs() - 1.0 * ab;
-                    a[k] = 0.0;
-                    if vv > 0.0 {
-                        a[k] = vv.copysign(u) / (xv[k] + 1.0 * dem);
-                    }
-                    if a[k] == ak {
-                        continue;
-                    }
-                    let del = a[k] - ak;
-                    dlx = cmax(del.abs() / xv[k].sqrt(), dlx);
-                    let ck = (mm[k] - 1) * ni;
-                    for j in 0..nin {
-                        g[ia[j]] -= c[ck + ia[j]] * del;
-                    }
-                }
-                if dlx < thr {
-                    break;
-                }
-            }
-            for l in 0..nin {
-                da[l] = a[ia[l]] - da[l];
-            }
-            for j in 0..ni {
-                if mm[j] != 0 {
-                    continue;
-                }
-                if !ju[j] {
-                    continue;
-                }
-                let mut s = 0f32;
-                for l in 0..nin {
-                    s += da[l] * c[l * ni + j];
-                }
-                g[j] -= s;
-            }
-            jz = 0;
-        }
-        let nk = nin.min(nx);
-
-        // back in elnetu: unstandardize, intercept (dot_product in active order)
-        let mut ca = [0f32; MAX_NI];
-        for l in 0..nk {
-            ca[l] = ys * a[ia[l]] / self.xs[ia[l]];
-        }
-        let mut dp = 0f32;
-        for l in 0..nk {
-            dp += ca[l] * self.xm[ia[l]];
-        }
-        for l in 0..nk {
-            beta[ia[l]] = ca[l];
-        }
-        (ym - dp, beta)
+        let ni = (df - 1) as usize;
+        let cols = (0..ni).map(|j| rows.iter().map(|&r| terms[r][j + 1]).collect()).collect();
+        Ok(Lasso { cols })
     }
 
     /// autoTSFit of the values `y` at the design's dates `rows`: the 8
-    /// coefficients and the RMSE, the residuals in `v_dif`.
-    pub(crate) fn ts_fit(
-        &mut self,
-        terms: &[[f64; 8]],
-        rows: &[usize],
-        y: &[f64],
-        ybuf: &mut Vec<f32>,
-        v_dif: &mut Vec<f64>,
-    ) -> ([f64; 8], f64) {
-        ybuf.clear();
-        ybuf.extend(y.iter().map(|&v| v as f32));
-        let (a0, beta) = self.solve(ybuf);
+    /// coefficients and the RMSE, the residuals in `v_dif`. The RMSE is the
+    /// original's: sqrt(sum of squared residuals / (n - df)).
+    pub(crate) fn ts_fit(&mut self, terms: &[[f64; 8]], rows: &[usize], y: &[f64], v_dif: &mut Vec<f64>) -> Fit<([f64; 8], f64)> {
+        let cols: Vec<&[f64]> = self.cols.iter().map(|c| c.as_slice()).collect();
+        let fit = lasso_gaussian(&cols, y, LASSO_LAMBDA, LASSO_THRESH, LASSO_MAX_ITER).map_err(|e| match e {
+            LassoError::Empty => "lasso: no observations",
+            LassoError::LengthMismatch => "lasso: a column and y differ in length",
+            LassoError::NonFinite => "lasso: NaN or infinite value",
+            LassoError::BadParameter => "lasso: bad lambda, thresh or max_iter",
+        })?;
         let mut cft = [0.0; 8];
-        cft[0] = a0 as f64;
-        for j in 0..self.ni {
-            cft[j + 1] = beta[j] as f64;
+        cft[0] = fit.intercept;
+        for (j, &b) in fit.coefs.iter().enumerate() {
+            cft[j + 1] = b;
         }
-        let df = self.ni as i32 + 1;
+        let df = self.cols.len() as i32 + 1;
         v_dif.clear();
         let mut ss = 0.0;
         for (i, &r) in rows.iter().enumerate() {
@@ -547,7 +276,7 @@ impl Lasso {
             v_dif.push(vd);
             ss += vd * vd;
         }
-        (cft, ss.sqrt() / ((rows.len() as i32 - df) as f64).sqrt())
+        Ok((cft, ss.sqrt() / ((rows.len() as i32 - df) as f64).sqrt()))
     }
 }
 
@@ -646,7 +375,6 @@ pub(crate) struct Models {
     /// [obs][band]: the residuals of the last fit that kept them.
     pub(crate) rec_v_dif: Vec<f64>,
     pub(crate) yv: Vec<f64>,
-    pub(crate) ybuf: Vec<f32>,
     pub(crate) v_dif: Vec<f64>,
 }
 
@@ -658,7 +386,6 @@ impl Models {
             rmse: vec![0.0; nb],
             rec_v_dif: Vec::new(),
             yv: Vec::new(),
-            ybuf: Vec::new(),
             v_dif: Vec::new(),
         }
     }
@@ -673,7 +400,7 @@ impl Models {
         for bb in 0..nb {
             self.yv.clear();
             self.yv.extend(rows.iter().map(|&r| s.line[r * nb + bb]));
-            let (cft, rmse) = lasso.ts_fit(s.terms, rows, &self.yv, &mut self.ybuf, &mut self.v_dif);
+            let (cft, rmse) = lasso.ts_fit(s.terms, rows, &self.yv, &mut self.v_dif)?;
             self.fit_cft[bb] = cft;
             self.rmse[bb] = rmse;
             if keep_resid {
@@ -831,7 +558,7 @@ fn fit_pixel(s: &Series, c: &Ctx) -> Fit<Vec<Segment>> {
                     m.yv.clear();
                     m.yv.extend(rows.iter().map(|&r| s.line[r * nb + b]));
                     let mut lasso = Lasso::new(s.terms, &rows, MIN_NUM_C)?;
-                    let (cft, rmse) = lasso.ts_fit(s.terms, &rows, &m.yv, &mut m.ybuf, &mut m.v_dif);
+                    let (cft, rmse) = lasso.ts_fit(s.terms, &rows, &m.yv, &mut m.v_dif)?;
                     seg.coefs[b] = cft.to_vec();
                     seg.rmse[b] = rmse;
                 }

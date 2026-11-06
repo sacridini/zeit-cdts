@@ -1,94 +1,89 @@
+"""TempCNN, the temporal convolutional network for pixel time series.
+
+Written from Pelletier, Webb & Petitjean (2019), "Temporal Convolutional Neural Network for the
+Classification of Satellite Image Time Series", Remote Sensing 11(5):523, and from the authors'
+code (github.com/charlotte-pel/temporalCNN, GPL-3), following the reference architecture
+"3 convolutions of 64 filters, 1 dense layer of 256 units". Weights trained by other
+implementations (for instance the R package sits) do not load into this class.
+
+The model takes ``(batch, bands, times)`` (``zeit.ai.train`` and ``predict`` permute the
+samples' ``(batch, times, bands)`` for it) and returns logits; the softmax is left to the loss.
+
+Training, as the authors do it, is not in the model: Adam with a learning rate of 1e-3, batches
+of 32, and an L2 penalty of 1e-6 on the kernels of every convolution and dense layer (Keras
+``l2(1e-6)``, a term ``1e-6 * sum(w ** 2)`` in the loss). ``zeit.ai.train`` has no per-model
+settings: ask for ``batch_size=32`` and, for an L2 close to the authors', ``weight_decay=2e-6``
+(Adam's weight decay adds ``wd * w`` to the gradient, and the penalty's gradient is
+``2e-6 * w``; unlike the penalty, it also reaches the biases and batch normalization).
+``TempCNN.l2_penalty`` gives the exact term to add to a loss of your own.
+"""
+
+from typing import Iterable
+
 import torch
 import torch.nn as nn
 
 
-class _ConvBNReLUDropout(nn.Module):
-    """Conv1d -> BatchNorm1d -> ReLU -> Dropout, matching sits's
-    .torch_conv1D_batch_norm_relu_dropout (R/api_torch.R)."""
-
-    def __init__(self, input_dim: int, output_dim: int, kernel_size: int, padding: int, dropout_rate: float) -> None:
-        super().__init__()
-        self.block = nn.Sequential(
-            nn.Conv1d(input_dim, output_dim, kernel_size=kernel_size, padding=padding),
-            nn.BatchNorm1d(output_dim),
-            nn.ReLU(),
-            nn.Dropout(p=dropout_rate),
-        )
-
-    def forward(self, x: "torch.Tensor") -> "torch.Tensor":
-        return self.block(x)
-
-
-class _LinearBNReLUDropout(nn.Module):
-    """Linear -> BatchNorm1d -> ReLU -> Dropout, matching sits's
-    .torch_linear_batch_norm_relu_dropout (R/api_torch.R)."""
-
-    def __init__(self, input_dim: int, output_dim: int, dropout_rate: float) -> None:
-        super().__init__()
-        self.block = nn.Sequential(
-            nn.Linear(input_dim, output_dim),
-            nn.BatchNorm1d(output_dim),
-            nn.ReLU(),
-            nn.Dropout(p=dropout_rate),
-        )
-
-    def forward(self, x: "torch.Tensor") -> "torch.Tensor":
-        return self.block(x)
-
-
 class TempCNN(nn.Module):
-    """
-    TempCNN: 1D Convolutional Neural Network for Satellite Image Time Series.
-    Reference: Pelletier et al. (2019), "Temporal Convolutional Neural Network
-    for the Classification of Satellite Image Time Series", Remote Sensing,
-    11, 523. doi:10.3390/rs11050523.
+    """Convolutions along time (kernel 5, 'same' padding), each followed by batch normalization,
+    ReLU and dropout, then a dense layer with the same three, and a linear layer of logits.
 
-    Architecture ported layer-for-layer from the R package `sits`'s
-    `sits_tempcnn()` (R/sits_tempcnn.R, R/api_torch.R) so trained weights are
-    directly portable between the two implementations for cross-validation:
-    3x (Conv1d -> BatchNorm1d -> ReLU -> Dropout), flattened over the full
-    time axis (NOT global-average-pooled - the flatten step means `n_times`
-    is baked into the dense layer's input size, so a model instance is tied
-    to one fixed sequence length, matching sits's behavior), then
-    (Linear -> BatchNorm1d -> ReLU -> Dropout) and a final Linear classifier.
+    Parameters
+    ----------
+    in_channels
+        Bands (or indices) per date.
+    n_times
+        Dates per series; the dense layer takes ``filters * n_times`` inputs.
+    num_classes
+        Outputs (logits).
+    filters, kernel_size, n_conv
+        The convolutions: 64 filters, kernel 5, three of them (the authors' reference).
+    dense_units
+        Width of the hidden dense layer (256).
+    dropout_rate
+        Dropout of every block (0.5), element by element.
     """
 
-    def __init__(
-        self,
-        in_channels: int,
-        n_times: int,
-        num_classes: int = 5,
-        hidden_dims: "tuple[int, int, int]" = (64, 64, 64),
-        kernel_sizes: "tuple[int, int, int]" = (3, 3, 3),
-        dropout_rates: "tuple[float, float, float]" = (0.2, 0.2, 0.2),
-        dense_layer_nodes: int = 256,
-        dense_layer_dropout_rate: float = 0.5,
-    ) -> None:
+    def __init__(self, in_channels: int, n_times: int, num_classes: int = 5, filters: int = 64,
+                 kernel_size: int = 5, n_conv: int = 3, dense_units: int = 256,
+                 dropout_rate: float = 0.5) -> None:
         super().__init__()
+        if kernel_size % 2 == 0:
+            raise ValueError("kernel_size must be odd, for 'same' padding")
+        self.n_times = n_times
+        blocks = []
+        c = in_channels
+        for _ in range(n_conv):
+            # Keras' batch normalization: momentum 0.99 (PyTorch's 0.01) and epsilon 1e-3
+            blocks += [nn.Conv1d(c, filters, kernel_size, padding=kernel_size // 2),
+                       nn.BatchNorm1d(filters, eps=1e-3, momentum=0.01), nn.ReLU(), nn.Dropout(dropout_rate)]
+            c = filters
+        self.conv = nn.Sequential(*blocks)
+        self.dense = nn.Sequential(
+            nn.Flatten(), nn.Linear(filters * n_times, dense_units),
+            nn.BatchNorm1d(dense_units, eps=1e-3, momentum=0.01), nn.ReLU(), nn.Dropout(dropout_rate))
+        self.out = nn.Linear(dense_units, num_classes)
+        self.reset_parameters()
 
-        self.conv_bn_relu1 = _ConvBNReLUDropout(
-            in_channels, hidden_dims[0], kernel_sizes[0], kernel_sizes[0] // 2, dropout_rates[0]
-        )
-        self.conv_bn_relu2 = _ConvBNReLUDropout(
-            hidden_dims[0], hidden_dims[1], kernel_sizes[1], kernel_sizes[1] // 2, dropout_rates[1]
-        )
-        self.conv_bn_relu3 = _ConvBNReLUDropout(
-            hidden_dims[1], hidden_dims[2], kernel_sizes[2], kernel_sizes[2] // 2, dropout_rates[2]
-        )
+    def reset_parameters(self) -> None:
+        """The authors' initialization: He normal on the hidden kernels, Glorot uniform on the
+        output's, zero biases."""
+        for m in self.modules():
+            if isinstance(m, (nn.Conv1d, nn.Linear)):
+                if m is self.out:
+                    nn.init.xavier_uniform_(m.weight)
+                else:
+                    nn.init.kaiming_normal_(m.weight, mode="fan_in", nonlinearity="relu")
+                nn.init.zeros_(m.bias)
 
-        self.flatten = nn.Flatten()
-        self.dense = _LinearBNReLUDropout(
-            hidden_dims[2] * n_times, dense_layer_nodes, dense_layer_dropout_rate
-        )
-        self.nn_linear = nn.Sequential(nn.Linear(dense_layer_nodes, num_classes))
+    def kernels(self) -> Iterable[torch.Tensor]:
+        """The kernels the authors' L2 penalty covers: every convolution and dense layer."""
+        return [m.weight for m in self.modules() if isinstance(m, (nn.Conv1d, nn.Linear))]
 
-    def forward(self, x: "torch.Tensor") -> "torch.Tensor":
-        # x shape: (Batch, Channels, Time) - same input convention as before.
-        # (sits's forward() takes (Batch, Time, Bands) and transposes internally
-        # to this same (Batch, Bands, Time) layout before the first conv block.)
-        x = self.conv_bn_relu1(x)
-        x = self.conv_bn_relu2(x)
-        x = self.conv_bn_relu3(x)
-        x = self.flatten(x)
-        x = self.dense(x)
-        return self.nn_linear(x)
+    def l2_penalty(self, rate: float = 1e-6) -> torch.Tensor:
+        """``rate * sum(w ** 2)`` over ``kernels()`` (the authors' ``l2(1e-6)``)."""
+        return rate * sum((w ** 2).sum() for w in self.kernels())
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """``x``: ``(batch, in_channels, n_times)``; returns ``(batch, num_classes)`` logits."""
+        return self.out(self.dense(self.conv(x)))

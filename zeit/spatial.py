@@ -144,14 +144,15 @@ def mmu_sieve(data: Any, min_size: int = 11, *, connectivity: int = 8, nodata: A
 
 def smooth_probs(probs: Any, window_size: int = 9, neigh_fraction: float = 0.5,
                  smoothness: Any = 20.0, *, n_jobs: int = -1) -> Any:
-    """Bayesian smoothing of class probabilities, as sits' ``sits_smooth`` (Camara et al.):
-    each class's logit, ``log(p / (sum - p))``, is pulled towards the mean of the highest
-    ``neigh_fraction`` of the logits around it (a ``window_size`` window, mirrored at the edges),
-    the more as the neighbourhood varies little against ``smoothness``:
-    ``w = s2 / (s2 + smoothness)``, ``x' = w x + (1 - w) m``. A pixel confident against
-    consistent neighbours keeps its class; noise among uncertain pixels goes. The result equals
-    sits' to 1e-15, except that a pixel missing (NaN) stays missing where sits gives it its
-    neighbours' mean.
+    """Bayesian smoothing of class probabilities (Camara et al. 2024, Remote Sensing 16(23):4572,
+    the method of sits' ``sits_smooth``): each class's logit, ``log(p / (1 - p))``, is pulled
+    towards the mean ``m`` of the highest ``neigh_fraction`` of the logits around it (a
+    ``window_size`` window, mirrored at the edges), the more as those logits vary little (their
+    sample variance ``s2``) against ``smoothness``: ``w = s2 / (s2 + smoothness)``,
+    ``x' = w x + (1 - w) m``. A pixel confident against consistent neighbours keeps its class;
+    noise among uncertain pixels goes. Written from the paper; it agrees with bayesEO's
+    ``bayes_smooth`` to about 2e-3, with the same class everywhere in the tests. A pixel missing
+    (NaN) stays missing and is left out of its neighbours'.
 
     probs: ``(class, y, x)`` probabilities in [0, 1] (e.g. ``zeit.classify(...,
         probability=True).probability``), a ``DataArray``, numpy array or raster path.

@@ -68,7 +68,7 @@ Zeit's EWMACD against **Brooks' EWMACD v1.3.0 script** (Brooks et al. 2014; `EWM
 
 ### S-CCD vs pyxccd
 
-[`zeit.sccd`](../api/change-detection.md#sccd) against **pyxccd 1.1.0**'s `sccd_detect`, the implementation of S-CCD's authors (Ye et al. 2021; Apache-2.0, which GPL-2.0-only Zeit cannot take code from: Zeit's S-CCD is written from the paper, and pyxccd is run as a black box in an environment of its own). pyxccd is called pixel by pixel, as its API does. Two workloads: 4096 pixels of a Landsat Collection 2 stack of Rondonia (2020–2026, the 61 dates of the path these pixels are on), and 1000 synthetic pixels of 35 years every 8 days, a third of the dates cloudy and a third of the pixels with a change: the long series S-CCD was made for. The same pixels also go through Zeit's own [`ccdc`](../api/change-detection.md#ccdc), to time S-CCD's claim, a Kalman update per observation instead of a lasso refit.
+[`zeit.sccd`](../api/change-detection.md#sccd) against **pyxccd 1.1.0**'s `sccd_detect`, the implementation of S-CCD's authors (Ye et al. 2021; Apache-2.0; Zeit's S-CCD is written from the paper, and pyxccd is run as a black box in an environment of its own). pyxccd is called pixel by pixel, as its API does. Two workloads: 4096 pixels of a Landsat Collection 2 stack of Rondonia (2020–2026, the 61 dates of the path these pixels are on), and 1000 synthetic pixels of 35 years every 8 days, a third of the dates cloudy and a third of the pixels with a change: the long series S-CCD was made for. The same pixels also go through Zeit's own [`ccdc`](../api/change-detection.md#ccdc), to time S-CCD's claim, a Kalman update per observation instead of a lasso refit.
 
 | Workload | pyxccd | Zeit, 1 thread | Zeit, 19 threads | Speedup (1 / 19) | Agreement |
 |:---|---:|---:|---:|:---:|:---|
@@ -95,14 +95,7 @@ Zeit's unmixing against the R package **RStoolbox 1.0.2.2**'s `mesma` with its N
 
 ### Bayesian smoothing vs sits
 
-`zeit.smooth_probs` against the R package **sits 1.5.4**: the Bayesian smoothing that `sits_smooth` applies to each block (`.smooth_fn_bayes`: the logits, `bayes_smoother_fraction`, back to probabilities), on probabilities of 4 classes, a 7 × 7 window, `neigh_fraction` 0.5 and `smoothness` 20.
-
-| Workload | sits | Zeit, 1 thread | Zeit, 19 threads | Speedup (1 / 19) | Agreement |
-|:---|---:|---:|---:|:---:|:---|
-| 200 × 200 px × 4 classes | 0.40 s | 46 ms | 5.4 ms | 9× / 74× | max diff 6.7e-16 |
-| 1000 × 1000 px × 4 classes | 10.7 s | 1.13 s | 147 ms | 9× / 73× | max diff 7.8e-16 |
-
-**How they were checked.** Every smoothed probability, to 1e-12 (the largest difference was below 1e-15). sits is timed on its smoothing of the block only, without reading and writing its files, so the comparison is of the computation. sits gives a missing pixel its neighbours' mean where Zeit keeps it missing; the inputs have none.
+`zeit.smooth_probs` is written from the paper (Camara et al. 2024, Remote Sensing 16(23):4572), no longer from the code of the R package **sits**. It agrees with bayesEO's `bayes_smooth` to about 2e-3, with the same class everywhere in the tests; the timings against sits and the agreement with its `sits_smooth` that were measured for the earlier implementation no longer apply, and are being measured again.
 
 ### Area of applicability vs CAST
 

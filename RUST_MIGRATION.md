@@ -26,7 +26,7 @@ ganhar onde for possível.
   pequenas; `LevenbergMarquardt` + `NumericalDiff` (unsupported) na fenologia;
   `SimplicialLLT` esparso no Whittaker.
 - **Contratos de fidelidade bit a bit** (docs/benchmarks/fidelity.md):
-  - CCDC: GLMnet Fortran em float32, operação por operação (`-ffp-contract=off`);
+  - CCDC: datas, categorias e `num_obs` idênticas às do MATLAB; coeficientes, rmse e magnitude dentro de tolerâncias (o lasso foi reescrito a partir do artigo, `lasso.rs`, e não é mais o GLMnet float32 operação por operação; ver `docs/benchmarks/fidelity.md`);
   - LandTrendr: anos de vértice 330/330 contra o IDL;
   - SNIC: rótulos idênticos ao `snic.c`;
   - SOM: diferença 0.0 contra o `minisom` (`exp`/`pow` do runtime C, soma em
@@ -103,7 +103,7 @@ mudou, exceto o TWDTW.
 | 4. SOM | `som` | feito |
 | 5. LandTrendr | `landtrendr` | feito |
 | 6. Fenologia | `phenology_*` | feito, bit a bit como os outros módulos (decisão de 2026-10-21): LM do Eigen (`NonLinearOptimization`), `SimplicialLLT` com ordenação AMD |
-| 7. CCDC | `ccdc` (GLMnet float32) | feito |
+| 7. CCDC | `ccdc` (lasso de `lasso.rs`) | feito |
 | 8. Warp | `warp` (callback do transformer do GDAL) | feito |
 
 **Ponto de decisão após a fase 1:** seguir só se os três módulos do piloto
@@ -217,11 +217,12 @@ BFAST clássico (com o STL), SOM e LandTrendr também dão os mesmos bits que o
 C++. No i5-13600K, 1 thread: BFAST 0,27×, SOM em lote 0,76× (0,97× com 20
 threads), LandTrendr 0,70× (0,61× com todas).
 
-O CCDC (fase 7) também dá os mesmos bits: 0,33× com 1 thread e 0,27× com
+O CCDC (fase 7), quando era bit a bit com o MATLAB (antes de o lasso ser reescrito do artigo, ver acima), dava: 0,33× com 1 thread e 0,27× com
 todas no i5-13600K (~0,4× em séries de 20 anos a cada 8 dias). Os termos
 harmônicos saem uma vez por lote e a matriz padronizada do lasso uma vez por
-ajuste, para todas as bandas. O solver lasso é GPL-2.0, então o `zeit._rust`,
-como o `zeit._core`, é distribuído sob GPL v2 (`THIRD_PARTY_NOTICES.md`). Onde
+ajuste, para todas as bandas. O solver lasso era GPL-2.0-only; foi reescrito do artigo (Friedman,
+Hastie & Tibshirani 2010) e o `zeit._core` é distribuído sob GPL-3.0-or-later
+(`THIRD_PARTY_NOTICES.md`). Onde
 o C++ não tem comportamento definido (`num_c < 1`, `conseq_anom < 1`, arrays
 de tamanho errado), o Rust levanta `ValueError` ou devolve zero segmentos.
 
@@ -336,7 +337,7 @@ Decidida em 2026-10-21, com todos os módulos em Rust e as mesmas saídas do C++
   voltaram a importar `_core` direto, e `zeit/_backend.py` (a escolha por
   `ZEIT_BACKEND`) saiu, com os testes diferenciais (`tests/test_rust_parity.py`),
   que não têm mais contra o que comparar. As suítes de fidelidade contra o
-  código dos autores (MATLAB, R, IDL, MiniSom, phenofit) continuam.
+  código dos autores (MATLAB, R, IDL, MiniSom; o phenofit continua como referência para comparar saídas, mas a fenologia não é mais um port dele) continuam.
 - `n_jobs <= 0` segue o `omp_get_max_threads` do OpenMP: o Rust lê
   `OMP_NUM_THREADS` (os tiles limitam cada processo com ela).
 - `benchmarks/bench_core.py` mede só o núcleo; os tempos do C++ ficam nos JSON

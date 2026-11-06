@@ -12,10 +12,10 @@
 
 ## Available models
 
-| Model | Task | Input | Dedicated Tutorial | Cross-validated against |
+| Model | Task | Input | Dedicated Tutorial | Written from |
 |---|---|---|---|---|
-| **LTAE & LightTAE** | Per-pixel time series classification | `(Batch, Time, Bands)` | [LTAE & LightTAE](ltae.md) | `sits_lighttae()` (R) |
-| **TempCNN** | Per-pixel time series classification | `(Batch, Bands, Time)` | [TempCNN](tempcnn.md) | `sits_tempcnn()` (R) |
+| **LTAE & LightTAE** | Per-pixel time series classification | `(Batch, Time, Bands)` | [LTAE & LightTAE](ltae.md) | Garnot & Landrieu (2020) and the authors' code |
+| **TempCNN** | Per-pixel time series classification | `(Batch, Bands, Time)` | [TempCNN](tempcnn.md) | Pelletier et al. (2019) and the authors' code |
 | **Presto** | Pretrained per-pixel model: classification from few samples, embeddings | `(Batch, Time, Bands)`, the cube's units | [Presto](presto.md) | Official [nasaharvest/presto](https://github.com/nasaharvest/presto) encoder, same weights |
 | **UTAE** | Spatio-temporal segmentation (whole-patch class map) | `(Batch, Time, Bands, H, W)` | [UTAE](utae.md) | Official [VSainteuf/utae-paps](https://github.com/VSainteuf/utae-paps) reference (bit-for-bit exact) |
 | **Siamese Change Detector** | Bi-temporal change detection (two dates) | Two `(Batch, Bands, H, W)` images | [Siamese Change Detector](siamese.md) | FC-Siam-diff, same outputs as the authors' code with the same weights |

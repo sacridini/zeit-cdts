@@ -491,9 +491,9 @@ def _specs() -> Dict[str, _Spec]:
 
 
 def _model_class(name: str):
-    from . import presto, prithvi, siamese, tempcnn, utae
+    from . import ltae, presto, prithvi, siamese, tempcnn, utae
 
-    for module in (tempcnn, utae, siamese, presto, prithvi):
+    for module in (tempcnn, ltae, utae, siamese, presto, prithvi):
         if hasattr(module, name):
             return getattr(module, name)
     raise ValueError(f"unknown zeit.ai model {name!r}")
@@ -589,8 +589,8 @@ def train(
     verbose
         Print each epoch's losses and validation accuracy.
     **model_kwargs
-        For a model class: its own arguments (e.g. ``dropout_rate``), next to those zeit
-        fills in.
+        For a model class: its own arguments (e.g. ``dropout_rate`` for ``TempCNN``,
+        ``dropout`` or ``n_head`` for ``LightTAE``), next to those zeit fills in.
 
     Returns
     -------

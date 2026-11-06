@@ -213,13 +213,12 @@ x = torch.nan_to_num(item["x"])      # or fill the gaps as your model needs
 <!-- sig: zeit.ai.TempCNN -->
 ```python
 class zeit.ai.TempCNN(
-    in_channels, n_times, num_classes=5, hidden_dims=(64, 64, 64),
-    kernel_sizes=(3, 3, 3), dropout_rates=(0.2, 0.2, 0.2),
-    dense_layer_nodes=256, dense_layer_dropout_rate=0.5,
+    in_channels, n_times, num_classes=5, filters=64, kernel_size=5,
+    n_conv=3, dense_units=256, dropout_rate=0.5,
 )
 ```
 
-Temporal convolutional network (Pelletier et al., 2019), ported layer for layer from R `sits`' `sits_tempcnn()`; weights load directly with `load_state_dict`. Input `(batch, bands, time)`, output class logits `(batch, num_classes)`. Tutorial: [TempCNN](../tutorials/tempcnn.md).
+Temporal convolutional network, written from Pelletier et al. (2019) and the authors' code ([temporalCNN](https://github.com/charlotte-pel/temporalCNN)). Weights trained by other implementations (R `sits` included) do not load into it. Input `(batch, bands, time)`, output class logits `(batch, num_classes)`. Tutorial: [TempCNN](../tutorials/tempcnn.md).
 
 <div class="params" markdown>
 
@@ -228,11 +227,11 @@ Temporal convolutional network (Pelletier et al., 2019), ported layer for layer 
 | `in_channels` | `int` | required | Bands per observation. |
 | `n_times` | `int` | required | Series length. Fixed for the life of the model (the flatten layer depends on it). |
 | `num_classes` | `int` | `5` | Output classes. |
-| `hidden_dims` | `tuple` | `(64, 64, 64)` | Filters of the three convolution blocks. |
-| `kernel_sizes` | `tuple` | `(3, 3, 3)` | Kernel sizes. |
-| `dropout_rates` | `tuple` | `(0.2, 0.2, 0.2)` | Dropout after each convolution block. |
-| `dense_layer_nodes` | `int` | `256` | Width of the dense layer. |
-| `dense_layer_dropout_rate` | `float` | `0.5` | Dropout of the dense layer. |
+| `filters` | `int` | `64` | Filters of each convolution. |
+| `kernel_size` | `int` | `5` | Kernel size (odd). |
+| `n_conv` | `int` | `3` | Convolution blocks. |
+| `dense_units` | `int` | `256` | Width of the dense layer. |
+| `dropout_rate` | `float` | `0.5` | Dropout of every block. |
 
 </div>
 
@@ -249,13 +248,11 @@ logits = model(torch.randn(32, 6, 23))   # (32, 4)
 ```python
 class zeit.ai.LightTAE(
     n_bands, day_offsets, n_labels,
-    layers_spatial_encoder=(32, 64, 128), n_heads=16,
-    n_neurons=(256, 128), dropout_rate=0.2, dim_input_decoder=128,
-    dim_layers_decoder=(64, 32),
+    encoder_mlp=(32, 64, 128), decoder_mlp=(64, 32), **ltae,
 )
 ```
 
-Lightweight temporal attention classifier: per-observation MLP encoder, L-TAE temporal attention, MLP decoder. Ported from `sits_lighttae()`. Input `(batch, time, bands)`, output logits `(batch, n_labels)`. Tutorial: [LTAE & LightTAE](../tutorials/ltae.md).
+Lightweight temporal attention classifier: per-observation MLP encoder, L-TAE temporal attention, MLP decoder. Written from Sainte Fare Garnot & Landrieu (2020) and the authors' code ([lightweight-temporal-attention-pytorch](https://github.com/VSainteuf/lightweight-temporal-attention-pytorch)); weights trained by other implementations (R `sits` included) do not load into it. The `**ltae` arguments go to [`LTAE`](#ltae) (`n_head`, `d_k`, `n_neurons`, `dropout`, `d_model`, `T`, `init`). Input `(batch, time, bands)`, output logits `(batch, n_labels)`. Tutorial: [LTAE & LightTAE](../tutorials/ltae.md).
 
 <div class="params" markdown>
 
@@ -264,12 +261,13 @@ Lightweight temporal attention classifier: per-observation MLP encoder, L-TAE te
 | `n_bands` | `int` | required | Bands per observation. |
 | `day_offsets` | `list[float]` | required | Day of each observation, counted from the first. Fixes the series length. |
 | `n_labels` | `int` | required | Output classes. |
-| `layers_spatial_encoder` | `tuple` | `(32, 64, 128)` | Widths of the per-observation encoder. |
-| `n_heads` | `int` | `16` | Attention heads. |
-| `n_neurons` | `tuple` | `(256, 128)` | L-TAE widths; `n_neurons[0]` is the attention dimension. |
-| `dropout_rate` | `float` | `0.2` | Dropout. |
-| `dim_input_decoder` | `int` | `128` | Decoder input width; must equal `n_neurons[-1]`. |
-| `dim_layers_decoder` | `tuple` | `(64, 32)` | Decoder hidden widths. |
+| `encoder_mlp` | `tuple` | `(32, 64, 128)` | Widths of the per-observation encoder. |
+| `decoder_mlp` | `tuple` | `(64, 32)` | Decoder hidden widths. |
+| `n_head` | `int` | `16` | Attention heads (an `LTAE` argument). |
+| `d_k` | `int` | `8` | Key size per head. |
+| `n_neurons` | `tuple` | `(256, 128)` | L-TAE widths; `n_neurons[0]` is the model width, `d_model`. |
+| `dropout` | `float` | `0.2` | Dropout after the L-TAE's MLP. |
+| `d_model` | `int` | `256` | Width the encoder's output is projected to. |
 
 </div>
 
@@ -285,22 +283,26 @@ logits = model(torch.randn(8, 36, 6))    # (8, 5)
 <!-- sig: zeit.ai.LTAE -->
 ```python
 class zeit.ai.LTAE(
-    in_channels=128, day_offsets=None, n_heads=16,
-    n_neurons=(256, 128), dropout_rate=0.2,
+    in_channels, day_offsets, n_head=16, d_k=8, n_neurons=(256, 128),
+    dropout=0.2, d_model=256, T=1000, init="authors",
 )
 ```
 
-The L-TAE temporal attention block on its own, to build custom models. Input `(batch, time, in_channels)`, output `(batch, n_neurons[-1])`.
+The L-TAE temporal attention block on its own, to build custom models (Sainte Fare Garnot & Landrieu, 2020, and the authors' code). Input `(batch, time, in_channels)`, output `(batch, n_neurons[-1])`.
 
 <div class="params" markdown>
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `in_channels` | `int` | `128` | Features per time step. |
-| `day_offsets` | `list[float]` | `None` | Day of each observation, counted from the first. Required in practice. |
-| `n_heads` | `int` | `16` | Attention heads. |
-| `n_neurons` | `tuple` | `(256, 128)` | Internal widths. |
-| `dropout_rate` | `float` | `0.2` | Dropout. |
+| `in_channels` | `int` | required | Features per time step. |
+| `day_offsets` | `list[float]` | required | Day of each observation, counted from the first. |
+| `n_head` | `int` | `16` | Attention heads. |
+| `d_k` | `int` | `8` | Key size per head. |
+| `n_neurons` | `tuple` | `(256, 128)` | Widths of the MLP after the heads; the first must be `d_model`. |
+| `dropout` | `float` | `0.2` | Dropout after that MLP (the attention weights have 0.1). |
+| `d_model` | `int` or `None` | `256` | Width the channels are projected to; `None`: no projection. |
+| `T` | `float` | `1000` | Temperature of the positional encoding. |
+| `init` | `str` | `"authors"` | The authors' initialization, or `"default"` (PyTorch's). |
 
 </div>
 

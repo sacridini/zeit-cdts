@@ -2,13 +2,24 @@
 
 Every expected output in tests/data/ccdc_matlab_parity_expected.json was
 produced by the original TrendSeasonalFit_v12_30Line.m (GERSL/CCDC, with its
-bundled Fortran GLMnet) run under GNU Octave on exactly the inputs in
+bundled lasso) run under GNU Octave on exactly the inputs in
 ccdc_matlab_parity_inputs.npz: Landsat-like pixels (6 optical bands as surface
 reflectance x 10000, a constant brightness-temperature band in deg C x 100,
 Fmask QA). The cases cover every branch of the original: mostly-cloudy (44) and
 mostly-snow (54) pixels, 4/6/8-coefficient models, an early break found by
 extending the first model backwards (14), the end-of-record fit (24), several
 breaks, unflagged clouds removed by Tmask/Tmax_cg, and real Rondonia pixels.
+
+Zeit's lasso is the one of rust/zeit-core/src/lasso.rs, written from Friedman,
+Hastie & Tibshirani (2010), not derived from that GLMnet, so the models agree
+with the MATLAB's within the lasso's tolerance, no longer bit for bit. The
+segments (dates, category, num_obs), change_prob and the predictors the lasso
+keeps are identical; the largest differences measured over the cases (optical
+bands) are: predicted value at the start, middle and end of a segment 0.234
+(0.2% of the rmse); c1 1.3e-5 per day; harmonic coefficients 0.035; rmse 7.9e-4
+(thermal band, a constant: 8.3e-3); magnitude 0.097. a0 differs by up to 9.6 but
+it is collinear with c1 on the datenum axis (t ~ 7.3e5), so the model is compared
+through its predictions. The tolerances below are about twice those maxima.
 """
 import json
 import os
@@ -40,10 +51,15 @@ def test_matches_original_matlab(name):
         assert g["category"] == w["category"]
         assert g["num_obs"] == w["num_obs"]
         assert g["change_prob"] == pytest.approx(w["change_prob"], abs=1e-12)
-        # the reference was exported with 10 significant digits
-        np.testing.assert_allclose(g["coefs"], w["coefs"], rtol=1e-8, atol=1e-6)
-        np.testing.assert_allclose(g["rmse"], w["rmse"], rtol=1e-8, atol=1e-6)
-        np.testing.assert_allclose(g["magnitude"], w["magnitude"], rtol=1e-8, atol=1e-5)
+        gc, wc = np.asarray(g["coefs"], float), np.asarray(w["coefs"], float)
+        # the model through its values at the start, middle and end of the segment
+        ts = np.array([g["t_start"], (g["t_start"] + g["t_end"]) // 2, g["t_end"]])
+        for band in range(len(gc)):
+            np.testing.assert_allclose(predict(gc[band], ts), predict(wc[band], ts), rtol=0, atol=0.5)
+        np.testing.assert_allclose(gc[:, 1], wc[:, 1], rtol=0, atol=1e-4)  # c1, per day
+        np.testing.assert_allclose(gc[:, 2:], wc[:, 2:], rtol=0, atol=0.1)  # harmonics
+        np.testing.assert_allclose(g["rmse"], w["rmse"], rtol=1e-4, atol=0.01)
+        np.testing.assert_allclose(g["magnitude"], w["magnitude"], rtol=0, atol=0.25)
 
 
 def test_predict_matches_model_fit():
