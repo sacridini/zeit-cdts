@@ -9,6 +9,12 @@ missing, never 29 February: FORCE's 365-day calendar puts it on 1 March), a doub
 amplitude and phase change per pixel, noise, a linear trend in a third of the pixels and an abrupt loss in 2020
 (followed by a recovery) in another third, and clouds, shadows and nodata in patches on ~40% of the observations.
 ``truth.npz`` (next to the ``ard`` folder) keeps the dates and the parameters.
+
+``--sensor LND08`` (or LND07, LND05, MOD01, ...) writes a Landsat/MODIS cube instead: six int16 bands (BLUE GREEN RED NIR SWIR1
+SWIR2, -9999) of mixed realistic spectra (vegetation, dry vegetation, soil, water, snow, urban; abundances drawn per pixel,
+the vegetation's seasonal) plus edge cases in the first row (all zero, small negatives, high values, one band high), and the
+QAI as above (MODIS: a seventh band, SWIR0, between NIR and SWIR1, which FORCE ignores). It is the input of the spectral-adjustment comparison; ``spec_src.npz`` (dates, the (dates, 6, y, x) values
+and the observations the QAI keeps) goes next to the ``ard`` folder.
 """
 import argparse
 import datetime
@@ -60,7 +66,65 @@ def dilate(m, k):
     return out
 
 
-def write_tif(path, arr, wkt, res):
+# Endmembers (reflectance x 10000) in BLUE GREEN RED NIR SWIR1 SWIR2 order.
+ENDMEMBERS = np.array([
+    [300, 600, 350, 4200, 1800, 800],      # green vegetation
+    [600, 900, 1300, 2600, 3200, 2300],    # dry vegetation
+    [1200, 1700, 2200, 2800, 3800, 3200],  # bare soil
+    [600, 700, 450, 250, 100, 60],         # water
+    [8500, 8600, 8400, 7000, 900, 600],    # snow
+    [1500, 1700, 1900, 2200, 2600, 2300],  # urban
+], float)
+
+
+def edge_row(n, nt, rng):
+    """The first row's edge cases: ``(nt, 6, n)`` float values, one kind per column (cycling)."""
+    kinds = 9
+    out = np.zeros((nt, 6, n))
+    for x in range(n):
+        k = x % kinds
+        for t in range(nt):
+            if k == 0:    # all zero
+                v = np.zeros(6)
+            elif k == 1:  # small negatives
+                v = rng.uniform(-60, 5, 6)
+            elif k == 2:  # high values
+                v = rng.uniform(10000, 20000, 6)
+            elif k == 3:  # one band high
+                v = rng.uniform(0, 300, 6)
+                v[rng.integers(0, 6)] = rng.uniform(5000, 9000)
+            elif k == 4:  # tiny values
+                v = rng.integers(0, 4, 6).astype(float)
+            elif k == 5:  # flat grey
+                v = np.full(6, rng.uniform(500, 3000))
+            elif k == 6:  # near-saturated
+                v = rng.uniform(28000, 32000, 6)
+            elif k == 7:  # a negative band
+                v = np.array(ENDMEMBERS[rng.integers(0, 6)]) * rng.uniform(0.5, 1.2)
+                v[rng.integers(0, 6)] = rng.uniform(-500, -1)
+            else:         # a pure endmember, no noise at all
+                v = ENDMEMBERS[(t // 9 + x) % 6].copy()
+            out[t, :, x] = v
+    return out
+
+
+def spectra(n, doys, rng):
+    """Per-date ``(6, n, n)`` generator of mixed spectra: Dirichlet abundances per pixel (sparse, so many pixels are almost
+    pure), the green vegetation's share following a seasonal curve, a brightness factor and a per-date noise."""
+    ab = rng.dirichlet(np.full(6, 0.35), (n, n))               # (n, n, 6)
+    bright = np.exp(rng.normal(0.0, 0.25, (n, n)))
+    phase = rng.uniform(0, 2 * np.pi, (n, n))
+    for doy in doys:
+        season = 0.5 + 0.5 * np.sin(2 * np.pi * (doy - 80) / 365.0 + phase * 0.2)
+        a = ab.copy()
+        a[..., 0] *= 0.3 + 1.4 * season
+        a /= a.sum(-1, keepdims=True)
+        refl = np.einsum("yxk,kb->byx", a, ENDMEMBERS) * bright
+        refl = refl * (1 + rng.normal(0, 0.03, (6, n, n))) + rng.normal(0, 25, (6, n, n))
+        yield refl
+
+
+def write_tif(path, arr, wkt, res, nodata=NODATA):
     drv = gdal.GetDriverByName("GTiff")
     n = arr.shape[1]
     ds = drv.Create(path, arr.shape[2], n, arr.shape[0], gdal.GDT_Int16,
@@ -70,7 +134,7 @@ def write_tif(path, arr, wkt, res):
     for b in range(arr.shape[0]):
         bd = ds.GetRasterBand(b + 1)
         bd.WriteArray(arr[b])
-        bd.SetNoDataValue(NODATA if arr.shape[0] == 10 else 1)
+        bd.SetNoDataValue(nodata)
     ds = None
 
 
@@ -80,6 +144,8 @@ def main():
     ap.add_argument("--size", type=int, default=100, help="pixels per side (one tile, 30 m)")
     ap.add_argument("--years", type=int, nargs=2, default=[2018, 2022])
     ap.add_argument("--seed", type=int, default=1)
+    ap.add_argument("--sensor", default="SEN2A",
+                    help="SEN2A (ten bands, the default) or a Landsat/MODIS sensor (six bands, the spectral-adjustment cube)")
     ap.add_argument("--zero-block", type=int, default=0,
                     help="a k x k block (top left) whose red equals its NIR in every observation: NDVI exactly 0, "
                          "the polar season's sum is zero there; the random draws are not changed")
@@ -123,6 +189,11 @@ def main():
 
     masked = np.zeros((nt, n, n), bool)
     cloudy_obs = rng.random(nt) < 0.40
+    landsat = a.sensor != "SEN2A"
+    if landsat:
+        gen = spectra(n, doys, rng)
+        edge = edge_row(n, nt, rng)
+        src = np.zeros((nt, 6, n, n), np.int16)
     for i, d in enumerate(dates):
         doy = doys[i]
         ndvi = base + amp * (logistic((doy - start) / w1) - logistic((doy - end) / w2))
@@ -138,8 +209,10 @@ def main():
         arr = np.zeros((10, n, n), np.float64)
         for b, nm in enumerate(NAMES):
             arr[b] = refl[nm] + rng.normal(0, 30, (n, n))
+        if landsat:
+            arr = next(gen)
 
-        if a.zero_block:  # red = NIR: NDVI 0 (clouds and shadows below still apply)
+        if a.zero_block and not landsat:  # red = NIR: NDVI 0 (clouds and shadows below still apply)
             k = a.zero_block
             arr[2, :k, :k] = arr[7, :k, :k]
 
@@ -151,7 +224,10 @@ def main():
             qai[buf] |= 1 << 1            # cloud state 1: buffer (less confident cloud)
             qai[cloud] |= 2 << 1          # cloud state 2: opaque
             qai[shadow] |= 1 << 3
-            arr[:, cloud] = (arr[:, cloud] * 0.2 + np.array([3200, 3100, 3000, 3000, 3000, 3000, 3000, 3000, 2500, 2000])[:, None] * 0.8)
+            cloud_refl = np.array([3200, 3100, 3000, 3000, 3000, 3000, 3000, 3000, 2500, 2000])
+            if landsat:
+                cloud_refl = cloud_refl[[0, 1, 2, 7, 8, 9]]
+            arr[:, cloud] = (arr[:, cloud] * 0.2 + cloud_refl[:, None] * 0.8)
             arr[:, shadow] *= 0.5
             masked[i] = cloud | buf | shadow
         if rng.random() < 0.05:           # a swath without data
@@ -161,11 +237,18 @@ def main():
             qai[nd] = 1
             arr[:, nd] = NODATA
             masked[i] |= nd
+        if landsat:
+            arr[:, 0, :] = edge[i]        # the edge cases of the first row, whatever the clouds do
         out = np.clip(np.round(arr), -32000, 32000).astype(np.int16)
         out[:, (qai & 1) == 1] = NODATA
+        if landsat:
+            src[i] = out
+        if a.sensor.startswith("MOD"):    # MODIS has a seventh band, SWIR0 (1240 nm), between NIR and SWIR1; FORCE ignores it
+            swir0 = ((out[3].astype(np.int32) + out[4]) // 2).astype(np.int16)
+            out = np.concatenate([out[:4], swir0[None], out[4:]])
         stamp = d.strftime("%Y%m%d")
-        write_tif(os.path.join(tile, "%s_LEVEL2_SEN2A_BOA.tif" % stamp), out, wkt, RES)
-        write_tif(os.path.join(tile, "%s_LEVEL2_SEN2A_QAI.tif" % stamp), qai[None], wkt, RES)
+        write_tif(os.path.join(tile, "%s_LEVEL2_%s_BOA.tif" % (stamp, a.sensor)), out, wkt, RES)
+        write_tif(os.path.join(tile, "%s_LEVEL2_%s_QAI.tif" % (stamp, a.sensor)), qai[None], wkt, RES, 1)
 
     np.savez_compressed(
         os.path.join(a.root, "truth.npz"),
@@ -173,6 +256,9 @@ def main():
         masked=masked, group=group, slope=slope, dist_depth=dist_depth, dist_doy=dist_doy,
         base=base, amp=amp, start=start, end=end, w1=w1, w2=w2, nir_level=nir_level, recov_tau=recov_tau,
         cloudy_obs=cloudy_obs, size=n, years=np.array(a.years))
+    if landsat:
+        np.savez(os.path.join(a.root, "spec_src.npz"), dates=np.array([int(d.strftime("%Y%m%d")) for d in dates], np.int32),
+                 values=src, sensor=a.sensor)
     print(nt, "dates,", int(cloudy_obs.sum()), "cloudy; written to", tile)
 
 

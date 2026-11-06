@@ -24,6 +24,14 @@ Where FORCE's result is undefined (a standard deviation, skewness or kurtosis of
 of a constant series: 0/0, which FORCE casts to int16 as it happens) the pixels are left out, and the count is printed.
 The target is 100% equal or within +-1; the exit code is 1 when something is outside it.
 
+``specadjust`` (``zeit.spectral_adjust``'s core against FORCE's SPECTRAL_ADJUST: the ten Sentinel-2A bands of Landsat 8, 7
+and 5 cubes, FORCE's TSS of each band as an index, which is the raw int16): ``force_tsa.sh`` with ``SENSOR=LND08`` (or LND07,
+LND05) and ``ONLY="spec_on spec_off"`` writes ``workdir("force_specadjust")/<sensor>``. Zeit's float output is truncated the
+way FORCE's ``(short)`` does (toward zero, wrapped in 16 bits), in two modes: ``force_first_search=True`` (FORCE's literal
+first search of the maximum, which skips cluster 9 and may pick the global cluster) must equal FORCE except for +-1 where
+``acos`` of the C library and Rust's differ in the last bit; the default (Zeit's: the global cluster never the first pick,
+cluster 9 competing) differs from FORCE where the two searches select differently, shown as the pixels beyond +-1.
+
 ``--ref <folder>`` reads the outputs from another folder of the same layout: the 500 x 500 measurement cube of the timing
 (``force_tsa_timing.sh`` and ``force_tsa_timing.py``), where the parts ``stm`` and ``interp`` check that the agreement
 holds on a larger cube (``int_harmonic_part`` is not run there).
@@ -31,12 +39,13 @@ holds on a larger cube (``int_harmonic_part`` is not run there).
 import argparse
 import sys
 import time
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
 import force_ref as ref
-from common import no_power_throttling
+from common import no_power_throttling, workdir
 
 # FORCE writes STM/FOLD nodata as this.
 NODATA = -9999
@@ -1092,9 +1101,99 @@ def part_polar(jobs):
         polar_cat(jobs, names, zeit_out, got_f, want, config, adaptive, bad)
 
 
+# ---- spectral adjustment ---------------------------------------------------------------------------------------------
+
+SPEC_BANDS = ["BLUE", "GREEN", "RED", "REDEDGE1", "REDEDGE2", "REDEDGE3", "BROADNIR", "NIR", "SWIR1", "SWIR2"]
+SPEC_SENSORS = ["LND08", "LND07", "LND05"]
+
+
+def wrap_int16(x):
+    """FORCE's ``(short)x`` for a double: ``(int)`` toward zero, then the low 16 bits (what gcc does on x86-64)."""
+    return np.trunc(np.asarray(x, np.float64)).astype(np.int32).astype(np.int16)
+
+
+def spec_inputs(folder, sensor):
+    """The cube's values ``(pixels, dates, 6)`` of ``spec_src.npz``, FORCE's ten TSS bands ``(10, pixels, dates)`` and the
+    dates, checked against each other."""
+    import rasterio
+
+    src = np.load(folder / "spec_src.npz")
+    assert str(src["sensor"]) == sensor, (str(src["sensor"]), sensor)
+    values = src["values"]                                      # (dates, 6, y, x)
+    nt, _, ny, nx = values.shape
+    tss = np.zeros((len(SPEC_BANDS), nt, ny, nx), np.int16)
+    out = folder / "out" / "spec_on" / "X0000_Y0000"
+    for b, name in enumerate(SPEC_BANDS):
+        hits = sorted(out.glob(f"*_{name}_TSS.tif"))
+        assert len(hits) == 1, (name, hits)
+        with rasterio.open(hits[0]) as ds:
+            assert ds.count == nt, (name, ds.count, nt)
+            assert [int(d.split("_")[0]) for d in ds.descriptions] == [int(d) for d in src["dates"]], name
+            tss[b] = ds.read()
+    to_px = lambda a: a.reshape(a.shape[:-2] + (ny * nx,))
+    return to_px(values).transpose(2, 0, 1), to_px(tss).transpose(0, 2, 1), src["dates"], (ny, nx)
+
+
+def part_specadjust(jobs):
+    from zeit import _core
+
+    base = SPEC_BASE or workdir("force_specadjust")
+    folders = [(sn, base / sn) for sn in SPEC_SENSORS if (base / sn / "spec_src.npz").exists()]
+    if not folders:
+        raise SystemExit(f"no spec_src.npz under {base}: run force_tsa.sh with SENSOR=LND08 ONLY='spec_on spec_off'")
+    for sensor, folder in folders:
+        values, tss, dates, (ny, nx) = spec_inputs(folder, sensor)
+        npx, nt, _ = values.shape
+        # FORCE's mask: every band of an unprocessed observation is nodata (the QAI's nodata, clouds and shadows).
+        valid = ~(tss == NODATA).all(0)                         # (pixels, dates)
+        print("=" * 118)
+        print(f"{sensor}: {npx} pixels x {nt} dates; FORCE processes {int(valid.sum())} of {valid.size} pixel-dates "
+              f"({100 * valid.mean():.1f} %)")
+        v = values[valid].astype(np.float64)                    # (n, 6)
+        want = tss[:, valid]                                    # (10, n)
+        edge = np.broadcast_to((np.arange(npx) < nx)[:, None], valid.shape)[valid]
+        results = {}
+        for mode, flag in (("FORCE's first search (force_first_search=True)", True), ("Zeit's default", False)):
+            t0 = time.perf_counter()
+            z = np.asarray(_core.specadjust.specadjust_batch(v, sensor, jobs, flag))
+            seconds = time.perf_counter() - t0
+            got = wrap_int16(z).T                               # (10, n)
+            results[flag] = got
+            n_failed = len(_failed)
+            report(f"{sensor}, {mode}: {v.shape[0]} pixel-dates, Zeit {seconds * 1000:.0f} ms ({jobs} threads)",
+                   SPEC_BANDS, got, want)
+            if not flag:
+                del _failed[n_failed:]                          # a known, explained difference (see below)
+            d = np.abs(got.astype(np.int32) - want)
+            print(f"  pixel-dates equal in all ten bands: {100 * (d == 0).all(0).mean():.3f} %; "
+                  f"within 1 in all: {100 * (d <= 1).all(0).mean():.3f} %; "
+                  f"values off by exactly 1: {int((d == 1).sum())} of {d.size}; beyond 1: {int((d > 1).sum())} values "
+                  f"in {int((d > 1).any(0).sum())} pixel-dates")
+            print(f"  the {int(edge.sum())} pixel-dates of the edge-case row (zeros, negatives, high, saturated): "
+                  f"{100 * (d[:, edge] == 0).all(0).mean():.3f} % equal in all ten bands, max |dif| {int(d[:, edge].max())}")
+        forced, fixed = results[True], results[False]
+        d_force = np.abs(forced.astype(np.int32) - want)
+        d_fixed = np.abs(fixed.astype(np.int32) - want)
+        d_modes = np.abs(fixed.astype(np.int32) - forced)
+        a = (d_fixed > 1).any(0)                                # Zeit's default beyond 1 of FORCE
+        b = (d_modes > 1).any(0)                                # the two modes beyond 1 of each other
+        c = (d_modes > 0).any(0)                                # the two modes differ at all
+        print(f"\n{sensor}: where Zeit's default departs from FORCE is where the two first searches differ:")
+        print(f"  pixel-dates beyond +-1 of FORCE in Zeit's default (A): {int(a.sum())} of {a.size} ({100 * a.mean():.3f} %)")
+        print(f"  pixel-dates where the two modes differ beyond +-1 (B): {int(b.sum())}")
+        print(f"  A and not B: {int((a & ~b).sum())}; B and not A: {int((b & ~a).sum())}; the two modes differ at all "
+              f"(any band, by any amount): {int(c.sum())}, of those within +-1 of FORCE in Zeit's default: "
+              f"{int((c & ~a).sum())}")
+        print(f"  FORCE's literal mode beyond +-1 of FORCE: {int((d_force > 1).any(0).sum())} pixel-dates")
+        if (d_force > 1).any() or (a & ~b).any():
+            _failed.append(f"{sensor}: specadjust")
+
+
 # The parts.
 PARTS = {"stm": part_stm, "fold": part_fold, "standardize": part_standardize, "interp": part_interp,
-         "trend": part_trend, "cso": part_cso, "polar": part_polar}
+         "trend": part_trend, "cso": part_cso, "polar": part_polar,
+         "specadjust": part_specadjust}
+SPEC_BASE = None
 
 
 def main(argv=None):
@@ -1104,9 +1203,14 @@ def main(argv=None):
     p.add_argument("--verbose", action="store_true", help="every band of the folds with at most 12 bands")
     p.add_argument("--ref", help="read FORCE's outputs from this folder instead of workdir('force_tsa')/ref: the "
                                  "measurement cube's bench folder (parts stm and interp: the configurations it has)")
+    p.add_argument("--spec-ref", help="the parent folder of the LND08/LND07/LND05 folders of the specadjust part "
+                                      "(default: workdir('force_specadjust'))")
     args = p.parse_args(argv)
     if args.ref:
         ref.use(args.ref)
+    if args.spec_ref:
+        global SPEC_BASE
+        SPEC_BASE = Path(args.spec_ref)
     global VERBOSE
     VERBOSE = args.verbose
     parts = [s.strip() for s in args.part.split(",") if s.strip()]

@@ -265,3 +265,20 @@ def test_bands_by_role_and_the_accessor():
     np.testing.assert_array_equal(named.values, usual.values)
     np.testing.assert_array_equal(_cube(["landsat-8", "landsat-8"], bands=SOURCE).zeit.spectral_adjust().values,
                                   usual.values)
+
+
+def test_force_search_is_the_cores_literal_mode():
+    import numpy as np
+    import xarray as xr
+    import zeit
+    from zeit import _core
+
+    rng = np.random.default_rng(9)
+    x = rng.uniform(0, 5000, size=(1, 6, 40, 50)).astype(np.float32)
+    cube = xr.DataArray(x, dims=("time", "band", "y", "x"),
+                        coords={"band": ["blue", "green", "red", "nir08", "swir16", "swir22"],
+                                "time": [np.datetime64("2020-01-01")]})
+    got = zeit.spectral_adjust(cube, sensor="landsat-8", scale=10000, force_search=True, n_jobs=2)
+    flat = np.moveaxis(x[0], 0, -1).reshape(-1, 6)
+    want = _core.specadjust.specadjust_batch(flat, "LND08", 2, True)
+    np.testing.assert_allclose(np.moveaxis(got.values[0], 0, -1).reshape(-1, 10), want, rtol=1e-6)

@@ -1099,6 +1099,28 @@
    "threads": 1,
    "note": "metrics in common; the year and the steps it reads differ, see polar.py",
    "date": "2026-11-06"
+  },
+  {
+   "method": "force-tsa specadjust",
+   "original": "FORCE 3.11.00",
+   "size": "250,000 px x 136 dates",
+   "original_s": 35.537000000000006,
+   "zeit_s": 13.988985199990566,
+   "speedup": 2.5403558222381974,
+   "threads": 1,
+   "note": "FORCE: compute stage of SPECTRAL_ADJUST TRUE (10 bands as indices) less FALSE (6 bands); Zeit: specadjust_batch on the 31,189,512 unmasked pixel-dates as float32",
+   "date": "2026-11-06"
+  },
+  {
+   "method": "force-tsa specadjust",
+   "original": "FORCE 3.11.00",
+   "size": "250,000 px x 136 dates",
+   "original_s": 7.534000000000001,
+   "zeit_s": 3.034783699986292,
+   "speedup": 2.482549250555824,
+   "threads": 6,
+   "note": "FORCE: compute stage of SPECTRAL_ADJUST TRUE (10 bands as indices) less FALSE (6 bands); Zeit: specadjust_batch on the 31,189,512 unmasked pixel-dates as float32",
+   "date": "2026-11-06"
   }
  ],
  "machine": {

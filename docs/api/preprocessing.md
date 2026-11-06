@@ -8,6 +8,7 @@ A dense series that mixes Landsat and Sentinel-2 has a step wherever the sensor 
 
 - **HLS** (Harmonized Landsat Sentinel-2, NASA): both sensors processed alike from level 1 (the same atmospheric correction and cloud mask, view and sun angles normalized, a common 30 m grid) and Sentinel-2 adjusted to Landsat 8's bands. [`build_time_series`](data.md#build_time_series) reads it from Planetary Computer, both products in one call: `collection=["hls2-l30", "hls2-s30"]` with the bands named by role. This is the way to go wherever HLS covers the dates (from 2013 for Landsat 8, 2015 for Sentinel-2).
 - **[`bandpass_adjust`](#bandpass_adjust)** on cubes you already have (Landsat Collection 2 and Sentinel-2 L2A): only HLS's bandpass step, so only part of the step goes away.
+- **[`spectral_adjust`](#spectral_adjust)** goes the other way, Landsat and MODIS to Sentinel-2A's bands (FORCE's spectral adjustment), and predicts the red edge bands Landsat does not have.
 
 Measured over the Libya-4 desert site (2022–2023, Planetary Computer, pairs of Landsat 8/9 and Sentinel-2 observations at most a day apart, median of the area):
 
@@ -62,6 +63,45 @@ s2 = zeit.build_time_series(collection="sentinel-2-l2a", bands=["B02", "B03", "B
 landsat = zeit.build_time_series(collection="landsat-c2-l2",
                                  bands=["blue", "green", "red", "nir08", "swir16", "swir22"], **grid)
 mixed = zeit.bandpass_adjust([s2, landsat])      # one series: blue, green, red, nir, swir1, swir2
+```
+
+### `spectral_adjust` { .api }
+
+<!-- sig: zeit.spectral_adjust -->
+```python
+zeit.spectral_adjust(
+    data, *, sensor=None, bands=None, scale="auto", nodata="auto",
+    chunks=None, n_jobs=-1,
+)
+```
+
+Takes Landsat 4, 5, 7, 8 and 9 and MODIS (Terra and Aqua) surface reflectance to the ten bands of Sentinel-2A (blue, green, red, the three red edge bands, the broad and the narrow NIR, SWIR1 and SWIR2), the red edge and the broad NIR being predicted, since those sensors do not have them. It is FORCE's spectral adjustment (FORCE 3.11, David Frantz, GPL-3.0-or-later; the method and the tables are those of Scheffler, Frantz and Segl 2020, *Remote Sensing of Environment* 241:111723). Each sensor has 50 clusters of spectra and a global one, each with a linear regression of the ten Sentinel-2A bands on the six of the sensor (blue, green, red, NIR, SWIR1, SWIR2) and an intercept. For each pixel the spectral angle to the centre of every cluster gives a weight, `1 - angle / 15°` (0.00001 beyond 15°); the closest clusters, at most ten, are kept while their weight is above that of 4°, or above that of 12° and the global cluster's, and the prediction is the average of their regressions weighted by those weights (the global cluster fills in where fewer than ten are close, and takes over where none is). All ten bands are rewritten, not only the new ones: Landsat 8's blue is not Sentinel-2A's. This is not [`bandpass_adjust`](#bandpass_adjust), which takes Sentinel-2 *towards* OLI with a line per band and predicts no band; Sentinel-2 dates pass through here unchanged.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `data` | `DataArray` or path | required | Surface reflectance `(time, band, y, x)` or `(band, y, x)`, in memory or dask, with blue, green, red, NIR, SWIR1 and SWIR2 (found by role, as `bandpass_adjust` does). Sentinel-2 dates are passed through (their ten bands, named `blue green red rededge1 rededge2 rededge3 nir nir08 swir16 swir22` or `B02` ... `B12`). |
+| `sensor` | `str` or list | `None` | Each date's sensor: by default the cube's `platform` coordinate (which [`build_time_series`](data.md#build_time_series) keeps from STAC) or attribute; or one name for every date (`"landsat-8"`, `"LC09"`, `"LND05"`, `"terra"`, `"MOD02"`...), or one per date. Landsat 4, 5, 7, 8 and 9 are told apart, and MODIS Terra from Aqua. Any other sensor is an error that names the date. |
+| `bands` | `dict` | `None` | The cube's band of each role (`blue`, `green`, `red`, `nir`, `swir1`, `swir2`; for MODIS `swir1` is band 6 and `swir2` band 7; and the ten Sentinel-2 names for Sentinel-2 dates), when its names are not the usual ones. |
+| `scale` | `"auto"` or `float` | `"auto"` | What the reflectance is multiplied by in the data: 10000 for integers or values above 2, else 1. The method works on reflectance times 10000 (its intercepts are not scale-free): the data are converted to that and the result back to the data's scale. |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | Missing values besides NaN (the raster's NoData; 0 for integers without one). A pixel with a missing band is missing in all ten. |
+| `chunks` | `"auto"`, `dict` | `None` | Inputs read from disk: `None` reads into memory; otherwise the result is lazy. |
+| `n_jobs` | `int` | `-1` | Threads (the processors zeit may use by default). |
+| `force_search` | `bool` | `False` | FORCE's first search as it is (cluster 9 skipped, the global cluster a possible first pick), so that the values truncated to integers are FORCE's in every pixel. |
+
+</div>
+
+**Returns** `(time, band, y, x)` (or `(band, y, x)`), float32, with the same coordinates and georeferencing and ten bands named as Earth Search names them, so that [`compute_indices`](data.md#compute_indices) finds the ones it uses: `blue`, `green`, `red`, `rededge1`, `rededge2`, `rededge3`, `nir` (B08), `nir08` (B8A), `swir16`, `swir22`. Lazy if the input is. `attrs["spectral_adjusted"]` says what was done for each sensor, and an adjusted cube is refused a second time.
+
+**Where it differs from FORCE.** The arithmetic is FORCE's (its tables are generated from its source and checked, and with `force_search=True` the integer outputs equal FORCE's, 100% of 49 million values per sensor), with one difference on purpose: FORCE's first search for the closest cluster skips cluster 9 (it tests `s != 9` where the other searches leave out the global cluster, 50) and may pick the global cluster first. Here the global cluster is never the first pick and cluster 9 competes in every search, as in the second search and in the paper. On synthetic spectra of mixed land covers this changes 1.6-2.3% of the observations beyond one unit of the integer reflectance (see [Against the Original Implementations](../benchmarks/vs-originals.md#force-spectral-adjustment)). FORCE writes integers truncated toward zero and never reads the nodata value (its QA mask decides); here the output is float and not truncated.
+
+```python
+landsat = zeit.build_time_series(collection="landsat-c2-l2",
+                                 bands=["blue", "green", "red", "nir08", "swir16", "swir22"], **grid)
+s2like = zeit.spectral_adjust(landsat)           # blue ... swir22, plus rededge1-3 and nir08
+ndvi = zeit.compute_indices(s2like, ["NDVI"])    # nir is B08, as on Sentinel-2
+rededge = s2like.sel(band="rededge2") / s2like.sel(band="rededge1")   # the red edge, which Landsat does not measure
 ```
 
 ## Cloud masking

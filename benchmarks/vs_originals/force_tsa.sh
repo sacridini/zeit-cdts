@@ -14,6 +14,12 @@ NCOMP=${2:-6}
 HERE=$(cd "$(dirname "$0")" && pwd)
 DEST=${DEST:-/mnt/c/Users/eduar/AppData/Local/Temp/zeit-vs-force_tsa/ref}
 SIZE=${SIZE:-100}
+# SENSOR=LND08 (or LND07, LND05, ...): a six-band Landsat cube instead of the Sentinel-2A one, for the spectral-adjustment
+# configurations spec_on and spec_off (run them with ONLY="spec_on spec_off", one cube and DEST per sensor).
+# YEARS="2018 2022": the cube's first and last year.
+SENSOR=${SENSOR:-SEN2A}
+YEARS=${YEARS:-2018 2022}
+YEAR0=${YEARS% *}; YEAR1=${YEARS#* }
 source ~/force-ref-work/env.sh
 # OMP (default NCOMP) is the OpenMP team's size; FORCE runs reading, compute and writing as one team, which must have
 # at least read + compute + write threads or nothing is written (see force_tsa_timing.sh): OMP=8 with NCOMP=6.
@@ -27,8 +33,8 @@ CSO="NUM MIN MAX RNG IQR AVG STD SKW KRT Q25 Q50 Q75"
 mkdir -p "$WORK/prm" "$WORK/out" "$WORK/logs"
 if [ ! -f "$WORK/ard/X0000_Y0000/.done" ]; then
     rm -rf "$WORK/ard"
-    python -I "$HERE/force_tsa_cube.py" "$WORK" --size "$SIZE" --years 2018 2022 --seed 1 \
-        ${ZERO:+--zero-block "$ZERO"} || exit 1
+    python -I "$HERE/force_tsa_cube.py" "$WORK" --size "$SIZE" --years $YEARS --seed 1 \
+        --sensor "$SENSOR" ${ZERO:+--zero-block "$ZERO"} || exit 1
     touch "$WORK/ard/X0000_Y0000/.done"
 fi
 TILE=$(awk '/^TILE_SIZE_X/ {printf "%d", $3}' "$WORK/ard/datacube-definition.prj")
@@ -51,7 +57,7 @@ open(out, "w").write(text)
 EOF
 
 COMMON=(DIR_LOWER="$WORK/ard" NTHREAD_READ=1 NTHREAD_WRITE=1 NTHREAD_COMPUTE="$NCOMP" PRETTY_PROGRESS=FALSE
-        RESOLUTION=30 CHUNK_SIZE="$TILE $TILE" SENSORS=SEN2A TARGET_SENSOR=SEN2A DATE_RANGE="2018-01-01 2022-12-31")
+        RESOLUTION=30 CHUNK_SIZE="$TILE $TILE" SENSORS="$SENSOR" TARGET_SENSOR=SEN2A DATE_RANGE="$YEAR0-01-01 $YEAR1-12-31")
 # The noise filter is off (ABOVE_NOISE = BELOW_NOISE = 0 cancels it, H/quality-hl.c:178), so the TSS keeps every
 # observation the QAI lets through; the CSO has no such keys.
 TSA_COMMON=(INDEX=NDVI OUTPUT_TSS=TRUE INT_DAY=16 ABOVE_NOISE=0 BELOW_NOISE=0)
@@ -151,6 +157,15 @@ done
 [ -n "${ZERO:-}" ] && run TSA zero_polar "${RBF[@]}" OUTPUT_TSI=TRUE POL_ADAPTIVE=TRUE POL="$POL_ALL" OUTPUT_POL=TRUE \
     OUTPUT_TRO=TRUE OUTPUT_CAO=TRUE
 
+# FORCE's spectral adjustment (SPECTRAL_ADJUST) of a Landsat cube to Sentinel-2A: each of the ten bands as an "index" (TSS =
+# the raw int16, index_band copies ard.dat), no interpolation, no noise filter; spec_off the same without the adjustment (the
+# six source bands, target sensor = the input's), which the timing compares with.
+SPEC10="BLUE GREEN RED REDEDGE1 REDEDGE2 REDEDGE3 BROADNIR NIR SWIR1 SWIR2"
+if [ "$SENSOR" != SEN2A ]; then
+    run TSA spec_on INDEX="$SPEC10" INTERPOLATE=NONE SPECTRAL_ADJUST=TRUE
+    run TSA spec_off TARGET_SENSOR="$SENSOR" INDEX="BLUE GREEN RED NIR SWIR1 SWIR2" INTERPOLATE=NONE SPECTRAL_ADJUST=FALSE
+fi
+
 # Copy the small outputs (the cube's BOA and QAI stay here).
 mkdir -p "$DEST"
 if [ -n "$ONLY" ]; then
@@ -161,6 +176,8 @@ if [ -n "$ONLY" ]; then
         cp "$WORK/prm/$name.prm" "$DEST/prm/"
     done
     cp "$WORK/times_only.tsv" "$DEST/"
+    [ -f "$WORK/spec_src.npz" ] && cp "$WORK/spec_src.npz" "$DEST/"
+    [ -f "$WORK/truth.npz" ] && cp "$WORK/truth.npz" "$DEST/"
 else
     rm -rf "$DEST/out" "$DEST/prm"
     cp -r "$WORK/out" "$WORK/prm" "$DEST/"

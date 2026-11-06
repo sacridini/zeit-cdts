@@ -32,6 +32,12 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 DEST=${DEST:-/mnt/c/Users/eduar/AppData/Local/Temp/zeit-vs-force_tsa/bench}
 SIZE=${SIZE:-500}
 REPS=${REPS:-"1 2 3"}
+# SENSOR=LND08 YEARS="2018 2019": a six-band Landsat cube (and the configurations spec_on, spec_off: FORCE's spectral
+# adjustment to Sentinel-2A on and off, the ten adjusted bands or the six source bands as "indices") instead of the
+# Sentinel-2A one; the cube's values go to $DEST/spec_src.npz for force_specadjust_timing.py. Use a workdir of its own.
+SENSOR=${SENSOR:-SEN2A}
+YEARS=${YEARS:-2018 2022}
+YEAR0=${YEARS% *}; YEAR1=${YEARS#* }
 source ~/force-ref-work/env.sh
 OMP=$((NCOMP + 2)); [ $OMP -ge 4 ] || OMP=4   # see the note above: 3 is not enough, 4 is
 export OMP_NUM_THREADS=$OMP GDAL_NUM_THREADS=1
@@ -42,7 +48,7 @@ CSO="NUM MIN MAX RNG IQR AVG STD SKW KRT Q25 Q50 Q75"
 mkdir -p "$WORK/prm" "$WORK/out" "$WORK/logs"
 if [ ! -f "$WORK/ard/X0000_Y0000/.done" ]; then
     rm -rf "$WORK/ard"
-    python -I "$HERE/force_tsa_cube.py" "$WORK" --size "$SIZE" --years 2018 2022 --seed 1 || exit 1
+    python -I "$HERE/force_tsa_cube.py" "$WORK" --size "$SIZE" --years $YEARS --seed 1 --sensor "$SENSOR" || exit 1
     touch "$WORK/ard/X0000_Y0000/.done"
 fi
 SHIM="$WORK/force_time_ms.so"
@@ -81,7 +87,7 @@ print(*out)
 EOF
 
 COMMON=(DIR_LOWER="$WORK/ard" NTHREAD_READ=1 NTHREAD_WRITE=1 NTHREAD_COMPUTE="$NCOMP" PRETTY_PROGRESS=FALSE
-        RESOLUTION=30 CHUNK_SIZE="$TILE $TILE" SENSORS=SEN2A TARGET_SENSOR=SEN2A DATE_RANGE="2018-01-01 2022-12-31")
+        RESOLUTION=30 CHUNK_SIZE="$TILE $TILE" SENSORS="$SENSOR" TARGET_SENSOR=SEN2A DATE_RANGE="$YEAR0-01-01 $YEAR1-12-31")
 # OUTPUT_TSS in every TSA run, so that all of them build the same TSS brick and the baseline's compute stage is what
 # they have in common.
 TSA_COMMON=(INDEX=NDVI OUTPUT_TSS=TRUE INT_DAY=16 ABOVE_NOISE=0 BELOW_NOISE=0)
@@ -107,6 +113,10 @@ cfg() {
         rbf_trend_nopen) ARGS=("${RBF[@]}" FOLD_TYPE=AVG OUTPUT_TRY=TRUE OUTPUT_CAY=TRUE CHANGE_PENALTY=FALSE) ;;
         rbf_polar)       ARGS=("${RBF[@]}" POL_ADAPTIVE=TRUE POL="VSS VPS VES VSA RMR IGS" OUTPUT_POL=TRUE) ;;
         rbf_polar39)     ARGS=("${RBF[@]}" POL_ADAPTIVE=TRUE POL="$POL_ALL" OUTPUT_POL=TRUE) ;;
+        spec_on)         ARGS=(INDEX="BLUE GREEN RED REDEDGE1 REDEDGE2 REDEDGE3 BROADNIR NIR SWIR1 SWIR2" INTERPOLATE=NONE
+                               SPECTRAL_ADJUST=TRUE) ;;
+        spec_off)        ARGS=(INDEX="BLUE GREEN RED NIR SWIR1 SWIR2" INTERPOLATE=NONE SPECTRAL_ADJUST=FALSE
+                               TARGET_SENSOR="$SENSOR") ;;
         cso_m1)          MOD=CSO; ARGS=(MONTH_STEP=1 CSO="$CSO") ;;
         cso_num)         MOD=CSO; ARGS=(MONTH_STEP=1 CSO="NUM") ;;
         *) echo "unknown config $1"; exit 2 ;;
@@ -160,6 +170,7 @@ for name in baseline int_linear int_moving int_rbf int_harmonic rbf_stm rbf_fold
     esac
     for p in $pat; do cp "$d"/*_${p}.tif "$DEST/out/$name/X0000_Y0000/"; done
 done
+[ -f "$WORK/spec_src.npz" ] && cp "$WORK/spec_src.npz" "$WORK/truth.npz" "$DEST/"
 mkdir -p "$DEST/prm"
 cp "$WORK"/prm/*.prm "$DEST/prm/"
 cp "$WORK/compute.tsv" "$DEST/"

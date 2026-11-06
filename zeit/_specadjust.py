@@ -140,7 +140,7 @@ def _source_names() -> Dict[str, Sequence[str]]:
 
 
 def _adjust_block(block: np.ndarray, sensors: Sequence[str], src: Sequence[int], dst: Sequence[int], factor: float,
-                  n_jobs: int, dtype: Any, block_info: Any = None) -> np.ndarray:
+                  n_jobs: int, dtype: Any, force_search: bool = False, block_info: Any = None) -> np.ndarray:
     """``(time, band, y, x)`` -> ``(time, 10, y, x)``: `sensors` is that of every date of the whole cube,
     `src` the positions of the six source bands, `dst` those of the ten Sentinel-2 bands."""
     from . import _core
@@ -159,7 +159,7 @@ def _adjust_block(block: np.ndarray, sensors: Sequence[str], src: Sequence[int],
             x = np.ascontiguousarray(x)
         else:
             x = np.ascontiguousarray(x, dtype=np.float64) * scale
-        y = _core.specadjust.specadjust_batch(x, sensor, n_jobs)          # (pixels, 10), x 10000
+        y = _core.specadjust.specadjust_batch(x, sensor, n_jobs, force_search)          # (pixels, 10), x 10000
         if factor != 10000.0:
             y = y * (factor / 10000.0)
         out[k] = np.moveaxis(y.reshape(ny, nx, len(TARGET_BANDS)), -1, 0)
@@ -175,6 +175,7 @@ def spectral_adjust(
     nodata: Union[float, str, None] = "auto",
     chunks: Any = None,
     n_jobs: int = -1,
+    force_search: bool = False,
 ) -> xr.DataArray:
     """Landsat and MODIS surface reflectance on the spectral response of Sentinel-2A, with the red edge bands and
     the broad NIR that those sensors do not have predicted: FORCE's spectral adjustment.
@@ -196,7 +197,9 @@ def spectral_adjust(
     Differences from FORCE. FORCE's first search for the closest cluster skips cluster 9 (it tests ``s != 9``
     where it means to leave out the global cluster, 50, as its other searches do) and lets the global cluster be
     the first pick; here the global cluster never is, and cluster 9 competes in every search, as in the paper. The
-    pixels this changes are those where cluster 9 or the global cluster is the closest. FORCE never reads the
+    pixels this changes are those where cluster 9 or the global cluster is the closest: on synthetic mixtures of
+    land covers, 1.6-2.3% of the observations differ from FORCE's integers by more than 1 (the core with FORCE's own
+    search equals FORCE in every value; ``force_search=True`` gives it). FORCE never reads the
     nodata value (a mask decides which pixels are adjusted) and truncates to 16 bits; here a pixel with a missing
     band (NaN or ``nodata``) is missing in all ten, and the output is float and not truncated.
 
@@ -227,6 +230,9 @@ def spectral_adjust(
         Inputs read from disk: ``None`` in memory, ``"auto"`` or a dict lazily.
     n_jobs
         Threads: the processors zeit may use by default (``-1``).
+    force_search
+        Use FORCE's first search as it is (cluster 9 skipped, the global cluster a possible first pick), so that
+        the values truncated to integers are FORCE's in every pixel. Default ``False``: the search as meant.
 
     Returns
     -------
@@ -286,10 +292,10 @@ def spectral_adjust(
 
         arr = arr.rechunk({1: -1})
         chunks_out = (arr.chunks[0], (len(TARGET_BANDS),)) + arr.chunks[2:]
-        out = da.map_blocks(_adjust_block, arr, sensors, src, dst, factor, threads, dtype, dtype=dtype,
+        out = da.map_blocks(_adjust_block, arr, sensors, src, dst, factor, threads, dtype, force_search, dtype=dtype,
                             chunks=chunks_out, meta=np.empty((0, 0, 0, 0), dtype))
     else:
-        out = _adjust_block(np.asarray(arr), sensors, src, dst, factor, threads, dtype)
+        out = _adjust_block(np.asarray(arr), sensors, src, dst, factor, threads, dtype, force_search)
     if not has_time:
         out = out[0]
 
