@@ -1,4 +1,6 @@
 """zeit.polar_metrics (FORCE's polar phenology metrics): the dates, values, integrals and rates of each year's season."""
+import inspect
+
 import dask.array as da
 import numpy as np
 import pandas as pd
@@ -247,7 +249,7 @@ def test_linear_trend_of_a_date_along_the_years_is_the_change_per_year():
 
 
 def test_the_docstring_lists_the_39_metrics():
-    doc = zeit.polar_metrics.__doc__
+    doc = inspect.cleandoc(zeit.polar_metrics.__doc__)      # Python 3.13+ dedents docstrings itself
     assert len(ALL) == 39 and len(set(ALL)) == 39
     for name in ALL:
-        assert f"\n    {name} " in doc, name
+        assert f"\n{name} " in doc, name
