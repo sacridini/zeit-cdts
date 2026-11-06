@@ -3,7 +3,9 @@ series or by year, quarter, month, week or day of the year), ``zeit.standardize`
 ``zeit.interpolate`` (linear, moving average, RBF ensemble or robust harmonic fit, to a regular
 grid or to any dates), ``zeit.linear_trend`` and ``zeit.cat`` (the linear trend of a series and its
 greatest change, with the trend before and after it) and ``zeit.clear_observations`` (the clear
-observations in windows of months and the gaps between them).
+observations in windows of months and the gaps between them) and ``zeit.polar_metrics`` (the 39
+polar phenology metrics of FORCE: dates, lengths, values, amplitudes, integrals and rates of each
+year's season).
 
 The statistics and the interpolation are those of FORCE's higher-level TSA module (STM, fold and
 interpolation, Frantz 2019, Remote Sensing 11(9):1124), computed by the compiled core (``zeit._core.tsa``). Input and output follow
@@ -763,3 +765,200 @@ def cat(data: Any, *, penalty: bool = False, conf: float = 0.95, tail: str = "tw
                                        output_dtypes=[labels.dtype])
     ds = ds.drop_vars("change_index")
     return ds[["change", "loss", "change_time"] + CAT_NAMES[3:]]
+
+
+POLAR_NAMES = ("DEM", "DLM", "DPS", "DSS", "DMS", "DES", "DEV", "DAV", "DLV", "LTS", "LGS", "LGV", "VEM", "VLM", "VPS",
+               "VSS", "VMS", "VES", "VEV", "VAV", "VLV", "VBL", "VGA", "VSA", "VPA", "VGM", "VGV", "DPY", "DPV", "IST",
+               "IBL", "IBT", "IGS", "IRR", "IFR", "RAR", "RAF", "RMR", "RMF")
+
+
+def _polar_block(block, ce, step, names, start, mid, end, adaptive, n_jobs, dtype, ny):
+    from . import _core
+
+    _, h, w = block.shape
+    if block.size == 0:
+        return np.full((len(names), ny, h, w), np.nan, dtype=dtype)
+    out = _core.tsa.polar_batch(_flat(block), ce, step, names, start, mid, end, adaptive, n_jobs)  # (pixels, metrics, years)
+    return np.ascontiguousarray(out.transpose(1, 2, 0), dtype=dtype).reshape(len(names), ny, h, w)
+
+
+def polar_metrics(data: Any, metrics: Sequence[str] = ("VSS", "VPS", "VES", "VSA", "RMR", "IGS"), *,
+                  start: float = 0.2, mid: float = 0.5, end: float = 0.8, adaptive: bool = True,
+                  dates: Optional[Sequence[Any]] = None, band: Union[str, int, None] = None,
+                  nodata: Union[float, str, None] = "auto", chunks: Any = None, n_jobs: int = -1) -> xr.DataArray:
+    """The polar phenology metrics of each pixel and year (FORCE's POL: the polarmetrics of Brooks et al. 2020).
+
+    The series is put on a circle (the day of the year the angle, the value the radius, negative values
+    counted as 0). The mean of all its points is the long-term mean vector; its opposite, the time of least
+    activity, starts the phenological year. Each year's season runs from that start to the next; the values
+    are accumulated along it and divided by its total, and the dates where the fraction reaches ``start``,
+    ``mid`` and ``end`` are the start, middle and end of the season. With ``adaptive`` each season's own mean
+    vector moves its start. Then, per season: the early and late minima (the first and the last step with
+    a non-zero fraction), the peak, the mean vectors of the growing season and of its early and late
+    parts, the amplitudes, the integrals and the rates of rise and fall. It is a port of FORCE's
+    ``polar-hl.c`` (Frantz), which extends Brooks, Lee, Pomara and Hargrove (2020, Forests 11(6):606,
+    doi 10.3390/f11060606): the arithmetic that decides a day or an event (the angle in float32, the
+    day of the year truncated from it, the accumulation in float32) is FORCE's.
+
+    Parameters
+    ----------
+    data
+        A ``(time, y, x)`` cube of a non-negative index (in memory or dask), anything ``zeit.load_raster``
+        reads, a numpy ``(time, y, x)`` with ``dates``, or one pixel's series. The series must be
+        regular, a constant step of whole days, covering at least 2 years, as the output of
+        ``zeit.interpolate`` (FORCE computes the metrics from its interpolated series, INT_DAY 16): run
+        it first. NaN marks a missing step (so does the NoData value): it is filled by linear
+        interpolation in time (constant beyond the first and last valid step), as FORCE does; a pixel
+        with no valid step is NaN.
+    metrics
+        Any of the 39 names below, upper or lower case. Only what they need is computed.
+    start, mid, end
+        The fractions of the season's accumulated value that mark its start, middle and end (FORCE's
+        POL_START_THRESHOLD, POL_MID_THRESHOLD, POL_END_THRESHOLD: 0.2, 0.5, 0.8), each in (0, 1).
+    adaptive
+        Fine-tune the start of each year's season from its own mean vector (FORCE's POL_ADAPTIVE).
+    dates, band, nodata, chunks, n_jobs
+        As for ``zeit.mann_kendall``.
+
+    Returns
+    -------
+    xarray.DataArray
+        ``(metric, year, y, x)``: one band per calendar year from the first date's to the last's,
+        float32 for float32 input, else float64, with the metrics unrounded (FORCE writes them as
+        truncated 16-bit integers). A season belongs to the year it ends in when the long-term start of
+        the year is before day 182, else to the year after it begins (as FORCE: ``y = s`` if the day of
+        the start is before 182, else ``s + 1``), so with ``n`` years there are ``n - 1`` seasons and
+        the first or the last year is NaN. ``zeit.linear_trend(out.sel(metric="DSS"))`` is FORCE's TRO
+        and ``zeit.cat`` its CAO.
+
+    The metrics (a *date* counts days from 1 January of the band's year, 365 days a year with 29 February
+    sharing day 60 with 1 March; the values are in the unit of the data, *data*):
+
+    ====== ======================================================== ==============
+    name   meaning                                                  unit
+    ====== ======================================================== ==============
+    DEM    date of the early minimum (first step of the season      days
+           with a non-zero accumulated fraction)
+    DLM    date of the late minimum (the step after the last one    days
+           with the fraction 1: the start of the next season)
+    DPS    date of the peak (first maximum of the growing season)   days
+    DSS    date of the start of the season (fraction >= start)      days
+    DMS    date of the middle of the season (fraction >= mid)       days
+    DES    date of the end of the season (fraction >= end)          days
+    DEV    date of the mean vector of the early growing season      days
+           (start <= fraction < mid)
+    DAV    date of the mean vector of the growing season            days
+           (start <= fraction < end)
+    DLV    date of the mean vector of the late growing season       days
+           (mid <= fraction < end)
+    LTS    length of the total season (DLM - DEM)                   days
+    LGS    length of the growing season (DES - DSS)                 days
+    LGV    length between the early and late mean vectors           days
+           (DLV - DEV)
+    VEM    value at the early minimum                               data
+    VLM    value at the late minimum                                data
+    VPS    value at the peak                                        data
+    VSS    value at the start of the season                         data
+    VMS    value at the middle of the season                        data
+    VES    value at the end of the season                           data
+    VEV    length of the early mean vector (the mean, not the       data
+           sum, of the points of the window)
+    VAV    length of the growing season's mean vector               data
+    VLV    length of the late mean vector                           data
+    VBL    base level, (VEM + VLM) / 2                              data
+    VGM    mean value of the growing season                         data
+    VGV    standard deviation (n - 1) of the growing season         data
+    VGA    green amplitude, peak - (VSS + VES) / 2                  data
+    VSA    seasonal amplitude, peak - base level                    data
+    VPA    peak amplitude, peak - value at the middle               data
+    DPY    start of the phenological year (long-term; the same      days
+           every year, negative when it falls before 1 January
+           of the band's year)
+    DPV    shift of the season's own start from DPY (0 without      days
+           ``adaptive``)
+    IST    seasonal integral, above the base level                  data * year
+    IBL    base integral, under the base level                      data * year
+    IBT    total integral of the season                             data * year
+    IGS    green integral, above the green level in the growing     data * year
+           season
+    IRR    rising integral, the sum of the rises                    data * month
+    IFR    falling integral, the sum of the falls                   data * month
+    RAR    average rate of rise, early growing season               data / month
+    RAF    average rate of fall, late growing season                data / month
+    RMR    maximum rate of rise, early growing season               data / month
+    RMF    maximum rate of fall, late growing season                data / month
+    ====== ======================================================== ==============
+
+    Differences from FORCE, all deliberate. The dates count from 1 January of the band's year (FORCE
+    from 1 January of the first year of the series), so a linear trend along ``year`` is directly the
+    change per year (FORCE subtracts 365 from the slope of a date: its ``in_ce``). What FORCE leaves
+    undefined (a ``NaN`` converted to an integer: a season of total 0 or without steps, the mean vector
+    or rate of a window without steps, VGM without a step, VGV with fewer than 2) is NaN here, and
+    nothing is clipped to 16 bits. FORCE writes garbage for DPV without ``adaptive``; here it is 0. Its
+    STANDARDIZE_POL does nothing; use ``zeit.standardize``. The average rates (RAR, RAF) divide the
+    sum of the rates by all the steps of the window, rises and falls or not, as FORCE does.
+
+    Examples
+    --------
+    >>> tsi = zeit.interpolate(ndvi * 10000, "rbf", step=16)          # FORCE's TSI
+    >>> pol = zeit.polar_metrics(tsi, ["DSS", "DES", "VPS", "IGS"])  # (metric, year, y, x)
+    >>> sos_trend = zeit.linear_trend(pol.sel(metric="DSS"))         # days per year
+    """
+    from ._embeddings import refuse
+    from ._series_api import _as_dask, _series_cube
+
+    refuse(data, "zeit.polar_metrics")
+    if isinstance(metrics, str):
+        metrics = [metrics]
+    names = [str(m).strip().upper() for m in metrics]
+    if not names:
+        raise ValueError("provide at least one metric")
+    unknown = [m for m in names if m not in POLAR_NAMES]
+    if unknown:
+        raise ValueError(f"unknown polar metrics {unknown}: use some of {', '.join(POLAR_NAMES)}")
+    for label, value in (("start", start), ("mid", mid), ("end", end)):
+        if not 0 < value < 1:
+            raise ValueError(f"{label} must be between 0 and 1, got {value}")
+    cube, pixel = _series_cube(data, dates=dates, band=band, chunks=chunks, need_dates=True, nodata=nodata)
+    index = pd.DatetimeIndex(cube.time.values)
+    if len(index) < 3 or index.isna().any():
+        raise ValueError("polar_metrics needs a date for every step and at least 3 steps")
+    gaps = np.diff(_ns(index))
+    if gaps[0] <= 0 or (gaps != gaps[0]).any() or gaps[0] % _DAY_NS:
+        raise ValueError("polar_metrics needs a regular series, a constant step of whole days (the dates are not "
+                         "evenly spaced): interpolate it first with zeit.interpolate(data, step=...)")
+    step = int(gaps[0] // _DAY_NS)
+    years = index.year.values
+    first = int(years[0])
+    ny = int(years[-1]) - first + 1
+    if ny < 2:
+        raise ValueError("polar_metrics needs at least 2 calendar years: a season runs from one start of the "
+                         "phenological year to the next")
+    doy = _CUM[index.month.values - 1] + index.day.values
+    ce = ((years - first) * 365 + doy).astype(np.int64)
+
+    threads, dtype = resolve(n_jobs), _work_dtype(cube)
+    args = (ce, step, names, float(start), float(mid), float(end), bool(adaptive), threads, dtype, ny)
+    if cube.chunks is not None:
+        import dask.array as da
+
+        arr, _ = _as_dask(cube)
+        chunks_out = ((len(names),), (ny,)) + arr.chunks[1:]
+        out = da.map_blocks(_polar_block, arr, *args, dtype=dtype, drop_axis=[0], new_axis=[0, 1], chunks=chunks_out,
+                            meta=np.empty((0,) * 4, dtype))
+    else:
+        out = _polar_block(np.asarray(cube.values), *args)
+
+    coords = {"metric": names, "year": np.arange(first, first + ny)}
+    if not pixel:
+        for name in ("y", "x", "spatial_ref"):
+            if name in cube.coords:
+                coords[name] = cube.coords[name]
+    result = xr.DataArray(out, dims=("metric", "year", "y", "x"), coords=coords, name="polar_metrics",
+                          attrs={"algorithm": "polar_metrics", "start": float(start), "mid": float(mid),
+                                 "end": float(end), "adaptive": int(bool(adaptive)), "step": step})
+    if pixel:
+        return result.squeeze(("y", "x"), drop=True)
+    if cube.rio.crs is not None:
+        result = result.rio.write_crs(cube.rio.crs)
+    return result

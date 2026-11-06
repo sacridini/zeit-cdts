@@ -88,6 +88,14 @@ class ZeitAccessor:
         from zeit._tsa import clear_observations
         return clear_observations(self._obj, **kwargs)
 
+    def polar_metrics(self, metrics: Any = ("VSS", "VPS", "VES", "VSA", "RMR", "IGS"), **kwargs: Any) -> xr.DataArray:
+        """
+        The polar phenology metrics of each pixel and year of this regular (time, y, x) series (FORCE's POL):
+        the same as ``zeit.polar_metrics(cube, metrics, ...)``.
+        """
+        from zeit._tsa import polar_metrics
+        return polar_metrics(self._obj, metrics, **kwargs)
+
     def ar_trend(self, **kwargs: Any) -> xr.Dataset:
         """
         Fits the AR(1) REML trend of each pixel of this (time, y, x) cube: the same as ``zeit.ar_trend(cube, ...)``.

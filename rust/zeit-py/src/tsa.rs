@@ -1,6 +1,6 @@
 //! zeit._core.tsa: the Python module (statistics of series and their folds,
 //! standardization, interpolation,
-//! linear trend and greatest change, clear observations).
+//! linear trend and greatest change, clear observations, polar phenology metrics).
 
 use numpy::{
     AllowTypeChange, PyArray1, PyArray2, PyArray3, PyArrayLike1, PyArrayLike2, PyArrayMethods, PyReadonlyArray2,
@@ -10,6 +10,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use zeit_core::tsa::cso;
 use zeit_core::tsa::interp::{self, Method};
+use zeit_core::tsa::polar;
 use zeit_core::tsa::stats::{self, Metric, Standardize};
 use zeit_core::tsa::trend::{self, Tail, CAT_LEN, TREND_LEN};
 
@@ -283,6 +284,39 @@ fn cso_batch<'py>(
     PyArray1::from_vec(py, out).reshape([n_pixels, metrics.len(), n_windows])
 }
 
+/// The polar phenology metrics of every series of values (pixels, steps; NaN marks a missing
+/// step) on the days `ce` (a calendar of 365 days counted from the first year: `year * 365 +
+/// doy`, the first year 0): (pixels, metrics, years). `step` is the nominal interval in days;
+/// `start`, `mid` and `end` the fractions of a season's accumulated value that mark its start,
+/// middle and end. `metrics` are FORCE's names (DEM, DSS, VSS...). A band without a season is NaN.
+#[pyfunction]
+#[pyo3(signature = (values, ce, step, metrics, start = 0.2, mid = 0.5, end = 0.8, adaptive = true, n_jobs = -1))]
+#[allow(clippy::too_many_arguments)]
+fn polar_batch<'py>(
+    py: Python<'py>,
+    values: Cube<'py>,
+    ce: PyArrayLike1<'py, i64, AllowTypeChange>,
+    step: i32,
+    metrics: Vec<String>,
+    start: f64,
+    mid: f64,
+    end: f64,
+    adaptive: bool,
+    n_jobs: i32,
+) -> PyResult<Bound<'py, PyArray3<f64>>> {
+    if metrics.is_empty() {
+        return Err(PyValueError::new_err("provide at least one metric"));
+    }
+    let metrics = polar::parse_all(&metrics).map_err(PyValueError::new_err)?;
+    let (n_pixels, n_time) = values.dim();
+    let ce: Vec<i64> = ce.as_array().iter().copied().collect();
+    let (out, ny) = with_cube!(values, v => py.detach(|| {
+        polar::polar_batch(v, n_pixels, n_time, &ce, step, start, mid, end, adaptive, &metrics, n_jobs)
+    }))
+    .map_err(PyValueError::new_err)?;
+    PyArray1::from_vec(py, out).reshape([n_pixels, metrics.len(), ny])
+}
+
 pub fn module(py: Python<'_>) -> PyResult<Bound<'_, PyModule>> {
     let m = PyModule::new(py, "tsa")?;
     m.add("__doc__", "Statistics of time series and their folds, standardization, interpolation")?;
@@ -294,5 +328,6 @@ pub fn module(py: Python<'_>) -> PyResult<Bound<'_, PyModule>> {
     m.add_function(wrap_pyfunction!(trend_batch, &m)?)?;
     m.add_function(wrap_pyfunction!(cat_batch, &m)?)?;
     m.add_function(wrap_pyfunction!(cso_batch, &m)?)?;
+    m.add_function(wrap_pyfunction!(polar_batch, &m)?)?;
     Ok(m)
 }

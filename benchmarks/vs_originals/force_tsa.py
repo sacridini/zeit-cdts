@@ -13,7 +13,10 @@ onto its 16-day grid, and the harmonic fit's NRT product; the pixels whose IRLS 
 reports, are left out and counted, see ``IRLS_CAP``), ``trend`` (``zeit.linear_trend`` and ``zeit.cat`` of the average folds by year and by month,
 against TRY, TRM, CAY and CAM with and without the change penalty), ``cso`` (``zeit.clear_observations``' core on
 FORCE's TSS and windows against cso_m1 and cso_m3: NUM, MIN, MAX, RNG and AVG equal; STD, SKW, KRT, the quantiles and IQR
-differ by design, shown with a port of FORCE's own code).
+differ by design, shown with a port of FORCE's own code), ``polar`` (``zeit.polar_metrics``' core on FORCE's RBF TSI
+against the 39 polar metrics of rbf_polar_adapt and rbf_polar_fixed, and the trend and change of each against TRO and
+CAO; the dates converted from "days from 1 January of the band's year" to FORCE's continuous days, FORCE's in_ce
+handling of TRO and CAO checked with a port of its code).
 
 For each product and band it prints the share of pixels that are equal, within +-1, and the largest |difference|.
 Where FORCE's result is undefined (a standard deviation, skewness or kurtosis of one value, a skewness or kurtosis
@@ -375,7 +378,7 @@ def hill_critical_t(df, p=None):
     return t
 
 
-def _fit(y, lo, hi, plen, crit, whole, nf):
+def _fit(y, lo, hi, plen, crit, whole, nf, in_ce=False):
     """FORCE's trend of the valid values of ``y[lo:hi]`` (x = the index): the 12 int16 of a trend or of a part of the
     change, NODATA where FORCE leaves them. ``whole``: trend(), not a part of cat()."""
     out = [NODATA] * 12
@@ -414,11 +417,20 @@ def _fit(y, lo, hi, plen, crit, whole, nf):
         sxsq += (f - mx) * (f - mx)
         if abs(e) > maxe:
             maxe = abs(e)
+    if in_ce:  # values in continuous days (the polar metrics' dates): the mean and the slope lose the 365 days a year
+        my -= (365 * (nf - 1)) // 2  # C's integer arithmetic
+        slp -= 365
+        if not whole:  # cat() scales before the test of significance and the offset, trend() after the test
+            slp *= 1000
+        else:  # trend() writes the mean after the adjustment, cat() before
+            out[0] = _short(my)
     seb = (1.0 / (k - 2.0) * ssqe) ** 0.5 / sxsq ** 0.5
     with np.errstate(all="ignore"):
         t = np.float32(slp) / np.float32(seb)
     tc = np.float32(crit[int(k) - 2])
     sig = -1 if t <= -tc else 1 if t >= tc else 0
+    if in_ce and whole:
+        slp *= 1000
     plen = nf if whole else plen
     yhat = off + slp * (0 if whole else lo)
     if whole:
@@ -456,13 +468,13 @@ def _change_step(y, penalty, bug=True, f32=True):
     return (None, 0) if best_real is None else (f_change, int(best_real))
 
 
-def literal_trend(v, crit):
+def literal_trend(v, crit, in_ce=False):
     """FORCE's trend (12 int16 per row) of the rows of ``v`` (pixels, folds), NaN missing."""
     nf = v.shape[1]
-    return np.array([_fit(row, 0, nf, nf, crit, True, nf) for row in v.tolist()], dtype=np.int32)
+    return np.array([_fit(row, 0, nf, nf, crit, True, nf, in_ce) for row in v.tolist()], dtype=np.int32)
 
 
-def literal_cat(v, crit, penalty, period):
+def literal_cat(v, crit, penalty, period, in_ce=False):
     """FORCE's CAT (39 int16 per row) of the rows of ``v``; ``period(i)``: the YEAR_OF_CHANGE of fold step ``i``."""
     nf = v.shape[1]
     out = np.full((v.shape[0], 39), NODATA, dtype=np.int32)
@@ -471,9 +483,9 @@ def literal_cat(v, crit, penalty, period):
         if f is None:
             continue
         out[p, 0], out[p, 2] = change, period(f)
-        total = _fit(y, 0, nf, nf, crit, False, nf)
-        before = _fit(y, 0, f - 1, f - 1, crit, False, nf)
-        after = _fit(y, f, nf, nf - f, crit, False, nf)
+        total = _fit(y, 0, nf, nf, crit, False, nf, in_ce)
+        before = _fit(y, 0, f - 1, f - 1, crit, False, nf, in_ce)
+        after = _fit(y, f, nf, nf - f, crit, False, nf, in_ce)
         out[p, 3:15], out[p, 15:27], out[p, 27:39] = total, before, after
         out[p, 1] = _short(np.float32(change) / np.float32(total[1]) * np.float32(100)) if total[1] > 0 else 0
     return out
@@ -794,9 +806,257 @@ def part_cso(jobs):
                 _failed.append(f"CSO {config}: FORCE's code in Python does not give FORCE's {product}")
 
 
+# ---- polar phenology metrics (POL, TRO, CAO) -----------------------------------------------------------------------
+
+POL_FIRST_DATE, POL_LAST_DATE, POL_STEP = 20180101, 20221231, 16
+# The date metrics: Zeit counts them from 1 January of the band's year, FORCE from 1 January of the first year (+ 365 y).
+POL_DATES = ["DEM", "DLM", "DPS", "DSS", "DMS", "DES", "DEV", "DAV", "DLV", "DPY"]
+POL_IN_CE = 9          # FORCE's TRO and CAO treat the first 9 metrics (not DPY) as continuous days (in_ce)
+
+
+def wrap16(x):
+    """``(short)x`` of a double on x86 as FORCE writes it: toward zero, then the low 16 bits (an integer past the range
+    wraps); NaN is NODATA."""
+    x = np.asarray(x, dtype=np.float64)
+    out = np.trunc(np.nan_to_num(x, nan=NODATA, posinf=0.0, neginf=0.0))
+    out = np.where(np.abs(out) >= 2.0 ** 31, 0.0, out).astype(np.int64)  # past an int, x86 gives INT_MIN: low bits 0
+    return (((out + 32768) & 0xFFFF) - 32768).astype(np.int32)
+
+
+def _polar_names():
+    from zeit._tsa import POLAR_NAMES
+
+    return list(POLAR_NAMES)
+
+
+def polar_zeit(jobs, adaptive, config="int_rbf"):
+    """Zeit's core on FORCE's own TSI: ``(metrics, years, pixels)`` floats (NaN where Zeit has none), the TSI's ``ce``
+    relative to the first year, and the seconds."""
+    from zeit import _core
+
+    v, _, _ = tsi(config)
+    grid = ref.tsi_grid(ref.ce_of(POL_FIRST_DATE), ref.ce_of(POL_LAST_DATE), POL_STEP).astype(np.int64)
+    assert len(grid) == v.shape[1], (len(grid), v.shape)
+    ce = grid - (POL_FIRST_DATE // 10000) * 365
+    t0 = time.perf_counter()
+    out = np.asarray(_core.tsa.polar_batch(v.astype(np.float32), ce, POL_STEP, _polar_names(), 0.2, 0.5, 0.8,
+                                           adaptive, jobs))  # (pixels, metrics, years)
+    return out.transpose(1, 2, 0), ce, time.perf_counter() - t0
+
+
+def force_scale(zeit_out):
+    """Zeit's ``(metrics, years, pixels)`` with the dates counted as FORCE counts them (+ 365 per year)."""
+    out = zeit_out.copy()
+    for k, name in enumerate(_polar_names()):
+        if name in POL_DATES:
+            out[k] += 365 * np.arange(out.shape[1])[:, None]
+    return out
+
+
+def load_polar(config, suffix="POL"):
+    """FORCE's ``<MET>-<suffix>`` outputs: ``(metrics, years or bands, pixels)`` int16."""
+    arrays = [ref.load(config, f"{name}-{suffix}")[0] for name in _polar_names()]
+    return np.stack([a.reshape(a.shape[0], -1) for a in arrays])
+
+
+def summary_by_metric(title, names, got, want, skip=None):
+    """The agreement per metric of ``got`` and FORCE's ``want`` (both ``(metrics, bands, pixels)``), over its bands and
+    pixels: the share equal and within +-1 and the largest |difference|; ``skip`` marks the values left out."""
+    got, want = np.asarray(got).astype(np.int64), np.asarray(want).astype(np.int64)
+    keep = np.ones(got.shape, bool) if skip is None else ~np.asarray(skip)
+    diff = np.where(keep, np.abs(got - want), 0)
+    print(f"\n{title}   ({len(names)} metrics x {got.shape[1]} bands x {got.shape[2]} pixels; {int((~keep).sum())} "
+          f"values left out)")
+    print(f"  {'metric':<8}{'equal %':>10}{'within 1 %':>12}{'max |dif|':>11}{'left out':>10}")
+    for k, name in enumerate(names):
+        n = int(keep[k].sum())
+        print(f"  {name:<8}{100.0 * ((diff[k] == 0) & keep[k]).sum() / max(n, 1):>10.3f}"
+              f"{100.0 * ((diff[k] <= 1) & keep[k]).sum() / max(n, 1):>12.3f}{int(diff[k].max()):>11d}"
+              f"{int((~keep[k]).sum()):>10d}")
+    if (diff > 1).any():
+        _failed.append(title)
+
+
+def _wrapped(a, names, scale=None):
+    """Zeit's float result ``(pixels, bands)`` as the int16 FORCE writes: R-squared times 10000, truncation, and a value past
+    the range wrapping (the slope of a date times 1000 does)."""
+    a = np.array(a, dtype=np.float64)
+    for band, factor in (scale or {}).items():
+        a[:, names.index(band)] *= factor
+    return wrap16(a)
+
+
+def _yearly(zeit_out, force_out, k, adaptive=True):
+    """The series FORCE's trend and change read for metric ``k``, ``(pixels, years)``: its int16 POL output. From Zeit's: the
+    dates from 1 January of each year for the 9 that FORCE has in continuous days (in_ce converts the result), the others
+    as FORCE has them, all truncated. DPV without ``adaptive`` is FORCE's -DPY (Zeit writes 0)."""
+    names = _polar_names()
+    if names[k] == "DPV" and not adaptive:
+        return np.ascontiguousarray(np.trunc(-force_out[names.index("DPY")].T), dtype=np.float64)
+    source = zeit_out if k < POL_IN_CE else force_out
+    return np.ascontiguousarray(np.trunc(source[k].T), dtype=np.float64)
+
+
+def _in_ce_from_zeit(z, series):
+    """FORCE's trend of a date series in continuous days (in_ce), from Zeit's ``trend_batch`` of the dates counted from
+    1 January of each year: the mean without the 365 days a year (FORCE subtracts those of all the bands, whatever
+    is valid), the slope times 1000, and the gains from that slope."""
+    nf = series.shape[1]
+    valid = np.isfinite(series)
+    mean_index = (valid * np.arange(nf)).sum(1) / np.maximum(valid.sum(1), 1)
+    out = np.array(z, dtype=np.float64)
+    slope = z[:, 2] * 1000.0
+    with np.errstate(all="ignore"):
+        out[:, 0] = z[:, 0] + 365.0 * mean_index - (365 * (nf - 1)) // 2
+        out[:, 2] = slope
+        out[:, 3] = np.where(z[:, 1] > 0, slope * z[:, 11] / z[:, 1] * 100.0, 0.0)
+        out[:, 4] = slope * z[:, 11]
+    return out
+
+
+def _crit_list(nf):
+    crit = {df: hill_critical_t(df) for df in range(1, nf)}
+    return [float("nan")] + [crit[df] for df in range(1, nf - 1)]
+
+
+def polar_trend(jobs, names, zeit_out, force_out, want_pol, config, adaptive):
+    """TRO: ``zeit.linear_trend``'s core on each metric's yearly series against FORCE's ``<MET>-TRO``; the 9 date metrics,
+    which FORCE has in continuous days, are converted as FORCE's in_ce does (see ``_in_ce_from_zeit``), and FORCE's own
+    code in Python (``literal_trend``, in_ce) on FORCE's POL outputs must give FORCE's values."""
+    from zeit import _core
+
+    want = load_polar(config, "TRO")
+    nf = zeit_out.shape[1]
+    crit = _crit_list(nf)
+    got = np.zeros_like(want, dtype=np.int32)
+    t0 = time.perf_counter()
+    for k, name in enumerate(names):
+        series = _yearly(zeit_out, force_out, k, adaptive)
+        z = np.asarray(_core.tsa.trend_batch(series, 0.95, "two", jobs))
+        if k < POL_IN_CE:
+            # FORCE's R-squared is that of the continuous days (365 a year added), which is not that of the dates from
+            # 1 January: the trend of the continuous series gives it
+            continuous = series + 365.0 * np.arange(nf)
+            rsq = np.asarray(_core.tsa.trend_batch(continuous, 0.95, "two", jobs))[:, TREND_BANDS.index("RSQ")]
+            z = _in_ce_from_zeit(z, series)
+            z[:, TREND_BANDS.index("RSQ")] = rsq
+        got[k] = _wrapped(z, TREND_BANDS, {"RSQ": 10000.0}).T
+    seconds = time.perf_counter() - t0
+    print(f"\nTRO ({config}): Zeit's trend of the 39 yearly series in {seconds * 1000:.1f} ms ({jobs} threads)")
+    lit = np.zeros_like(want, dtype=np.int32)
+    for k in range(len(names)):
+        v = want_pol[k].T.astype(np.float64)
+        v[v == NODATA] = np.nan
+        lit[k] = literal_trend(v, crit, in_ce=k < POL_IN_CE).T
+    summary_by_metric(f"TRO literal FORCE in Python on FORCE's POL ({config}; check of the port)", names, lit, want)
+    # the significance, where the exact critical t of Zeit and Hill's of FORCE differ and the literal code gives FORCE's
+    sig, rsq = TREND_BANDS.index("SIG"), TREND_BANDS.index("RSQ")
+    known = np.zeros(got.shape, bool)
+    known[:, sig] = (got[:, sig] != want[:, sig]) & (lit[:, sig] == want[:, sig])
+    undefined = np.zeros(got.shape, bool)  # the R-squared of a constant series is 0/0: FORCE's int16 of a NaN is 0
+    undefined[:, rsq] = (got[:, rsq] == NODATA) & (want[:, rsq] != NODATA)
+    summary_by_metric(f"TRO ({config}): Zeit's trend of the yearly series, in_ce applied to the dates", names,
+                      got, want, known | undefined)
+    print(f"  left out: SIG where the exact critical t differs from Hill's ({int(known.sum())} values); R-squared of "
+          f"constant series ({int(undefined.sum())})")
+
+
+def polar_cat(jobs, names, zeit_out, force_out, want_pol, config, adaptive):
+    """CAO: ``zeit.cat``'s core on each metric's yearly series against FORCE's ``<MET>-CAO``. FORCE has the 9 date metrics
+    in continuous days, and its cat() then scales the slope by 1000 before the test of significance and the offset, and
+    does not correct the change (a loss of dates between two years is a difference of continuous days): those are
+    checked with FORCE's own code in Python (``literal_cat``, in_ce) on FORCE's POL outputs, and Zeit's result is
+    compared with FORCE's for the bands in_ce leaves alone (the year of the change, the counts, R-squared and the
+    errors)."""
+    from zeit import _core
+
+    want = load_polar(config, "CAO")
+    nf = zeit_out.shape[1]
+    crit = _crit_list(nf)
+    period = lambda i: POL_FIRST_DATE // 10000 + i
+    got = np.zeros_like(want, dtype=np.int32)
+    lit = np.zeros_like(want, dtype=np.int32)
+    t0 = time.perf_counter()
+    for k, name in enumerate(names):
+        series = _yearly(zeit_out, force_out, k, adaptive)
+        if k < POL_IN_CE:  # in continuous days, as FORCE reads them (see above)
+            series = series + 365.0 * np.arange(nf)
+        z = np.asarray(_core.tsa.cat_batch(series, False, 0.95, "two", jobs)).copy()
+        idx = z[:, 2]
+        z[:, 2] = np.where(np.isnan(idx), np.nan, [period(int(i)) if i == i else 0 for i in idx])
+        got[k] = _wrapped(z, CAT_BANDS, {f"{p}-RSQ": 10000.0 for p in ("TOTAL", "BEFORE", "AFTER")}).T
+    seconds = time.perf_counter() - t0
+    # FORCE's LOSS reads the offset it wrote, truncated to int16 (Zeit divides by the exact offset): from the int16 values
+    change, offset, loss = (CAT_BANDS.index(b) for b in ("CHANGE", "TOTAL-OFFSET", "LOSS"))
+    c, o = got[:, change].astype(np.float32), got[:, offset].astype(np.float32)
+    with np.errstate(all="ignore"):
+        forced = np.where(o > 0, wrap16(np.trunc(c / o * np.float32(100))), 0)
+    got[:, loss] = np.where(got[:, change] == NODATA, NODATA, forced)
+    print(f"\nCAO ({config}): Zeit's change of the 39 yearly series in {seconds * 1000:.1f} ms ({jobs} threads)")
+    t0 = time.perf_counter()
+    for k in range(len(names)):
+        v = want_pol[k].T.astype(np.float64)
+        v[v == NODATA] = np.nan
+        lit[k] = literal_cat(v, crit, False, period, in_ce=k < POL_IN_CE).T
+    print(f"  FORCE's code in Python on FORCE's POL outputs: {time.perf_counter() - t0:.1f} s")
+    summary_by_metric(f"CAO literal FORCE in Python on FORCE's POL ({config}; check of the port)", names, lit, want)
+    # the bands FORCE's in_ce changes for the 9 date metrics: the offset, the slope, the gains and the significance of
+    # each part (the slope minus 365 and times 1000, before the offset and the test) and the loss, which reads the offset
+    affected = [i for i, b in enumerate(CAT_BANDS)
+                if b == "LOSS" or b.endswith(("-OFFSET", "-SLOPE", "-PCT-GAIN", "-ABS-GAIN", "-SIG"))]
+    skip = np.zeros(got.shape, bool)
+    skip[:POL_IN_CE][:, affected] = True
+    known = np.zeros(got.shape, bool)  # the significance, where Hill's t (FORCE) and the exact one (Zeit) differ
+    for r in (i for i, b in enumerate(CAT_BANDS) if b.endswith("-SIG")):
+        known[POL_IN_CE:, r] = (got[POL_IN_CE:, r] != want[POL_IN_CE:, r]) & (lit[POL_IN_CE:, r] == want[POL_IN_CE:, r])
+    undefined = np.zeros(got.shape, bool)  # the R-squared of a constant part: 0/0
+    for r in (i for i, b in enumerate(CAT_BANDS) if b.endswith("-RSQ")):
+        undefined[:, r] = (got[:, r] == NODATA) & (want[:, r] != NODATA)
+    summary_by_metric(f"CAO ({config}): Zeit's change of the yearly series (the 9 date metrics in continuous days, "
+                      f"without the {len(affected)} bands FORCE's in_ce alters)", names, got, want,
+                      skip | known | undefined)
+    print(f"  left out: the {len(affected)} bands of the 9 date metrics that FORCE's in_ce alters ({int(skip.sum())} "
+          f"values); SIG where the exact critical t differs from Hill's ({int(known.sum())}); R-squared of constant "
+          f"parts ({int(undefined.sum())})")
+
+
+def part_polar(jobs):
+    """Zeit's polar metrics of FORCE's own TSI (the RBF's) against the 39 products of rbf_polar_adapt and rbf_polar_fixed
+    (POL), and Zeit's trend and change of each of them against TRO and CAO."""
+    names = _polar_names()
+    for adaptive in (True, False):
+        config = "rbf_polar_" + ("adapt" if adaptive else "fixed")
+        zeit_out, ce, seconds = polar_zeit(jobs, adaptive)
+        got_f = force_scale(zeit_out)
+        want = load_polar(config)
+        assert want.shape == got_f.shape, (want.shape, got_f.shape)
+        got = wrap16(got_f)
+        nan_zeit = np.isnan(got_f)
+        undefined = nan_zeit & (want != NODATA)               # NaN where FORCE converts an undefined float to int16
+        overflow = ~nan_zeit & (np.abs(np.trunc(np.nan_to_num(got_f))) > 32767)
+        skip = undefined | overflow
+        print(f"\n== {config}: Zeit {seconds * 1000:.1f} ms for {zeit_out.shape[2]} pixels x {len(ce)} dates "
+              f"({jobs} threads)")
+        if not adaptive:
+            # Without POL_ADAPTIVE FORCE writes theta0.ce - theta.ce with theta0 = 0, that is -DPY (in continuous days);
+            # Zeit writes 0.
+            dpv, dpy = names.index("DPV"), names.index("DPY")
+            skip[dpv] = True
+            minus = np.where(want[dpy] == NODATA, NODATA, -want[dpy].astype(np.int32))
+            print(f"DPV without adaptive: FORCE's value is -DPY in {100 * (want[dpv] == minus).mean():.3f} % of its "
+                  f"values (Zeit: 0)")
+        summary_by_metric(f"POL ({config})", names, got, want, skip)
+        print(f"  left out: undefined in FORCE (NaN in Zeit) {int(undefined.sum())} values"
+              + "".join(f", {names[k]} {int(undefined[k].sum())}" for k in range(len(names)) if undefined[k].any())
+              + f"; int16 overflow {int(overflow.sum())} values"
+              + "".join(f", {names[k]} {int(overflow[k].sum())}" for k in range(len(names)) if overflow[k].any()))
+        polar_trend(jobs, names, zeit_out, got_f, want, config, adaptive)
+        polar_cat(jobs, names, zeit_out, got_f, want, config, adaptive)
+
+
 # The parts.
 PARTS = {"stm": part_stm, "fold": part_fold, "standardize": part_standardize, "interp": part_interp,
-         "trend": part_trend, "cso": part_cso}
+         "trend": part_trend, "cso": part_cso, "polar": part_polar}
 
 
 def main(argv=None):

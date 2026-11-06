@@ -2,10 +2,11 @@
 //! statistics of a series or of its folds by year, quarter, month, week and day
 //! of the year, the standardization of a series, its interpolation to new
 //! dates, its linear trend and greatest change, and the clear observations of
-//! windows of months and the gaps between them. Ported from FORCE's higher-level TSA module (see each file's header).
+//! windows of months and the gaps between them, and the polar phenology metrics of the seasons. Ported from FORCE's higher-level TSA module (see each file's header).
 
 pub mod cso;
 pub mod interp;
+pub mod polar;
 pub mod stats;
 pub mod trend;
 
