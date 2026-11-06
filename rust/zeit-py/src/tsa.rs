@@ -1,11 +1,13 @@
 //! zeit._core.tsa: the Python module (statistics of series and their folds,
-//! standardization, interpolation).
+//! standardization, interpolation,
+//! linear trend and greatest change).
 
 use numpy::{AllowTypeChange, PyArray1, PyArray2, PyArray3, PyArrayLike1, PyArrayLike2, PyArrayMethods};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use zeit_core::tsa::interp::{self, Method};
 use zeit_core::tsa::stats::{self, Metric, Standardize};
+use zeit_core::tsa::trend::{self, Tail, CAT_LEN, TREND_LEN};
 
 use crate::arrays::c_order;
 
@@ -141,6 +143,54 @@ fn interp_batch<'py>(
     PyArray1::from_vec(py, out).reshape([n_pixels, n_out])
 }
 
+/// The linear trend of every series of values (pixels, steps; NaN marks a
+/// missing step), x being the step: (pixels, 12) with mean, offset, slope,
+/// pct_gain, abs_gain, rsq (0-1), sig (-1, 0, 1), rmse, mae, maxe, num, len.
+#[pyfunction]
+#[pyo3(signature = (values, conf = 0.95, tail = "two", n_jobs = -1))]
+fn trend_batch<'py>(
+    py: Python<'py>,
+    values: PyArrayLike2<'py, f64, AllowTypeChange>,
+    conf: f64,
+    tail: &str,
+    n_jobs: i32,
+) -> PyResult<Bound<'py, PyArray2<f64>>> {
+    let tail = Tail::parse(tail).map_err(PyValueError::new_err)?;
+    let view = values.as_array();
+    let (n_pixels, n_time) = view.dim();
+    let v = c_order(&view);
+    let v: &[f64] = &v;
+    let out = py
+        .detach(|| trend::trend_batch(v, n_pixels, n_time, conf, tail, n_jobs))
+        .map_err(PyValueError::new_err)?;
+    PyArray1::from_vec(py, out).reshape([n_pixels, TREND_LEN])
+}
+
+/// The greatest change of every series of values (pixels, steps) and the trend
+/// of the whole series, before the change and after it: (pixels, 39) with
+/// change, loss, change_index, then the 12 values of the trend for the total,
+/// before and after parts.
+#[pyfunction]
+#[pyo3(signature = (values, penalty = false, conf = 0.95, tail = "two", n_jobs = -1))]
+fn cat_batch<'py>(
+    py: Python<'py>,
+    values: PyArrayLike2<'py, f64, AllowTypeChange>,
+    penalty: bool,
+    conf: f64,
+    tail: &str,
+    n_jobs: i32,
+) -> PyResult<Bound<'py, PyArray2<f64>>> {
+    let tail = Tail::parse(tail).map_err(PyValueError::new_err)?;
+    let view = values.as_array();
+    let (n_pixels, n_time) = view.dim();
+    let v = c_order(&view);
+    let v: &[f64] = &v;
+    let out = py
+        .detach(|| trend::cat_batch(v, n_pixels, n_time, penalty, conf, tail, n_jobs))
+        .map_err(PyValueError::new_err)?;
+    PyArray1::from_vec(py, out).reshape([n_pixels, CAT_LEN])
+}
+
 pub fn module(py: Python<'_>) -> PyResult<Bound<'_, PyModule>> {
     let m = PyModule::new(py, "tsa")?;
     m.add("__doc__", "Statistics of time series and their folds, standardization, interpolation")?;
@@ -148,5 +198,7 @@ pub fn module(py: Python<'_>) -> PyResult<Bound<'_, PyModule>> {
     m.add_function(wrap_pyfunction!(fold_batch, &m)?)?;
     m.add_function(wrap_pyfunction!(standardize_batch, &m)?)?;
     m.add_function(wrap_pyfunction!(interp_batch, &m)?)?;
+    m.add_function(wrap_pyfunction!(trend_batch, &m)?)?;
+    m.add_function(wrap_pyfunction!(cat_batch, &m)?)?;
     Ok(m)
 }

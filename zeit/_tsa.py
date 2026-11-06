@@ -1,7 +1,8 @@
 """Time series analysis of a cube, per pixel: ``zeit.temporal_metrics`` (statistics over the whole
 series or by year, quarter, month, week or day of the year), ``zeit.standardize`` and
 ``zeit.interpolate`` (linear, moving average, RBF ensemble or robust harmonic fit, to a regular
-grid or to any dates).
+grid or to any dates), ``zeit.linear_trend`` and ``zeit.cat`` (the linear trend of a series and its
+greatest change, with the trend before and after it).
 
 The statistics and the interpolation are those of FORCE's higher-level TSA module (STM, fold and
 interpolation, Frantz 2019, Remote Sensing 11(9):1124), computed by the compiled core (``zeit._core.tsa``). Input and output follow
@@ -159,6 +160,50 @@ def temporal_metrics(data: Any, metrics: Sequence[str] = ("min", "p25", "median"
     return result
 
 
+def _along(data: Any, dim: Optional[str]):
+    """The series axis of ``data``: the data with that axis renamed ``time`` and stripped of its
+    coordinate, and the name and values of the original axis (``(None, None)`` for the usual
+    ``time`` axis, left as it is). A ``metric`` axis of length 1 is squeezed; with more, the
+    caller must pick one. With ``dim=None`` the axis is ``time``, else the only axis that is not
+    ``y``, ``x``, ``band`` or ``metric``."""
+    if isinstance(data, xr.Dataset):
+        names = [v for v in data.data_vars if data[v].ndim >= 3]
+        if len(names) != 1:
+            return data, None, None
+        data = data[names[0]]
+    if not isinstance(data, xr.DataArray):
+        if dim not in (None, "time"):
+            raise ValueError(f"dim={dim!r} needs an xarray DataArray, got {type(data).__name__}")
+        return data, None, None
+    if "metric" in data.dims:
+        if data.sizes["metric"] != 1:
+            raise ValueError(f"the data has {data.sizes['metric']} metrics {list(data.metric.values)}: "
+                             "choose one with .sel(metric=...)")
+        data = data.isel(metric=0, drop=True)
+    if dim is None:
+        if "time" in data.dims:
+            return data, None, None
+        others = [d for d in data.dims if d not in ("y", "x", "band", "metric")]
+        if len(others) != 1:
+            return data, None, None
+        dim = others[0]
+    if dim == "time":
+        return data, None, None
+    if dim not in data.dims:
+        raise ValueError(f"dim={dim!r} is not a dimension of the data {data.dims}")
+    if "time" in data.dims:
+        raise ValueError(f"the data has a 'time' dimension as well as {dim!r}: drop or select one of them")
+    coord = np.asarray(data[dim].values) if dim in data.coords else np.arange(data.sizes[dim])
+    return data.rename({dim: "time"}).drop_vars("time", errors="ignore"), dim, coord
+
+
+def _restore(result: xr.DataArray, dim: Optional[str], coord: Any) -> xr.DataArray:
+    """``result`` with its ``time`` axis named and labelled as the axis ``_along`` took it from."""
+    if dim is None:
+        return result
+    return result.rename(time=dim).assign_coords({dim: coord})
+
+
 def _standardize_block(block, method, ddof, n_jobs, dtype):
     from . import _core
 
@@ -169,8 +214,8 @@ def _standardize_block(block, method, ddof, n_jobs, dtype):
     return np.ascontiguousarray(out.T, dtype=dtype).reshape(t, ny, nx)
 
 
-def standardize(data: Any, method: str = "normalize", *, ddof: int = 1, dates: Optional[Sequence[Any]] = None,
-                band: Union[str, int, None] = None, nodata: Union[float, str, None] = "auto", chunks: Any = None,
+def standardize(data: Any, method: str = "normalize", *, ddof: int = 1, dim: Optional[str] = None,
+                dates: Optional[Sequence[Any]] = None, band: Union[str, int, None] = None, nodata: Union[float, str, None] = "auto", chunks: Any = None,
                 n_jobs: int = -1) -> Any:
     """Standardizes each pixel's series along time (FORCE's STANDARDIZE).
 
@@ -183,6 +228,12 @@ def standardize(data: Any, method: str = "normalize", *, ddof: int = 1, dates: O
         ``x - mean``. The mean and the deviation are those of the valid observations.
     ddof
         Degrees of freedom of the deviation (``n - ddof``; 1: the sample's, as FORCE).
+    dim
+        The axis to standardize along: ``"time"`` (default when it exists) or another axis, e.g.
+        ``"year"`` of ``zeit.temporal_metrics(..., by="year")`` (the fold of FORCE's
+        ``STANDARDIZE_FOLD``). By default the only axis that is not ``y``, ``x``, ``band`` or
+        ``metric``. A ``metric`` axis of length 1 is dropped; with more, choose one with
+        ``.sel(metric=...)``.
     dates, band, nodata, chunks, n_jobs
         As for ``zeit.mann_kendall``.
 
@@ -200,6 +251,7 @@ def standardize(data: Any, method: str = "normalize", *, ddof: int = 1, dates: O
     if str(method).lower() not in ("normalize", "center"):
         raise ValueError(f"method must be 'normalize' or 'center', got {method!r}")
     method = str(method).lower()
+    data, axis, labels = _along(data, dim)
     cube, pixel = _series_cube(data, dates=dates, band=band, chunks=chunks, need_dates=False, nodata=nodata)
     threads, dtype, ddof = resolve(n_jobs), _work_dtype(cube), float(ddof)
     if cube.chunks is not None:
@@ -217,7 +269,7 @@ def standardize(data: Any, method: str = "normalize", *, ddof: int = 1, dates: O
         if isinstance(data, pd.Series):
             return pd.Series(values, index=data.index, name=data.name)
         result = result.squeeze(("y", "x"), drop=True)
-    return result
+    return _restore(result, axis, labels)
 
 
 _METHODS = ("rbf", "linear", "moving", "harmonic")
@@ -389,3 +441,188 @@ def interpolate(data: Any, method: str = "rbf", *, step: int = 16, start: Any = 
     if cube.rio.crs is not None:
         result = result.rio.write_crs(cube.rio.crs)
     return result
+
+
+_TAILS = ("two", "left", "right")
+TREND_NAMES = ["mean", "offset", "slope", "pct_gain", "abs_gain", "rsq", "sig", "rmse", "mae", "maxe", "num", "len"]
+CAT_NAMES = (["change", "loss", "change_index"]
+             + [f"{part}_{name}" for part in ("total", "before", "after") for name in TREND_NAMES])
+
+
+def _trend_block(block, conf, tail, n_jobs, dtype):
+    from . import _core
+
+    t, ny, nx = block.shape
+    if block.size == 0:
+        return np.full((len(TREND_NAMES), ny, nx), np.nan, dtype=dtype)
+    out = _core.tsa.trend_batch(_flat(block), conf, tail, n_jobs)  # (pixels, 12)
+    return np.ascontiguousarray(out.T, dtype=dtype).reshape(len(TREND_NAMES), ny, nx)
+
+
+def _cat_block(block, penalty, conf, tail, n_jobs, dtype):
+    from . import _core
+
+    t, ny, nx = block.shape
+    if block.size == 0:
+        return np.full((len(CAT_NAMES), ny, nx), np.nan, dtype=dtype)
+    out = _core.tsa.cat_batch(_flat(block), penalty, conf, tail, n_jobs)  # (pixels, 39)
+    return np.ascontiguousarray(out.T, dtype=dtype).reshape(len(CAT_NAMES), ny, nx)
+
+
+def _check_trend(conf: float, tail: str) -> str:
+    if not 0 < conf < 1:
+        raise ValueError(f"conf must be between 0 and 1, got {conf}")
+    tail = str(tail).lower()
+    if tail not in _TAILS:
+        raise ValueError(f"tail must be one of {_TAILS}, got {tail!r}")
+    return tail
+
+
+def _run_block(fn, cube, args, names, dtype):
+    """``fn(block, *args, dtype)`` on a (time, y, x) cube, lazily on dask: ``(len(names), y, x)``."""
+    from ._series_api import _as_dask
+
+    if cube.chunks is None:
+        return fn(np.asarray(cube.values), *args, dtype), False
+    import dask.array as da
+
+    arr, _ = _as_dask(cube)
+    chunks_out = ((len(names),),) + arr.chunks[1:]
+    out = da.map_blocks(fn, arr, *args, dtype, dtype=dtype, drop_axis=[0], new_axis=[0], chunks=chunks_out,
+                        meta=np.empty((0, 0, 0), dtype))
+    return out, True
+
+
+def linear_trend(data: Any, *, conf: float = 0.95, tail: str = "two", dim: Optional[str] = None,
+                 band: Union[str, int, None] = None, nodata: Union[float, str, None] = "auto", chunks: Any = None,
+                 n_jobs: int = -1) -> xr.Dataset:
+    """The linear trend of each pixel's series (FORCE's TSA trend: TRY, TRQ, TRM, TRW and TRD).
+
+    A least-squares line on the position of each step along ``dim`` (x = 0, 1, 2... counting the
+    missing steps too, so the slope is per step: per year for a yearly series), with a t-test of
+    the slope. A pixel with fewer than 3 valid steps is NaN.
+
+    Parameters
+    ----------
+    data
+        A ``(time, y, x)`` cube (in memory or dask), anything ``zeit.load_raster`` reads, a numpy
+        ``(time, y, x)``, one pixel's series, or a series along another axis such as the
+        ``zeit.temporal_metrics(..., by="year")`` result ``(metric, year, y, x)``. NaN marks a
+        missing observation.
+    conf
+        Confidence level of the test of the slope (0.95: significance level 0.05).
+    tail
+        ``"two"`` (default), ``"left"`` (is the slope significantly negative?) or ``"right"``.
+        The critical value is the exact quantile of Student's t with ``num - 2`` degrees of freedom
+        (FORCE iterates Hill's approximation to a tolerance of 1e-4, so ``sig`` can differ from it
+        where the t-value is that close to the limit).
+    dim
+        The axis of the series: ``"time"`` (default when it exists), or another, e.g. ``"year"``.
+        By default the only axis that is not ``y``, ``x``, ``band`` or ``metric``. A ``metric`` axis
+        of length 1 is dropped; with more, choose one with ``.sel(metric=...)``.
+    band, nodata, chunks, n_jobs
+        As for ``zeit.mann_kendall``.
+
+    Returns
+    -------
+    xarray.Dataset
+        ``mean``, ``offset`` (the fit at the first step), ``slope`` (per step), ``pct_gain`` (the
+        slope times the number of steps as a percentage of the offset, 0 unless the offset is
+        positive), ``abs_gain`` (the slope times the steps), ``rsq`` (0-1; FORCE writes it times
+        10000), ``sig`` (-1, 0 or 1), ``rmse``, ``mae``, ``maxe`` (the largest absolute residual),
+        ``num`` (valid steps) and ``len`` (steps).
+
+    Examples
+    --------
+    >>> yearly = zeit.temporal_metrics(ndvi, ["mean"], by="year")
+    >>> trend = zeit.linear_trend(yearly)                    # slope in NDVI per year
+    """
+    from ._embeddings import refuse
+    from ._series_api import _metrics_dataset, _series_cube
+
+    refuse(data, "zeit.linear_trend")
+    tail = _check_trend(conf, tail)
+    data, _, _ = _along(data, dim)
+    cube, pixel = _series_cube(data, dates=None, band=band, chunks=chunks, need_dates=False, nodata=nodata)
+    dtype = _work_dtype(cube)
+    out, lazy = _run_block(_trend_block, cube, (float(conf), tail, resolve(n_jobs)), TREND_NAMES, dtype)
+    return _metrics_dataset(out, TREND_NAMES, cube, pixel, lazy,
+                            dict(algorithm="linear_trend", conf=float(conf), tail=tail))
+
+
+def cat(data: Any, *, penalty: bool = False, conf: float = 0.95, tail: str = "two", dim: Optional[str] = None,
+        band: Union[str, int, None] = None, nodata: Union[float, str, None] = "auto", chunks: Any = None,
+        n_jobs: int = -1) -> xr.Dataset:
+    """The greatest change of each pixel's series and the trend around it (FORCE's CAT: CAY, CAQ, CAM...).
+
+    The change is the greatest loss between a valid step and the valid one before it (the previous
+    value less this one: positive for a loss; a series that only rises keeps its smallest rise). The
+    series is then split at that step and the linear trend of ``zeit.linear_trend`` (x the step along
+    ``dim``) is fit to the whole series (``total_``), to the steps before the change (``before_``:
+    from the first up to two before the change step, as FORCE defines it) and from the change step
+    on (``after_``). A part without valid steps is NaN; one with fewer than 3 has only its ``mean``,
+    ``num`` and ``len``. ``offset`` is the fit at the first step of the part.
+
+    Parameters
+    ----------
+    data, conf, tail, dim, band, nodata, chunks, n_jobs
+        As for ``zeit.linear_trend``.
+    penalty
+        Weight each loss by what the series has lost by the next valid step (FORCE's
+        ``CHANGE_PENALTY``): the loss times (the value before it less the next value) / 10000, which
+        discounts a dip the series recovers from; the 10000 is FORCE's scale of values times 10000,
+        so for other scales it only matters through the sign. A loss without a valid step after it
+        is not considered. FORCE compares the penalized value of each candidate with the
+        *unpenalized* change of the best one so far, mixing two scales; here the penalized values are
+        compared with each other, and the winner's unpenalized change is what is returned (as in
+        FORCE). The two can pick different steps.
+
+    Returns
+    -------
+    xarray.Dataset
+        ``change`` (the greatest loss), ``loss`` (the change as a percentage of ``total_offset``,
+        0 unless that is positive), ``change_time`` (the coordinate of ``dim`` at the change: the
+        date, the year, the month..., NaN or NaT when there is none) and the twelve variables of
+        ``zeit.linear_trend`` for each part, prefixed ``total_``, ``before_`` and ``after_``. A pixel
+        with fewer than 2 valid steps is NaN.
+
+    Examples
+    --------
+    >>> yearly = zeit.temporal_metrics(ndvi, ["mean"], by="year")
+    >>> ch = zeit.cat(yearly)                                # ch.change_time: the year of the greatest loss
+    """
+    from ._embeddings import refuse
+    from ._series_api import _metrics_dataset, _series_cube
+
+    refuse(data, "zeit.cat")
+    tail = _check_trend(conf, tail)
+    data, axis, labels = _along(data, dim)
+    cube, pixel = _series_cube(data, dates=None, band=band, chunks=chunks, need_dates=False, nodata=nodata)
+    if axis is None and "time" in cube.coords:
+        labels = np.asarray(cube.time.values)
+    n = cube.sizes["time"]
+    dtype = _work_dtype(cube)
+    out, lazy = _run_block(_cat_block, cube, (bool(penalty), float(conf), tail, resolve(n_jobs)), CAT_NAMES, dtype)
+    ds = _metrics_dataset(out, CAT_NAMES, cube, pixel, lazy, dict(
+        algorithm="cat", penalty=int(bool(penalty)), conf=float(conf), tail=tail))
+
+    if labels is None:
+        labels = np.arange(n)
+    labels = np.asarray(labels)
+    if np.issubdtype(labels.dtype, np.datetime64):
+        labels, empty = labels.astype("datetime64[ns]"), np.datetime64("NaT", "ns")
+    elif np.issubdtype(labels.dtype, np.number) or np.issubdtype(labels.dtype, np.bool_):
+        labels, empty = labels.astype(np.float64), np.nan
+    else:
+        labels, empty = labels.astype(object), None
+
+    def _take(idx):
+        idx = np.asarray(idx, dtype=np.float64)
+        ok = np.isfinite(idx)
+        picked = labels[np.where(ok, idx, 0).astype(np.int64)]
+        return np.where(ok, picked, empty)
+
+    ds["change_time"] = xr.apply_ufunc(_take, ds["change_index"], dask="parallelized",
+                                       output_dtypes=[labels.dtype])
+    ds = ds.drop_vars("change_index")
+    return ds[["change", "loss", "change_time"] + CAT_NAMES[3:]]

@@ -64,6 +64,22 @@ class ZeitAccessor:
         from zeit._tsa import interpolate
         return interpolate(self._obj, method, **kwargs)
 
+    def linear_trend(self, **kwargs: Any) -> xr.Dataset:
+        """
+        The linear trend of each pixel's series (slope, significance, R-squared, residuals...):
+        the same as ``zeit.linear_trend(cube, ...)``.
+        """
+        from zeit._tsa import linear_trend
+        return linear_trend(self._obj, **kwargs)
+
+    def cat(self, **kwargs: Any) -> xr.Dataset:
+        """
+        The greatest change of each pixel's series and the trend before and after it: the same
+        as ``zeit.cat(cube, ...)``.
+        """
+        from zeit._tsa import cat
+        return cat(self._obj, **kwargs)
+
     def ar_trend(self, **kwargs: Any) -> xr.Dataset:
         """
         Fits the AR(1) REML trend of each pixel of this (time, y, x) cube: the same as ``zeit.ar_trend(cube, ...)``.
