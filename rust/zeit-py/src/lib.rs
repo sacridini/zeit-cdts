@@ -37,6 +37,7 @@ mod snic;
 mod som;
 mod texture;
 mod tmask;
+mod tsa;
 mod twdtw;
 mod utils;
 mod variogram;
@@ -85,5 +86,6 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     add_submodule(m, &variogram::module(m.py())?)?;
     add_submodule(m, &knndm::module(m.py())?)?;
     add_submodule(m, &profile::module(m.py())?)?;
+    add_submodule(m, &tsa::module(m.py())?)?;
     Ok(())
 }

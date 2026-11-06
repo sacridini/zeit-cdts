@@ -103,7 +103,7 @@ def compute_stm(col: "ee.ImageCollection", indices: Optional[list] = None,
     one combined reducer. Bands are named "<band>_<metric>" (e.g. "NDVI_p10"), ordered
     band by band, as in `zeit.cube.build_spectral_temporal_metrics`.
     """
-    metrics = parse_metrics(metrics)
+    metrics = parse_metrics(metrics, extended=False)
     names = _band_names(indices)
     pct, simple = _stm_reducer_plan(metrics)
     reducers = ([ee.Reducer.percentile(pct)] if pct else []) + [
@@ -261,7 +261,7 @@ def download_gee_timeseries(
         raise NotImplementedError(f"Composite type '{composite_type}' is not currently supported.")
     indices = _resolve_indices(indices, bands)
     if composite_type == 'stm':
-        metrics = parse_metrics(metrics)
+        metrics = parse_metrics(metrics, extended=False)
     initialize_gee(project=project)
     
     geom = resolve_roi(roi)

@@ -2324,12 +2324,94 @@ o do blockCV), e contra os dois no R.
   thread) e 0,07 s (8), o DI a 3e-13. O `cv_spatial` e o `cv_buffer` do blockCV não foram
   cronometrados: os blocos e o buffer são geometria simples, conferidos à mão nos testes.
 
+## Fase 23: o FORCE no Zeit (e, pelo `zeit-core`, no Janus)
+
+Pedida em 2026-11-06, no dia da mudança para a GPL-3.0-or-later (Zeit 3.0.0). O FORCE (David
+Frantz, https://github.com/davidfrantz/force, 3.11.00) é GPL-3.0-or-later em todo
+`src/modules`: o código do próprio Frantz entra **por port direto** (sem sala limpa), com o
+copyright dele no cabeçalho dos arquivos portados e no `THIRD_PARTY_NOTICES.md`. Não entram
+direto os trechos que o FORCE adotou de terceiros sem licença declarada: Fmask (`cloud-ll.c`,
+Zhu), Ambrals (`brdf-ll.c`, Schaaf), LSReg (`coreg-ll.c`, Yan & Roy), STARFM (`resmerge-ll.c`,
+Gao, USDA-ARS), as grades Equi7 e GLANCE, o calculador solar da NOAA (`sun-cl.c`) e o script
+de RBF de Rabe (`interpolate-hl.c`). Esses ou têm a licença verificada, ou são refeitos pelo
+artigo. O BRDF (Roy et al. 2016, 2017) e a RBF (Schwieder et al. 2016) são simples de refazer
+pelo artigo. O STARFM e o calculador solar são, provavelmente, obra do governo dos EUA.
+
+O Janus liga o `zeit-core` direto, então tudo vai para o core em Rust; no Janus fica o
+adaptador em `crates/janus-zeit`, o descritor e a interface.
+
+**Referência:** o FORCE 3.11.00 compilado no WSL (env conda `force-ref`, sem sudo), rodando o
+`force-higher-level` sobre o mesmo cubo ARD (sintético e real) que o Zeit lê. A meta é a
+saída do FORCE dentro da escala em que ele escreve (int16) e **mais rápido que ele** com as
+mesmas 8 threads, em `benchmarks/vs_originals/`, no `vs-originals.json` e na página de
+validação.
+
+### O que o FORCE tem e o Zeit não
+
+- **Interpolação:** RBF em conjunto (núcleos gaussianos de várias larguras, Schwieder et al.
+  2016), harmônica com IRLS, média móvel e linear (o Zeit tem Whittaker, Savitzky-Golay e
+  HANTS).
+- **Fold:** a série agrupada por ano, trimestre, mês, semana ou dia.
+- **STM:** a lista completa de métricas espectrais temporais (Müller et al. 2015); o Zeit tem
+  sete, em `temporal_metrics`.
+- **Tendência e CAT:** OLS sobre os folds (inclinação, R², significância, RMSE...) e o CAT
+  (change, aftereffect, trend; Hird et al. 2016).
+- **CSO:** as estatísticas das observações limpas e dos intervalos entre elas por janela
+  (Ernst et al. 2018); o Zeit só conta.
+- **Padronização** por pixel da série ou dos folds.
+- **Métricas polares de fenologia** (Brooks et al. 2020, Forests 11:606): cada observação é
+  um vetor (o valor como raio, o DOY como ângulo), o que serve a estações irregulares
+  (Cerrado, Caatinga).
+- **Ajuste espectral Landsat → Sentinel-2** (Scheffler, Frantz & Segl 2020): 51 grupos
+  espectrais, escolhidos pelo ângulo espectral, com regressões embutidas. Dá as bandas de
+  borda vermelha a partir do Landsat e complementa o bandpass do HLS.
+- **NBAR** (RossThick-LiSparse-Reciprocal com os coeficientes de Roy et al. 2016, 2017) e a
+  **correção topográfica** pelo fator C (Kobayashi & Sanga-Ngoie 2008, com MDE).
+- **ImproPhe** (Frantz et al. 2016, TGRS): fusão por vizinhos da mesma classe espectral, para
+  campos contínuos (ex.: fenologia de MODIS em 30 m) e para ARD; mais o merge do Sentinel-2 de
+  20 m para 10 m.
+- **Índice de paralaxe do Sentinel-2** (Frantz et al. 2018), contra nuvens falsas em
+  superfície clara, e o buffer de nuvem.
+
+### O que não se porta
+
+- **A correção atmosférica** (AOD por alvos escuros, vapor d'água, a transferência radiativa;
+  cerca de 6 mil linhas): pede a base de vapor d'água, MDE e os leitores de metadados do nível
+  1, e o Zeit consome o L2 pelo STAC.
+- **O coregistro:** o do FORCE é o LSReg adaptado, de licença indefinida; o AROSICS
+  (Apache-2.0) já está no plano do Janus.
+- **As métricas de paisagem:** cabem no Terraflux.
+- **O resto:** ML e textura morfológica pelo OpenCV, as UDFs em Python e R (o Zeit já é
+  Python), as grades Equi7 e GLANCE, a infraestrutura de datacube e os parâmetros.
+- **O BAP:** o Zeit já tem o de Griffiths et al. 2013; a variante paramétrica de Frantz 2017
+  só entra como comparação.
+
+### Etapas
+
+- **23a: a cadeia do TSA.** A interpolação (linear, média móvel, RBF, harmônica) como métodos
+  novos da regularização; o fold; as STM completas; a tendência e o CAT sobre os folds; as
+  estatísticas de observações limpas; a padronização. Uma peça por vez, cada uma contra o
+  FORCE no mesmo cubo.
+- **23b: as métricas polares** (antes, ver se Brooks publicou código próprio).
+- **23c: a harmonização radiométrica:**
+  - o ajuste Landsat → Sentinel-2;
+  - o NBAR, cujo trabalho de verdade é ler os ângulos de cada cena (as bandas SZA/VZA do
+    Landsat C2 e a grade de 5 km do `MTD_TL.xml` do Sentinel-2);
+  - o Tasseled Cap pelos coeficientes de cada sensor, como no plano do Janus. O FORCE aplica
+    uma só matriz, ao que parece a de Crist 1985 para o TM.
+- **23d: a família ImproPhe** e o merge de 20 m para 10 m (talvez no lugar do STARFM do item
+  "Para depois").
+- **23e (opcional):** a correção topográfica com MDE, junto com a C e a SCS+C do plano do
+  Janus; o índice de paralaxe e o buffer de nuvem.
+- **Em cada etapa:** a ferramenta no Janus, a página no site e a linha na validação contra os
+  originais.
+
 ## Para depois
 
 - Fase 19: `zeit.ai.predict` com fp16 na GPU (2,4× no Siamese, medido) vale para todos os
   modelos de patch; a lat/lon por pixel no `predict` do Presto (hoje: a do centro das amostras);
   TSViT se aparecer demanda; STARFM/ESTARFM para fusão MODIS + Landsat/Sentinel, no lugar de
-  difusão.
+  difusão (ver também o ImproPhe da Fase 23d).
 - `zeit.plot`: medir de verdade o caso de notebook remoto (JupyterHub, Colab), que ficou
   como estimativa no 7a.
 - `zeit.harmonize` com as outras etapas do HLS que dependem só da geometria: a normalização

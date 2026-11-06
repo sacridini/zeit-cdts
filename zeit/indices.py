@@ -5,7 +5,6 @@ an index or a metric means the same thing whichever source it comes from. Formul
 surface reflectance (0-1), not scaled digital numbers.
 """
 
-import concurrent.futures
 import re
 from typing import Callable, Dict, List, Optional, Sequence
 
@@ -41,6 +40,8 @@ BAND_CANDIDATES: Dict[str, tuple] = {
 
 DEFAULT_METRICS = ("median", "p10", "p25", "p75", "p90", "std")
 _SIMPLE_METRICS = ("median", "mean", "std", "min", "max", "iqr", "count")
+# What Earth Engine's reducers do not give: only the local (compiled) computation has them.
+_LOCAL_METRICS = ("range", "skew", "kurtosis")
 
 
 def canonical_index(name: str) -> Optional[str]:
@@ -81,23 +82,26 @@ def index_array(name: str, get: Callable) -> np.ndarray:
     return out
 
 
-def parse_metrics(metrics: Sequence[str]) -> List[str]:
+def parse_metrics(metrics: Sequence[str], extended: bool = True) -> List[str]:
     """Validate temporal metric names, normalizing percentiles (``"P05"`` -> ``"p5"``).
 
     Accepted: ``median``, ``mean``, ``std``, ``min``, ``max``, ``iqr`` (p75 - p25),
-    ``count`` (valid observations) and ``pNN`` for any integer percentile 0-100.
+    ``count`` (valid observations) and ``pNN`` for any integer percentile 0-100; and,
+    with ``extended`` (what Earth Engine cannot compute, so ``False`` there), ``range``
+    (max - min), ``skew`` (M3 / sigma^3) and ``kurtosis`` (excess, M4 / sigma^4 - 3).
     """
     if isinstance(metrics, str):
         metrics = [metrics]
+    allowed = _SIMPLE_METRICS + (_LOCAL_METRICS if extended else ())
     out = []
     for m in metrics:
         key = str(m).lower()
         match = re.fullmatch(r"p(\d{1,3})", key)
         if match and int(match.group(1)) <= 100:
             key = f"p{int(match.group(1))}"
-        elif key not in _SIMPLE_METRICS:
+        elif key not in allowed:
             raise ValueError(
-                f"Unknown metric {m!r}. Use {', '.join(_SIMPLE_METRICS)} or a percentile "
+                f"Unknown metric {m!r}. Use {', '.join(allowed)} or a percentile "
                 "such as 'p10'."
             )
         if key not in out:
@@ -107,69 +111,28 @@ def parse_metrics(metrics: Sequence[str]) -> List[str]:
     return out
 
 
-def _percentile(s, n, q):
-    """Linear-interpolated percentile ``q`` of the first ``n`` values of sorted ``s``.
-
-    Same interpolation as ``np.nanpercentile``'s default.
-    """
-    pos = q / 100.0 * np.maximum(n - 1, 0)
-    lo = np.floor(pos).astype(np.intp)
-    hi = np.minimum(lo + 1, np.maximum(n - 1, 0))
-    v_lo = np.take_along_axis(s, lo[None], 0)[0]
-    v_hi = np.take_along_axis(s, hi[None], 0)[0]
-    return v_lo + (v_hi - v_lo) * (pos - lo)
-
-
 def temporal_metrics(a: np.ndarray, metrics: Sequence[str], n_threads: int = 4) -> np.ndarray:
     """NaN-aware metrics along axis 0 of a ``(time, y, x)`` array.
 
     Returns ``(len(metrics), y, x)`` float32. Pixels without valid observations are NaN
-    (``count`` is 0 there). Each strip of rows is sorted once (NaNs last) and every
-    metric read from it, on a few threads (``np.sort`` releases the GIL). ``std`` is the
-    population standard deviation (``ddof=0``).
+    (``count`` is 0 there). Computed by the compiled core (``zeit._core.tsa``, the same
+    kernel as the public ``zeit.temporal_metrics``) on ``n_threads`` threads; a value that
+    is not finite counts as a missing observation. ``std`` is the population standard
+    deviation (``ddof=0``).
     """
+    from . import _core
+
     metrics = parse_metrics(metrics)
     t, ny, nx = a.shape
-    out = np.full((len(metrics), ny, nx), np.nan, dtype=np.float32)
-    if "count" in metrics:
-        out[metrics.index("count")] = 0
     if t == 0:
+        out = np.full((len(metrics), ny, nx), np.nan, dtype=np.float32)
+        if "count" in metrics:
+            out[metrics.index("count")] = 0
         return out
-
-    def strip(r0):
-        r1 = min(ny, r0 + 64)
-        s = np.sort(a[:, r0:r1], axis=0)
-        valid = np.isfinite(s)
-        n = valid.sum(axis=0)
-        empty = n == 0
-        z = np.where(valid, s, 0).astype(np.float64)
-        mean = z.sum(axis=0) / np.maximum(n, 1)
-        for k, m in enumerate(metrics):
-            if m == "count":
-                out[k, r0:r1] = n
-                continue
-            if m == "mean":
-                v = mean
-            elif m == "std":
-                d = np.where(valid, s - mean[None], 0)
-                v = np.sqrt((d * d).sum(axis=0) / np.maximum(n, 1))
-            elif m == "min":
-                v = s[0]
-            elif m == "max":
-                v = np.take_along_axis(s, np.maximum(n - 1, 0)[None], 0)[0]
-            elif m == "median":
-                v = _percentile(s, n, 50)
-            elif m == "iqr":
-                v = _percentile(s, n, 75) - _percentile(s, n, 25)
-            else:
-                v = _percentile(s, n, int(m[1:]))
-            v = np.asarray(v, dtype=np.float32)
-            v[empty] = np.nan
-            out[k, r0:r1] = v
-
-    with concurrent.futures.ThreadPoolExecutor(n_threads) as ex:
-        list(ex.map(strip, range(0, ny, 64)))
-    return out
+    values = np.ascontiguousarray(a.reshape(t, ny * nx).T, dtype=np.float64)
+    values[~np.isfinite(values)] = np.nan
+    out = _core.tsa.stm_batch(values, metrics, 0.0, int(n_threads))  # (pixels, metrics)
+    return np.ascontiguousarray(out.T, dtype=np.float32).reshape(len(metrics), ny, nx)
 
 
 def resolve_band(role: str, available: Sequence[str], band_map: Optional[Dict[str, str]] = None) -> str:

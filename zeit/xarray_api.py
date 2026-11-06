@@ -39,6 +39,23 @@ class ZeitAccessor:
         from zeit._series_api import mann_kendall
         return mann_kendall(self._obj, **kwargs)
 
+    def temporal_metrics(self, metrics: Any = ("min", "p25", "median", "p75", "max", "mean", "std"),
+                         **kwargs: Any) -> xr.DataArray:
+        """
+        Statistics of each pixel's series, over all of it or by period: the same as
+        ``zeit.temporal_metrics(cube, metrics, by=..., ...)``.
+        """
+        from zeit._tsa import temporal_metrics
+        return temporal_metrics(self._obj, metrics, **kwargs)
+
+    def standardize(self, method: str = "normalize", **kwargs: Any) -> xr.DataArray:
+        """
+        Centers or normalizes each pixel's series along time: the same as
+        ``zeit.standardize(cube, method, ...)``.
+        """
+        from zeit._tsa import standardize
+        return standardize(self._obj, method, **kwargs)
+
     def ar_trend(self, **kwargs: Any) -> xr.Dataset:
         """
         Fits the AR(1) REML trend of each pixel of this (time, y, x) cube: the same as ``zeit.ar_trend(cube, ...)``.

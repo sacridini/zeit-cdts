@@ -45,6 +45,7 @@ pub mod spatial;
 pub mod stl;
 pub mod texture;
 pub mod tmask;
+pub mod tsa;
 pub mod twdtw;
 pub mod variogram;
 pub mod warp;
