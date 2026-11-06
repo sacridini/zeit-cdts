@@ -166,6 +166,13 @@ if [ "$SENSOR" != SEN2A ]; then
     run TSA spec_off TARGET_SENSOR="$SENSOR" INDEX="BLUE GREEN RED NIR SWIR1 SWIR2" INTERPOLATE=NONE SPECTRAL_ADJUST=FALSE
 fi
 
+# FORCE's Tasseled Cap (index_tasseled: one matrix, Crist 1985, for every sensor), on the cube's six bands, no
+# interpolation, no noise filter. tasseled_src are the six input bands as "indices" (TSS = the raw int16 of BLUE GREEN RED
+# NIR SWIR1 SWIR2, "NIR" being B8A for Sentinel-2A), which the comparison (force_tsa.py --part tasseled) computes from.
+# Run with ONLY="tasseled tasseled_src", for the Sentinel-2A cube and for each SENSOR=LND0x cube.
+run TSA tasseled TARGET_SENSOR="$SENSOR" INDEX="TC-BRIGHT TC-GREEN TC-WET TC-DI" INTERPOLATE=NONE
+run TSA tasseled_src TARGET_SENSOR="$SENSOR" INDEX="BLUE GREEN RED NIR SWIR1 SWIR2" INTERPOLATE=NONE
+
 # Copy the small outputs (the cube's BOA and QAI stay here).
 mkdir -p "$DEST"
 if [ -n "$ONLY" ]; then

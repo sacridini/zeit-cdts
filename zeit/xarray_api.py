@@ -185,6 +185,14 @@ class ZeitAccessor:
         from zeit._specadjust import spectral_adjust
         return spectral_adjust(self._obj, **kwargs)
 
+    def tasseled_cap(self, components: Any = ("brightness", "greenness", "wetness"), **kwargs: Any) -> xr.DataArray:
+        """
+        Tasseled Cap brightness, greenness and wetness (and FORCE's disturbance) of this (time, band, y, x)
+        reflectance cube: the same as ``zeit.tasseled_cap(cube, components, **kwargs)``.
+        """
+        from zeit._tasseled import tasseled_cap
+        return tasseled_cap(self._obj, components, **kwargs)
+
     def save(self, path: Any, **kwargs: Any) -> Path:
         """
         Writes this map, cube or result to a raster: the same as ``zeit.save_raster(da, path, **kwargs)``.

@@ -37,7 +37,12 @@ def test_index_values():
         "NDWI": (0.08 - 0.30) / (0.08 + 0.30),
         "MNDWI": (0.08 - 0.15) / (0.08 + 0.15),
         "NDFI": _ndfi_reference([0.04, 0.08, 0.05, 0.30, 0.15, 0.08]),
+        "TCB": 0.2043 * 0.04 + 0.4158 * 0.08 + 0.5524 * 0.05 + 0.5741 * 0.30 + 0.3124 * 0.15 + 0.2303 * 0.08,
+        "TCG": -0.1603 * 0.04 - 0.2819 * 0.08 - 0.4934 * 0.05 + 0.7940 * 0.30 - 0.0002 * 0.15 - 0.1446 * 0.08,
+        "TCW": 0.0315 * 0.04 + 0.2021 * 0.08 + 0.3102 * 0.05 + 0.1594 * 0.30 - 0.6806 * 0.15 - 0.6109 * 0.08,
     }
+    expected["TCD"] = expected["TCB"] - expected["TCG"] - expected["TCW"]
+    expected["TCD"] = expected["TCB"] - expected["TCG"] - expected["TCW"]
     assert set(expected) == set(INDICES)
     for name, value in expected.items():
         np.testing.assert_allclose(index_array(name, get), value, rtol=1e-5, err_msg=name)

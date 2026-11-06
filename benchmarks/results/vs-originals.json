@@ -1121,6 +1121,61 @@
    "threads": 6,
    "note": "FORCE: compute stage of SPECTRAL_ADJUST TRUE (10 bands as indices) less FALSE (6 bands); Zeit: specadjust_batch on the 31,189,512 unmasked pixel-dates as float32",
    "date": "2026-11-06"
+  },
+  {
+   "method": "tasseled cap",
+   "original": "RStoolbox 1.0.2.2 (R)",
+   "size": "1000x1000 px x 6 bands, TM",
+   "original_s": 2.42,
+   "zeit_s": 0.027576399996178225,
+   "speedup": 87.75619734031217,
+   "threads": 1,
+   "note": "TM: RStoolbox has +0.0002 and +0.6806 for SWIR1 in greenness and wetness; Crist 1985 and FORCE -0.0002, -0.6806",
+   "date": "2026-11-06"
+  },
+  {
+   "method": "tasseled cap",
+   "original": "RStoolbox 1.0.2.2 (R)",
+   "size": "1000x1000 px x 6 bands, ETM+",
+   "original_s": 2.54,
+   "zeit_s": 0.0512624999973923,
+   "speedup": 49.54889051702919,
+   "threads": 1,
+   "note": "max diff 6.9e-08 (float32 against float64)",
+   "date": "2026-11-06"
+  },
+  {
+   "method": "tasseled cap",
+   "original": "RStoolbox 1.0.2.2 (R)",
+   "size": "1000x1000 px x 6 bands, OLI",
+   "original_s": 2.57,
+   "zeit_s": 0.023958200006745756,
+   "speedup": 107.27016216896017,
+   "threads": 1,
+   "note": "max diff 8.3e-08 (float32 against float64)",
+   "date": "2026-11-06"
+  },
+  {
+   "method": "force-tsa tasseled cap",
+   "original": "FORCE 3.11.00",
+   "size": "250,000 px x 136 dates",
+   "original_s": 0.567,
+   "zeit_s": 0.2665132999973139,
+   "speedup": 2.1274735632544965,
+   "threads": 1,
+   "note": "FORCE: compute stage of TC-BRIGHT TC-GREEN TC-WET TC-DI less the six bands as indices (same screening); Zeit: tasseled_cap, four components, int16 to float32, the whole cube (FORCE screens 9% out)",
+   "date": "2026-11-06"
+  },
+  {
+   "method": "force-tsa tasseled cap",
+   "original": "FORCE 3.11.00",
+   "size": "250,000 px x 136 dates",
+   "original_s": 0.15600000000000003,
+   "zeit_s": 0.18949650001013651,
+   "speedup": 0.8232342021707805,
+   "threads": 6,
+   "note": "FORCE: compute stage of TC-BRIGHT TC-GREEN TC-WET TC-DI less the six bands as indices (same screening); Zeit: tasseled_cap, four components, int16 to float32, the whole cube (FORCE screens 9% out)",
+   "date": "2026-11-06"
   }
  ],
  "machine": {

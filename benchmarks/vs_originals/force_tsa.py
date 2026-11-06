@@ -32,6 +32,11 @@ first search of the maximum, which skips cluster 9 and may pick the global clust
 ``acos`` of the C library and Rust's differ in the last bit; the default (Zeit's: the global cluster never the first pick,
 cluster 9 competing) differs from FORCE where the two searches select differently, shown as the pixels beyond +-1.
 
+``tasseled`` (``zeit.tasseled_cap`` against FORCE's TC-BRIGHT, TC-GREEN, TC-WET and TC-DI, the one matrix of Crist 1985, on the
+Sentinel-2A cube and the Landsat 8, 7 and 5 ones): ``force_tsa.sh`` with ``ONLY="tasseled tasseled_src"`` (and ``SENSOR=LND08``... with
+``DEST=workdir("force_specadjust")/<sensor>``); the input is FORCE's own TSS of the six bands, so that nothing but the
+arithmetic is compared, and the truncation is FORCE's ``(short)``.
+
 ``--ref <folder>`` reads the outputs from another folder of the same layout: the 500 x 500 measurement cube of the timing
 (``force_tsa_timing.sh`` and ``force_tsa_timing.py``), where the parts ``stm`` and ``interp`` check that the agreement
 holds on a larger cube (``int_harmonic_part`` is not run there).
@@ -1189,10 +1194,72 @@ def part_specadjust(jobs):
             _failed.append(f"{sensor}: specadjust")
 
 
+TC_PRODUCTS = ["TC-BRIGHT", "TC-GREEN", "TC-WET", "TC-DI"]
+TC_COMPONENTS = ["brightness", "greenness", "wetness", "disturbance"]
+TC_SOURCES = ["BLUE", "GREEN", "RED", "NIR", "SWIR1", "SWIR2"]
+
+
+def tc_read(folder, config, products):
+    """FORCE's TSS of each product of a configuration, ``(products, dates, y, x)`` int16, and the dates."""
+    import rasterio
+
+    out, dates = [], None
+    for name in products:
+        hits = sorted((folder / "out" / config / "X0000_Y0000").glob(f"*_{name}_TSS.tif"))
+        assert len(hits) == 1, (config, name, hits)
+        with rasterio.open(hits[0]) as ds:
+            out.append(ds.read())
+            dates = [int(d.split("_")[0]) for d in ds.descriptions]
+    return np.stack(out), dates
+
+
+def part_tasseled(jobs):
+    """``zeit.tasseled_cap`` on the int16 bands FORCE read (its ``tasseled_src`` run: the six bands as indices) against FORCE's
+    TC-BRIGHT, TC-GREEN, TC-WET and TC-DI (``tasseled`` run) of the Sentinel-2A cube and of the Landsat 8, 7 and 5 ones (the
+    same matrix for every sensor). The int16 input goes through ``zeit.tasseled_cap`` with a ``platform`` coordinate and the
+    float32 output is truncated the way FORCE's ``(short)`` does. Only the pixel-dates FORCE computes (a band of the QAI-screened
+    observation not nodata) are compared; elsewhere FORCE writes nodata."""
+    import xarray as xr
+    import zeit
+
+    base = SPEC_BASE or workdir("force_specadjust")
+    folders = [("SEN2A", ref.REF, "sentinel-2a")] + [(sn, base / sn, f"landsat-{sn[-1]}") for sn in SPEC_SENSORS]
+    for sensor, folder, platform in folders:
+        if not (folder / "out" / "tasseled").exists():
+            print(f"{sensor}: no tasseled run under {folder}; run force_tsa.sh with ONLY='tasseled tasseled_src'")
+            continue
+        src, dates = tc_read(folder, "tasseled_src", TC_SOURCES)            # (6, dates, y, x)
+        want, dates_tc = tc_read(folder, "tasseled", TC_PRODUCTS)           # (4, dates, y, x)
+        assert dates == dates_tc
+        nb, nt, ny, nx = src.shape
+        valid = ~(src == NODATA).all(0)                                     # (dates, y, x)
+        print("=" * 118)
+        print(f"{sensor}: {ny * nx} pixels x {nt} dates; FORCE computes {int(valid.sum())} of {valid.size} pixel-dates "
+              f"({100 * valid.mean():.1f} %)")
+        cube = xr.DataArray(src.transpose(1, 0, 2, 3), dims=("time", "band", "y", "x"),
+                            coords={"time": pd.to_datetime([str(d) for d in dates], format="%Y%m%d"),
+                                    "band": ["blue", "green", "red", "nir08", "swir16", "swir22"],
+                                    "platform": ("time", [platform] * nt)})
+        t0 = time.perf_counter()
+        got = zeit.tasseled_cap(cube, TC_COMPONENTS, nodata=None).values       # (dates, 4, y, x) float32
+        seconds = time.perf_counter() - t0
+        got = wrap_int16(got.transpose(1, 0, 2, 3))
+        n_failed = len(_failed)
+        report(f"{sensor}: {int(valid.sum())} pixel-dates, Zeit {seconds * 1000:.0f} ms (numpy, 1 thread)", TC_COMPONENTS,
+               np.where(valid[None], got, 0), np.where(valid[None], want, 0))
+        d = np.abs(got.astype(np.int32) - want)
+        print(f"  pixel-dates equal in all four: {100 * (d == 0).all(0)[valid].mean():.3f} %; values off by exactly 1: "
+              f"{int(((d == 1) & valid[None]).sum())} of {int(valid.sum()) * 4}; beyond 1: {int(((d > 1) & valid[None]).sum())}")
+        print(f"  the {int((~valid).sum())} pixel-dates FORCE leaves as nodata: "
+              f"{100 * (want[:, ~valid] == NODATA).mean():.3f} % are nodata in all four products")
+        if (want[:, ~valid] != NODATA).any() and n_failed == len(_failed):
+            _failed.append(f"{sensor}: tasseled nodata")
+
+
 # The parts.
 PARTS = {"stm": part_stm, "fold": part_fold, "standardize": part_standardize, "interp": part_interp,
          "trend": part_trend, "cso": part_cso, "polar": part_polar,
-         "specadjust": part_specadjust}
+         "specadjust": part_specadjust, "tasseled": part_tasseled}
 SPEC_BASE = None
 
 

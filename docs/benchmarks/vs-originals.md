@@ -292,6 +292,40 @@ With FORCE's search the integer outputs are identical in all 49.4 million values
 
 **Against the authors' code.** The method's authors' own code, **SpecHomo** (Scheffler, Apache-2.0), is not run: its trained classifiers are downloaded on first use as 218 MB (linear) and 504 MB (quantile) `dill` files, which execute arbitrary code when loaded, and their license is not declared anywhere in the package or its documentation. It would not reproduce FORCE's outputs anyway: SpecHomo uses seven Landsat 8 bands with the coastal band and eleven Sentinel-2A bands, a different weighting and threshold of the global cluster, and works in float32; FORCE's tables are a simplification of its own training. FORCE's code, written with the help of the paper's first author, is what the port follows.
 
+### Tasseled Cap vs RStoolbox and FORCE
+
+[`tasseled_cap`](../api/preprocessing.md#tasseled_cap) is compared with **FORCE 3.11.00**'s `TC-BRIGHT`, `TC-GREEN`, `TC-WET` and `TC-DI` (one matrix, Crist 1985, for every sensor) and with the R package **RStoolbox 1.0.2.2**'s `tasseledCap` (a matrix per sensor).
+
+**FORCE.** FORCE's TSA on the synthetic cubes of the other FORCE comparisons (`INDEX = TC-BRIGHT TC-GREEN TC-WET TC-DI`, no interpolation, no noise filter, `TSS` written), a Sentinel-2A cube of 100 x 100 pixels and 325 dates and Landsat 8, 7 and 5 cubes of 200 x 200 pixels and 136 dates, with edge-case spectra (zeros, negatives, saturated values) in the Landsat ones. The input is FORCE's own `TSS` of the six bands (a second run with `INDEX = BLUE GREEN RED NIR SWIR1 SWIR2`, which FORCE writes as the raw int16; for Sentinel-2A its `NIR` is B8A, the eighth of its ten bands, and not `BROADNIR`), so that only the arithmetic is compared, and Zeit's float32 result is truncated as FORCE's `(short)` does.
+
+| Cube | Observations computed | Values compared | Equal | Off by 1 | Beyond 1 |
+|:---|---:|---:|---:|---:|---:|
+| Sentinel-2A | 2,915,375 of 3,250,000 | 11,661,500 | 100% | 0 | 0 |
+| Landsat 8 | 4,937,286 of 5,440,000 | 19,749,144 | 100% | 0 | 0 |
+| Landsat 7 | 4,937,286 of 5,440,000 | 19,749,144 | 100% | 0 | 0 |
+| Landsat 5 | 4,937,286 of 5,440,000 | 19,749,144 | 100% | 0 | 0 |
+
+All four components are equal in every observation FORCE computes (the disturbance, `TC-DI`, is `TC-BRIGHT - TC-GREEN - TC-WET` accumulated in float32 in that order, as Zeit does), and the observations FORCE leaves as nodata are nodata in all four of its products. The equality is exact because Zeit adds the six float32 products in FORCE's band order; a matrix product by BLAS, which fuses and reorders them, would be off by 1 now and then.
+
+**Timings.** A Landsat 8 cube of 500 x 500 pixels with 136 dates (34 million pixel-dates, 91.7% of them kept by FORCE's QAI screening), FORCE's compute stage with the four components less the same run with the six bands as indices (the same screening; the minimum of 3 runs, `force_time_ms.c` as above), against `zeit.tasseled_cap` of the whole cube (int16 in, float32 out, four components, the 8.3% that FORCE screens out included). Seconds.
+
+| | FORCE | Zeit | Gain | Zeit, million pixel-dates/s |
+|:---|---:|---:|---:|---:|
+| 1 thread | 0.567 | 0.267 | 2.1× | 128 |
+| 6 threads | 0.156 | 0.189 | 0.8× | 179 |
+
+(FORCE's run with four indices keeps four bands in its time series and the other six, which favors FORCE's difference being too small; with the whole run FORCE takes 1.61 s with 1 thread and 0.39 s with 6.) The work is a few multiply-adds a value and memory-bound: Zeit's numpy loop works on tiles of rows that stay in the cache, and with six threads it is probably limited by memory (it reads 0.4 GB and writes 0.5 GB of float32, where FORCE's loop writes 16 bits; not profiled further).
+
+**RStoolbox.** `tasseledCap(img, sat)` on a synthetic image of 1000 x 1000 pixels and six bands (mixtures of vegetation, soil and water with noise, reflectance 0-1), one thread.
+
+| Sensor | Matrix | RStoolbox | Zeit, 1 thread | Speedup | Largest difference |
+|:---|:---|---:|---:|---:|:---|
+| Landsat 8 OLI | Baig et al. 2014 | 2.57 s | 24 ms | 107× | 8e-8 |
+| Landsat 7 ETM+ | Huang et al. 2002 | 2.54 s | 51 ms | 50× | 7e-8 |
+| Landsat 5 TM | Crist 1985 | 2.42 s | 28 ms | 88× | brightness 8e-8; greenness 1.5e-4; wetness 0.52 |
+
+The OLI and ETM+ matrices are equal to 1e-7, the float32 rounding of Zeit against the double of R. For TM the brightness is equal and greenness and wetness are not, because RStoolbox's table has `+0.0002` and `+0.6806` for the SWIR1 weight of greenness and wetness, where Crist (1985) and FORCE have `-0.0002` and `-0.6806`: with those two numbers given to Zeit as `coefficients=`, all three components are equal to 8e-8. Zeit follows the paper. RStoolbox has no matrix for Sentinel-2, and Zeit gives Sentinel-2 Crist's, as FORCE does (the comparison with FORCE above).
+
 ---
 
 ## Protocol
@@ -331,6 +365,7 @@ python benchmarks/vs_originals/accuracy_survey.py     # zeit.transitions against
 python benchmarks/vs_originals/force_tsa.py --part stm,fold,standardize,interp,trend,cso,polar --jobs 4   # FORCE's TSA, against its saved outputs
 wsl -e bash -lc 'bash benchmarks/vs_originals/force_tsa_timing.sh ~/force-ref-work/tsa-bench 6'   # FORCE's compute stage on the 500 x 500 cube (also with 1); then:
 python benchmarks/vs_originals/force_tsa_timing.py    # Zeit's times against it (--profile: the cost by size)
+python benchmarks/vs_originals/tasseled.py            # RStoolbox 1.0.2.2, against zeit.tasseled_cap
 python benchmarks/vs_originals/polar.py               # PolarMetrics 0.1.0 (R package from GitHub: R CMD INSTALL), against zeit.polar_metrics
 python benchmarks/vs_originals/ewmacd.py "path/to/EWMACD v1.3.0.r"   # Brooks' script, not distributed
 PYXCCD_PYTHON=path/to/pyxccd-env/python python benchmarks/vs_originals/sccd.py CCDC_Stack_Rondonia.tif CCDC_Stack_Rondonia_Dates.csv

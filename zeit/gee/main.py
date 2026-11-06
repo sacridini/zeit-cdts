@@ -46,6 +46,19 @@ def _compute_indices(img: "ee.Image", indices: list) -> "ee.Image":
             index = fr.expression("((GV / (1 - SHADE)) - (NPV + SOIL)) / ((GV / (1 - SHADE)) + NPV + SOIL)",
                                   {"GV": fr.select(0), "SHADE": fr.select(1), "NPV": fr.select(2),
                                    "SOIL": fr.select(3)})
+        elif name in ("TCB", "TCG", "TCW", "TCD"):
+            from .._tasseled import CRIST_1985
+
+            def component(key):
+                letters = ("B", "G", "R", "N", "S1", "S2")
+                return refl.expression(
+                    " + ".join(f"({c}) * {r}" for c, r in zip(CRIST_1985[key], letters)),
+                    {r: band(role) for r, role in zip(letters, INDICES[name])})
+
+            if name == "TCD":
+                index = component("brightness").subtract(component("greenness")).subtract(component("wetness"))
+            else:
+                index = component({"TCB": "brightness", "TCG": "greenness", "TCW": "wetness"}[name])
         elif name == "EVI":
             index = refl.expression(
                 "2.5 * (NIR - RED) / (NIR + 6 * RED - 7.5 * BLUE + 1)",

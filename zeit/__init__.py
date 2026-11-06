@@ -48,6 +48,7 @@ from ._bandpass import bandpass_adjust
 from ._nbar import nbar
 from ._s2angles import sentinel2_angles
 from ._specadjust import spectral_adjust
+from ._tasseled import tasseled_cap
 
 from .regularize import regularize_time_series
 
@@ -123,6 +124,7 @@ __all__ = [
     "sentinel2_angles",
     "bandpass_adjust",
     "spectral_adjust",
+    "tasseled_cap",
     "build_annual_composites",
     "build_spectral_temporal_metrics",
     "compute_indices",

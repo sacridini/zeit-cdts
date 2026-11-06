@@ -23,7 +23,14 @@ INDICES: Dict[str, tuple] = {
     "MNDWI": ("green", "swir1"),
     # Souza et al. (2005): unmixed with their endmembers (zeit._sma.SOUZA_2005)
     "NDFI": ("blue", "green", "red", "nir", "swir1", "swir2"),
+    # Tasseled Cap brightness, greenness, wetness and FORCE's disturbance (B - G - W), Crist (1985) for every sensor
+    # as in FORCE (zeit._tasseled.CRIST_1985; zeit.tasseled_cap has the per-sensor matrices)
+    "TCB": ("blue", "green", "red", "nir", "swir1", "swir2"),
+    "TCG": ("blue", "green", "red", "nir", "swir1", "swir2"),
+    "TCW": ("blue", "green", "red", "nir", "swir1", "swir2"),
+    "TCD": ("blue", "green", "red", "nir", "swir1", "swir2"),
 }
+TASSELED_CAP = {"TCB": "brightness", "TCG": "greenness", "TCW": "wetness"}
 NORMALIZED_DIFFERENCES = ("NDVI", "NBR", "NDMI", "NDWI", "MNDWI")
 
 # Asset names holding each band role, in order of preference: common names (Landsat
@@ -61,6 +68,19 @@ def index_formula(name: str, get: Callable):
     if name in NORMALIZED_DIFFERENCES:
         a, b = (get(role) for role in INDICES[name])
         return (a - b) / (a + b)
+    if name in TASSELED_CAP or name == "TCD":
+        from ._tasseled import CRIST_1985
+
+        def component(key):
+            c = CRIST_1985[key]
+            total = c[0] * get(INDICES[name][0])
+            for k, role in enumerate(INDICES[name][1:], 1):
+                total = total + c[k] * get(role)
+            return total
+
+        if name == "TCD":
+            return (component("brightness") - component("greenness")) - component("wetness")
+        return component(TASSELED_CAP[name])
     nir, red = get("nir"), get("red")
     if name == "EVI":
         return 2.5 * (nir - red) / (nir + 6 * red - 7.5 * get("blue") + 1)
@@ -157,7 +177,11 @@ def compute_indices(cube, indices: Sequence[str], band_map: Optional[Dict[str, s
         from `build_time_series` (float dtype) or `build_annual_composites`.
     indices: Index names: NDVI, EVI, SAVI, kNDVI, NBR, NDMI, NDWI, MNDWI, NDFI (the
         Normalized Difference Fraction Index of Souza et al. 2005, from the fractions of
-        a spectral unmixing of the six Landsat bands, see `zeit.unmix`).
+        a spectral unmixing of the six Landsat bands, see `zeit.unmix`), and the Tasseled
+        Cap TCB (brightness), TCG (greenness), TCW (wetness) and TCD (FORCE's disturbance,
+        TCB - TCG - TCW), all with the matrix of Crist 1985 as FORCE applies it to every
+        sensor, in reflectance units (see `zeit.tasseled_cap` for the per-sensor matrices
+        and FORCE's integer arithmetic).
     band_map: Overrides for the band each role is read from, e.g. ``{"nir": "B8A"}``.
         By default each role is found by its usual asset names (``red``, ``B04``,
         ``SR_B4``...).

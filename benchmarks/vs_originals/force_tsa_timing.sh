@@ -117,6 +117,8 @@ cfg() {
                                SPECTRAL_ADJUST=TRUE) ;;
         spec_off)        ARGS=(INDEX="BLUE GREEN RED NIR SWIR1 SWIR2" INTERPOLATE=NONE SPECTRAL_ADJUST=FALSE
                                TARGET_SENSOR="$SENSOR") ;;
+        tc)              ARGS=(INDEX="TC-BRIGHT TC-GREEN TC-WET TC-DI" INTERPOLATE=NONE TARGET_SENSOR="$SENSOR") ;;
+        tc_src)          ARGS=(INDEX="BLUE GREEN RED NIR SWIR1 SWIR2" INTERPOLATE=NONE TARGET_SENSOR="$SENSOR") ;;
         cso_m1)          MOD=CSO; ARGS=(MONTH_STEP=1 CSO="$CSO") ;;
         cso_num)         MOD=CSO; ARGS=(MONTH_STEP=1 CSO="NUM") ;;
         *) echo "unknown config $1"; exit 2 ;;

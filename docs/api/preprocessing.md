@@ -189,6 +189,58 @@ ndvi = zeit.compute_indices(s2like, ["NDVI"])    # nir is B08, as on Sentinel-2
 rededge = s2like.sel(band="rededge2") / s2like.sel(band="rededge1")   # the red edge, which Landsat does not measure
 ```
 
+### `tasseled_cap` { .api }
+
+<!-- sig: zeit.tasseled_cap -->
+```python
+zeit.tasseled_cap(
+    data, components=('brightness', 'greenness', 'wetness'), *,
+    coefficients="crist1985", sensor=None, bands=None, nodata="auto",
+    chunks=None, n_jobs=-1,
+)
+```
+
+The Tasseled Cap of a reflectance cube: brightness (soil, built-up), greenness (green vegetation) and wetness (moisture, shade) as fixed weighted sums of the six reflective bands (blue, green, red, NIR, SWIR1, SWIR2), in the scale of the data. The default is what FORCE's TSA does (`TC-BRIGHT`, `TC-GREEN`, `TC-WET`, FORCE 3.11, David Frantz, GPL-3.0-or-later): the matrix of Crist (1985, *Remote Sensing of Environment* 17:301-306) for every sensor, in float32 with the six products added in the band order, so that FORCE's values truncated to integers are those of this function on the same integers. `"sensor"` gives each date the matrix published for its sensor instead. `"disturbance"` is FORCE's `TC-DI`, `brightness - greenness - wetness` of the same matrix, **not** the standardized disturbance index of Healey et al. (2005), which scales each component by the mean and standard deviation of the forest of the scene.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `data` | `DataArray` or path | required | Reflectance `(time, band, y, x)` or `(band, y, x)`, in memory or dask, with blue, green, red, NIR, SWIR1 and SWIR2 (found by role, as `spectral_adjust` does). Integers are accepted. For Sentinel-2 the NIR is B8A (`nir08`), FORCE's `NIR` for that sensor; a cube with B08 only is used with a warning. |
+| `components` | `str` or list | `("brightness", "greenness", "wetness")` | What to compute, in this order: `"brightness"`, `"greenness"`, `"wetness"`, `"disturbance"`, or the names of a dict of `coefficients`. |
+| `coefficients` | `str`, `dict` or array | `"crist1985"` | `"crist1985"` (FORCE's, every sensor); `"sensor"` (the matrix of each date's sensor, below); `"huang2002"`, `"baig2014"` (one matrix for every date); a dict `{component: six numbers (blue, green, red, NIR, SWIR1, SWIR2)}`; or an array `(components, 6)` whose rows are named by `components`. |
+| `sensor` | `str` or list | `None` | Each date's sensor for `coefficients="sensor"`: by default the `platform` coordinate or attribute of the cube; or one name for every date (`"landsat-8"`, `"LC09"`, `"sentinel-2a"`...), or one per date. |
+| `bands` | `dict` | `None` | The cube's band of each of the six roles (`blue`, `green`, `red`, `nir`, `swir1`, `swir2`) when its names are not the usual ones. |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | Missing values besides NaN (the raster's NoData; 0 for integers without one). A pixel with a band missing is missing in every component. |
+| `chunks` | `"auto"`, `dict` | `None` | Inputs read from disk: `None` reads into memory; otherwise the result is lazy. |
+| `n_jobs` | `int` | `-1` | Threads for an in-memory cube (a dask cube is parallel by its chunks). |
+
+</div>
+
+**Returns** `(time, band, y, x)` (or `(band, y, x)`), float32, whose `band` coordinate names the components, lazy if the input is. `attrs["tasseled_cap"]` says which matrix each sensor got, and a Tasseled Cap is refused a second time. Take one component for [`landtrendr`](change-detection.md#landtrendr) or the others with `.sel(band="wetness")`. [`compute_indices`](data.md#compute_indices) also has `TCB`, `TCG`, `TCW` and `TCD`, with Crist's matrix, for the reflectance cubes it takes.
+
+**The matrices.** Coefficients for blue, green, red, NIR, SWIR1, SWIR2. Those of Crist (1985), Huang et al. (2002) and Baig et al. (2014) are equal to the table of RStoolbox's `tasseledCap` except for the two signs noted below; RStoolbox has no matrix for Sentinel-2.
+
+**Sentinel-2.** `"sensor"` gives Sentinel-2 dates Crist's matrix, as FORCE does. The matrix published for MSI (Shi and Xu 2019, *IEEE JSTARS* 12:4038-4048) weighs all 13 bands of the L1C top-of-atmosphere product, B1, B9 and B10 included, which an L2A cube does not have, so it is not offered as a six-band matrix.
+
+| Sensor | Paper | Derived for | Brightness | Greenness | Wetness |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| Landsat 4, 5 TM (and every sensor, by default) | Crist (1985) | reflectance factors (surface) | 0.2043 0.4158 0.5524 0.5741 0.3124 0.2303 | -0.1603 -0.2819 -0.4934 0.7940 -0.0002 -0.1446 | 0.0315 0.2021 0.3102 0.1594 -0.6806 -0.6109 |
+| Landsat 7 ETM+ | Huang et al. (2002), *Int. J. Remote Sensing* 23:1741-1748 | at-satellite reflectance | 0.3561 0.3972 0.3904 0.6966 0.2286 0.1596 | -0.3344 -0.3544 -0.4556 0.6966 -0.0242 -0.2630 | 0.2626 0.2141 0.0926 0.0656 -0.7629 -0.5388 |
+| Landsat 8 OLI (and 9) | Baig et al. (2014), *Remote Sensing Letters* 5:423-431 | top-of-atmosphere reflectance | 0.3029 0.2786 0.4733 0.5599 0.5080 0.1872 | -0.2941 -0.2430 -0.5424 0.7276 0.0713 -0.1608 | 0.1511 0.1973 0.3283 0.3407 -0.7117 -0.4559 |
+
+Only Crist's matrix was derived for surface reflectance. The others were derived for top-of-atmosphere or at-sensor reflectance, and applying them to surface reflectance (as one does with Collection 2 or L2A cubes) is common practice but approximate; so is applying one matrix to every sensor, which is what FORCE does. RStoolbox's table for Landsat 5 TM has `+0.0002` and `+0.6806` for the SWIR1 weight of greenness and wetness, the opposite signs of Crist's table and FORCE's; Zeit follows the paper.
+
+**Against FORCE and RStoolbox.** The integer outputs equal FORCE's in every observation computed (100% of 11.7 to 19.7 million values for each of a Sentinel-2A and Landsat 8, 7 and 5 synthetic cubes), and the matrices of ETM+ and OLI equal RStoolbox's to 1e-7 (see [Against the Original Implementations](../benchmarks/vs-originals.md#tasseled-cap-vs-rstoolbox-and-force)).
+
+```python
+landsat = zeit.build_time_series(collection="landsat-c2-l2",
+                                 bands=["blue", "green", "red", "nir08", "swir16", "swir22"], **grid)
+tc = zeit.tasseled_cap(landsat)                                      # as FORCE
+tc = zeit.tasseled_cap(landsat, ["wetness"], coefficients="sensor")  # the matrix of each date's sensor
+lt = zeit.landtrendr(tc.sel(band="wetness"))
+```
+
 ## Cloud masking
 
 ### `tmask` { .api }
