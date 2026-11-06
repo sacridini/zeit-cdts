@@ -455,7 +455,8 @@ def _item_scale_offset(cube: xr.DataArray, items) -> Tuple[np.ndarray, np.ndarra
     Read from the items rather than the cube's coordinates: stackstac drops metadata that
     doesn't line up across bands (Earth Search Sentinel-2, for one). Sentinel-2 items
     without ``raster:bands`` (Planetary Computer) get the L2A factors from their
-    processing baseline: reflectance = DN / 10000, minus 0.1 from baseline 04.00 on. HLS
+    processing baseline: reflectance = DN / 10000, minus 0.1 from baseline 04.00 on. Earth Search's
+    items list that offset too but have it already applied (``earthsearch:boa_offset_applied``): none. HLS
     items have none either: reflectance is DN / 10000, L30's thermal bands and the angles
     DN / 100 (HLS v2.0 User Guide, Tables 6-8).
     """
@@ -467,14 +468,18 @@ def _item_scale_offset(cube: xr.DataArray, items) -> Tuple[np.ndarray, np.ndarra
         item = by_id.get(item_id)
         if item is None:
             continue
-        baseline = (getattr(item, "properties", None) or {}).get("s2:processing_baseline")
+        props = getattr(item, "properties", None) or {}
+        baseline = props.get("s2:processing_baseline")
+        # Earth Search has already taken the BOA offset off its COGs (baseline 04.00 on) but still lists
+        # it in raster:bands: applying it again would take 0.1 off every reflectance.
+        applied = props.get("earthsearch:boa_offset_applied") is True
         hls = str(item_id).upper().startswith("HLS.")
         for k, band in enumerate(bands):
             asset = item.assets.get(band)
             meta = asset.extra_fields.get("raster:bands") if asset is not None else None
             if isinstance(meta, list) and meta and isinstance(meta[0], dict):
                 scale[i, k] = meta[0].get("scale", 1.0)
-                offset[i, k] = meta[0].get("offset", 0.0)
+                offset[i, k] = 0.0 if applied else meta[0].get("offset", 0.0)
             elif hls:   # HLS items carry no raster:bands: reflectance x 10000, thermal and angles x 100
                 thermal = ".L30." in str(item_id).upper() and str(band) in ("B10", "B11")
                 scale[i, k] = 1.0 if str(band) == "Fmask" else 0.01 if thermal or str(band) in HLS_ANGLES else 1e-4

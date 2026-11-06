@@ -145,6 +145,23 @@ def test_item_scale_offset_sentinel2_without_raster_bands():
     np.testing.assert_allclose(o, [[0.0, 0.0, 0.0], [-0.1, -0.1, 0.0]], rtol=1e-6)
 
 
+def test_item_scale_offset_earth_search_offset_already_applied():
+    """Earth Search lists the -0.1 BOA offset in raster:bands but its COGs already have it taken off."""
+    cube = _stub_cube(np.ones((2, 3, 2, 2), dtype="uint16")).assign_coords(band=["red", "nir08", "scl"])
+    rb = {"raster:bands": [{"scale": 1e-4, "offset": -0.1}]}
+    items = [
+        SimpleNamespace(id="scene0", properties={"s2:processing_baseline": "05.09", "earthsearch:boa_offset_applied": True},
+                        assets={"red": SimpleNamespace(extra_fields=rb), "nir08": SimpleNamespace(extra_fields=rb),
+                                "scl": SimpleNamespace(extra_fields={})}),
+        SimpleNamespace(id="scene1", properties={"s2:processing_baseline": "05.09"},
+                        assets={"red": SimpleNamespace(extra_fields=rb), "nir08": SimpleNamespace(extra_fields=rb),
+                                "scl": SimpleNamespace(extra_fields={})}),
+    ]
+    s, o = _item_scale_offset(cube, items)
+    np.testing.assert_allclose(s, [[1e-4, 1e-4, 1.0], [1e-4, 1e-4, 1.0]], rtol=1e-6)
+    np.testing.assert_allclose(o, [[0.0, 0.0, 0.0], [-0.1, -0.1, 0.0]], rtol=1e-6)
+
+
 def test_qa_band_and_band_map_per_provider():
     assert _qa_band_for("sentinel-2-l2a", "planetary_computer") == "SCL"
     assert _qa_band_for("sentinel-2-l2a", "earth_search") == "scl"
