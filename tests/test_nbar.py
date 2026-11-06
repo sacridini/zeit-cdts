@@ -207,6 +207,38 @@ def test_dask_equals_numpy_and_stays_lazy():
     np.testing.assert_allclose(both.compute().values, zeit.nbar(cube, ang, sza=30).values)
 
 
+def test_a_view_geometry_per_band():
+    """VZA and VAA with a band dimension (sentinel2_angles(view_band="each")): each band takes its own view."""
+    bands = ("blue", "red", "nir08", "swir16")
+    cube = _cube(2, 6, 7, bands=bands)
+    ang = _angles(cube)
+    rng = np.random.default_rng(9)
+    shape = (2, len(bands), 6, 7)
+    coords = {"time": cube.time, "band": list(bands), "y": cube.y, "x": cube.x}
+    vza = xr.DataArray(rng.uniform(0, 10, shape).astype(np.float32), dims=("time", "band", "y", "x"), coords=coords)
+    vaa = xr.DataArray(rng.uniform(0, 360, shape).astype(np.float32), dims=("time", "band", "y", "x"), coords=coords)
+    each = xr.Dataset({"SZA": ang.SZA, "SAA": ang.SAA, "VZA": vza, "VAA": vaa})
+    out, c = zeit.nbar(cube, each, return_cfactor=True)
+    for b in bands:
+        single = ang.assign(VZA=vza.sel(band=b, drop=True), VAA=vaa.sel(band=b, drop=True))
+        want, wc = zeit.nbar(cube.sel(band=[b]), single, return_cfactor=True)
+        np.testing.assert_array_equal(out.sel(band=b).values, want.sel(band=b).values)
+        np.testing.assert_array_equal(c.sel(band=b).values, wc.sel(band=b).values)
+    # the scene zenith is the first role band's valid mean, the same SZA here; dask equals numpy
+    lazy, cl = zeit.nbar(cube.chunk({"time": 1, "y": 3, "x": 4}), each.chunk({"time": 2, "y": 6, "x": 3}),
+                         return_cfactor=True)
+    assert lazy.chunks is not None
+    np.testing.assert_array_equal(lazy.compute().values, out.values)
+    np.testing.assert_array_equal(cl.compute().values, c.values)
+    # bands that are not normalized need no view; one that is needs its own
+    cube5 = _cube(2, 6, 7, bands=bands + ("qa",))
+    np.testing.assert_array_equal(zeit.nbar(cube5, each).sel(band="qa").values, cube5.sel(band="qa").values)
+    with pytest.raises(ValueError, match="none for the band 'red'"):
+        zeit.nbar(cube, each.sel(band=["blue", "nir08", "swir16"]))
+    with pytest.raises(ValueError, match="both have a band dimension, or neither"):
+        zeit.nbar(cube, each.assign(VAA=ang.VAA))
+
+
 def test_angles_inside_the_cube_and_other_forms():
     cube = _cube(2, 4, 5, bands=("blue", "red", "nir08"))
     ang = _angles(cube)

@@ -40,14 +40,14 @@ zeit.nbar(
 
 Normalizes reflectance to what a sensor at nadir would see with the sun at a chosen zenith (NBAR, nadir BRDF-adjusted reflectance), by the c-factor method of Roy et al. (2016, *Remote Sensing of Environment* 176:255-271; 2017, 199:25-38). Each band is multiplied by `c = ρ(sza_norm, view 0) / ρ(sza, vza, raa)`, where ρ is the MODIS Ross-Thick / Li-Sparse-Reciprocal model `f_iso + f_vol·K_vol + f_geo·K_geo` with three fixed parameters per band (Roy et al. 2016, Table 5, the global MODIS values; the HLS User Guide v2.0, Table 4, applies the same to OLI and MSI), evaluated at the pixel's observed solar zenith, view zenith and relative azimuth (view minus sun azimuth). It is the view-angle step of HLS, and goes before [`bandpass_adjust`](#bandpass_adjust). HLS cubes are refused (already normalized).
 
-**Written from the papers.** The implementation follows the equations of the papers and the HLS User Guide, not any other implementation (FORCE's, HLS's...): the checks are the published parameters, analytic values of the kernels and the c-factor, and the properties of the model (see `tests/test_nbar.py`). It is not yet compared against HLS itself. The kernels are those that Matsuoka et al. (2016, *ISPRS Annals* III-7:3-10) write after Wanner et al. (1995) and Lucht et al. (2000), with Li-Sparse's h/b = 2 and b/r = 1.
+**Written from the papers.** The implementation follows the equations of the papers and the HLS User Guide, not any other implementation (FORCE's, HLS's...): the checks are the published parameters, analytic values of the kernels and the c-factor, and the properties of the model (see `tests/test_nbar.py`). It is compared against the HLS product itself (the same method, the same parameters): for HLS L30 against Landsat Collection 2 of the same scene, the median ratio of HLS's NBAR to the USGS reflectance in every bin of view zenith and azimuth is within 0.0083 of Zeit's c in every band (0.01 and 0.02 tolerances), slope 0.98-1.07; for Sentinel-2 the angles from `sentinel2_angles` give c within 0.003 (std) of the c from HLS's own angles ([fidelity](../benchmarks/fidelity.md#10-nbar-against-hls-zeitnbar-zeitsentinel2_angles)). The kernels are those that Matsuoka et al. (2016, *ISPRS Annals* III-7:3-10) write after Wanner et al. (1995) and Lucht et al. (2000), with Li-Sparse's h/b = 2 and b/r = 1.
 
 <div class="params" markdown>
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `data` | `DataArray` or path | required | Surface reflectance `(time, band, y, x)` or `(band, y, x)`, in memory or dask. Bands are found by role: `coastal`, `blue`, `green`, `red`, `rededge1`-`rededge3`, `nir` (B08), `nir08` (B8A, OLI's band 5), `swir1`, `swir2`, named as Earth Search or Planetary Computer name them (`swir16`, `B04`...). Sentinel-2's B08 is normalized (it has MODIS's NIR parameters); bands without a role (B09, QA, the angles) are copied. |
-| `angles` | `Dataset`, `DataArray` or `None` | `None` | Sun and view angles in degrees, `SZA`, `SAA`, `VZA`, `VAA`, on exactly the cube's grid and dates, `(time, y, x)` (`(y, x)` for a cube without time); nothing is resampled and a mismatch is an error. `None` takes bands of the cube with those names. Where to get them: HLS carries them (scaled by 0.01); Landsat Collection 2 has Level-1 angle bands (USGS credentials); Sentinel-2 has a 5 km grid in each tile's `MTD_TL.xml`. A pixel with a missing angle, or a zenith outside 0-90°, is NaN. |
+| `angles` | `Dataset`, `DataArray` or `None` | `None` | Sun and view angles in degrees, `SZA`, `SAA`, `VZA`, `VAA`, on exactly the cube's grid and dates, `(time, y, x)` (`(y, x)` for a cube without time); nothing is resampled and a mismatch is an error. `None` takes bands of the cube with those names. Where to get them: HLS carries them (scaled by 0.01); Landsat Collection 2 has Level-1 angle bands (USGS credentials); Sentinel-2 has a 5 km grid in each tile's `MTD_TL.xml`, which [`sentinel2_angles`](#sentinel2_angles) turns into per-pixel angles on the cube's grid. `VZA` and `VAA` may have a `band` dimension (`sentinel2_angles(..., view_band="each")`): each band is then normalized with its own view geometry (the bands to normalize must all have one). A pixel with a missing angle, or a zenith outside 0-90°, is NaN. |
 | `sensor` | `str` or list | `None` | As for `bandpass_adjust`. Only checks the sensors (Landsat 4-9, Sentinel-2) and keeps the Collection 2 names `SR_B1`... from being read as OLI's on Landsat 4, 5 and 7 (pass `bands=`). |
 | `sza` | `float`, list, `"scene"` or `"hls"` | `"scene"` | The normalized solar zenith: a number of degrees (or one per date); `"scene"`, the mean of each date's observed solar zenith over the pixels whose angles are valid (Roy et al. 2016, 2017; with dask the angles are read once ahead of the computation); or `"hls"`, the `NBAR_SOLAR_ZENITH` tag as an attribute or coordinate of the cube (HLS computes it from the day and latitude with overpass times its guide does not give, so Zeit does not). The view is always nadir. Roy et al. advise against a normalized zenith far from the observed ones. |
 | `bands` | `dict` | `None` | The cube's band of each role, when its names are not the usual ones. |
@@ -68,6 +68,49 @@ angles = xr.Dataset({"SZA": sza, "SAA": saa, "VZA": vza, "VAA": vaa})   # degree
 cube_nbar = zeit.nbar(cube, angles)
 mixed = zeit.bandpass_adjust(cube_nbar)          # HLS's order: view angles first, then the bandpass
 nbar, c = zeit.nbar(cube, angles, sza=35, return_cfactor=True)
+```
+
+### `sentinel2_angles` { .api }
+
+<!-- sig: zeit.sentinel2_angles -->
+```python
+zeit.sentinel2_angles(
+    source, like, *, view_band="B06", chunks=None, n_jobs=-1,
+)
+```
+
+The sun and view angles of every pixel of a Sentinel-2 cube, from the `MTD_TL.xml` of its tiles, in the form [`nbar`](#nbar) takes. ESA gives each tile's angles as 23 × 23 grids with a 5 km step (`Geometric_Info/Tile_Angles`): the sun's zenith and azimuth, and the view zenith and azimuth of every band and detector. The grids start at the tile's upper left corner (the `ULX`, `ULY` of `Tile_Geocoding`) and run east (columns) and south (rows); the XML has no origin of its own, only the steps. A detector's grid is `NaN` where its swath does not reach, so a cell where two swaths overlap has two values.
+
+How the grids become pixels (written from ESA's product description and Roy et al. 2017, *Remote Sensing of Environment* 199:25-38, Sec. 3.2, "bilinear interpolation from the 5 km grid values", the way HLS does it for its Sentinel-2 product):
+
+- **Detectors are fused first, cell by cell**: the mean of the zeniths and the circular mean of the azimuths of the detectors that cover the cell. A cell is valid if any detector covers it.
+- **Bilinear interpolation to the pixel centres**, over the valid corners of the cell only (their weights rescaled to sum to one). A pixel between the last valid node of a swath and the next, invalid one takes the valid corner's value (flat, within one 5 km cell); a pixel with no valid corner, or outside the 23 × 23 grid, is `NaN`. Azimuths are interpolated through their sine and cosine, so 0°/360° is no seam.
+- **The CRS may differ**: if `like` is not in the tile's CRS (the neighbouring UTM zone, or HLS's grid, which uses the northern zone with negative northings for southern tiles), the pixel centres are projected to the tile's.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `source` | STAC item, path, URL, XML text or list | required | The tile metadata of each date of `like`: an Earth Search item (asset `granule_metadata`) or a Planetary Computer item (`granule-metadata`, signed with `planetary_computer`), as a `pystac` Item or its dict; the path or URL of an `MTD_TL.xml`; or the XML. A list gives one per date, in the order of `like.time`; an entry may itself be a list of the tiles that make that date's mosaic (a pixel takes the first tile that has angles there). A source sensed more than a day from its date in `like` is an error. |
+| `like` | `DataArray` | required | The cube the angles must match: its CRS, `y`, `x` (pixel centres) and `time`. With `view_band="each"` it also gives the bands. |
+| `view_band` | `str` | `"B06"` | The band whose view angles every band takes: `"B06"` (the second red edge band) is HLS's choice, one view geometry for all bands. `"each"` gives each Sentinel-2 band of `like` its own `VZA` and `VAA` (a `band` dimension), which `nbar` uses band by band. Any other band name (`"B08"`, `"red"`...) takes that one for all. |
+| `chunks` | `dict`, `"auto"` or `None` | `None` | `None` computes now unless `like` is dask (then lazy, with its chunks); otherwise lazy with those chunks. In memory, one 10980 × 10980 tile is four float32 images of 480 MB per date: use lazy for many dates. |
+| `n_jobs` | `int` | `-1` | Threads of the in-memory computation (strips of rows). |
+
+</div>
+
+**Returns** an `xarray.Dataset` with `SZA`, `SAA`, `VZA`, `VAA` in degrees (float32, azimuths 0-360 clockwise from north, `(time, y, x)`) on exactly the coordinates of `like`.
+
+**Against HLS.** HLS S30 uses the same grids: over a whole tile, Zeit's solar angles are 0.015° from HLS's (the Level-1C against the Level-2A metadata) and the view zenith has a standard deviation of 0.05° from it. At the borders between detectors HLS gives each pixel its detector's angles (a step of 20-60° in azimuth) where this blends the two over one 5 km cell; the c-factors differ by 0.0027 (std, 0.015 at most).
+
+**Speed.** A whole 10980 × 10980 tile at 10 m, four layers, takes 4.3 s on one thread and 2.2 s on eight (Windows 11, memory bound beyond that); lazily it is computed with the cube's chunks.
+
+```python
+items = sorted(search.item_collection(), key=lambda i: i.datetime)   # Earth Search sentinel-2-l2a items, one per date
+cube = zeit.build_time_series(source="earth_search", collection="sentinel-2-l2a", ...)
+angles = zeit.sentinel2_angles(items, cube)            # same order as cube.time
+cube_nbar = zeit.nbar(cube, angles)
+each = zeit.sentinel2_angles(items, cube, view_band="each")   # a view geometry per band
 ```
 
 ### `bandpass_adjust` { .api }

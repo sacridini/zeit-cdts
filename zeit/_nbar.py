@@ -106,8 +106,8 @@ def _angle_layers(angles: Any, cube: xr.DataArray) -> Tuple[xr.DataArray, List[A
                 "nbar needs each pixel's sun and view angles: pass angles= (an xarray Dataset with SZA, SAA, VZA and "
                 "VAA in degrees on the cube's grid) or have those four bands in the cube. HLS cubes carry them "
                 "(request bands SZA, SAA, VZA, VAA) but are already NBAR; for Landsat Collection 2 they are the "
-                "Level-1 angle bands (USGS credentials); for Sentinel-2 they come from the tile's MTD_TL.xml (the "
-                "coming zeit.sentinel2_angles)") from None
+                "Level-1 angle bands (USGS credentials); for Sentinel-2 they come from the tile's MTD_TL.xml "
+                "(zeit.sentinel2_angles)") from None
         own = [found[a] for a in ANGLES]
         parts = [cube.sel(band=found[a]).drop_vars("band") for a in ANGLES]
         for p in parts:
@@ -116,6 +116,8 @@ def _angle_layers(angles: Any, cube: xr.DataArray) -> Tuple[xr.DataArray, List[A
         return layers, own
     if isinstance(angles, xr.Dataset):
         found = pick({str(k): k for k in angles.data_vars}, "the Dataset")
+        if "band" in angles[found["VZA"]].dims or "band" in angles[found["VAA"]].dims:
+            return _per_band_layers(angles, found), own
         parts = [angles[found[a]] for a in ANGLES]
     elif isinstance(angles, xr.DataArray):
         dim = "angle" if "angle" in angles.dims else "band" if "band" in angles.dims else None
@@ -131,6 +133,27 @@ def _angle_layers(angles: Any, cube: xr.DataArray) -> Tuple[xr.DataArray, List[A
         p.attrs = {}
     layers = xr.concat(parts, dim="angle").assign_coords(angle=list(ANGLES))
     return layers, own
+
+
+def _per_band_layers(angles: xr.Dataset, found: Dict[str, Any]) -> xr.DataArray:
+    """Angles with a view geometry per band (``VZA`` and ``VAA`` with a ``band`` dimension, as
+    ``sentinel2_angles(view_band="each")`` gives): the layers ``SZA``, ``SAA`` and ``VZA:<band>``, ``VAA:<band>`` of
+    every band, along ``angle``."""
+    vza, vaa = angles[found["VZA"]], angles[found["VAA"]]
+    if "band" not in vza.dims or "band" not in vaa.dims:
+        raise ValueError("VZA and VAA must both have a band dimension, or neither")
+    labels = [str(b) for b in vza.band.values]
+    if labels != [str(b) for b in vaa.band.values]:
+        raise ValueError("VZA and VAA have different bands")
+    names = ["SZA", "SAA"]
+    parts = [angles[found["SZA"]], angles[found["SAA"]]]
+    for b, label in zip(vza.band.values, labels):
+        names += [f"VZA:{label}", f"VAA:{label}"]
+        parts += [vza.sel(band=b), vaa.sel(band=b)]
+    parts = [p.drop_vars([c for c in p.coords if c not in p.dims]) for p in parts]
+    for p in parts:
+        p.attrs = {}
+    return xr.concat(parts, dim="angle").assign_coords(angle=names)
 
 
 def _same(a: np.ndarray, b: np.ndarray) -> bool:
@@ -232,9 +255,10 @@ def _norm_sza(sza: Any, cube: xr.DataArray, ang: Any, n_dates: int) -> Tuple[np.
 
 
 def _nbar_block(block: np.ndarray, ang: np.ndarray, sza_norm: Sequence[float], coefs: np.ndarray, pos: Sequence[int],
-                with_c: bool, n_jobs: int, dtype: Any, block_info: Any = None) -> np.ndarray:
+                with_c: bool, n_jobs: int, dtype: Any, per_band: bool = False, block_info: Any = None) -> np.ndarray:
     """``(time, band, y, x)`` + ``(time, 4, y, x)`` -> ``(time, band [+ roles], y, x)``: the bands of `pos` are
-    normalized, the others copied, and the c-factors follow when `with_c`."""
+    normalized, the others copied, and the c-factors follow when `with_c`. With `per_band` the angles are
+    ``(time, 2 + 2 roles, y, x)``: SZA, SAA and the VZA, VAA of each role in turn."""
     from . import _core
 
     first = block_info[0]["array-location"][0][0] if block_info else 0
@@ -250,8 +274,20 @@ def _nbar_block(block: np.ndarray, ang: np.ndarray, sza_norm: Sequence[float], c
                 out[k, nb:] = np.nan
             continue
         refl = np.ascontiguousarray(block[k, list(pos)].reshape(nr, -1), dtype=dtype)
-        a = np.ascontiguousarray(ang[k].reshape(4, -1), dtype=dtype)
-        res = _core.brdf.nbar_bands(refl, a, coefs, norm, n_jobs, with_c)
+        if per_band:
+            full = np.ascontiguousarray(ang[k].reshape(2 + 2 * nr, -1), dtype=dtype)
+            done, cs = [], []
+            for j in range(nr):
+                a = np.ascontiguousarray(full[[0, 1, 2 + 2 * j, 3 + 2 * j]])
+                res = _core.brdf.nbar_bands(refl[j:j + 1], a, coefs[j:j + 1], norm, n_jobs, with_c)
+                if with_c:
+                    res, c = res
+                    cs.append(c)
+                done.append(res)
+            res = (np.concatenate(done), np.concatenate(cs)) if with_c else np.concatenate(done)
+        else:
+            a = np.ascontiguousarray(ang[k].reshape(4, -1), dtype=dtype)
+            res = _core.brdf.nbar_bands(refl, a, coefs, norm, n_jobs, with_c)
         if with_c:
             res, c = res
             out[k, nb:] = c.reshape(nr, ny, nx)
@@ -296,6 +332,9 @@ def nbar(
         dimension) of dimensions ``(time, y, x)`` (or ``(y, x)`` for a cube without time). ``None`` takes bands
         of the cube named like that. The angles of Sentinel-2 are in each tile's ``MTD_TL.xml`` (a 5 km grid); of
         Landsat Collection 2 in the Level-1 angle bands (USGS credentials); HLS carries them, scaled by 0.01.
+        ``VZA`` and ``VAA`` may have a ``band`` dimension (``zeit.sentinel2_angles(..., view_band="each")``): each
+        band is then normalized with its own view geometry, so every band that has a role needs one (the scene
+        zenith is then the mean over the pixels valid for the first of them).
         A pixel with a zenith outside 0-90 degrees or a missing angle is NaN.
     sensor
         As for ``bandpass_adjust``; it only checks that the sensors are Landsat 4-9 or Sentinel-2 (the parameters
@@ -381,6 +420,18 @@ def nbar(
                          f"(role -> band, roles {list(ROLES)})")
     table = _parameters(params)
     names = list(roles)
+    per_band = any(str(a).startswith("VZA:") for a in layers.angle.values)
+    if per_band:
+        labels = ["SZA", "SAA"]
+        have = {str(a) for a in layers.angle.values}
+        for r in names:
+            b = str(roles[r])
+            if f"VZA:{b}" not in have:
+                raise ValueError(f"the angles have a view geometry per band but none for the band {b!r} "
+                                 f"({r}); they have {sorted(a[4:] for a in have if a.startswith('VZA:'))}. "
+                                 "Pass bands= with the bands that have angles, or drop the others from the cube")
+            labels += [f"VZA:{b}", f"VAA:{b}"]
+        layers = layers.sel(angle=labels)
     coefs = np.array([table[r] for r in names], dtype=np.float64)
     position = {b: k for k, b in enumerate(cube.band.values)}
     pos = [position[roles[r]] for r in names]
@@ -393,7 +444,7 @@ def nbar(
     if not has_time:
         arr, ang = arr[None], ang[None]
     ang_dask = not isinstance(ang, np.ndarray)
-    sza_norm, how = _norm_sza(sza, cube, ang, n_dates)
+    sza_norm, how = _norm_sza(sza, cube, ang[:, :4], n_dates)
     threads = resolve(n_jobs)
     nb = cube.sizes["band"]
     nr = len(names)
@@ -403,16 +454,17 @@ def nbar(
         import dask.array as da
 
         arr = arr.rechunk({1: -1})
-        ang = (ang if ang_dask else da.from_array(ang, chunks=(arr.chunks[0], 4) + arr.chunks[2:])) \
-            .rechunk((arr.chunks[0], (4,)) + arr.chunks[2:])
+        n_ang = ang.shape[1]
+        ang = (ang if ang_dask else da.from_array(ang, chunks=(arr.chunks[0], n_ang) + arr.chunks[2:])) \
+            .rechunk((arr.chunks[0], (n_ang,)) + arr.chunks[2:])
         chunks_out = (arr.chunks[0], (n_out,)) + arr.chunks[2:]
         out = da.map_blocks(_nbar_block, arr, ang, [float(v) for v in sza_norm], coefs, pos, return_cfactor, threads,
-                            dtype, dtype=dtype, chunks=chunks_out, meta=np.empty((0, 0, 0, 0), dtype))
+                            dtype, per_band, dtype=dtype, chunks=chunks_out, meta=np.empty((0, 0, 0, 0), dtype))
     else:
         if ang_dask:
             ang = np.asarray(ang)
         out = _nbar_block(np.asarray(arr), ang, [float(v) for v in sza_norm], coefs, pos, return_cfactor, threads,
-                          dtype)
+                          dtype, per_band)
     if not has_time:
         out = out[0]
     axis = 1 if has_time else 0
