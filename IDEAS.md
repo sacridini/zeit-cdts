@@ -2375,11 +2375,6 @@ validação.
 
 ### O que não se porta
 
-- **A correção atmosférica** (AOD por alvos escuros, vapor d'água, a transferência radiativa;
-  cerca de 6 mil linhas): pede a base de vapor d'água, MDE e os leitores de metadados do nível
-  1, e o Zeit consome o L2 pelo STAC.
-- **O coregistro:** o do FORCE é o LSReg adaptado, de licença indefinida; o AROSICS
-  (Apache-2.0) já está no plano do Janus.
 - **As métricas de paisagem:** cabem no Terraflux.
 - **O resto:** ML e textura morfológica pelo OpenCV, as UDFs em Python e R (o Zeit já é
   Python), as grades Equi7 e GLANCE, a infraestrutura de datacube e os parâmetros.
@@ -2403,6 +2398,39 @@ validação.
   "Para depois").
 - **23e (opcional):** a correção topográfica com MDE, junto com a C e a SCS+C do plano do
   Janus; o índice de paralaxe e o buffer de nuvem.
+- **23f: o coregistro** (pedido em 2026-11-06, para o Zeit e depois o Janus). Alinha cada cena a
+  uma referência por pontos de controle (o deslocamento por correlação de janelas, a
+  transformação ajustada a eles). O caminho certo é escolher entre duas fontes:
+  - o `coreg-ll.c` do FORCE tem o cabeçalho do Frantz, mas é a adaptação do LSReg de Yan & Roy
+    (2018), de licença indefinida. Ou se confirma a licença com os autores, ou se refaz em sala
+    limpa pelo artigo (Yan, Roy et al. 2016, RSE; 2018);
+  - ou se porta o AROSICS (Scheffler et al. 2017, Apache-2.0, que já está no plano do Janus),
+    cuja correlação de fase no domínio da frequência serve também a pares Landsat/Sentinel-2.
+
+  Comparação contra o original escolhido, nos deslocamentos e na imagem reamostrada. No Zeit: uma
+  função sobre o cubo (`zeit.coregister(cube, reference)`), que devolve as cenas alinhadas e os
+  deslocamentos por data. No Janus: a ferramenta em Preparação de dados, com os vetores de
+  deslocamento como camada.
+- **23g: a correção atmosférica** (pedida em 2026-11-06, para o Zeit e depois o Janus). Do nível
+  1 (Landsat C1/C2 L1, Sentinel-2 L1C) à reflectância de superfície, como o `force-l2ps`: a AOD por
+  alvos escuros e a base do AERONET, o vapor d'água, o ozônio, a transferência radiativa com
+  adjacência, e o MDE para a pressão e o terreno.
+  - **Licença:** `atmo-ll.c`, `aod-ll.c`, `gas-ll.c`, `radtran-ll.c` e `atc-ll.c` são do Frantz
+    (GPL-3) e entram por port direto. O resto se resolve à parte:
+    - o calculador solar da NOAA (`sun-cl.c`) se refaz pelas fórmulas publicadas;
+    - o Fmask (`cloud-ll.c`) fica de fora: o Zeit já tem o seu;
+    - o BRDF segue o NBAR da 23c.
+  - **Entradas:** os leitores de metadados do L1 (MTL do Landsat, `MTD_MSIL1C.xml` e
+    `MTD_TL.xml` do Sentinel-2), a base de vapor d'água (a do MODIS, que o FORCE gera com
+    `force-lut-modis`, ou o vapor do próprio Sentinel-2 pela banda 9), o MDE (Copernicus GLO-30
+    pelo STAC).
+  - **Acesso:** o L1C do Sentinel-2 está no Earth Search; o L1 do Landsat C2 pede login no USGS
+    (o Planetary Computer só tem o L1 do MSS). Começar pelo Sentinel-2.
+  - **Comparação:** contra o `force-l2ps` nas mesmas cenas, e contra o L2A da ESA e o L2 do USGS
+    como referência independente.
+  - **Ordem:** depois da 23c, que traz os ângulos e o NBAR, e da 23f. É a etapa maior da fase:
+    cerca de 6 mil linhas no FORCE.
+  - **No Janus:** a ferramenta que leva uma pasta de L1 a ARD, com o MDE e o vapor como entradas.
 - **Em cada etapa:** a ferramenta no Janus, a página no site e a linha na validação contra os
   originais.
 
