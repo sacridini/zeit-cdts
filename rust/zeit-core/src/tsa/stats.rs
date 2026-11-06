@@ -249,7 +249,7 @@ impl Plan {
     }
 
     /// The metrics of `vals` (no NaN) into `out` (one per metric).
-    fn eval(&self, vals: &[f64], sorted: &mut Vec<f64>, q: &mut Vec<f64>, out: &mut [f64]) {
+    pub(super) fn eval(&self, vals: &[f64], sorted: &mut Vec<f64>, q: &mut Vec<f64>, out: &mut [f64]) {
         let n = vals.len();
         if n == 0 {
             for (o, m) in out.iter_mut().zip(&self.metrics) {

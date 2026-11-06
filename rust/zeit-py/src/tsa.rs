@@ -1,10 +1,11 @@
 //! zeit._core.tsa: the Python module (statistics of series and their folds,
 //! standardization, interpolation,
-//! linear trend and greatest change).
+//! linear trend and greatest change, clear observations).
 
 use numpy::{AllowTypeChange, PyArray1, PyArray2, PyArray3, PyArrayLike1, PyArrayLike2, PyArrayMethods};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use zeit_core::tsa::cso;
 use zeit_core::tsa::interp::{self, Method};
 use zeit_core::tsa::stats::{self, Metric, Standardize};
 use zeit_core::tsa::trend::{self, Tail, CAT_LEN, TREND_LEN};
@@ -191,6 +192,39 @@ fn cat_batch<'py>(
     PyArray1::from_vec(py, out).reshape([n_pixels, CAT_LEN])
 }
 
+/// The clear observations of every series of values (pixels, time; NaN marks a
+/// missing observation) in each window [start, end) of `windows` (an array
+/// (windows, 2) in the unit of `t`, days): (pixels, metrics, windows). `t`
+/// increases. `count` is the valid observations, the other metrics are those of
+/// the intervals between them.
+#[pyfunction]
+#[pyo3(signature = (values, t, windows, metrics, n_jobs = -1))]
+fn cso_batch<'py>(
+    py: Python<'py>,
+    values: PyArrayLike2<'py, f64, AllowTypeChange>,
+    t: PyArrayLike1<'py, f64, AllowTypeChange>,
+    windows: PyArrayLike2<'py, f64, AllowTypeChange>,
+    metrics: Vec<String>,
+    n_jobs: i32,
+) -> PyResult<Bound<'py, PyArray3<f64>>> {
+    let metrics = metrics_of(&metrics)?;
+    let view = values.as_array();
+    let (n_pixels, n_time) = view.dim();
+    let t: Vec<f64> = t.as_array().iter().copied().collect();
+    let w = windows.as_array();
+    if w.ncols() != 2 {
+        return Err(PyValueError::new_err("windows must be (n, 2): the start and the end of each"));
+    }
+    let windows: Vec<(f64, f64)> = w.rows().into_iter().map(|r| (r[0], r[1])).collect();
+    let n_windows = windows.len();
+    let v = c_order(&view);
+    let v: &[f64] = &v;
+    let out = py
+        .detach(|| cso::cso_batch(v, n_pixels, n_time, &t, &windows, &metrics, n_jobs))
+        .map_err(PyValueError::new_err)?;
+    PyArray1::from_vec(py, out).reshape([n_pixels, metrics.len(), n_windows])
+}
+
 pub fn module(py: Python<'_>) -> PyResult<Bound<'_, PyModule>> {
     let m = PyModule::new(py, "tsa")?;
     m.add("__doc__", "Statistics of time series and their folds, standardization, interpolation")?;
@@ -200,5 +234,6 @@ pub fn module(py: Python<'_>) -> PyResult<Bound<'_, PyModule>> {
     m.add_function(wrap_pyfunction!(interp_batch, &m)?)?;
     m.add_function(wrap_pyfunction!(trend_batch, &m)?)?;
     m.add_function(wrap_pyfunction!(cat_batch, &m)?)?;
+    m.add_function(wrap_pyfunction!(cso_batch, &m)?)?;
     Ok(m)
 }

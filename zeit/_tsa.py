@@ -2,7 +2,8 @@
 series or by year, quarter, month, week or day of the year), ``zeit.standardize`` and
 ``zeit.interpolate`` (linear, moving average, RBF ensemble or robust harmonic fit, to a regular
 grid or to any dates), ``zeit.linear_trend`` and ``zeit.cat`` (the linear trend of a series and its
-greatest change, with the trend before and after it).
+greatest change, with the trend before and after it) and ``zeit.clear_observations`` (the clear
+observations in windows of months and the gaps between them).
 
 The statistics and the interpolation are those of FORCE's higher-level TSA module (STM, fold and
 interpolation, Frantz 2019, Remote Sensing 11(9):1124), computed by the compiled core (``zeit._core.tsa``). Input and output follow
@@ -437,6 +438,140 @@ def interpolate(data: Any, method: str = "rbf", *, step: int = 16, start: Any = 
     if pixel:
         if isinstance(data, pd.Series):
             return pd.Series(np.asarray(result.values).reshape(-1), index=new, name=data.name)
+        return result.squeeze(("y", "x"), drop=True)
+    if cube.rio.crs is not None:
+        result = result.rio.write_crs(cube.rio.crs)
+    return result
+
+
+def _cso_block(block, t, windows, names, n_jobs, dtype):
+    from . import _core
+
+    _, ny, nx = block.shape
+    if block.size == 0:
+        return np.full((len(names), len(windows), ny, nx), np.nan, dtype=dtype)
+    out = _core.tsa.cso_batch(_flat(block), t, windows, names, n_jobs)  # (pixels, metrics, windows)
+    return np.ascontiguousarray(out.transpose(1, 2, 0), dtype=dtype).reshape(len(names), len(windows), ny, nx)
+
+
+def _boolean_as_nan(data: Any) -> Any:
+    """A boolean cube (True: a clear observation) as float, NaN where False; other data as it is."""
+    if isinstance(data, (list, tuple)):
+        arr = np.asarray(data)
+        return arr if arr.dtype != bool else np.where(arr, 1.0, np.nan)
+    if isinstance(data, np.ndarray) and data.dtype == bool:
+        return np.where(data, 1.0, np.nan)
+    if isinstance(data, (pd.Series, xr.DataArray)) and data.dtype == bool:
+        return data.where(data)
+    return data
+
+
+def clear_observations(data: Any, *, months: int = 1, metrics: Sequence[str] = ("count", "mean", "max"),
+                       start: Any = None, end: Any = None, dates: Optional[Sequence[Any]] = None,
+                       band: Union[str, int, None] = None, nodata: Union[float, str, None] = "auto",
+                       chunks: Any = None, n_jobs: int = -1) -> xr.DataArray:
+    """The clear-sky observations of each pixel in windows of months, and the gaps between them
+    (FORCE's CSO: NUM, MIN, MAX, RNG, IQR, AVG, STD, SKW, KRT and the quantiles).
+
+    An observation is valid where the value is finite (NaN, and the NoData value, are cloud or
+    missing), or True in a boolean cube. In each window the intervals are, in days: from the start
+    of the window to the first valid observation, between consecutive valid observations, and from
+    the last one to the end of the window (the first day of the next window). Observations on the
+    same day make no interval. A window without a valid observation has one interval, as long as
+    the window, and a count of 0.
+
+    Parameters
+    ----------
+    data
+        A ``(time, y, x)`` cube (in memory or dask) of any values, whose valid observations are the
+        finite ones, or a boolean cube (True: clear); anything ``zeit.load_raster`` reads, a numpy
+        ``(time, y, x)`` with ``dates``, or one pixel's series. The dates are needed and must not
+        decrease.
+    months
+        The length of a window in months, 1 to 12.
+    metrics
+        ``count`` (the valid observations), and of the intervals in days: ``min``, ``max``,
+        ``range``, ``iqr``, ``mean``, ``std``, ``skew``, ``kurtosis``, ``median`` and ``pNN``
+        (as for ``zeit.temporal_metrics``). ``std`` has ``k - 1`` degrees of freedom for ``k``
+        intervals (NaN for one).
+    start, end
+        The windows begin on the first day of the month of ``start`` (default the first date)
+        and go on until the one that holds ``end`` (default the last date), which is included
+        whole: observations of that window after ``end``, and of the first before ``start``, are
+        counted. FORCE leaves out the last window when it starts in the month of its range's end
+        (a range ending in December loses the December window, with 1 month windows); here every
+        window is made.
+    dates, band, nodata, chunks, n_jobs
+        As for ``zeit.mann_kendall``.
+
+    Returns
+    -------
+    xarray.DataArray
+        ``(metric, window, y, x)``, with ``window`` the first day of each window and ``window_end``
+        (along ``window``) its end (exclusive). Float32 for float32 input, else float64; the
+        values are not rounded.
+
+        Unlike FORCE, which writes int16 and mixes the number of observations ``n`` with the number
+        of intervals ``k`` (the standard deviation divides by ``n - 1``, the skewness and kurtosis
+        by ``n``, the quantiles are taken over the first ``n`` of the ``k`` intervals and, with
+        observations on the same day, read stale memory), every metric but ``count`` is that of the
+        same ``k`` intervals. ``count``, ``min``, ``max``, ``range`` and ``mean`` equal FORCE's
+        (once truncated); the others differ where ``n != k``. In a window without a valid
+        observation FORCE writes 0 for ``std``, ``skew``, ``kurtosis`` and the quantiles; here
+        ``std``, ``skew`` and ``kurtosis`` are NaN and the quantiles the length of the window.
+
+    Examples
+    --------
+    >>> cso = zeit.clear_observations(ndvi, months=3, metrics=["count", "max"])   # (metric, window, y, x)
+    >>> longest_gap = zeit.clear_observations(ndvi.notnull(), metrics=["max"])    # a boolean cube works too
+    """
+    from ._embeddings import refuse
+    from ._series_api import _as_dask, _series_cube
+    from .indices import parse_metrics
+
+    refuse(data, "zeit.clear_observations")
+    if isinstance(months, bool) or int(months) != months or not 1 <= int(months) <= 12:
+        raise ValueError(f"months must be an integer from 1 to 12, got {months!r}")
+    months = int(months)
+    names = parse_metrics(metrics)
+    cube, pixel = _series_cube(_boolean_as_nan(data), dates=dates, band=band, chunks=chunks, need_dates=True,
+                               nodata=nodata)
+    index = pd.DatetimeIndex(cube.time.values)
+    if len(index) == 0 or index.isna().any():
+        raise ValueError("clear_observations needs a date for every step")
+    if (np.diff(_ns(index)) < 0).any():
+        raise ValueError("clear_observations needs dates that do not decrease")
+    first = pd.Timestamp(start) if start is not None else index[0]
+    last = pd.Timestamp(end) if end is not None else index[-1]
+    first, last = first.tz_localize(None).normalize(), last.tz_localize(None).normalize()
+    if last < first:
+        raise ValueError(f"end {last.date()} is before start {first.date()}")
+    month0 = first.year * 12 + first.month - 1
+    n_windows = (last.year * 12 + last.month - 1 - month0) // months + 1
+    bounds = month0 + months * np.arange(n_windows + 1)
+    edges = pd.DatetimeIndex([pd.Timestamp(int(b) // 12, int(b) % 12 + 1, 1) for b in bounds])
+    t = _ns(index) / _DAY_NS
+    windows = np.stack([_ns(edges[:-1]), _ns(edges[1:])], axis=1) / _DAY_NS
+
+    threads, dtype = resolve(n_jobs), _work_dtype(cube)
+    if cube.chunks is not None:
+        import dask.array as da
+
+        arr, _ = _as_dask(cube)
+        chunks_out = ((len(names),), (n_windows,)) + arr.chunks[1:]
+        out = da.map_blocks(_cso_block, arr, t, windows, names, threads, dtype, dtype=dtype, drop_axis=[0],
+                            new_axis=[0, 1], chunks=chunks_out, meta=np.empty((0,) * 4, dtype))
+    else:
+        out = _cso_block(np.asarray(cube.values), t, windows, names, threads, dtype)
+
+    coords = {"metric": names, "window": edges[:-1], "window_end": ("window", edges[1:])}
+    if not pixel:
+        for name in ("y", "x", "spatial_ref"):
+            if name in cube.coords:
+                coords[name] = cube.coords[name]
+    result = xr.DataArray(out, dims=("metric", "window", "y", "x"), coords=coords, name="clear_observations",
+                          attrs={"algorithm": "clear_observations", "months": months})
+    if pixel:
         return result.squeeze(("y", "x"), drop=True)
     if cube.rio.crs is not None:
         result = result.rio.write_crs(cube.rio.crs)

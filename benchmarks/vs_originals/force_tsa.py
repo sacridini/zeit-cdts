@@ -11,8 +11,9 @@ Parts: ``stm`` (the 16 statistics of the whole series), ``fold`` (the ten statis
 day of the year), ``standardize``, ``interp`` (the linear, moving, RBF and harmonic interpolations of FORCE's own TSS
 onto its 16-day grid, and the harmonic fit's NRT product; one pixel whose IRLS cycles is left out, see
 ``CYCLING_PIXELS``), ``trend`` (``zeit.linear_trend`` and ``zeit.cat`` of the average folds by year and by month,
-against TRY, TRM, CAY and CAM with and without the change penalty). The CSO part comes with its own function in
-``PARTS``.
+against TRY, TRM, CAY and CAM with and without the change penalty), ``cso`` (``zeit.clear_observations``' core on
+FORCE's TSS and windows against cso_m1 and cso_m3: NUM, MIN, MAX, RNG and AVG equal; STD, SKW, KRT, the quantiles and IQR
+differ by design, shown with a port of FORCE's own code).
 
 For each product and band it prints the share of pixels that are equal, within +-1, and the largest |difference|.
 Where FORCE's result is undefined (a standard deviation, skewness or kurtosis of one value, a skewness or kurtosis
@@ -566,9 +567,212 @@ def _compare_with_known_causes(title, names, got, want, lit, pixel_cause, sig_ro
               + ", ".join(f"{names[r]} {int(off[r].sum())}" for r in range(nb) if off[r].any()))
 
 
-# The parts; the CSO comparison is added here.
+# ---- clear-sky observations (CSO) ----------------------------------------------------------------------------------
+
+# FORCE's CSO in plain Python, as the C is written (H/cso-hl.c, C/stats-cl.c, GPL-3, David Frantz): the intervals from the
+# window's start through the valid observations to its end, Pébay's recurrences over the k intervals, and then the
+# observations' count n where the intervals' count k belongs: STD divides by n - 1, SKW and KRT by n, the quantiles are
+# those of the first n intervals (in time order). With more observations than intervals (the same day twice) FORCE reads
+# memory left over from before; those windows are marked and left out. A window without a valid observation: STD, SKW,
+# KRT and the quantiles come out 0 (n = 0 leaves the skewness and kurtosis at 0, and GSL's quantile of no values is 0).
+CSO_PRODUCTS = ["NUM", "MIN", "MAX", "RNG", "IQR", "AVG", "STD", "SKW", "KRT", "Q25", "Q50", "Q75"]
+CSO_EXACT = ["NUM", "MIN", "MAX", "RNG", "AVG"]          # the same on both sides, except for quantization
+CSO_BY_DESIGN = ["STD", "SKW", "KRT", "Q25", "Q50", "Q75", "IQR"]  # Zeit's k against FORCE's n
+# Zeit's metric of each product
+CSO_ZEIT = {"NUM": "count", "MIN": "min", "MAX": "max", "RNG": "range", "AVG": "mean", "STD": "std", "SKW": "skew",
+            "KRT": "kurtosis", "Q25": "p25", "Q50": "p50", "Q75": "p75", "IQR": "iqr"}
+
+
+def _div(a, b):
+    """C's double division: x / 0 is inf or NaN, not an exception."""
+    import math
+
+    if b != 0:
+        return a / b
+    return math.nan if a == 0 or a != a else math.copysign(math.inf, a)
+
+
+def _clamp(x):
+    """FORCE's ``if (x < -30000) x = -30000; if (x > 30000) x = 30000``: a NaN stays NaN (Python's min and max would not)."""
+    return -30000.0 if x < -30000 else 30000.0 if x > 30000 else x
+
+
+def force_windows(first, last, step):
+    """FORCE's windows ``[start, end)`` as continuous days (``ce``) for DATE_RANGE ``first``..``last`` (YYYYMMDD) and
+    MONTH_STEP: counted while ``year < last year or month < last month``, so a window that starts in the last month is
+    lost (December, with a range that ends then)."""
+    y0, m0, y1, m1 = first // 10000, first // 100 % 100, last // 10000, last // 100 % 100
+    count, year, month = 0, y0, m0
+    while year < y1 or (year <= y1 and month < m1):
+        count += 1
+        month += step
+        if month > 12:
+            year, month = year + 1, month - 12
+    out, year, month = [], y0, m0
+    for _ in range(count):
+        end_year, end_month = (year, month + step) if month + step <= 12 else (year + 1, month + step - 12)
+        out.append((ref.ce_of(year * 10000 + month * 100 + 1), ref.ce_of(end_year * 10000 + end_month * 100 + 1)))
+        year, month = end_year, end_month
+    return out
+
+
+def _force_window(obs, start, end):
+    """One window of FORCE's CSO: the 12 int16 of ``CSO_PRODUCTS`` and whether it read stale memory (n > k). ``obs``:
+    the ``ce`` of the valid observations in the window, in time order."""
+    import math
+
+    n = k = 0
+    mean = var = skew = kurt = 0.0
+    gaps = []
+    left = start
+
+    def push(d):
+        nonlocal k, mean, var, skew, kurt
+        k += 1
+        delta = d - mean
+        delta_n = delta / k
+        delta_n2 = delta_n * delta_n
+        tmp = delta * delta_n * (k - 1)
+        mean += delta_n
+        kurt += tmp * delta_n2 * (k * k - 3 * k + 3) + 6 * delta_n2 * var - 4 * delta_n * skew
+        skew += tmp * delta_n * (k - 2) - 3 * delta_n * var
+        var += tmp
+        gaps.append(float(np.float32(d)))
+
+    for ce in obs:
+        n += 1
+        if ce > left:
+            push(ce - left)
+            left = ce
+    if end - left > 0:
+        push(end - left)
+    low, high = min(gaps), max(gaps)
+    sk = kt = 0.0
+    if n > 0:
+        sd = math.sqrt(var / n)
+        sk = _clamp(_div(skew, n * sd ** 3) * 1000)
+        kt = _clamp((_div(kurt, (n * (var / n)) * (var / n)) - 3) * 1000)
+    stale = n > k
+    q = [0, 0, 0]
+    if n > 0 and not stale:
+        first_n = np.sort(np.array(gaps[:n], dtype=np.float64))
+        for i, p in enumerate((0.25, 0.5, 0.75)):
+            index = p * (n - 1)
+            lhs = int(index)
+            delta = index - lhs
+            value = first_n[lhs] if lhs == n - 1 else (1 - delta) * first_n[lhs] + delta * first_n[lhs + 1]
+            q[i] = _short(float(np.float32(value)))
+    std = _short(math.sqrt(v) if (v := _div(var, n - 1)) >= 0 else math.nan)
+    return [n, _short(low), _short(high), _short(high - low), q[2] - q[0], _short(mean), std, _short(sk), _short(kt),
+            q[0], q[1], q[2]], stale
+
+
+def literal_cso(valid, ce, windows):
+    """FORCE's CSO (12 int16 per window) of the rows of ``valid`` (pixels, time; boolean) at the days ``ce``:
+    ``(products, windows, pixels)``, and the ``(windows, pixels)`` mask of the windows that read stale memory."""
+    spans = [(int(np.searchsorted(ce, a, "left")), int(np.searchsorted(ce, b, "left"))) for a, b in windows]
+    out = np.zeros((len(CSO_PRODUCTS), len(windows), valid.shape[0]), np.int32)
+    stale = np.zeros((len(windows), valid.shape[0]), bool)
+    for p in range(valid.shape[0]):
+        row = valid[p]
+        for w, ((a, b), (lo, hi)) in enumerate(zip(windows, spans)):
+            values, stale[w, p] = _force_window(ce[lo:hi][row[lo:hi]].tolist(), a, b)
+            out[:, w, p] = values
+    return out, stale
+
+
+def _cso_prm_check():
+    """The CSO's SCREEN_QAI and DATE_RANGE against those of the TSS that feeds the core (int_none)."""
+    def lines(name):
+        text = (ref.REF / "prm" / f"{name}.prm").read_text()
+        return {k.strip(): v.strip() for k, _, v in (l.partition("=") for l in text.splitlines()
+                                                      if "=" in l and not l.lstrip().startswith("#"))}
+
+    tss = lines("int_none")
+    for config in ("cso_m1", "cso_m3"):
+        cso = lines(config)
+        same = all(cso[key] == tss[key] for key in ("SCREEN_QAI", "DATE_RANGE", "DOY_RANGE"))
+        print(f"{config}: SCREEN_QAI, DATE_RANGE and DOY_RANGE the same as int_none's (the TSS): {same}")
+        assert same, (config, {key: (cso[key], tss[key]) for key in ("SCREEN_QAI", "DATE_RANGE", "DOY_RANGE")})
+
+
+def part_cso(jobs):
+    """Zeit's CSO of FORCE's TSS (valid where it is not -9999) on FORCE's own windows and ``ce`` against cso_m1 and
+    cso_m3. NUM, MIN, MAX, RNG and AVG must agree (+-1, quantized); STD, SKW, KRT, the quantiles and the IQR differ by
+    design (Zeit uses the k intervals where FORCE mixes in the n observations), shown against FORCE's own code in Python."""
+    from zeit import _core
+
+    _cso_prm_check()
+    a, dates = ref.load("int_none", "TSS")
+    nb, ny, nx = a.shape
+    tss = a.reshape(nb, ny * nx).T
+    valid = tss != NODATA
+    ce = np.array([ref.ce_of(str(d)[:8]) for d in dates], dtype=np.int64)
+    assert (np.diff(ce) >= 0).all()
+    same_day = int((np.diff(ce) == 0).sum())
+    clouds = ~ref.truth()["masked"].reshape(nb, -1).T
+    print(f"CSO: {valid.shape[0]} pixels x {nb} dates; valid observations: {int(valid.sum())} "
+          f"({int((valid != clouds).sum())} differ from the truth's mask: the TSS is also nodata where the index is "
+          f"undefined, so the TSS is the mask used); dates on the same day: {same_day}")
+    names = [CSO_ZEIT[p] for p in CSO_PRODUCTS]
+    values = np.where(valid, 1.0, np.nan)
+    for config, step in (("cso_m1", 1), ("cso_m3", 3)):
+        windows = force_windows(20180101, 20221231, step)
+        want = {p: ref.load(config, p) for p in CSO_PRODUCTS}
+        nw = len(windows)
+        for p, (arr, bands) in want.items():
+            assert arr.shape[0] == nw, (config, p, arr.shape[0], nw)
+        print(f"\n== {config}: {nw} windows of {step} month(s), {bands[0]} to {bands[-1]} (FORCE's bands); Zeit's own "
+              f"calendar would make {nw + (1 if step == 1 else 0)} (the last window is not compared)")
+        t0 = time.perf_counter()
+        out = np.asarray(_core.tsa.cso_batch(values, ce.astype(np.float64), np.array(windows, dtype=np.float64), names,
+                                             jobs))  # (pixels, metrics, windows)
+        seconds = time.perf_counter() - t0
+        print(f"{config}: Zeit {seconds * 1000:.1f} ms ({jobs} threads)")
+        m = {p: out[:, i, :].T for i, p in enumerate(CSO_PRODUCTS)}  # (windows, pixels)
+        n = m["NUM"]
+        got = {
+            "NUM": n.astype(np.int32), "MIN": trunc16(m["MIN"]), "MAX": trunc16(m["MAX"]), "RNG": trunc16(m["RNG"]),
+            "AVG": trunc16(m["AVG"]), "STD": trunc16(m["STD"]), "SKW": trunc16(_scaled(m["SKW"])),
+            "KRT": trunc16(_scaled(m["KRT"])), "Q25": trunc16(m["Q25"]), "Q50": trunc16(m["Q50"]),
+            "Q75": trunc16(m["Q75"]), "IQR": trunc16(m["Q75"]) - trunc16(m["Q25"]),
+        }
+        report(f"CSO {config}: NUM, MIN, MAX, RNG, AVG", CSO_EXACT, np.stack([got[p] for p in CSO_EXACT]),
+               np.stack([want[p][0].reshape(nw, -1) for p in CSO_EXACT]))
+        t0 = time.perf_counter()
+        lit, stale = literal_cso(valid, ce, windows)
+        print(f"{config}: FORCE's code in Python {time.perf_counter() - t0:.1f} s; {int(stale.sum())} windows with more "
+              f"observations than intervals (left out where they read stale memory), "
+              f"{int((n == 0).sum())} windows without a valid observation")
+        skip = np.stack([stale if p in ("Q25", "Q50", "Q75", "IQR") else np.zeros(stale.shape, bool)
+                         for p in CSO_PRODUCTS])
+        report(f"CSO {config}: FORCE's code in Python, the 12 products", CSO_PRODUCTS, lit,
+               np.stack([want[p][0].reshape(nw, -1) for p in CSO_PRODUCTS]), skip)
+        print(f"\n  by design: Zeit (k intervals) against FORCE (n), values of {nw} windows x {valid.shape[0]} pixels")
+        print(f"  {'product':<9}{'Zeit = FORCE %':>16}{'values changed':>16}{'pixels changed':>16}"
+              f"{'of them n=0':>13}{'FORCE = python %':>18}")
+        for product in CSO_BY_DESIGN:
+            w = want[product][0].reshape(nw, -1).astype(np.int64)
+            lit_p = lit[CSO_PRODUCTS.index(product)].astype(np.int64)
+            ok = ~stale if product in ("Q25", "Q50", "Q75", "IQR") else np.ones(w.shape, bool)
+            changed = (got[product] != w) & ok
+            print(f"  {product:<9}{100.0 * (1 - changed.sum() / ok.sum()):>16.3f}{int(changed.sum()):>16}"
+                  f"{int(changed.any(0).sum()):>16}{int((changed & (n == 0)).sum()):>13}"
+                  f"{100.0 * ((lit_p == w) & ok).sum() / ok.sum():>18.3f}")
+        # the port of FORCE's code must give FORCE's own values, whatever differs from Zeit's
+        for product in CSO_BY_DESIGN:
+            w = want[product][0].reshape(nw, -1).astype(np.int64)
+            ok = ~stale if product in ("Q25", "Q50", "Q75", "IQR") else np.ones(w.shape, bool)
+            # SKW and KRT times 1000 land on exact integers for regular series (e.g. -500.0): FORCE's compiled C and
+            # Python's evaluation order of the same doubles can fall either side of it, so those are allowed +-1.
+            tolerance = 1 if product in ("SKW", "KRT") else 0
+            if (np.abs(lit[CSO_PRODUCTS.index(product)] - w) > tolerance)[ok].any():
+                _failed.append(f"CSO {config}: FORCE's code in Python does not give FORCE's {product}")
+
+
+# The parts.
 PARTS = {"stm": part_stm, "fold": part_fold, "standardize": part_standardize, "interp": part_interp,
-         "trend": part_trend}
+         "trend": part_trend, "cso": part_cso}
 
 
 def main(argv=None):

@@ -80,6 +80,14 @@ class ZeitAccessor:
         from zeit._tsa import cat
         return cat(self._obj, **kwargs)
 
+    def clear_observations(self, **kwargs: Any) -> xr.DataArray:
+        """
+        The clear observations of each pixel in windows of months and the gaps between them:
+        the same as ``zeit.clear_observations(cube, ...)``.
+        """
+        from zeit._tsa import clear_observations
+        return clear_observations(self._obj, **kwargs)
+
     def ar_trend(self, **kwargs: Any) -> xr.Dataset:
         """
         Fits the AR(1) REML trend of each pixel of this (time, y, x) cube: the same as ``zeit.ar_trend(cube, ...)``.
