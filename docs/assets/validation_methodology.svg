@@ -93,14 +93,14 @@
 
     <!-- Step 3 -->
     <rect class="step-box" x="10" y="206" width="200" height="50" rx="6" />
-    <text class="step-title" x="110" y="226">Line-by-Line C++ Rewrite</text>
-    <text class="step-desc" x="110" y="242">Preserves numerical ties &amp; shims</text>
+    <text class="step-title" x="110" y="226">Rust Port, Lasso from the Paper</text>
+    <text class="step-desc" x="110" y="242">Same ties; CCDC coefs in tolerance</text>
 
     <!-- Outcome -->
     <rect class="outcome-box" x="10" y="272" width="200" height="66" rx="6" />
     <text class="outcome-lbl" x="110" y="289">Primary Validation Metric</text>
     <text class="outcome-val" x="110" y="303" style="font-size: 9.5px;">100% Vertex Years (LT: 330/330)</text>
-    <text class="outcome-val" x="110" y="317" style="font-size: 9.5px;">100% Models Matched (CCDC: 350/350)</text>
+    <text class="outcome-val" x="110" y="317" style="font-size: 9.5px;">100% Break Dates (CCDC vs MATLAB)</text>
     <text class="outcome-val" x="110" y="331" style="font-size: 9.5px;">100% Exact Labels (SNIC C Parity)</text>
   </g>
 
@@ -108,34 +108,34 @@
   <g transform="translate(490, 15)">
     <rect class="card-bg" x="0" y="0" width="220" height="350" rx="8" />
     <path class="card-hdr" d="M0,8 A8,8 0 0,1 8,0 L212,0 A8,8 0 0,1 220,8 L220,38 L0,38 Z" />
-    <text class="hdr-text" x="110" y="24">3. State-Dict Weight Porting</text>
+    <text class="hdr-text" x="110" y="24">3. Written from the Authors</text>
     <text class="scope-text" x="110" y="55">TempCNN • LightTAE • U-TAE</text>
 
     <!-- Step 1 -->
     <rect class="step-box" x="10" y="68" width="200" height="50" rx="6" />
-    <text class="step-title" x="110" y="88">Seeded Weight Export</text>
-    <text class="step-desc" x="110" y="104">Export LibTorch tensor parameters</text>
+    <text class="step-title" x="110" y="88">Papers &amp; Authors' Code</text>
+    <text class="step-desc" x="110" y="104">Pelletier 2019 • Garnot 2020</text>
 
     <!-- Arrow 1-2 -->
     <line class="arrow" x1="110" y1="120" x2="110" y2="134" />
 
     <!-- Step 2 -->
     <rect class="step-box" x="10" y="137" width="200" height="50" rx="6" />
-    <text class="step-title" x="110" y="157">Direct PyTorch Loading</text>
-    <text class="step-desc" x="110" y="173">1:1 state_dict mapping into zeit.ai</text>
+    <text class="step-title" x="110" y="157">Accuracy vs R sits</text>
+    <text class="step-desc" x="110" y="173">samples_modis_ndvi, 5 seeds, 80/20</text>
 
     <!-- Arrow 2-3 -->
     <line class="arrow" x1="110" y1="189" x2="110" y2="203" />
 
     <!-- Step 3 -->
     <rect class="step-box" x="10" y="206" width="200" height="50" rx="6" />
-    <text class="step-title" x="110" y="226">Identical Input Feed</text>
-    <text class="step-desc" x="110" y="242">Forward pass on identical batch tensors</text>
+    <text class="step-title" x="110" y="226">U-TAE Weight Parity</text>
+    <text class="step-desc" x="110" y="242">Authors' weights, identical tensors</text>
 
     <!-- Outcome -->
     <rect class="outcome-box" x="10" y="272" width="200" height="66" rx="6" />
     <text class="outcome-lbl" x="110" y="291">Primary Validation Metric</text>
-    <text class="outcome-val" x="110" y="309">Max Diff = 5.59e-9 (TempCNN)</text>
+    <text class="outcome-val" x="110" y="309">TempCNN 0.86 • LightTAE 0.92</text>
     <text class="outcome-val" x="110" y="325">Max Diff = 0.0 (Official U-TAE)</text>
   </g>
 
@@ -143,21 +143,21 @@
   <g transform="translate(726, 15)">
     <rect class="card-bg" x="0" y="0" width="220" height="350" rx="8" />
     <path class="card-hdr" d="M0,8 A8,8 0 0,1 8,0 L212,0 A8,8 0 0,1 220,8 L220,38 L0,38 Z" />
-    <text class="hdr-text" x="110" y="24">4. Real Multi-Decadal Stacks</text>
-    <text class="scope-text" x="110" y="55">Phenology (Beck, Elmore, Gu)</text>
+    <text class="hdr-text" x="110" y="24">4. Synthetic Cube, Known Truth</text>
+    <text class="scope-text" x="110" y="55">Phenology (7 curves)</text>
 
     <!-- Step 1 -->
     <rect class="step-box" x="10" y="68" width="200" height="50" rx="6" />
-    <text class="step-title" x="110" y="88">25-Year Raster Stacks</text>
-    <text class="step-desc" x="110" y="104">Landsat/MODIS EVI (638 px × 25 yrs)</text>
+    <text class="step-title" x="110" y="88">2,000-Pixel Cube</text>
+    <text class="step-desc" x="110" y="104">5 yrs of 16 days, 1-2 seasons a year</text>
 
     <!-- Arrow 1-2 -->
     <line class="arrow" x1="110" y1="120" x2="110" y2="134" />
 
     <!-- Step 2 -->
     <rect class="step-box" x="10" y="137" width="200" height="50" rx="6" />
-    <text class="step-title" x="110" y="157">Long-Format Join</text>
-    <text class="step-desc" x="110" y="173">178k+ rows paired vs R phenofit</text>
+    <text class="step-title" x="110" y="157">Generator's 50% Crossings</text>
+    <text class="step-desc" x="110" y="173">Clouds, weights &amp; gaps injected</text>
 
     <!-- Arrow 2-3 -->
     <line class="arrow" x1="110" y1="189" x2="110" y2="203" />
@@ -170,7 +170,7 @@
     <!-- Outcome -->
     <rect class="outcome-box" x="10" y="272" width="200" height="66" rx="6" />
     <text class="outcome-lbl" x="110" y="291">Primary Validation Metric</text>
-    <text class="outcome-val" x="110" y="309">SOS MAE = 3.7 - 5.3 Days</text>
-    <text class="outcome-val" x="110" y="325">99.12% Agreement &lt;= 15 Days</text>
+    <text class="outcome-val" x="110" y="309">SOS p90 = 4.1 - 5.2 Days</text>
+    <text class="outcome-val" x="110" y="325">SOS median 1.5 - 1.8 Days</text>
   </g>
 </svg>
