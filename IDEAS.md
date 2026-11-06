@@ -2406,6 +2406,57 @@ validação.
 - **Em cada etapa:** a ferramenta no Janus, a página no site e a linha na validação contra os
   originais.
 
+### O que foi feito, e onde fugiu do plano
+
+- **Referência:** o FORCE 3.11.00 compila no WSL num env conda (`force-ref`, OpenCV 4 e GDAL
+  3.9 presos; `source ~/force-ref-work/env.sh`). Duas armadilhas: com `OMP_NUM_THREADS` menor
+  que as threads de cálculo + 2 (no mínimo 4) o FORCE não escreve nada e não avisa; e o tempo
+  do estágio de cálculo só sai com um shim de `LD_PRELOAD` (`force_time_ms.c`) que faz o
+  `time()` contar milissegundos. Os scripts estão em `benchmarks/vs_originals/force_tsa*`.
+- **23a:** `zeit.temporal_metrics` (as 16 métricas e o fold por ano, trimestre, mês, semana e
+  dia), `standardize`, `interpolate` (linear, média móvel, RBF e harmônica com IRLS, port do
+  bisquare do GSL), `linear_trend`, `cat` e `clear_observations`, no core em
+  `rust/zeit-core/src/tsa/`. Contra o FORCE em 10 000 pixels: igual ou ±1 no int16 dele. As
+  diferenças são de propósito e estão documentadas:
+  - o t de Student exato no lugar da aproximação de Hill;
+  - a penalidade do CAT compara penalizado com penalizado (um port literal em Python
+    reproduz os pixels em que o passo muda: 15% no anual, 70% no mensal);
+  - o CSO calcula tudo sobre os mesmos k intervalos e mantém a última janela;
+  - NaN onde o FORCE converte um indefinido;
+  - os pixels em que a IRLS não converge em 100 iterações (0,9%) não são reprodutíveis entre
+    FORCE, GSL e Zeit. O core os aponta em `harmonic_iterations`, que devolve 65535.
+
+  Tempo em 250 000 pixels × 325 datas, contra o estágio de cálculo do FORCE (1 / 6 threads):
+
+  | Produto | 1 thread | 6 threads |
+  |---|---|---|
+  | harmônica | 10× | 9× |
+  | folds | 19× | 14× |
+  | TRY+CAY | 3,1× | 4,8× |
+  | STM | 4,2× | 4,4× |
+  | CSO | 3× | 3× |
+  | RBF | 2× | 2,8× |
+  | linear | 1,2× | 0,5× |
+  | média móvel | 0,4× | 1,3× |
+
+  A linear e a média móvel ficam abaixo do FORCE em algum caso. O tempo do FORCE para elas
+  está dentro do ruído da subtração dos estágios, e o limite é a banda de memória.
+- **23b:** `zeit.polar_metrics`, as 39 métricas do FORCE, adaptativas e fixas, iguais às dele,
+  com buracos e outros limiares. As datas saem em dias desde 1º de janeiro do ano da banda.
+  Tempo: 1,9× / 3,3× (39 métricas: 1,4× / 3,7×).
+  - Contra o pacote R dos autores (PolarMetrics 0.1.0, GPL ≥ 3), as oito métricas comuns
+    batem quando se descontam duas coisas:
+    - o início do ano: uma amostra de diferença em 60% dos pixels;
+    - a leitura dos passos: o pacote data a estação no ano rotacionado, mas lê `v[es2ls]` na
+      série não rotacionada (`calc_metrics.R` 165 e 290-295). Parece defeito da 0.1.0; não
+      foi confirmado com os autores.
+  - Um port literal do `calc_metrics` mostra que essas são as únicas diferenças. O Zeit é
+    156× mais rápido com 1 thread e 730× com 8.
+- **Janus:** o `zeit-core` foi para o `7c01978` sem mudar nada do que o Janus já chamava. As
+  ferramentas pedem duas coisas novas no Janus:
+  - saídas cujas bandas a ferramenta decide (a grade nova, os anos, as janelas);
+  - um parâmetro de múltipla escolha (as métricas).
+
 ## Para depois
 
 - Fase 19: `zeit.ai.predict` com fp16 na GPU (2,4× no Siamese, medido) vale para todos os
