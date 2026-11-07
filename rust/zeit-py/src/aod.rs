@@ -121,7 +121,7 @@ fn load_scene<'py>(d: &Bound<'py, PyDict>) -> PyResult<Loaded> {
     if dem.len() != 4 || atc.aod_bands.len() != nb || atc.wvl.len() != nb || atc.lwvl.len() != nb || atc.e0.len() != nb {
         return Err(PyValueError::new_err("per-band arrays need nb values, dem 4 (avg, min, max, step)"));
     }
-    atc.dem = zeit_core::atc::DemStats { avg: dem[0], min: dem[1], max: dem[2], step: dem[3] };
+    atc.dem = zeit_core::atc::DemStats { avg: dem[0], min: dem[1], max: dem[2], step: dem[3], cnum: 255 };
     atc.sob = vec_of::<f32>(d, "sob")?[0];
     atc.xy_aod.domain = domain.clone();
     let one = |key: &str, dst: &mut Vec<f32>| -> PyResult<()> {
@@ -163,7 +163,7 @@ fn load_scene<'py>(d: &Bound<'py, PyDict>) -> PyResult<Loaded> {
     }
     let toa = Toa { grid: SceneGrid { nx, ny, res }, bands: toa_v.chunks(npix).map(|c| c.to_vec()).collect(), domain };
     let qai: Vec<i16> = vec_of(d, "qai")?;
-    let top = Top { dem: vec_of(d, "top_dem")?, slope: vec_of(d, "slope")?, ill: vec_of(d, "ill")?, sky: vec_of(d, "sky")? };
+    let top = Top { dem: vec_of(d, "top_dem")?, slope: vec_of(d, "slope")?, ill: vec_of(d, "ill")?, sky: vec_of(d, "sky")?, ..Default::default() };
     Ok(Loaded { nb, res, multi, rsr, atc, toa, qai, top })
 }
 
@@ -312,7 +312,7 @@ fn elev_cases(cases: Vec<(f32, f32, f32, f32, Vec<f32>, Vec<f32>, Vec<(f32, f32)
             return Err(PyValueError::new_err("view and dem_bin need 4 values"));
         }
         let mut atc = Atc::zeros(2, 2, 1.0, 3, -9999);
-        atc.dem = zeit_core::atc::DemStats { avg, min: mn, max: mx, step };
+        atc.dem = zeit_core::atc::DemStats { avg, min: mn, max: mx, step, cnum: 255 };
         atc.xy_view.bands[0].copy_from_slice(&view);
         atc.xy_dem.bands[0].copy_from_slice(&dembin);
         let n = targets.len() as i32;

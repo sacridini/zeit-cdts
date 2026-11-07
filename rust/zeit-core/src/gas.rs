@@ -102,7 +102,7 @@ impl Toa {
 /// `convert_brick_ji2p`: the cell of the coarse grid (`to_nx` cells a row, `to_res` metres) under the pixel `(i, j)` of
 /// a grid of `from_res` metres.
 #[inline]
-fn ji2p(from_res: f64, to_res: f64, to_nx: usize, i: usize, j: usize) -> usize {
+pub(crate) fn ji2p(from_res: f64, to_res: f64, to_nx: usize, i: usize, j: usize) -> usize {
     let i_to = (i as f64 * from_res / to_res).floor() as i64;
     let j_to = (j as f64 * from_res / to_res).floor() as i64;
     (i_to * to_nx as i64 + j_to) as usize
@@ -110,7 +110,7 @@ fn ji2p(from_res: f64, to_res: f64, to_nx: usize, i: usize, j: usize) -> usize {
 
 /// `fequal` of `utils-cl.c`: equal within `FLT_EPSILON` of the larger magnitude.
 #[inline]
-fn fequal(a: f32, b: f32) -> bool {
+pub(crate) fn fequal(a: f32, b: f32) -> bool {
     let diff = (a - b).abs();
     let (aa, bb) = (a.abs(), b.abs());
     let max = if bb > aa { bb } else { aa };
