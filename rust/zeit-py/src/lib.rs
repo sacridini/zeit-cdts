@@ -47,6 +47,7 @@ mod specadjust;
 mod tasseled;
 mod texture;
 mod tmask;
+mod topo;
 mod topocorr;
 mod tsa;
 mod twdtw;
@@ -107,6 +108,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     add_submodule(m, &radtran::module(m.py())?)?;
     add_submodule(m, &aod::module(m.py())?)?;
     add_submodule(m, &gas::module(m.py())?)?;
+    add_submodule(m, &topo::module(m.py())?)?;
     add_submodule(m, &topocorr::module(m.py())?)?;
     add_submodule(m, &coreg::module(m.py())?)?;
     Ok(())

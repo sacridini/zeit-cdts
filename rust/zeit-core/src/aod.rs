@@ -29,7 +29,7 @@
 //!   minimum found", as for `GSL_EINVAL`.
 //! * **Omitted.** `print_dark_object` (only compiled with `FORCE_DEBUG`, only prints).
 //!
-//! The brick machinery of FORCE is plain arrays here ([`Toa`], [`Top`], the QAI as `&[i16]`, [`crate::atc::Atc`]).
+//! The brick machinery of FORCE is plain arrays here ([`Toa`], [`Top`] (of [`crate::topo`]), the QAI as `&[i16]`, [`crate::atc::Atc`]).
 
 #![allow(clippy::needless_range_loop)] // the loops are the C's, index by index
 
@@ -167,20 +167,8 @@ pub fn aodfileread(atc: &Atc, dir: Option<&str>, center_lon: f64, center_lat: f6
 // the inputs and outputs of the dark target extraction
 // ---------------------------------------------------------------------------------------------------------------
 
-/// The topographic derivatives `extract_dark_target` reads (`top_t` of `topo-ll.h`: `dem`, `exp`, `ill`, `sky`), on
-/// the grid of the TOA brick, one value per pixel. `compile_topography` is not ported yet: the caller provides them.
-#[derive(Clone, Debug)]
-pub struct Top {
-    /// The binned elevation (`TOP->dem`, band 0): the elevation of a pixel is `dem * step + min + step / 2` with
-    /// the `dem` statistics of the [`Atc`].
-    pub dem: Vec<u8>,
-    /// The slope (`TOP->exp`, band `ZEN`), in units of 0.01 degree... as FORCE scales it: `slope < 870` is 5 degrees.
-    pub slope: Vec<u16>,
-    /// The illumination angle (`TOP->ill`), cosine times 10000.
-    pub ill: Vec<i16>,
-    /// The sky view factor (`TOP->sky`), times 10000.
-    pub sky: Vec<u16>,
-}
+/// The topographic derivatives `extract_dark_target` reads: FORCE's `top_t` ([`crate::topo::Top`]).
+pub use crate::topo::Top;
 
 /// A single dark target (`darkobj_t`).
 #[derive(Clone, Debug, Default)]
@@ -1594,7 +1582,7 @@ mod tests {
         atc.lwvl = LWVL.iter().map(|&b| f32::from_bits(b)).collect();
         atc.e0 = E0.to_vec();
         atc.aod_bands = (0..NB).map(|b| WVL[b] < 0.7 || b == 12).collect();
-        atc.dem = DemStats { avg: 0.75, min: 0.0, max: 2.0, step: 0.0078125 };
+        atc.dem = DemStats { avg: 0.75, min: 0.0, max: 2.0, step: 0.0078125, cnum: 255 };
         atc.sob = 0.84375;
         for g in 0..gn {
             let (gi, gj) = ((g / GNX) as f32, (g % GNX) as f32);
@@ -1637,7 +1625,7 @@ mod tests {
         fill(20..29, 33..44, 2);
         let mut bands = vec![vec![0i16; npix]; NB];
         let mut qai = vec![0i16; npix];
-        let mut top = Top { dem: vec![0; npix], slope: vec![0; npix], ill: vec![0; npix], sky: vec![0; npix] };
+        let mut top = Top { dem: vec![0; npix], slope: vec![0; npix], ill: vec![0; npix], sky: vec![0; npix], ..Default::default() };
         for i in 0..NY {
             for j in 0..NX {
                 let p = i * NX + j;
@@ -1934,7 +1922,7 @@ mod tests {
         let a3: [u32; 8] = [0x3e80ea41, 0x3e4ddd46, 0x3e409a86, 0x3e13821d, 0x3e0a01ab, 0x3dd36379, 0x3dc5c5a1, 0x3d8036b1];
         let run = |mn: f32, mx: f32, a: &[u32; 8]| -> Vec<u32> {
             let mut atc = Atc::zeros(2, 2, 1.0, 3, -9999);
-            atc.dem = DemStats { avg: 0.75, min: mn, max: mx, step: 0.0078125 };
+            atc.dem = DemStats { avg: 0.75, min: mn, max: mx, step: 0.0078125, cnum: 255 };
             atc.xy_view.bands[0].copy_from_slice(&[0.96875, 0.96875, -9999.0, 0.96875]);
             atc.xy_dem.bands[0].copy_from_slice(&[16.0, 64.0, 128.0, 200.0]);
             let wat = zs.iter().zip(a).map(|(&z, &b)| DarkObj { valid: true, z, aod: vec![0.0, f32::from_bits(b), 0.0], ..Default::default() }).collect();

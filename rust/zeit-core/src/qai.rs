@@ -13,6 +13,10 @@ pub const BIT_OFF: u32 = 0;
 pub const BIT_SHD: u32 = 3;
 /// Bit of the water flag.
 pub const BIT_WTR: u32 = 5;
+/// Bit of the illumination flag (2 bits: 0 = good, 1 = moderate, 2 = poor, 3 = deep shadow).
+pub const BIT_ILL: u32 = 11;
+/// Bit of the slope flag (the slope is above 2 degrees).
+pub const BIT_SLP: u32 = 13;
 /// Bit of the water vapour fill flag (the water vapour of the pixel is the scene average).
 pub const BIT_WVP: u32 = 14;
 
@@ -53,6 +57,27 @@ pub fn water(v: i16) -> bool {
 #[inline]
 pub fn vaporfill(v: i16) -> bool {
     bit(v, BIT_WVP)
+}
+
+/// `set_off(qai, p, val)`: clear the off flag, then set it to `val` (`set_qai`).
+#[inline]
+pub fn set_off(v: &mut i16, val: bool) {
+    *v &= !(1i16 << BIT_OFF);
+    *v |= (val as i16) << BIT_OFF;
+}
+
+/// `set_slope(qai, p, val)`: clear the slope flag, then set it to `val`.
+#[inline]
+pub fn set_slope(v: &mut i16, val: bool) {
+    *v &= !(1i16 << BIT_SLP);
+    *v |= (val as i16) << BIT_SLP;
+}
+
+/// `set_illumination(qai, p, val)`: clear the two illumination bits, then set them to `val` (0 to 3).
+#[inline]
+pub fn set_illumination(v: &mut i16, val: i16) {
+    *v &= !(3i16 << BIT_ILL);
+    *v |= val << BIT_ILL;
 }
 
 /// `set_vaporfill(qai, p, val)`: clear the water vapour fill bit, then set it to `val` (`set_qai`).

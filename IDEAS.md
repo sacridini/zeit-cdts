@@ -2946,6 +2946,58 @@ validação.
     sintética) e do `Atc` os campos que `compile_aod` deixa prontos: `aod` (por banda), `aodmap`, `xy_aod` (o
     mapa), `xy_interp`, `hp`, `ha`, `xy_ha`, `aod_bands`; os que o `atmo-ll.c` vai somar são `xy_Ts`, `xy_Tv`, o
     albedo esférico, as funções de fase e `Hr` por célula (alguns já existem como `xyz_*`, `xy_pr`, `xy_pa`).
+- **23g, quinta parte (topografia do FORCE):** o `topo-ll.c` do FORCE 3.11.00 (David Frantz, GPL-3.0-or-later)
+  inteiro, em `rust/zeit-core/src/topo.rs`: `ocean_topography`, `smooth_topography`, `exposition_topography`,
+  `stats_topography`, `illumination_topography`, `compile_topography`, `cfactor_topography` e
+  `average_elevation_cell` (`free_topography` é o drop), com as funções de `stats-cl.c` que ele chama
+  (`covar_recurrence`, `variance`, `covariance`, `linreg_coefs`). O `Top` do `aod.rs` agora é o `topo::Top` de
+  verdade (`dem`, `slope`, `aspect`, `ill`, `sky`, `c`; o `aod.rs` o reexporta e os testes dele não mudaram). Não
+  é o `topocorr.rs` (C e SCS+C do Zeit, pelos artigos, com o kernel de Horn em metros), que não foi tocado: o
+  FORCE usa o kernel de Horn também, mas em `float`, com o DEM suavizado antes, e guarda slope e aspect em radianos
+  x 10000 (`ushort`). O `Atc` ganhou `xyz_tss`, `xyz_tsd`, `dem.cnum` e a banda `S_ZEN`; o `qai.rs`, os
+  setters do "off", da inclinação e da iluminação. A ligação mínima é `zeit._core.topo.scene` (sem API
+  pública).
+  - **O que o `compile_topography` faz:** (1) o DEM já na grade da cena (ou plano, 0 m, sem `FILE_DEM`); (2) o oceano:
+    todo pixel sem dado depois de um pixel de 0 m, varrendo cada coluna para baixo e para cima e cada linha para a
+    direita e para a esquerda, vira 0 m; (3) a suavização por média de caixa de (2k+1)^2 pixels, `k = (int)(30/res)`,
+    sem os pixels sem dado, só se a resolução é menor que 30 m; (4) slope e aspect de Horn em `float` (o numerador em
+    `float`, dividido por `8*res` em `double`), em radianos x 10000, a flag de inclinação do QAI se o slope passa de
+    2 graus, a flag "off" onde a janela 3x3 tem pixel sem dado, e as bordas copiadas do vizinho para dentro (ou "off"
+    se ele é); (5) mínimo, máximo + 1 m e média da elevação em km sobre os pixels ligados, 255 classes, o DEM
+    classificado; falha se o DEM sai de -500 m a 9000 m (o `atc.dem` já está preenchido); (6) o ângulo de iluminação
+    com os ângulos do sol da célula grossa sob o pixel, `-10000` onde "off", a flag de iluminação do QAI (3 sombra
+    profunda, 2 pobre, 1 moderada) e o sky view `10000 - slope/pi*10000`. O `cfactor_topography` estima o C da
+    SWIR2 por pixel iluminado: o C teórico (`h0*f*ms`) onde o terreno é plano (slope <= 2 graus) ou há menos de 3
+    vizinhos parecidos, o empírico (intercepto/inclinação da regressão da SWIR2 contra a iluminação numa vizinhança
+    esparsa de 3 km, o núcleo que encolhe por sqrt(2) até 100 m, dos pixels inclinados e do mesmo índice SWIR +-0,025),
+    nunca menor que o teórico e no máximo 6,5535, e um passa-baixa 3x3.
+  - **A reamostragem do DEM no FORCE** (fora do core: as funções recebem o DEM na grade da cena):
+    `warp_from_disc_to_known_brick` do `brick_io-cl.cpp`, o `GDALWarpOperation` do GDAL para um dataset MEM
+    `Float32`, com `DEM_RESAMPLING` (`NN`, `BL` (o padrão), `CC`: vizinho mais próximo, bilinear, cúbica), o
+    transformador preciso (`GDALCreateGenImgProjTransformer`, limite de erro 0), `DEM_NODATA` (padrão -32767) como
+    nodata de origem e de destino e `INIT_DEST`, `NUM_THREADS` as threads da execução. O Zeit já tem o port do
+    kernel de warp do GDAL (`zeit_core::warp`, do GDAL 3.12; o env do FORCE usa o 3.9.3): a API pública deve
+    chamá-lo assim (bilinear por padrão, com o nodata).
+  - **Igual ao C, bit a bit, em 11.620.508 valores:** 14 cenas sintéticas contra o `topo-ll.c` do FORCE como está
+    (o harness `force_topo/`, sem GSL nem GDAL; o warp do GDAL é um shim que entrega o mesmo DEM): DEM plano (sem
+    arquivo e de zeros), rampa, cone, vale, montanhas de senoides com ruído em 5, 10, 20, 30 e 250 m, buracos e
+    moldura sem dado, oceano de 0 m com a costa sem dado, QAI com pixels "off" e flags já postas, nada ligado, DEM
+    acima de 9 km e abaixo de -500 m (o FORCE falha, os dois igualmente), células grossas de 3 km e menores, sol que
+    muda na grade; cada campo do `top_t` (DEM classificado, slope, aspect, iluminação, sky), o QAI depois, as
+    estatísticas do `atc.dem` (em ulps de `float`), o C-factor (numa cena de 900x810 com 698 mil pixels > 0), a
+    elevação média de cada célula grossa e o código de retorno: 0 diferenças. Os `atan`, `atan2`, `sqrt`, `cos` e
+    `sin` da libm do Windows (UCRT) e da glibc 2.39 deram os mesmos bits em todos os valores.
+  - **Desvios:** (1) o OpenMP: todos os laços escrevem só o próprio pixel, menos a soma da elevação média do
+    `stats_topography` (`reduction(+: sum, num)` de doubles: os últimos bits de `atc.dem.avg` podem depender do
+    número de threads; o mínimo e o máximo não); o port soma na ordem dos pixels, o FORCE com uma thread (na cena
+    grande, 4 threads deram o mesmo `avg`). (2) Onde o C imprime e devolve `FAILURE`/`NULL`, o Rust devolve um
+    `TopoError`; grades com menos de 3 linhas ou colunas e resolução não positiva também são erro (o C lê fora do
+    vetor). (3) Os blocos `FORCE_DEBUG` e `FORCE_CLOCK` e o `cite_me` não foram portados. (4) A `free_brick` do
+    harness não libera (ele despeja os bricks depois).
+  - **Falta (e o que o `atmo-ll.c` precisa):** `allocate_atc`/`atc_get_band_reshaped` e o resto do `atc-ll.c`; o
+    `atmo-ll.c` (2.126 linhas) lê do `Atc` o `xy_Tsw`, `xy_Tvw` e `xyz_*` (`rho_p`, `tss`, `tsd`, `T`, `s`,
+    `F`...), `xy_dem` (via `average_elevation_cell(g, atc->xy_dem, TOP->dem, QAI)`), `dem.{min,step}`, e do
+    `Top` o `dem` classificado, `exp`, `ill`, `sky` e o `c` (o `cfactor_topography` devolve o brick do C-factor).
 - **Janus:** o `zeit-core` foi para o `7c01978` sem mudar nada do que o Janus já chamava. As
   ferramentas pedem duas coisas novas no Janus:
   - saídas cujas bandas a ferramenta decide (a grade nova, os anos, as janelas);

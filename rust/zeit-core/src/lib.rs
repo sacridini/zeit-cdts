@@ -65,6 +65,7 @@ pub mod stl;
 pub mod tasseled;
 pub mod texture;
 pub mod tmask;
+pub mod topo;
 pub mod topocorr;
 pub mod tsa;
 pub mod twdtw;

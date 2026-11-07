@@ -13,11 +13,12 @@
 pub const N_ELEV: usize = 256;
 
 /// Bands of the sun and view geometry bricks (`enum { ZEN, AZI, cZEN, cAZI, sZEN, sAZI, tZEN, tAZI }`): zenith, azimuth,
-/// cosine of the zenith, cosine of the azimuth, ... Only the first four are named here.
+/// cosine of the zenith, cosine of the azimuth, sine of the zenith (`sZEN`), ... Only the first five are named here.
 pub const ZEN: usize = 0;
 pub const AZI: usize = 1;
 pub const C_ZEN: usize = 2;
 pub const C_AZI: usize = 3;
+pub const S_ZEN: usize = 4;
 
 /// A stack of float bands on a grid of `nx * ny` cells of `res` metres (FORCE's `brick_t` of floats): band `b`, cell
 /// `g = row * nx + col` at `bands[b][g]`.
@@ -77,6 +78,8 @@ pub struct DemStats {
     pub min: f32,
     pub max: f32,
     pub step: f32,
+    /// Number of elevation bins minus one (`cnum`; `stats_topography` sets it to `_BYTE_LEN_ - 1`).
+    pub cnum: i32,
 }
 
 /// The atmospheric correction factors of one image (the part of FORCE's `atc_t` the gas functions use).
@@ -103,6 +106,10 @@ pub struct Atc {
     pub xy_tg: CoarseBrick,
     /// Path reflectance per elevation bin (`xyz_rho_p`), [`N_ELEV`] bricks of one band per sensor band.
     pub xyz_rho_p: Vec<CoarseBrick>,
+    /// Direct and diffuse scattering transmittance, sun path, per elevation bin (`xyz_Tss`, `xyz_Tsd`): the f-factor of
+    /// the C-factor of `topo-ll.c` reads them.
+    pub xyz_tss: Vec<CoarseBrick>,
+    pub xyz_tsd: Vec<CoarseBrick>,
     /// Total scattering transmittance per elevation bin (`xyz_T`).
     pub xyz_t: Vec<CoarseBrick>,
     /// Spherical albedo per elevation bin (`xyz_s`).
@@ -160,6 +167,8 @@ impl Atc {
             xy_tvo: brick(nb),
             xy_tg: brick(nb),
             xyz_rho_p: vec![brick(nb); N_ELEV],
+            xyz_tss: vec![brick(nb); N_ELEV],
+            xyz_tsd: vec![brick(nb); N_ELEV],
             xyz_t: vec![brick(nb); N_ELEV],
             xyz_s: vec![brick(nb); N_ELEV],
             wvl: vec![0.0; nb],
