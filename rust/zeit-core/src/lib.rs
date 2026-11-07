@@ -20,6 +20,7 @@ pub mod cmath;
 pub mod bayes_smooth;
 pub mod brdf;
 pub mod coded;
+pub mod coreg;
 pub mod dist;
 pub mod eigen;
 pub mod ewmacd;

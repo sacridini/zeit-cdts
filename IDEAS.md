@@ -2664,6 +2664,50 @@ validação.
     (`benchmarks/vs_originals/force_parallax/`). Tempo (máquina carregada, indicativo): a
     paralaxe no core do Zeit igual à do FORCE (246 ms com 1 thread numa cena de 2048x2048;
     449 ms com as conversões do numpy), o buffer de raio 30 em 6x o FORCE.
+- **23f, o coregistro global:** `zeit.coregister(cube, reference, *, window_size=256,
+  window_position=None, max_shift=5, max_iter=5, band=None, ref_band=None, resampling="cubic",
+  nodata="auto", min_reliability=None, n_jobs=-1)`, que devolve `(aligned, shifts)`, no core em
+  `rust/zeit-core/src/coreg.rs` (o Janus liga direto; o `rustfft` 6, MIT ou Apache-2.0, faz as
+  FFTs). Port do `COREG` global do AROSICS 1.14.0 (Scheffler, Hollstein, Hofmann e Bochow 2017,
+  Remote Sensing 9(7):676; Apache-2.0, Daniel Scheffler e o GFZ Potsdam; sem arquivo NOTICE), com o
+  cabeçalho e a linha no `THIRD_PARTY_NOTICES.md`. Por data: a janela de casamento (o centroide da
+  sobreposição, recortada nela, levada à grade pelo piso das bordas), o espectro de potência cruzado
+  deslocado em precisão simples (`F0 conj(F1) / (|F0| |F1| + eps)`, `eps = max|F1| 1e-15`, FFT da
+  maior potência de 2 dentro da janela), o deslocamento inteiro e sua validação (a janela da
+  referência deslocada virtualmente, até `max_iter` vezes), o subpixel pelos máximos laterais do
+  pico, o teste de `max_shift`, a confiabilidade e o SSIM (o do scikit-image com os padrões, nas
+  janelas reescaladas a 0-1) antes e depois. A cena é movida com o kernel de warp do
+  `load_raster(..., like=)` (o port do GDAL, cúbico) para a grade do próprio cubo; o `shifts` é um
+  DataFrame com o deslocamento em pixels e em unidades do mapa, a confiabilidade, os dois SSIM, o
+  sucesso e o motivo, a janela e o tamanho da FFT.
+  - **Por que o AROSICS e não o `coreg-ll.c` do FORCE:** a origem do `coreg-ll.c` (a adaptação do
+    LSReg de Yan e Roy) não tem licença clara, e o arquivo não foi aberto. O AROSICS é Apache-2.0,
+    portanto entra no Zeit GPL-3.0-or-later, e serve também a pares de sensores diferentes.
+  - **Igual ao AROSICS:** contra o AROSICS 1.14.0 num env conda à parte (`arosics-ref`), em 11
+    pares com deslocamento achado (ruído de valores de 200 x 200 a 4096 x 4096, deslocamentos
+    inteiros e fracionários, uint16 com margem sem dado, borda diagonal sem dado, tamanhos ímpares,
+    a imagem `camera` do scikit-image), o inteiro, a janela, o tamanho da FFT, a confiabilidade e o
+    SSIM são iguais e o deslocamento difere em 2,1e-7 pixel no máximo (ruído da precisão simples
+    de duas bibliotecas de FFT); nos 2 pares sem deslocamento (acima do `max_shift`, constante) os
+    dois falham. Não há cena de satélite no repositório (os GeoTIFFs dos exemplos têm 25 x 25).
+    A estimativa leva 10 ms contra 29-94 ms do AROSICS (35 contra 174 ms em 4096 x 4096).
+  - **Onde fugiu do plano:** (1) as duas imagens precisam estar na mesma grade (o mesmo CRS
+    projetado, o mesmo tamanho de célula, origens a um número inteiro de células); o AROSICS
+    reamostra a janela da outra imagem quando não estão, e o Zeit pede `load_raster(..., like=)`
+    antes, com um erro que diz isso. (2) A sobreposição é a dos pixels válidos (nem NaN nem
+    NoData), não a dos polígonos de pegada; o AROSICS preenche os buracos da pegada e o Zeit não,
+    então uma nuvem mascarada como NaN é evitada pela janela, ou a data falha. O ramo do AROSICS
+    que encolhe a janela a partir de uma caixa de uma unidade só roda por ruído de arredondamento
+    e ficou de fora; o ponto representativo do shapely virou o pixel válido mais próximo do
+    centroide. (3) O AROSICS (`align_grids=False`) só move a origem do geotransform; o Zeit
+    reamostra para a grade do cubo, que é o que uma série pede. (4) Uma data que falha nas
+    checagens do AROSICS (sem dado em comum, sem casamento, acima do `max_shift`, sobreposição de
+    16 x 16 ou menos) fica como estava, com `success=False` e o motivo, em vez de um erro; o
+    AROSICS aplica qualquer deslocamento que passe nelas, e o `min_reliability` é a opção do Zeit
+    para recusar os fracos. (5) Um quirk do AROSICS foi mantido de propósito: no laço de novas
+    tentativas, um deslocamento achado por uma nova tentativa fica com parte inteira `(0, 0)`.
+  - **O que não tem:** o `COREG_LOCAL` (a grade de pontos de controle e a transformação ajustada a
+    eles), a reamostragem da janela em grades diferentes e máscaras de dado ruim por entrada.
 - **Janus:** o `zeit-core` foi para o `7c01978` sem mudar nada do que o Janus já chamava. As
   ferramentas pedem duas coisas novas no Janus:
   - saídas cujas bandas a ferramenta decide (a grade nova, os anos, as janelas);
@@ -2696,7 +2740,12 @@ validação.
   `zeit.parallax_clouds`, `zeit.cloud_displacement_index` e `zeit.buffer_mask` (o passo da
   paralaxe do Frantz e o buffer, iguais ao FORCE em todos os valores; as entradas do Fmask são
   entradas). Faltam ferramentas no Janus para elas.
-- **Zeit:** 23f (coregistro) e 23g (correção atmosférica), como nas Etapas acima.
+- ~~**Zeit:** 23f: o coregistro global~~: feito, `zeit.coregister` (o `COREG` do AROSICS, igual a ele
+  no inteiro, na janela, na confiabilidade e no SSIM e a 2e-7 pixel no subpixel). Falta o
+  `COREG_LOCAL` do AROSICS (a grade de pontos de controle, a filtragem por confiabilidade e SSIM e a
+  transformação ajustada a eles, que corrige distorções e não só um deslocamento), e a ferramenta
+  no Janus, com os vetores de deslocamento como camada.
+- **Zeit:** 23g (correção atmosférica), como nas Etapas acima.
 - **Self-test do Janus:** a Fenologia polar é pulada nos dados de teste, que são irregulares.
   Um dado regular no `tools/make_selftest_data.py` a cobriria.
 - A temporada final cortada do `polar_metrics` (hoje medida; poderia ser NaN): decisão do

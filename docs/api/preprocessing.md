@@ -390,6 +390,60 @@ fast = zeit.sentinel2_resmerge(s2, method="improphe", clear=cloud_free)
 
 **Agreement with FORCE.** `force=True` equals the code of FORCE 3.11.00 in every value, for both methods, on a synthetic 500 x 500 scene with no-data pixels, clouds, shadows, constant spectra (a rank deficient fit) and zeros (6 bands x 245,534 pixels per method): the C harness is FORCE's own functions on plain arrays, linked to the real GSL 2.7 and its reference CBLAS, run on one thread (see [Against the Original Implementations](../benchmarks/vs-originals.md#the-resolution-merge-vs-force)). FORCE has no module that runs this on an ARD tile; it runs only inside `force-l2ps`.
 
+## Co-registration
+
+### `coregister` { .api }
+
+<!-- sig: zeit.coregister -->
+```python
+zeit.coregister(
+    cube, reference, *, window_size=256, window_position=None, max_shift=5, max_iter=5,
+    band=None, ref_band=None, resampling="cubic", nodata="auto", min_reliability=None, n_jobs=-1,
+)
+```
+
+Moves each date of a cube to fit a reference image: the global co-registration of **AROSICS** (Scheffler et al. 2017, *Remote Sensing* 9(7):676; `COREG` of AROSICS 1.14.0, Apache-2.0, Daniel Scheffler, GFZ Potsdam), ported to the compiled core (`rust/zeit-core/src/coreg.rs`, which Janus links directly). For each date, one band is matched to the reference's by the **phase correlation** of a window at the centre of what the two images have in common: the cross power spectrum `F0 conj(F1) / (|F0| |F1|)` of the two windows (single-precision FFTs of the largest power of 2 inside the window), whose peak is their shift in whole pixels and whose side maxima give the part of a pixel. The integer shift is checked by moving the reference's window by it and correlating again (up to `max_iter` times); a shift above `max_shift` pixels, or with no clear match, is a failure. Every band of the date is then moved by the shift with the warp kernel of `load_raster(..., like=)` (GDAL's resampling, `resampling="cubic"` by default) onto the cube's own grid; a shift of a whole number of pixels is a plain copy of the cells.
+
+The cube and the reference must be on the same pixel grid (the same projected CRS, the same cell size, the cells a whole number apart; their extents may differ and only what they share is matched). Where AROSICS resamples the window of the other image when the grids differ, `coregister` asks for the reference to be put on the cube's grid first (`zeit.load_raster(..., like=cube)`), and says so in the error.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `cube` | `DataArray` | required | `(time, band, y, x)`, `(band, y, x)`, `(time, y, x)` or `(y, x)` in a projected CRS. A lazy cube is read a date at a time and the result is lazy. |
+| `reference` | `DataArray` | required | `(band, y, x)` or `(y, x)` in the same CRS, on the same pixel grid. |
+| `window_size` | `int` | `256` | The matching window's side in pixels (AROSICS' `ws`). It is cut down to the overlap, and the FFT takes the largest power of 2 inside it. |
+| `window_position` | `(x, y)` | `None` | The window's centre in map coordinates (AROSICS' `wp`); by default the centroid of the overlap of the valid data. |
+| `max_shift` | `float` | `5` | The largest shift accepted, in pixels. |
+| `max_iter` | `int` | `5` | Tries to validate the integer shift. |
+| `band`, `ref_band` | label or position | `None` | The band of the cube and of the reference to match (the first by default). |
+| `resampling` | `str` | `"cubic"` | The resampling that moves the images (those of `load_raster`: `"cubic"`, `"bilinear"`, `"nearest"`, `"lanczos"`...). |
+| `nodata` | `"auto"`, number, `None` or `(reference, cube)` | `"auto"` | Missing values besides NaN: each image's raster NoData, a number for both, `None`, or a pair. |
+| `min_reliability` | `float` | `None` | Treats a shift whose reliability (AROSICS', 0-100) is below this as not found. `None` takes every shift AROSICS' checks accept, as its `COREG` does. |
+| `n_jobs` | `int` | `-1` | Dates run at once (the processors zeit may use by default); each date's correlation is one thread. |
+
+</div>
+
+**Returns** `(aligned, shifts)`. `aligned` is the cube on its own grid with each date moved by its shift; the dates that failed are as they were. `shifts` is a `pandas.DataFrame`, one row per date (index `time`; one row for a cube without dates), with `x_shift_px` and `y_shift_px` (pixels: the amount the date was moved, `x` to the right and `y` down, AROSICS' convention), `x_shift_map` and `y_shift_map` (map units; `y` is negative for a shift down on a north-up grid), `reliability` (0-100), `ssim_before` and `ssim_after` (structural similarity of the window to the reference's before and after the shift), `success`, `reason` (why it failed), the matching window `window_x0, window_y0, window_x1, window_y1` (cells of the cube, `[x0, x1)`), `fft_size` (the side of the FFT window of the spectrum the shift is read from: after an integer shift the reference's window is moved by it and shrinks, so it is smaller than the matching window's largest power of 2) and `applied`.
+
+```python
+aligned, shifts = zeit.coregister(cube, reference, band="nir", ref_band="nir")
+shifts[["x_shift_px", "y_shift_px", "reliability", "ssim_before", "ssim_after", "success"]]
+good = aligned.sel(time=shifts.index[shifts.success])
+```
+
+**A date that fails stays as it was.** No valid data in common, an overlap of 16 x 16 pixels or less, a window that cannot be placed on valid data, no integer shift that survives the check in `max_iter` tries, or a shift above `max_shift` (AROSICS raises these as errors; here they are `success=False` with the `reason`). A featureless date (constant) fails that way. AROSICS itself applies any shift that passes those checks, however low its reliability or similarity (its local variant filters tie points by them); `min_reliability` is Zeit's option to refuse the weak ones, and `ssim_before` and `ssim_after` are there to check that the window agrees better afterwards.
+
+**Where it differs from AROSICS.** The numbers are AROSICS' (see below); the plumbing is not:
+
+- The overlap is that of the two images' *valid pixels* (not NaN, not NoData), and the window is placed on it as AROSICS places it on the intersection of the footprint polygons: the centroid, clipped to the overlap, moved to the grid by the floor of its edges, and cut down by one pixel a side when AROSICS' other window does not fit, as it does in an image smaller than the window. AROSICS fills the holes of a footprint, so a cloud masked as NaN is inside its window; here the window avoids it or fails.
+- The aligned images are resampled onto the cube's grid; AROSICS with `align_grids=False` only moves the origin of the geotransform. Zeit's grid stays the cube's, which is what a time series needs.
+- The window's values are float32 (AROSICS reads the file's type and converts to single precision for the FFT; the similarity of an integer image rounds and clamps the shifted window to the type as GDAL does).
+- In AROSICS' retry loop, a shift found by a retry gets `(0, 0)` as its integer part (a quirk of `calculate_spatial_shifts`); it is kept, since the shifts are meant to be AROSICS'.
+- Only the global variant is here; AROSICS' `COREG_LOCAL` (a grid of tie points and a transformation fitted to them) is not.
+
+**Agreement with AROSICS 1.14.0.** On 13 pairs (12 synthetic and a natural image; the two where neither finds a shift fail alike), the shifts differ from AROSICS' by 2e-7 pixels at most (the single-precision noise of two FFT libraries); the integer part, the window, the FFT size and the reliability are equal; the similarity too on the synthetic pairs; and the two aligned images differ by one unit of float32 (see [Against the Original Implementations](../benchmarks/vs-originals.md#the-coregistration-vs-arosics)).
+
 ## Cloud masking
 
 ### `tmask` { .api }

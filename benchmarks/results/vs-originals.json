@@ -1341,6 +1341,72 @@
    "threads": 1,
    "note": "max rel diff 1.9e-02; sampled by RStoolbox; slope/aspect given",
    "date": "2026-11-07"
+  },
+  {
+   "method": "coregister",
+   "original": "AROSICS 1.14.0 COREG",
+   "size": "1024x1024 synth_sub",
+   "original_s": 0.038862400000653,
+   "zeit_s": 0.011871599999722093,
+   "speedup": 3.27356043006526,
+   "threads": 1,
+   "note": "estimate only (AROSICS CPUs=1); zeit's core call on arrays, one thread (a date is one task); zeit.coregister of the date with the aligned image: 0.039 s",
+   "date": "2026-11-07"
+  },
+  {
+   "method": "coregister",
+   "original": "AROSICS 1.14.0 COREG",
+   "size": "1024x1024 synth_sub",
+   "original_s": 0.039690300000074785,
+   "zeit_s": 0.012038199998642085,
+   "speedup": 3.297029456609117,
+   "threads": 4,
+   "note": "estimate only (AROSICS CPUs=4); zeit's core call on arrays, one thread (a date is one task); zeit.coregister of the date with the aligned image: 0.039 s",
+   "date": "2026-11-07"
+  },
+  {
+   "method": "coregister",
+   "original": "AROSICS 1.14.0 COREG",
+   "size": "4096x4096 synth_4096",
+   "original_s": 0.17212779999681516,
+   "zeit_s": 0.03705000000263681,
+   "speedup": 4.6458245609869095,
+   "threads": 1,
+   "note": "estimate only (AROSICS CPUs=1); zeit's core call on arrays, one thread (a date is one task); zeit.coregister of the date with the aligned image: 0.311 s",
+   "date": "2026-11-07"
+  },
+  {
+   "method": "coregister",
+   "original": "AROSICS 1.14.0 COREG",
+   "size": "4096x4096 synth_4096",
+   "original_s": 0.17145229999732692,
+   "zeit_s": 0.03638370000044233,
+   "speedup": 4.712338217257797,
+   "threads": 4,
+   "note": "estimate only (AROSICS CPUs=4); zeit's core call on arrays, one thread (a date is one task); zeit.coregister of the date with the aligned image: 0.311 s",
+   "date": "2026-11-07"
+  },
+  {
+   "method": "coregister",
+   "original": "AROSICS 1.14.0 COREG",
+   "size": "512x512 natural_camera",
+   "original_s": 0.029381600001215702,
+   "zeit_s": 0.010474899998371257,
+   "speedup": 2.8049527924642956,
+   "threads": 1,
+   "note": "estimate only (AROSICS CPUs=1); zeit's core call on arrays, one thread (a date is one task); zeit.coregister of the date with the aligned image: 0.025 s",
+   "date": "2026-11-07"
+  },
+  {
+   "method": "coregister",
+   "original": "AROSICS 1.14.0 COREG",
+   "size": "512x512 natural_camera",
+   "original_s": 0.030449500001850538,
+   "zeit_s": 0.010795199999847682,
+   "speedup": 2.8206517713687727,
+   "threads": 4,
+   "note": "estimate only (AROSICS CPUs=4); zeit's core call on arrays, one thread (a date is one task); zeit.coregister of the date with the aligned image: 0.025 s",
+   "date": "2026-11-07"
   }
  ],
  "machine": {

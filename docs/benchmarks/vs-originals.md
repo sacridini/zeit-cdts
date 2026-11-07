@@ -448,6 +448,40 @@ On the same pixels the two are the same computation (float32 against float64). W
 
 **Timings.** Seconds, the best of 3, one thread, whole calls (Zeit's: slope and aspect, illumination, six regressions and the correction, with Python's conversions; RStoolbox's `topCor` of six bands, its sample of 10000): slope and aspect 1000 x 1000: `terra::terrain` 0.05, Zeit 0.037; the correction of 1000 x 1000 x 6: RStoolbox 0.41, Zeit 0.087 (4.7 times); 100 x 100 x 6: 0.06 and 0.003. RStoolbox fits on 10000 pixels where Zeit uses all of them (a million per band), so the correction itself is more work in Zeit. **One 2000 x 2000 x 6 date**, the whole call, Zeit only: 0.353 s with 1 thread and 0.117 s with 4 (SCS+C the same). The machine was not idle (other sessions' processes were running, load under 10% before the runs), so the times are indicative.
 
+### The coregistration vs AROSICS
+
+[`coregister`](../api/preprocessing.md#coregister) is a port of the global `COREG` of **AROSICS 1.14.0** (Scheffler et al. 2017; Apache-2.0), run here as it is in its own conda environment (`arosics-ref`, Python 3.14, GDAL 3.12, from conda-forge) by `benchmarks/vs_originals/arosics_driver.py`, on GeoTIFFs written by `benchmarks/vs_originals/arosics.py`, which then runs Zeit on the same files. AROSICS: `COREG(ref, tgt, ws=(256, 256), max_shift=5, max_iter=5, nodata=(nd, nd), align_grids=True, resamp_alg_deshift="cubic", ignore_errors=True)` and `calculate_spatial_shifts()`, then `correct_shifts()` for the aligned image. There is no satellite scene in the repository (the largest GeoTIFFs of `examples/data` are 25 x 25 pixels), so the pairs are synthetic, plus one of real image content: scikit-image's `camera` (512 x 512, 8 bit) with its copy moved by (2.3, -1.4) pixels (a cubic spline). The synthetic scenes are value noise (five octaves, 2-32 pixel features, 30 m cells) moved by known shifts.
+
+| Pair | Size | Known shift (x, y) | Zeit's shift | AROSICS' shift | Difference |
+|:---|:---|:---|:---|:---|:---|
+| `synth_int` | 1024 x 1024 | (3, -2) | (3.000000, -2.000000) | (3.000000, -2.000000) | 1e-10 |
+| `synth_sub` | 1024 x 1024 | (0.4, 1.7) | (0.285887, 1.783818) | the same | 9e-8 |
+| `synth_neg` | 1024 x 1024 | (-4.25, 3.1) | (-4.157352, 3.070672) | the same | 1.1e-7 |
+| `synth_zero` | 1024 x 1024 | (0, 0) | (0, 0) | (0, 0) | 6e-10 |
+| `synth_margin_u16` (uint16, NoData 0; 300 columns and 200 rows of no data) | 1024 x 1024 | (2.5, -1.2) | (2.360820, -1.164250) | the same | 1.5e-7 |
+| `synth_odd` | 1001 x 777 | (1.6, 0.7) | (1.710320, 0.768810) | the same | 6e-8 |
+| `synth_small` (smaller than the window) | 200 x 200 | (1.3, -0.8) | (1.245660, -0.823640) | the same | 2.1e-7 |
+| `synth_ws128` | 700 x 500 | (-2.2, 2.2) | (-2.121680, 2.124930) | the same | 6.7e-8 |
+| `synth_diag_nodata` (a diagonal no-data edge) | 1024 x 1024 | (2, 1) | (2.000000, 1.000000) | the same | 8e-10 |
+| `synth_4096` | 4096 x 4096 | (1.5, -2.5) | (1.585560, -2.393310) | the same | 1.2e-7 |
+| `natural_camera` (uint8, NoData 0) | 512 x 512 | (2.3, -1.4) | (2.232950, -1.319590) | the same | 1.5e-8 |
+| `synth_far` | 1024 x 1024 | (9, 0) | fails: above `max_shift` | fails: the same error | |
+| `synth_flat` (constant) | 1024 x 1024 | (0, 0) | fails: window too small | fails: "matching window became too small" | |
+
+(The subpixel part of a phase correlation is an estimate of a fraction, good to a tenth of a pixel on these scenes, not the known shift.) In all 13 pairs the two agree on whether the shift is found; on the 11 where it is, the integer part, the matching window (`[x0, y0, x1, y1]`, including the 200 x 200 image's, which AROSICS cuts to `[1, 1, 199, 199]`), the side of the final FFT window (128 where a whole-pixel shift was removed from the 256 window, 256 for the zero shift, 64 for the 128 window), the reliability (96.1-100%) and the structural similarity before and after the shift (0.9942-1.0000 after; the natural image 0.4858 to 0.9725) are equal, and the shifts differ by 2.1e-7 pixels at most: the single-precision noise of the two FFT libraries (scipy's pocketfft, rustfft), as both run the correlation in complex64. The aligned images (AROSICS' `correct_shifts()` resampled onto the same grid with GDAL's cubic, Zeit's `to_grid` with its port of the same kernel) differ by 0.00049 at most in float32 values of about 3000 (one unit in the last place), by 1 in the uint16 image (rounding), and are the same cells for whole-pixel shifts, over the pixels with data inside the 8 pixel border.
+
+**Timings** (seconds, the best of 3; one pair at a time, with GDAL, OpenBLAS and OpenMP at 1 thread; **the machine was not idle**: other sessions' processes ran, 15-60% load before the runs, so these are indicative). AROSICS: `COREG(...)` plus `calculate_spatial_shifts()` (it reads the files, finds the footprints and overlap, takes the windows, correlates and measures the similarity). Zeit: the core's call on arrays that are already in memory, which is the same work minus reading the files, and the whole `zeit.coregister` of the date from `rioxarray`'s arrays, which also moves the whole image.
+
+| Pair | AROSICS, `CPUs=1` | AROSICS, `CPUs=4` | Zeit, the core's estimate | Zeit, `coregister` (with the aligned image) |
+|:---|---:|---:|---:|---:|
+| `synth_sub` 1024 x 1024 | 0.038 | 0.040 | 0.011 | 0.039 |
+| `synth_margin_u16` 1024 x 1024 | 0.080 | 0.080 | 0.011 | 0.035 |
+| `synth_diag_nodata` 1024 x 1024 | 0.094 | 0.091 | 0.011 | 0.030 |
+| `synth_4096` 4096 x 4096 | 0.174 | 0.178 | 0.035 | 0.323 |
+| `natural_camera` 512 x 512 | 0.029 | 0.029 | 0.010 | 0.026 |
+
+The estimate is 3 to 8 times faster in Zeit: AROSICS' cost is in the footprint polygon and the file reading, where Zeit's is the correlation of one window (about 10 ms of FFTs, similarities and the overlap of the two masks; it grows with the image only through that overlap, 35 ms at 4096 x 4096). `CPUs` makes no difference for AROSICS' estimate (it only parallelises the warps of `equalize_pixGrids` and `correct_shifts`, which a pair on one grid does not run), and a single date is a single thread in Zeit. The whole `zeit.coregister` of a 4096 x 4096 date is dominated by the cubic warp of its 16.8 million cells (0.29 s). **Eight dates of 2048 x 2048** (a cube, one reference): 0.51 s with `n_jobs=1` (64 ms per date) and 0.39 s with `n_jobs=4` (49 ms per date): the dates run at once in the correlation and the warp is the part that threads share the least.
+
 ---
 
 ## Protocol
@@ -466,7 +500,7 @@ On the same pixels the two are the same computation (float32 against float64). W
 | Processor | `Intel64 Family 6 Model 183 Stepping 1, GenuineIntel` (the Intel Core i5-13600K of the other benchmarks), 20 logical processors |
 | R | 4.4.2, with sfdep 0.2.5, RecoverMetricsR 0.1.0, RStoolbox 1.0.2.2, sits 1.5.4, CAST 1.0.4, Rbeast 1.0.2, remotePARTS 1.0.4, blockCV 4.0.1 (with automap 1.1.20), scam 1.2.23 and survey 4.5 |
 | Python | pyxccd 1.1.0, in a virtual environment of its own |
-| Date | 2026-10-24 (the AR(1) trends and PARTS: 2026-10-28; the spatial cross-validation: 2026-10-29; the transitions: 2026-11-03; ImproPhe: 2026-11-06; the resolution merge: 2026-11-07) |
+| Date | 2026-10-24 (the AR(1) trends and PARTS: 2026-10-28; the spatial cross-validation: 2026-10-29; the transitions: 2026-11-03; ImproPhe: 2026-11-06; the resolution merge: 2026-11-07; the coregistration: 2026-11-07) |
 
 ---
 
@@ -498,6 +532,7 @@ python benchmarks/vs_originals/force_resmerge.py --size 500   # zeit.sentinel2_r
 wsl -e bash -lc 'bash benchmarks/vs_originals/force_parallax/make_harness.sh'                  # FORCE's cloud_parallax and buffer_, verbatim; then:
 python benchmarks/vs_originals/force_parallax.py --size 512 --big 2048   # zeit.parallax_clouds and zeit.buffer_mask against it, and the times
 python benchmarks/vs_originals/topocorr.py            # gdaldem (GDAL_BIN) and terra/RStoolbox 1.0.2.2, against zeit.topographic_correction
+python benchmarks/vs_originals/arosics.py            # AROSICS 1.14.0 (conda env arosics-ref; AROSICS_ENV=...), against zeit.coregister
 python benchmarks/vs_originals/polar.py               # PolarMetrics 0.1.0 (R package from GitHub: R CMD INSTALL), against zeit.polar_metrics
 python benchmarks/vs_originals/ewmacd.py "path/to/EWMACD v1.3.0.r"   # Brooks' script, not distributed
 PYXCCD_PYTHON=path/to/pyxccd-env/python python benchmarks/vs_originals/sccd.py CCDC_Stack_Rondonia.tif CCDC_Stack_Rondonia_Dates.csv

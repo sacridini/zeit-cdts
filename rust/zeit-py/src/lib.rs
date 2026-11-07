@@ -20,6 +20,7 @@ mod bfastmonitor;
 mod brdf;
 mod ccdc;
 mod coded;
+mod coreg;
 mod ewmacd;
 mod hotspots;
 mod improphe;
@@ -101,5 +102,6 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     add_submodule(m, &parallax::module(m.py())?)?;
     add_submodule(m, &resmerge::module(m.py())?)?;
     add_submodule(m, &topocorr::module(m.py())?)?;
+    add_submodule(m, &coreg::module(m.py())?)?;
     Ok(())
 }
