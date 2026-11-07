@@ -9,6 +9,7 @@
 #![allow(clippy::neg_cmp_op_on_partial_ord)]
 
 pub mod aoa;
+pub mod atc;
 pub mod ar_reml;
 pub mod bap;
 pub mod beast;
@@ -25,7 +26,9 @@ pub mod coreg_local;
 pub mod dist;
 pub mod eigen;
 pub mod ewmacd;
+pub mod gas;
 pub mod gls;
+pub mod gsl_nmsimplex;
 pub mod gsl_symmv;
 pub mod hotspots;
 pub mod improphe;
@@ -41,6 +44,7 @@ pub mod parts;
 pub mod phenology;
 pub mod postproc;
 pub mod profile;
+pub mod qai;
 pub mod radtran;
 mod radtran_tables;
 pub mod recovery;
