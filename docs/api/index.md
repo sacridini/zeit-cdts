@@ -105,6 +105,8 @@
 | [`embedding_change`](embeddings.md#embedding_change) | How far each pixel's embedding moved from year to year (events with `extract_events`) |
 | **Pre-processing** | |
 | [`nbar`](preprocessing.md#nbar) | Nadir BRDF-adjusted reflectance by the c-factor (Roy et al. 2016, 2017), from the per-pixel sun and view angles: HLS's view-angle step, before `bandpass_adjust` |
+| [`coregister`](preprocessing.md#coregister) | Moves each date of a cube to fit a reference image by the phase correlation of one window (AROSICS' global `COREG`, Scheffler et al. 2017), with each date's shift, reliability and similarity |
+| [`coregister_local`](preprocessing.md#coregister_local) | Warps each date of a cube to fit a reference image by the shifts of a grid of tie points, filtered by reliability, similarity and RANSAC (AROSICS' `COREG_LOCAL`), with a thin plate spline or a polynomial from GDAL, and the table of the tie points |
 | [`topographic_correction`](preprocessing.md#topographic_correction) | Takes the relief's illumination out of reflectance with a DEM and the sun: C-correction (Teillet et al. 1982) or SCS+C (Soenen et al. 2005), Horn's slope and aspect |
 | [`bandpass_adjust`](preprocessing.md#bandpass_adjust) | Sentinel-2 (and Landsat 5/7) on Landsat 8's bands: HLS's bandpass step, for L2A cubes (HLS itself: [`build_time_series`](data.md#build_time_series)) |
 | [`spectral_adjust`](preprocessing.md#spectral_adjust) | Landsat 4-9 and MODIS on Sentinel-2A's ten bands, the red edge predicted: FORCE's spectral adjustment |
@@ -112,6 +114,9 @@
 | [`improphe`](preprocessing.md#improphe) | Sharpens a coarse field or the scenes of a coarser sensor with the finer sensor's seasonal means: FORCE's CF-ImproPhe and L2-ImproPhe (Frantz et al. 2016) |
 | [`sentinel2_resmerge`](preprocessing.md#sentinel2_resmerge) | The 20 m bands of Sentinel-2 at 10 m, by a moving-window regression or an ImproPhe-like weighted mean on the 10 m green, red and NIR: FORCE's resolution merge |
 | [`tmask`](preprocessing.md#tmask) | Time-series cloud and shadow detection of a cube |
+| [`parallax_clouds`](preprocessing.md#parallax_clouds) | Sentinel-2 clouds from the potential cloud pixels by the parallax test (Cloud Displacement Index): FORCE's `cloud_parallax` (Frantz et al. 2018) |
+| [`cloud_displacement_index`](preprocessing.md#cloud_displacement_index) | The Cloud Displacement Index of Sentinel-2 on the 20 m grid |
+| [`buffer_mask`](preprocessing.md#buffer_mask) | Buffers a boolean mask by a distance with FORCE's midpoint circle (its cloud buffer) |
 | [`smooth`](preprocessing.md#smooth) | Whittaker (uneven dates, gaps, weights) or Savitzky-Golay smoothing of a cube or series |
 | [`unmix`](preprocessing.md#unmix) | Fractions of green vegetation, NPV, soil, shade, cloud; the NDFI |
 | [`desawtooth`](preprocessing.md#desawtooth) | LandTrendr spike removal |

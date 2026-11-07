@@ -2331,7 +2331,8 @@ Frantz, https://github.com/davidfrantz/force, 3.11.00) é GPL-3.0-or-later em to
 `src/modules`: o código do próprio Frantz entra **por port direto** (sem sala limpa), com o
 copyright dele no cabeçalho dos arquivos portados e no `THIRD_PARTY_NOTICES.md`. Não entram
 direto os trechos que o FORCE adotou de terceiros sem licença declarada: Fmask (`cloud-ll.c`,
-Zhu), Ambrals (`brdf-ll.c`, Schaaf), LSReg (`coreg-ll.c`, Yan & Roy), STARFM (`resmerge-ll.c`,
+Zhu; o repositório atual do Fmask, github.com/GERSL/Fmask, é MIT, conferido pela API do GitHub
+em 2026-11-07, e só a paralaxe, que é do próprio Frantz, foi portada), Ambrals (`brdf-ll.c`, Schaaf), LSReg (`coreg-ll.c`, Yan & Roy), STARFM (`resmerge-ll.c`,
 Gao, USDA-ARS), as grades Equi7 e GLANCE, o calculador solar da NOAA (`sun-cl.c`) e o script
 de RBF de Rabe (`interpolate-hl.c`). Esses ou têm a licença verificada, ou são refeitos pelo
 artigo. O BRDF (Roy et al. 2016, 2017) e a RBF (Schwieder et al. 2016) são simples de refazer
@@ -2417,7 +2418,7 @@ validação.
   adjacência, e o MDE para a pressão e o terreno.
   - **Licença:** `atmo-ll.c`, `aod-ll.c`, `gas-ll.c`, `radtran-ll.c` e `atc-ll.c` são do Frantz
     (GPL-3) e entram por port direto. O resto se resolve à parte:
-    - o calculador solar da NOAA (`sun-cl.c`) se refaz pelas fórmulas publicadas;
+    - o calculador solar da NOAA (`sun-cl.c`) se refaz pelas fórmulas publicadas (feito na 23g, primeira parte: `solpos.rs`, em sala limpa);
     - o Fmask (`cloud-ll.c`) fica de fora: o Zeit já tem o seu;
     - o BRDF segue o NBAR da 23c.
   - **Entradas:** os leitores de metadados do L1 (MTL do Landsat, `MTD_MSIL1C.xml` e
@@ -2611,6 +2612,214 @@ validação.
   - Onde fugiu do plano: um cubo dask é lido em memória (a reta precisa de uma data inteira), e a
     SCS+C devolve `rho cos s` num terreno lambertiano de `c` zero, não `rho`, porque é assim que
     ela é definida; só a C leva de volta ao `rho` plano.
+- **23e, a paralaxe e o buffer de nuvem:** `zeit.cloud_displacement_index(cube, potential=None)`,
+  `zeit.parallax_clouds(cube, potential, variability=None, saturated=None, bright=None,
+  return_cdi=False)` e `zeit.buffer_mask(mask, distance, units="m"|"px", resolution=None,
+  force=False)`, no core em `rust/zeit-core/src/parallax.rs` (o Janus liga direto). Port direto,
+  com o copyright do Frantz, do `cloud_parallax` do `cloud-ll.c` do FORCE (o Cloud Displacement
+  Index de Frantz, Haß, Uhl, Stoffels e Hill 2018, RSE 215:471-481), do `gauss_kernel`, do
+  `covar_recurrence`, da `variance`, da fila e do `buffer_` (círculo do ponto médio) do código
+  cruzado.
+  - **A licença:** o `cloud-ll.c` inteiro é derivado do Fmask do Zhu, mas só o passo da paralaxe
+    é do próprio Frantz, e só ele foi portado. Nada do Fmask entrou: o `cloud_parallax` consome
+    as saídas dele, que no Zeit são entradas. O repositório atual do Fmask
+    (github.com/GERSL/Fmask) é MIT (conferido pela API do GitHub em 2026-11-07), mas nenhuma
+    parte dele foi usada; isso fica no `THIRD_PARTY_NOTICES.md`.
+  - **O que o `cloud_parallax` lê e como o Zeit trata cada entrada:** `pcp_` (pixels de nuvem
+    potencial do Fmask) é `potential`, uma máscara dada; `var_` (probabilidade de variabilidade
+    x 10000, `short`) é `variability`, um float em [0, 1] arredondado para esse inteiro, ou, se
+    não vier, `1 - max(|NDVI|, |NDSI|, brancura)` da fórmula publicada de Zhu e Woodcock (2012,
+    RSE 118:83-94), escrita do artigo e não de código, recortada em [0, 1] (NDVI com B8A e
+    vermelho, NDSI com verde e B11; o ajuste de saturação do artigo, NDVI positivo e NDSI
+    negativo viram 0 onde há saturação, usa a máscara `saturated`, já que o Sentinel-2 L1C/L2A
+    traz a saturação nas bandas de qualidade, e não há nada a ajustar sem ela); `brt_` (pixels
+    brilhantes, média de azul, verde e vermelho acima de 1500) é o filtro final, que remove
+    nuvem não brilhante, e vira `bright`, dada ou calculada das três bandas; a saturação do
+    QAI, que adiciona pixels de nuvem antes do filtro, vira `saturated`. `clr_`, `lnd_`,
+    `nclear`, `nland`, `npix`, `ncloud` e `cc` não são lidos pela função (o `cc` e o `ncloud` só
+    são escritos), e não são entradas.
+  - O CDI fica na grade de 20 m em que é calculado, como no FORCE (o FORCE não o devolve; um
+    gancho de uma linha no harness o entrega à comparação). Só os blocos com pixel de nuvem
+    potencial têm CDI, e só se houver mais de dois na janela 7x7; o resto é NaN (o -9999 do
+    FORCE).
+  - **O buffer:** o `buffer_` do FORCE desenha, a partir de cada pixel verdadeiro, o disco do
+    círculo do ponto médio (um pouco mais gordo que o disco: 89 pixels para `r = 5`, o `(5, 1)`
+    entra). O raio em pixels é `int(CLOUD_BUFFER / resolução)` (300 m por padrão; 40 m para
+    sombra e 20 m para neve), truncado, e é isso que `units="m"` faz. O FORCE só bufferiza os
+    pixels a pelo menos `r` das bordas e depois troca a máscara pelo que desenhou: o pixel
+    verdadeiro a menos de `r` da borda **se perde**, e a nuvem encostada na borda fica sem
+    buffer. `force=True` reproduz isso; o padrão mantém todos e recorta o disco na borda.
+    O Zeit não desenha de cada pixel: cada linha de saída procura a fonte mais próxima nas
+    linhas do disco, então o tempo quase não depende da área da nuvem.
+  - Onde fugiu do plano: não há `force=` em `parallax_clouds`, porque não há o que escolher (as
+    unidades `short`, o `float` e o `double`, a ordem das somas, e as threads do FORCE não
+    correm); só `buffer_mask` tem. Há `saturated=` e `bright=` além do que o plano previa. Em
+    tamanho ímpar o FORCE escreve fora dos vetores (anda de dois em dois e indexa a grade de 20 m
+    por `i / 2`); no Zeit a última linha ou coluna ímpar não faz parte de nenhum bloco. Um cubo
+    dask é computado.
+  - Igual ao FORCE em todos os valores: a máscara de nuvem e o CDI bit a bit (cena sintética de
+    512x512 com nuvens deslocadas entre as bandas, manchas urbanas sem deslocamento, sem-dado,
+    saturados e não brilhantes, mais quatro cenas), e `buffer_mask(force=True)` contra o
+    `buffer_` em raios de 1 a 30. Harness em C com as funções do FORCE copiadas literalmente
+    (`benchmarks/vs_originals/force_parallax/`). Tempo (máquina carregada, indicativo): a
+    paralaxe no core do Zeit igual à do FORCE (246 ms com 1 thread numa cena de 2048x2048;
+    449 ms com as conversões do numpy), o buffer de raio 30 em 6x o FORCE.
+- **23f, o coregistro global:** `zeit.coregister(cube, reference, *, window_size=256,
+  window_position=None, max_shift=5, max_iter=5, band=None, ref_band=None, resampling="cubic",
+  nodata="auto", min_reliability=None, n_jobs=-1)`, que devolve `(aligned, shifts)`, no core em
+  `rust/zeit-core/src/coreg.rs` (o Janus liga direto; o `rustfft` 6, MIT ou Apache-2.0, faz as
+  FFTs). Port do `COREG` global do AROSICS 1.14.0 (Scheffler, Hollstein, Hofmann e Bochow 2017,
+  Remote Sensing 9(7):676; Apache-2.0, Daniel Scheffler e o GFZ Potsdam; sem arquivo NOTICE), com o
+  cabeçalho e a linha no `THIRD_PARTY_NOTICES.md`. Por data: a janela de casamento (o centroide da
+  sobreposição, recortada nela, levada à grade pelo piso das bordas), o espectro de potência cruzado
+  deslocado em precisão simples (`F0 conj(F1) / (|F0| |F1| + eps)`, `eps = max|F1| 1e-15`, FFT da
+  maior potência de 2 dentro da janela), o deslocamento inteiro e sua validação (a janela da
+  referência deslocada virtualmente, até `max_iter` vezes), o subpixel pelos máximos laterais do
+  pico, o teste de `max_shift`, a confiabilidade e o SSIM (o do scikit-image com os padrões, nas
+  janelas reescaladas a 0-1) antes e depois. A cena é movida com o kernel de warp do
+  `load_raster(..., like=)` (o port do GDAL, cúbico) para a grade do próprio cubo; o `shifts` é um
+  DataFrame com o deslocamento em pixels e em unidades do mapa, a confiabilidade, os dois SSIM, o
+  sucesso e o motivo, a janela e o tamanho da FFT.
+  - **Por que o AROSICS e não o `coreg-ll.c` do FORCE:** a origem do `coreg-ll.c` (a adaptação do
+    LSReg de Yan e Roy) não tem licença clara, e o arquivo não foi aberto. O AROSICS é Apache-2.0,
+    portanto entra no Zeit GPL-3.0-or-later, e serve também a pares de sensores diferentes.
+  - **Igual ao AROSICS:** contra o AROSICS 1.14.0 num env conda à parte (`arosics-ref`), em 11
+    pares com deslocamento achado (ruído de valores de 200 x 200 a 4096 x 4096, deslocamentos
+    inteiros e fracionários, uint16 com margem sem dado, borda diagonal sem dado, tamanhos ímpares,
+    a imagem `camera` do scikit-image), o inteiro, a janela, o tamanho da FFT, a confiabilidade e o
+    SSIM são iguais e o deslocamento difere em 2,1e-7 pixel no máximo (ruído da precisão simples
+    de duas bibliotecas de FFT); nos 2 pares sem deslocamento (acima do `max_shift`, constante) os
+    dois falham. Não há cena de satélite no repositório (os GeoTIFFs dos exemplos têm 25 x 25).
+    A estimativa leva 10 ms contra 29-94 ms do AROSICS (35 contra 174 ms em 4096 x 4096).
+  - **Onde fugiu do plano:** (1) as duas imagens precisam estar na mesma grade (o mesmo CRS
+    projetado, o mesmo tamanho de célula, origens a um número inteiro de células); o AROSICS
+    reamostra a janela da outra imagem quando não estão, e o Zeit pede `load_raster(..., like=)`
+    antes, com um erro que diz isso. (2) A sobreposição é a dos pixels válidos (nem NaN nem
+    NoData), não a dos polígonos de pegada; o AROSICS preenche os buracos da pegada e o Zeit não,
+    então uma nuvem mascarada como NaN é evitada pela janela, ou a data falha. O ramo do AROSICS
+    que encolhe a janela a partir de uma caixa de uma unidade só roda por ruído de arredondamento
+    e ficou de fora; o ponto representativo do shapely virou o pixel válido mais próximo do
+    centroide. (3) O AROSICS (`align_grids=False`) só move a origem do geotransform; o Zeit
+    reamostra para a grade do cubo, que é o que uma série pede. (4) Uma data que falha nas
+    checagens do AROSICS (sem dado em comum, sem casamento, acima do `max_shift`, sobreposição de
+    16 x 16 ou menos) fica como estava, com `success=False` e o motivo, em vez de um erro; o
+    AROSICS aplica qualquer deslocamento que passe nelas, e o `min_reliability` é a opção do Zeit
+    para recusar os fracos. (5) Um quirk do AROSICS foi mantido de propósito: no laço de novas
+    tentativas, um deslocamento achado por uma nova tentativa fica com parte inteira `(0, 0)`.
+  - **O que não tem:** a reamostragem da janela em grades diferentes e máscaras de dado ruim por
+    entrada (o `COREG_LOCAL` veio na parte seguinte, abaixo).
+- **23f, o coregistro local:** `zeit.coregister_local(cube, reference, *, grid_res=200,
+  window_size=(256, 256), max_shift=5, max_iter=5, min_reliability=60, tie_point_filter_level=3,
+  rs_max_outlier=10, rs_tolerance=2.5, rs_random_state=0, warp="auto", order=None, min_points=5,
+  band=None, ref_band=None, resampling="cubic", nodata="auto", arosics_compat=False, n_jobs=-1)`,
+  que devolve `(aligned, tie_points)`: a cena no próprio grid, com cada data deformada, e uma tabela
+  com todos os pontos de todas as datas. No core em `rust/zeit-core/src/coreg_local.rs` (o laço dos
+  pontos e os filtros) sobre o `coreg.rs` (o casamento de cada ponto, com a `Overlap` e o
+  planejador de FFT compartilhados; a `coregister_with`), com a ligação em `zeit-py/src/coreg.rs`.
+  Port do `COREG_LOCAL` do AROSICS 1.14.0 (`CoReg_local.py`, `Tie_Point_Grid.py`; Apache-2.0, a
+  linha do `THIRD_PARTY_NOTICES.md` estendida): a grade `np.arange(0, tamanho + grid_res,
+  grid_res)` nos cantos dos pixels do alvo, o ponto mantido onde cai em dado das duas imagens, o
+  `COREG` de cada um com a janela centrada nele, as saídas por ponto (`ABS_SHIFT`, `ANGLE`,
+  `SSIM_IMPROVED`, a confiabilidade, o SSIM antes e depois, o tamanho da janela) e os filtros na
+  ordem do `Tie_Point_Refiner` (confiabilidade, SSIM e RANSAC, com a busca do limiar do AROSICS em
+  unidades do mapa, até `rs_max_iter` = 15). Os pontos usados viram GCPs (a posição do pixel do
+  alvo, o ponto mais o deslocamento em unidades do mapa) e a data é deformada pelo GDAL (o
+  `reproject` do rasterio): `tps`, o que o AROSICS sempre usa (`gdal.Warp(tps=True)`), ou
+  polinomial de ordem 1 a 3 (ou a escolha do GDAL). Os pontos e as datas rodam em threads do core
+  (um pool do rayon do helper `parallel`; as datas em threads do Python que dividem o mesmo pool).
+  - **Igual ao AROSICS:** contra o `COREG_LOCAL` 1.14.0 do `arosics-ref`, em 7 pares (6 sintéticos
+    de 777 x 1001 a 2048 x 2048, com um campo suave de até 3 pixels, manchas de textura trocada,
+    sem feição e deslocada, uint16 com margem sem dado e borda diagonal, tamanho ímpar, grade
+    fina, e a `camera` do scikit-image deformada por um campo), com 19 a 165 pontos cada, os mesmos
+    pontos são colocados e casam, as janelas são iguais, os deslocamentos diferem em 2e-6 pixel no
+    máximo (2e-3 em um ponto da imagem natural, de 8 bits), a confiabilidade em 8e-5 e o SSIM em
+    2e-5 (3e-4 em 8 bits), as flags dos três filtros são idênticas com `arosics_compat=True` e a
+    imagem deformada, dos mesmos GCPs, difere em 1e-3 no máximo (1 em uint16; até 6 em 0,01% das
+    células de 8 bits). O RANSAC é o `ransac` do scikit-image com o `default_rng` do numpy
+    reproduzidos no core (PCG64, `SeedSequence`, `Generator.choice(n, 6, replace=False)`, conferidos
+    com a saída do numpy), então as amostras e o número de inliers em cada limiar são os do
+    AROSICS. Tempo (máquina carregada por outra sessão, indicativo): os pontos 4,5 a 12 vezes mais
+    rápidos em 1 thread contra `CPUs=1` e 11 a 26 vezes em 4 contra `CPUs=4`.
+  - **Um bug do AROSICS 1.14.0, achado na comparação:** quando os filtros de confiabilidade ou de
+    SSIM já marcaram pontos, o `_RANSAC_outlier_detection` atribui as flags do RANSAC (uma por
+    ponto que ele recebeu, de 0) com `inGDF['outliers'] = outliers` a uma tabela indexada pela
+    posição na tabela toda, e o pandas alinha por rótulo: a flag k cai na linha de rótulo k e não
+    no k-ésimo ponto restante, então bons pontos são descartados e outliers ficam (7 a 26 pontos
+    diferentes em 4 dos 7 pares). O padrão do Zeit marca os pontos que o RANSAC achou;
+    `arosics_compat=True` reproduz a atribuição do AROSICS, só para comparar.
+  - **Onde fugiu do plano:** (1) A API: a `window_size` é int ou um par de valores iguais (a janela
+    é quadrada), `min_points` e `rs_random_state` entram, e a `warp="auto"` é `"tps"`, porque o
+    AROSICS não escolhe entre polinomial e TPS (usa sempre a TPS; a polinomial é uma opção do
+    Zeit). (2) Uma data com menos de 5 pontos de controle (`min_points_local_corr`) fica como
+    estava e sinalizada, como pedido; o AROSICS corrige então globalmente com a média dos pontos.
+    (3) Mais de 7000 pontos de controle: 7000 igualmente espaçados (o AROSICS sorteia 7000, por
+    um limite do GDAL). (4) O `rs_timeout` (20 s de relógio) não é mantido; com 5 ou 6 pontos para
+    o RANSAC, onde o AROSICS dá erro ou resultado vazio, nenhum ponto é marcado. (5) A
+    sobreposição continua sendo a dos pixels válidos, e agora a janela que toca uma borda diagonal
+    ou um buraco cresce a partir do ponto, um pixel de cada lado (o ramo do AROSICS de uma caixa de
+    uma unidade, que eu tinha dito rodar só por ruído e deixado de fora na parte global: roda
+    porque a caixa do `boxObj` é o retângulo das coordenadas do polígono recortado). Sem ele um
+    ponto do par com borda diagonal falhava onde o AROSICS casa, com uma janela de 162 x 164; com
+    ele a janela é igual, e o ramo vale também para a parte global. (6) O SSIM depois do
+    deslocamento, nas janelas que tocam a borda da imagem, usa os valores crus nas células sem dado
+    (os arrays mascarados do numpy mantêm o valor bruto na normalização, e o filtro do scikit-image
+    os lê); e o pixel de origem inválido deixa a célula sem dado, como o kernel do GDAL. Os dois
+    ajustes, achados pelos pares com borda, não mudam nenhum dos 13 pares da parte global. (7) O
+    aviso de mais de 70% de pontos marcados e a `max_points` não foram portados.
+  - **O que não tem:** a opção `max_points` (sorteio de um subconjunto dos pontos), a correção
+    global pela média dos pontos quando são poucos, e a ferramenta no Janus.
+- **23g, primeira parte (transferência radiativa):** as peças puras da correção atmosférica do
+  FORCE 3.11.00 (David Frantz, GPL-3.0-or-later), portadas para o core em
+  `rust/zeit-core/src/radtran.rs` (os dados em `radtran_tables.rs`, gerado por
+  `tools/gen_radtran_tables.py` a partir do `table-ll.c`; o `zeit.atmospheric_correction` e a API
+  pública vêm nas partes seguintes, aqui só a ligação mínima `zeit._core.radtran.radtran_eval`, para
+  a comparação). Portado: todo o `radtran-ll.c` (`molecular_optical_depth`, `aod_elev_factor`,
+  `mod_elev_factor`, `mod_elev_scale`, `aod_elev_scale`, `optical_depth`, `scatt_transmitt`,
+  `path_ref`, `sphere_albedo`, `env_weight_aerosol`, `env_weight_molecular`, `env_weight`,
+  `backscatter`, `phase_molecular`, `phase_aerosol`, `wvp_transmitt`, `ozone_transmitt`,
+  `gas_transmitt`, `fresnel_reflection`, `illumin`, `c_factor_emp`, `c_factor_com`, `f_factor`),
+  `wavelength` e `E0` do `table-ll.c` com as tabelas que elas leem (E0 de Thuillier, absorção do
+  vapor d'água e do ozônio, comprimentos de onda e a resposta espectral relativa das 56 bandas:
+  Landsat 4, 5, 7 e 8, mais Sentinel-2A e 2B; o FORCE aponta o Landsat 9 para as linhas do 8 e o
+  Sentinel-2C/2D para as do 2A; as bibliotecas de espectros de aerossol do `table-ll.c` não entram,
+  nenhuma das peças as lê), `ozone_amount` do `gas-ll.c`, `localtime2gmt` e `standard_sunzenith` do
+  `sunview-ll.c`, e do `cross-level/` a parte de dia do ano do `date-cl.c`. O `sun-cl.c` não é
+  portado: a posição do sol (`sunpos`) é `solpos.rs`, em sala limpa, de Meeus e da documentação da
+  NOAA. O `brdf-ll.c` fica fora (código do Ambrals, de licença a
+  verificar), e a parte do `gas-ll.c` e do `sunview-ll.c` que mexe com bricks e metadados vem com a
+  API.
+  - **Igual ao C em todos os valores, bit a bit:** 7.077.563 valores de 27 funções numa grade
+    grande de ângulos, AOD, profundidade óptica molecular, altitude, vapor, ozônio, as 56 bandas,
+    dia do ano, latitude e longitude: 7.077.563 iguais bit a bit, 0 com 1 ulp de diferença, 0 com
+    mais. Ficam de fora o `sunpos` e o zênite do `standard_sunzenith`, que não são do FORCE: contra
+    ele, em graus, o zênite difere 0,012 em média e 0,09 no máximo (de dia, 0,012 e 0,068), e o
+    azimute de dia 0,066 em média. A diferença é do FORCE: o dia juliano dele é `float`, em passos de
+    um quarto de dia, e a declinação erra até 0,05 grau perto dos equinócios (dente de serra de 6 h;
+    nas horas múltiplas de 6 os zênites batem em 1e-4 grau, e a diferença com sinal tem média zero
+    em toda faixa de zênite). Além de ~82 graus de latitude o `standard_sunzenith` vira `INT_MIN`
+    horas e os dois lados calculam um sol sem sentido. O
+    harness em C (`benchmarks/vs_originals/force_radtran/`) compila o `radtran-ll.c`, o `table-ll.c`,
+    o `sun-cl.c` e o `date-cl.c` do FORCE como estão, com as flags do Makefile do FORCE (`gcc -O3`,
+    sem `-ffast-math`), e copia literalmente as três funções do `gas-ll.c` e do `sunview-ll.c` que
+    não compilam sozinhas (glibc 2.39; o Zeit rodou no Windows, com a UCRT); o script é
+    `benchmarks/vs_originals/force_radtran.py`.
+  - **A aritmética do C:** `float` é `f32` e cada variável `float` do C é arredondada onde é
+    atribuída; onde o C promove para `double` (`sin`, `exp`, `pow`, literais) o cálculo é em `f64`.
+    As armadilhas estão no código: produtos de dois `float` ficam em `float` (por exemplo
+    `RSR*WVL` e `RSR*E0` do `wavelength` e do `E0`, `D*(DOY+F)` do `ozone_amount`, os `te*te*te` da
+    refração do `sunpos`); a primeira versão do `wavelength` os fazia em `double` e errava 1 ulp em
+    5 bandas, o harness achou.
+  - **O `sun-cl.c` foi refeito em sala limpa:** o do FORCE foi adotado do calculador solar do NOAA
+    ESRL, de licença não verificada, então não foi portado. `solpos.rs` (`sun_position`) vem de uma
+    especificação escrita só de Meeus (cap. 7, 25, 28) e da documentação publicada da NOAA, sem abrir
+    nenhum código de posição solar; testes: os exemplos 25.a e 28.a do Meeus, os dias julianos do
+    cap. 7, propriedades (equinócio, solstício, polos, simetria, deslocamentos de dia). A linha do
+    `THIRD_PARTY_NOTICES.md` diz o mesmo.
+  - **O que fica diferente de propósito:** os valores da resposta espectral estão guardados só no
+    trecho não nulo de cada banda (as somas do C sobre os 1991 comprimentos de onda somam zeros fora
+    dele; só um `0*inf` mudaria algo, e o `exp` não dá `inf` com vapor e ozônio não negativos).
+    `Date` leva só os campos que o `sunpos` lê (ano, mês, dia, dia do ano, hora, minuto, segundo,
+    fuso), com o ano de 365 dias do FORCE.
 - **Janus:** o `zeit-core` foi para o `7c01978` sem mudar nada do que o Janus já chamava. As
   ferramentas pedem duas coisas novas no Janus:
   - saídas cujas bandas a ferramenta decide (a grade nova, os anos, as janelas);
@@ -2638,9 +2847,19 @@ validação.
   (`resolution_merge_1` e `_2` do `resmerge-ll.c`; o STARFM fica de fora). Igual ao FORCE em todos
   os valores com `force=True`, por um harness em C com as funções do FORCE, já que o merge só
   roda dentro do `force-l2ps`. Falta uma ferramenta no Janus, se couber na janela de ARD.
-- **Zeit:** 23e: a correção topográfica está feita (`zeit.topographic_correction`, C e SCS+C;
-  o C-factor do FORCE espera a 23g); faltam a paralaxe e o buffer de nuvem. 23f (coregistro) e
-  23g (correção atmosférica), como nas Etapas acima.
+- ~~**Zeit:** 23e: a correção topográfica, a paralaxe e o buffer de nuvem~~: feito,
+  `zeit.topographic_correction` (C e SCS+C; o C-factor do FORCE espera a 23g),
+  `zeit.parallax_clouds`, `zeit.cloud_displacement_index` e `zeit.buffer_mask` (o passo da
+  paralaxe do Frantz e o buffer, iguais ao FORCE em todos os valores; as entradas do Fmask são
+  entradas). Faltam ferramentas no Janus para elas.
+- ~~**Zeit:** 23f: o coregistro~~: feito, `zeit.coregister` (o `COREG` do AROSICS, igual a ele
+  no inteiro, na janela, na confiabilidade e no SSIM e a 2e-7 pixel no subpixel) e
+  `zeit.coregister_local` (o `COREG_LOCAL`: a grade de pontos, a filtragem por confiabilidade, SSIM e
+  RANSAC, com o RANSAC do scikit-image e o `default_rng` do numpy reproduzidos, e a deformação por
+  GCPs do GDAL; igual ao AROSICS nos pontos, nas janelas e nas flags com `arosics_compat=True`, que
+  reproduz um bug do AROSICS 1.14.0 na atribuição das flags do RANSAC). Falta a ferramenta no
+  Janus, com os vetores de deslocamento como camada.
+- **Zeit:** 23g (correção atmosférica), como nas Etapas acima.
 - **Self-test do Janus:** a Fenologia polar é pulada nos dados de teste, que são irregulares.
   Um dado regular no `tools/make_selftest_data.py` a cobriria.
 - A temporada final cortada do `polar_metrics` (hoje medida; poderia ser NaN): decisão do

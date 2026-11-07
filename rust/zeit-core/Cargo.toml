@@ -10,6 +10,8 @@ publish = false
 # dense linear algebra of remotePARTS's GLS (gls.rs): Cholesky, tridiagonalization
 faer = { version = "0.24", default-features = false, features = ["std", "rayon", "linalg"] }
 rayon = "1"
+# the FFTs of the phase correlation of coreg.rs (AROSICS uses scipy's pocketfft, single precision)
+rustfft = "6"
 
 [dev-dependencies]
 # tests/remoteparts.rs reads the R references

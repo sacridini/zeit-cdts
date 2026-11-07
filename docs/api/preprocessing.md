@@ -390,6 +390,120 @@ fast = zeit.sentinel2_resmerge(s2, method="improphe", clear=cloud_free)
 
 **Agreement with FORCE.** `force=True` equals the code of FORCE 3.11.00 in every value, for both methods, on a synthetic 500 x 500 scene with no-data pixels, clouds, shadows, constant spectra (a rank deficient fit) and zeros (6 bands x 245,534 pixels per method): the C harness is FORCE's own functions on plain arrays, linked to the real GSL 2.7 and its reference CBLAS, run on one thread (see [Against the Original Implementations](../benchmarks/vs-originals.md#the-resolution-merge-vs-force)). FORCE has no module that runs this on an ARD tile; it runs only inside `force-l2ps`.
 
+## Co-registration
+
+### `coregister` { .api }
+
+<!-- sig: zeit.coregister -->
+```python
+zeit.coregister(
+    cube, reference, *, window_size=256, window_position=None, max_shift=5, max_iter=5,
+    band=None, ref_band=None, resampling="cubic", nodata="auto", min_reliability=None, n_jobs=-1,
+)
+```
+
+Moves each date of a cube to fit a reference image: the global co-registration of **AROSICS** (Scheffler et al. 2017, *Remote Sensing* 9(7):676; `COREG` of AROSICS 1.14.0, Apache-2.0, Daniel Scheffler, GFZ Potsdam), ported to the compiled core (`rust/zeit-core/src/coreg.rs`, which Janus links directly). For each date, one band is matched to the reference's by the **phase correlation** of a window at the centre of what the two images have in common: the cross power spectrum `F0 conj(F1) / (|F0| |F1|)` of the two windows (single-precision FFTs of the largest power of 2 inside the window), whose peak is their shift in whole pixels and whose side maxima give the part of a pixel. The integer shift is checked by moving the reference's window by it and correlating again (up to `max_iter` times); a shift above `max_shift` pixels, or with no clear match, is a failure. Every band of the date is then moved by the shift with the warp kernel of `load_raster(..., like=)` (GDAL's resampling, `resampling="cubic"` by default) onto the cube's own grid; a shift of a whole number of pixels is a plain copy of the cells.
+
+The cube and the reference must be on the same pixel grid (the same projected CRS, the same cell size, the cells a whole number apart; their extents may differ and only what they share is matched). Where AROSICS resamples the window of the other image when the grids differ, `coregister` asks for the reference to be put on the cube's grid first (`zeit.load_raster(..., like=cube)`), and says so in the error.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `cube` | `DataArray` | required | `(time, band, y, x)`, `(band, y, x)`, `(time, y, x)` or `(y, x)` in a projected CRS. A lazy cube is read a date at a time and the result is lazy. |
+| `reference` | `DataArray` | required | `(band, y, x)` or `(y, x)` in the same CRS, on the same pixel grid. |
+| `window_size` | `int` | `256` | The matching window's side in pixels (AROSICS' `ws`). It is cut down to the overlap, and the FFT takes the largest power of 2 inside it. |
+| `window_position` | `(x, y)` | `None` | The window's centre in map coordinates (AROSICS' `wp`); by default the centroid of the overlap of the valid data. |
+| `max_shift` | `float` | `5` | The largest shift accepted, in pixels. |
+| `max_iter` | `int` | `5` | Tries to validate the integer shift. |
+| `band`, `ref_band` | label or position | `None` | The band of the cube and of the reference to match (the first by default). |
+| `resampling` | `str` | `"cubic"` | The resampling that moves the images (those of `load_raster`: `"cubic"`, `"bilinear"`, `"nearest"`, `"lanczos"`...). |
+| `nodata` | `"auto"`, number, `None` or `(reference, cube)` | `"auto"` | Missing values besides NaN: each image's raster NoData, a number for both, `None`, or a pair. |
+| `min_reliability` | `float` | `None` | Treats a shift whose reliability (AROSICS', 0-100) is below this as not found. `None` takes every shift AROSICS' checks accept, as its `COREG` does. |
+| `n_jobs` | `int` | `-1` | Dates run at once (the processors zeit may use by default); each date's correlation is one thread. |
+
+</div>
+
+**Returns** `(aligned, shifts)`. `aligned` is the cube on its own grid with each date moved by its shift; the dates that failed are as they were. `shifts` is a `pandas.DataFrame`, one row per date (index `time`; one row for a cube without dates), with `x_shift_px` and `y_shift_px` (pixels: the amount the date was moved, `x` to the right and `y` down, AROSICS' convention), `x_shift_map` and `y_shift_map` (map units; `y` is negative for a shift down on a north-up grid), `reliability` (0-100), `ssim_before` and `ssim_after` (structural similarity of the window to the reference's before and after the shift), `success`, `reason` (why it failed), the matching window `window_x0, window_y0, window_x1, window_y1` (cells of the cube, `[x0, x1)`), `fft_size` (the side of the FFT window of the spectrum the shift is read from: after an integer shift the reference's window is moved by it and shrinks, so it is smaller than the matching window's largest power of 2) and `applied`.
+
+```python
+aligned, shifts = zeit.coregister(cube, reference, band="nir", ref_band="nir")
+shifts[["x_shift_px", "y_shift_px", "reliability", "ssim_before", "ssim_after", "success"]]
+good = aligned.sel(time=shifts.index[shifts.success])
+```
+
+**A date that fails stays as it was.** No valid data in common, an overlap of 16 x 16 pixels or less, a window that cannot be placed on valid data, no integer shift that survives the check in `max_iter` tries, or a shift above `max_shift` (AROSICS raises these as errors; here they are `success=False` with the `reason`). A featureless date (constant) fails that way. AROSICS itself applies any shift that passes those checks, however low its reliability or similarity (its local variant filters tie points by them); `min_reliability` is Zeit's option to refuse the weak ones, and `ssim_before` and `ssim_after` are there to check that the window agrees better afterwards.
+
+**Where it differs from AROSICS.** The numbers are AROSICS' (see below); the plumbing is not:
+
+- The overlap is that of the two images' *valid pixels* (not NaN, not NoData), and the window is placed on it as AROSICS places it on the intersection of the footprint polygons: the centroid, clipped to the overlap, moved to the grid by the floor of its edges, and cut down by one pixel a side when AROSICS' other window does not fit, as it does in an image smaller than the window. AROSICS fills the holes of a footprint, so a cloud masked as NaN is inside its window; here the window is grown from its centre until it meets the hole (as AROSICS grows it where its footprint polygon has an edge), or fails when nothing of 16 x 16 pixels is left.
+- The aligned images are resampled onto the cube's grid; AROSICS with `align_grids=False` only moves the origin of the geotransform. Zeit's grid stays the cube's, which is what a time series needs.
+- The window's values are float32 (AROSICS reads the file's type and converts to single precision for the FFT; the similarity of an integer image rounds and clamps the shifted window to the type as GDAL does).
+- In AROSICS' retry loop, a shift found by a retry gets `(0, 0)` as its integer part (a quirk of `calculate_spatial_shifts`); it is kept, since the shifts are meant to be AROSICS'.
+- This is the global variant; the local one, with a grid of tie points and a warp fitted to them, is [`coregister_local`](#coregister_local).
+
+**Agreement with AROSICS 1.14.0.** On 13 pairs (12 synthetic and a natural image; the two where neither finds a shift fail alike), the shifts differ from AROSICS' by 2e-7 pixels at most (the single-precision noise of two FFT libraries); the integer part, the window, the FFT size and the reliability are equal; the similarity too on the synthetic pairs; and the two aligned images differ by one unit of float32 (see [Against the Original Implementations](../benchmarks/vs-originals.md#the-coregistration-vs-arosics)).
+
+### `coregister_local` { .api }
+
+<!-- sig: zeit.coregister_local -->
+```python
+zeit.coregister_local(
+    cube, reference, *, grid_res=200, window_size=(256, 256), max_shift=5, max_iter=5,
+    min_reliability=60, tie_point_filter_level=3, rs_max_outlier=10, rs_tolerance=2.5,
+    rs_random_state=0, warp="auto", order=None, min_points=5, band=None, ref_band=None,
+    resampling="cubic", nodata="auto", arosics_compat=False, n_jobs=-1,
+)
+```
+
+Warps each date of a cube to fit a reference image by shifts that vary across the scene: the local co-registration of **AROSICS** (`COREG_LOCAL` of AROSICS 1.14.0, Apache-2.0, Daniel Scheffler, GFZ Potsdam; Scheffler et al. 2017, *Remote Sensing* 9(7):676), ported to the compiled core (`rust/zeit-core/src/coreg_local.rs`, with the matching of [`coregister`](#coregister) for each point). A grid of tie points is laid over the image, every `grid_res` pixels from the corner (AROSICS' own grid: `0, grid_res, 2 * grid_res, ...` up to one step past the image); each point on data of both images is matched with a window of `window_size` pixels centred on it, which gives the shift there, its reliability and the structural similarity of the window before and after. The points are then filtered in AROSICS' order: **level 1**, a reliability below `min_reliability`; **level 2**, a window that is less similar to the reference's after the shift; **level 3**, **RANSAC**: scikit-image's `ransac` of an affine model of the shifts, with 6 samples, up to 2000 trials and a residual threshold that AROSICS searches (in map units) until the outliers are `rs_max_outlier` percent plus or minus `rs_tolerance`. The points that remain are control points: each date is warped onto the cube's grid by GDAL (through rasterio) from them, with a **thin plate spline**, which AROSICS always uses (`warp="tps"`, what `"auto"` is), or a polynomial (`warp="polynomial"`, GDAL's choice of order from the number of points or an `order` of 1 to 3). It corrects what a single shift cannot: a misregistration that grows across the scene, a bad orthorectification, a viewing-geometry effect.
+
+As in [`coregister`](#coregister), the cube and the reference must be on the same pixel grid and the overlap is that of the valid pixels (NaN, NoData); the points are on the cube's own pixel corners.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `cube` | `DataArray` | required | `(time, band, y, x)`, `(band, y, x)`, `(time, y, x)` or `(y, x)` in a projected CRS. A lazy cube is read a date at a time; the result is in memory. |
+| `reference` | `DataArray` | required | `(band, y, x)` or `(y, x)` in the same CRS, on the same pixel grid. |
+| `grid_res` | `float` | `200` | The spacing of the tie points in pixels (AROSICS' `grid_res`). |
+| `window_size` | `int` or `(x, y)` | `(256, 256)` | The matching window's side in pixels; a pair must be of equal values (the window is square). |
+| `max_shift`, `max_iter` | `float`, `int` | `5`, `5` | As in `coregister`, for each point. |
+| `min_reliability` | `float` | `60` | Tie points below this reliability (0-100) are flagged (level 1). |
+| `tie_point_filter_level` | `int` | `3` | AROSICS' `tieP_filter_level`: 0 none, 1 reliability, 2 plus the similarity, 3 plus RANSAC. |
+| `rs_max_outlier`, `rs_tolerance` | `float` | `10`, `2.5` | RANSAC's expected outliers and the tolerance of that, in percent. |
+| `rs_random_state` | `int` or `None` | `0` | RANSAC's seed (AROSICS' `rs_random_state`); `None` takes one from the clock. With the same seed the flags are AROSICS'. |
+| `warp` | `str` | `"auto"` | `"tps"` (GDAL's thin plate spline), `"polynomial"`, or `"auto"` (`"tps"`, as AROSICS). |
+| `order` | `int` | `None` | The polynomial's order, 1 to 3 (`warp="polynomial"`); `None` lets GDAL choose from the number of points. |
+| `min_points` | `int` | `5` | A date with fewer control points (AROSICS' `min_points_local_corr`) is left as it was and flagged. |
+| `band`, `ref_band` | label or position | `None` | The band of the cube and of the reference to match (the first by default); every band of a date is warped with the same points. |
+| `resampling` | `str` | `"cubic"` | The resampling of the warp (`"cubic"`, `"bilinear"`, `"nearest"`, `"lanczos"`...). |
+| `nodata` | `"auto"`, number, `None` or `(reference, cube)` | `"auto"` | Missing values besides NaN: each image's raster NoData, a number for both, `None`, or a pair. |
+| `arosics_compat` | `bool` | `False` | Reproduces a bug of AROSICS 1.14.0 in the RANSAC flags (below), to compare with it. |
+| `n_jobs` | `int` | `-1` | Threads (the processors zeit may use by default): the points of each date, and the dates, run on them. |
+
+</div>
+
+**Returns** `(aligned, tie_points)`. `aligned` is the cube on its own grid with each date warped (the dates with fewer than `min_points` control points as they were). `tie_points` is a `pandas.DataFrame` with a row for every tie point of every date: `time`, `point_id` (the position in the whole grid, AROSICS' `POINT_ID`), `col` and `row` (the corner of the cube's pixels), `x` and `y` (map), `x_shift_px` and `y_shift_px`, `x_shift_map` and `y_shift_map` (the amount the date has to be moved there, `x` to the right and `y` down, as in `coregister`; NaN where the match failed), `abs_shift` (map units) and `angle` (degrees from north), `reliability`, `ssim_before`, `ssim_after` and `ssim_improved`, `success` and `reason`, `win_size_x` and `win_size_y`, `fft_size`, the flags of the filters `outlier_reliability`, `outlier_ssim` and `outlier_ransac` and their union `outlier`, `used` (the point is a control point) and `date_applied`. `tie_points.attrs["dates"]` is a table with one row per date: the points placed, matched and used, whether the date was warped, and why not.
+
+```python
+aligned, points = zeit.coregister_local(cube, reference, grid_res=100, window_size=128, band="nir", ref_band="nir")
+points[points.used][["time", "x", "y", "x_shift_map", "y_shift_map"]]
+points.attrs["dates"]
+```
+
+**A point or a date that fails is flagged, not raised.** A point whose window cannot be placed on data, with no clear match or a shift above `max_shift` has `success=False` and a `reason`; a date with too few control points is returned as it was (`date_applied=False`; AROSICS in that case corrects with the mean shift of the points, Zeit leaves the date alone, since a global shift is [`coregister`](#coregister)'s job). A date with more than 7000 control points is warped from 7000 evenly spaced ones (AROSICS draws them at random: a limit of GDAL's spline).
+
+**Where it differs from AROSICS.**
+
+- As in `coregister`, the overlap is the valid pixels, not the footprint polygons. A window that touches a diagonal edge or a hole is grown from the point until it meets the no-data pixels, as AROSICS grows it inside its polygon; the same windows on the benchmark's pairs, which have a diagonal edge.
+- **RANSAC's flags are put on their points; AROSICS 1.14.0 puts them on others.** When the reliability or similarity filter has flagged points, AROSICS gives the flags of RANSAC (one for each point RANSAC got) to the table's rows by their labels instead of their positions (`inGDF['outliers'] = outliers` in `_RANSAC_outlier_detection`), so the flags land on the wrong points: real outliers stay and as many good points are dropped. Zeit's default flags the points RANSAC found. `arosics_compat=True` reproduces AROSICS' assignment, which is how the comparison below is exact.
+- RANSAC is scikit-image's, with numpy's random generator (PCG64 seeded by a `SeedSequence`, `Generator.choice` without replacement) reproduced in the core, so the samples, the inliers at every threshold and the flags are AROSICS'. The time limit of the threshold search (`rs_timeout`, 20 s of clock) is not kept; with 5 or 6 points left for RANSAC (where AROSICS raises or returns nothing) none is flagged.
+- The warp is GDAL's, as AROSICS' (rasterio's `reproject` with the control points, `SRC_METHOD=GCP_TPS`), onto the cube's own grid.
+- Points run on threads of the core where AROSICS starts a process for each.
+
+**Agreement with AROSICS 1.14.0.** On 7 pairs (6 synthetic and the `camera` image warped by a field; 19 to 165 points each), the points of the grid that are placed are the same, and so are the successes; the shifts differ from AROSICS' by 2e-6 pixels at most (2e-3 at one point of the natural image), the windows are equal, the reliability agrees to 8e-5 and the similarity before to 4e-8 and after to 2e-5 (3e-4 in the 8-bit image); the flags of the three filters are identical with `arosics_compat=True`; and the warped image, from the same control points, differs by 0.001 at most in float32 (by 1 in uint16), the 8-bit image by up to 6 in 0.01% of the cells (see [Against the Original Implementations](../benchmarks/vs-originals.md#the-local-coregistration-vs-arosics)).
+
 ## Cloud masking
 
 ### `tmask` { .api }
@@ -425,6 +539,88 @@ clear = zeit.tmask(cube, green="green", swir="swir1")
 cube = cube.where(clear)                         # clouds and shadows become NaN
 qa = xr.where(clear, 0, 4)                       # or as CCDC's Fmask codes (0 clear, 4 cloud)
 ```
+
+### `parallax_clouds` { .api }
+
+<!-- sig: zeit.parallax_clouds -->
+```python
+zeit.parallax_clouds(
+    cube, potential, *, variability=None, saturated=None, bright=None,
+    bands=None, scale="auto", nodata="auto", return_cdi=False, n_jobs=-1,
+)
+```
+
+Sentinel-2 clouds from the potential cloud pixels by the parallax test: FORCE's `cloud_parallax` (`cloud-ll.c`, FORCE 3.11, David Frantz, GPL-3.0-or-later; the method is Frantz, Haß, Uhl, Stoffels and Hill 2018, *Remote Sensing of Environment* 215:471-481). The detectors of the 10 m bands look at the ground one after the other, so a high object is seen at slightly different places in B07, B8A and B08, while a surface object (snow, a roof, bare soil) is at the same place in all of them. The ratio of red edge 3 to NIR (B07 / B8A) varies little at a cloud and the ratio of the broad NIR, smoothed by a 5 x 5 Gaussian kernel of sigma 0.5, to NIR (B08 / B8A) a lot; the Cloud Displacement Index is `(var_x - var_y) / (var_x + var_y)` of the two over 7 x 7 blocks of the 20 m grid (each block is 2 x 2 pixels of the 10 m one) and is close to -1 at a cloud. Blocks with a CDI of -0.5 or less, or below 0 where the minimum of the variability probability over the 15 x 15 blocks around is above 0.8, are cloud seeds if every block of their 3 x 3 neighbourhood qualifies (an erosion by one block); the clouds grow into the 8-connected blocks with a CDI in [-1, -0.25); each block goes back to four 10 m pixels; saturated pixels are added and every cloud pixel that is not bright is removed.
+
+This is Frantz's own step. The rest of FORCE's cloud detection is derived from Zhu's Fmask and is not ported (Fmask's current repository, github.com/GERSL/Fmask, is MIT-licensed as of 2026-11-07, and none of its parts is used here): what `cloud_parallax` takes from it are inputs of this function, the potential cloud pixels (`potential`), the variability probability (`variability`), the bright pixels (`bright`) and the saturated ones (`saturated`). FORCE's clear-sky and clear-sky-land pixels and their counts, and the cloud cover, are passed to `cloud_parallax` but never read, and are not inputs.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `cube` | `DataArray` | required | Reflectance `(time, band, y, x)` or `(band, y, x)` on the 10 m grid (20 m bands as four equal pixels, as for `sentinel2_resmerge`) with `rededge3` (B07), `nir` (B08) and `nir08` (B8A), or `B07 B08 B8A`; and `blue green red` unless `bright` is given, and `swir16` (B11) too for the computed variability. In memory. |
+| `potential` | boolean array | required | Broadcastable to `(time, y, x)`: the potential cloud pixels (Fmask's, or from any cloud product). |
+| `variability` | float array | `None` | Broadcastable to `(time, y, x)`: Fmask's variability probability in [0, 1] (FORCE keeps it times 10000 as an int16, and so does Zeit: it is rounded to that). By default `1 - max(abs(NDVI), abs(NDSI), whiteness)` of Zhu and Woodcock (2012, *Remote Sensing of Environment* 118:83-94), clipped to [0, 1]: `NDVI = (B8A - red) / (B8A + red)`, `NDSI = (green - SWIR1) / (green + SWIR1)`, the whiteness the sum over blue, green and red of the distance to their mean relative to the mean; a zero denominator gives an index of 0. Where `saturated`, a positive NDVI and a negative NDSI are set to 0, the paper's adjustment for pixels whose visible bands saturate (the paper gave it for Landsat 7; Sentinel-2's saturation is rare and flagged in its quality bands, which is where `saturated` comes from). |
+| `saturated` | boolean array | `None` | Broadcastable to `(time, y, x)`: saturated pixels, which are cloud if bright. By default none. |
+| `bright` | boolean array | `None` | Broadcastable to `(time, y, x)`. By default the mean of blue, green and red is above 0.15 (FORCE's 1500). |
+| `bands` | `dict` | `None` | The cube's band of each role (`rededge3 nir nir08 blue green red swir16`), when its names are not the usual ones. |
+| `scale` | `"auto"` or `float` | `"auto"` | What the reflectance is multiplied by in the data (10000 for integers or values above 2, else 1). The values are taken to FORCE's units (times 10000, as int16) for the computation. |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | Missing values besides NaN: the raster's NoData (0 for an integer cube without one), a number or `None`. A pixel with a missing value in B07, B08 or B8A is FORCE's "off": never cloud. |
+| `return_cdi` | `bool` | `False` | Also return the CDI. |
+| `n_jobs` | `int` | `-1` | Threads (the processors zeit may use by default). |
+
+</div>
+
+**Returns** a boolean `(time, y, x)` (or `(y, x)`) `DataArray`, True for cloud, with the cube's coordinates; with `return_cdi=True` a tuple of it and the CDI (below).
+
+```python
+pcp = potential_cloud_pixels(s2)        # Fmask's, or the cloud flag of a product
+cloud = zeit.parallax_clouds(s2, pcp, saturated=saturated)
+cloud = zeit.buffer_mask(cloud, 300)    # FORCE's CLOUD_BUFFER
+```
+
+**Where it differs from FORCE.** There is no `force=` switch: the values are FORCE's (`short` units, `float` and `double` where it has them, its order of summation) and its threads do not race, so there is nothing to choose. The one change is for odd sizes. FORCE steps through the image in twos and indexes the 20 m grid by `i / 2`, which writes outside the arrays when a side is odd (Sentinel-2 tiles are even); here the last row or column of an odd image is not part of any block and is never cloud (unless saturated and bright), while the smoothing still reads it. As in FORCE, a block whose first pixel is off is skipped even if the other three have data.
+
+**Agreement with FORCE.** The cloud mask and the CDI (bit for bit) equal those of FORCE's `cloud_parallax` in every pixel and block on synthetic scenes with parallax-displaced clouds, built-up patches, off pixels, saturated and non-bright pixels (a C harness of FORCE's own functions; [Against the Original Implementations](../benchmarks/vs-originals.md#the-parallax-cloud-test-and-the-cloud-buffer-vs-force)).
+
+### `cloud_displacement_index` { .api }
+
+<!-- sig: zeit.cloud_displacement_index -->
+```python
+zeit.cloud_displacement_index(
+    cube, *, potential=None, bands=None, scale="auto", nodata="auto", n_jobs=-1,
+)
+```
+
+The Cloud Displacement Index of `parallax_clouds` on its own, `float32` `(time, y // 2, x // 2)` (or `(y // 2, x // 2)`): on the 20 m half-resolution grid where it is computed (FORCE does not bring it back to 10 m, the clouds are), the coordinates those of the centres of the 2 x 2 blocks. A block has a CDI only if it has a potential cloud pixel and at least three blocks of the 7 x 7 around it have one, since the ratios of the others are left out of the variances; else it is NaN (FORCE's -9999). Near -1 at a cloud, around 0 or above for a bright surface. `potential` (broadcastable to `(time, y, x)`) is every pixel by default, which gives a CDI everywhere; the other parameters are those of `parallax_clouds` (the bands are `rededge3`, `nir` and `nir08`).
+
+### `buffer_mask` { .api }
+
+<!-- sig: zeit.buffer_mask -->
+```python
+zeit.buffer_mask(
+    mask, distance, *, units="m", resolution=None, force=False, n_jobs=-1,
+)
+```
+
+Buffers the True pixels of a boolean mask: FORCE's cloud buffer (`buffer_` of `imagefuns-cl.c`, which its Level 2 processing applies to the cloud, cirrus and shadow masks and the snow layer, `CLOUD_BUFFER = 300` m by default). Every True pixel grows into the disc of the midpoint circle algorithm of integer radius `r`: the axis points at distance `r` are in, and so are `(r, 1)`, a little fatter than the true disc (89 pixels for `r = 5`). With `units="m"`, `r = int(distance / resolution)` as FORCE converts it (truncated; the resolution is the `x` spacing of a DataArray, or `resolution=`); with `units="px"` it is `distance`, a whole number. A radius of 0 changes nothing.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `mask` | boolean `DataArray` or array | required | `(y, x)` or `(time, y, x)`; each date is buffered on its own. |
+| `distance` | `float` | required | The buffer, in `units`. |
+| `units` | `"m"` or `"px"` | `"m"` | |
+| `resolution` | `float` | `None` | The pixel size in metres, for `units="m"` when the mask is not a DataArray with an `x` coordinate. |
+| `force` | `bool` | `False` | FORCE's behaviour at the borders (below). |
+| `n_jobs` | `int` | `-1` | Threads. |
+
+</div>
+
+**Returns** a boolean mask as `mask`.
+
+**Where it differs from FORCE.** FORCE's loop only buffers the pixels at least `r` from the borders and then replaces the mask by what was drawn, so a True pixel within `r` of an edge is lost and a cloud at the edge gets no buffer. `force=True` does that (and equals FORCE in every pixel); the default keeps every True pixel and draws its disc clipped at the edge, the same everywhere else. Zeit does not draw from every True pixel as FORCE does: each output row looks up the nearest source in the rows of the disc's runs, so the time hardly depends on how much is True (FORCE's takes seconds with a large cloud and a radius of 30).
 
 ## Spectral mixture analysis
 

@@ -398,6 +398,31 @@ Every value of the six bands is the same, for both methods (the first comparison
 
 Zeit's regression is 5.9 times as fast as FORCE's on one thread (the SVD is done once per pixel and not six times, in fixed-size arrays) and 7.0 times with four; its ImproPhe is slower than FORCE's C (0.6 times), where the time includes Python's conversions of the cube and the masks, and the kernel itself is small (13 neighbours).
 
+### The parallax cloud test and the cloud buffer vs FORCE
+
+[`parallax_clouds`](../api/preprocessing.md#parallax_clouds), [`cloud_displacement_index`](../api/preprocessing.md#cloud_displacement_index) and [`buffer_mask`](../api/preprocessing.md#buffer_mask) are compared with **FORCE 3.11.00**'s `cloud_parallax` (`cloud-ll.c`; Frantz's own parallax step, the Cloud Displacement Index of Frantz et al. 2018) and `buffer_` (`imagefuns-cl.c`), the code they are ported from (Frantz; GPL-3.0-or-later; `cloud-ll.c` as a whole derives from Zhu's Fmask, whose parts are not ported). `cloud_parallax` runs only inside `force-l2ps`, after the potential cloud pixels and the variability probability that Fmask's part computes, so the comparison is with a C harness (`benchmarks/vs_originals/force_parallax/`, built by `make_harness.sh` in WSL) made of FORCE's own functions copied verbatim (`cloud_parallax`, `gauss_kernel`, `covar_recurrence`, `variance`, the queue, `buffer_`) behind shims that replace the brick and QAI accessors with plain arrays; the one line added to `cloud_parallax` hands the CDI (which the function does not return) to the harness. The scene made by `force_parallax.py` is **512 x 512 pixels of 10 m**, int16 reflectance times 10000: a land surface whose red edge 3 and NIR vary smoothly and independently; four textured clouds seen at the same place in B07 and B8A and 6 pixels aside in B08; three bright built-up patches (all bands at the same place, ratios changing alike); a bright patch with a 1 pixel offset and a variability probability of 0.93 (the second way into the cloud class); a variability field; 53,252 potential cloud pixels; 4,510 off pixels (a stripe, scattered ones, a block, the top rows); 798 saturated pixels; and a bright-pixel mask that excludes 13% of the scene. Zeit gets the same arrays (float32 with NaN at the off pixels, the masks as boolean arrays, the variability as float).
+
+| Comparison | Identical |
+|:---|---:|
+| Cloud mask (42,709 cloud pixels in FORCE), `parallax_clouds` vs `cloud_parallax` | 100% (0 of 262,144 pixels differ) |
+| CDI on the 20 m grid (14,050 blocks with one; 10,541 at or below -0.5; 659 above 0), bit for bit | 100% (0 of 65,536 blocks) |
+| Four more scenes (other seeds; variability times 0.5 and 1.15), the mask and the CDI | 100% |
+| `buffer_mask(force=True)` vs `buffer_`: FORCE's cloud mask at 30 and 15 pixels (300 m at 10 and 20 m), random masks at radii 1, 2, 3, 7, 12 and 30, blocks at the edges | 100% (0 pixels in 9 cases) |
+
+One thread and four threads of Zeit give the same mask (FORCE's threads do not race either). The scene exercises both ways into the cloud class (CDI of -0.5 or less, and CDI below 0 with a high variability), the erosion, both region-growing passes, the off blocks, the saturated and the non-bright gate; the comparison does not isolate each path.
+
+**What `force=False` changes in the buffer.** FORCE's loop skips the pixels within `r` of the image's borders and then replaces the mask by what it drew, so a True pixel near an edge is lost (and its disc with it); `force=True` reproduces that. By default Zeit keeps every pixel and clips the discs at the edge: it differs from FORCE only where a source within `r` of an edge would have drawn (17,943 of 262,144 pixels at `r = 30` on the cloud mask; 40 pixels for blocks touching the edges at `r = 5`).
+
+**Timings.** A 2048 x 2048 scene of the same kind, milliseconds, best of 3 (FORCE: `cloud_parallax` inside the harness, gcc -O2, OpenMP; Zeit: release build on Windows). **The machine was not quiet**: other builds ran throughout (load near 100%), so these are indicative, and nothing was re-measured later. Zeit's "whole call" includes the conversions of the cube and the masks to FORCE's int16 units and booleans in numpy.
+
+| | FORCE, 1 thread | Zeit, 1 thread | FORCE, 4 threads | Zeit, 4 threads |
+|:---|---:|---:|---:|---:|
+| `cloud_parallax` / `parallax_clouds`, the whole call | 246 | 449 | 85 | 257 |
+| the same, the compiled core alone | 246 | 253 | 85 | 80 |
+| `buffer_` / `buffer_mask`, radius 30, the cloud mask | 4,156 | 661 | 1,344 | 196 |
+
+The parallax test costs the same in Zeit's core as in FORCE's C; Python's conversions of the cube are the rest. The buffer is 6 times faster on one thread and 7 with four: FORCE draws a disc from every True pixel (a time that grows with the cloud's area and the radius squared), Zeit looks up per row the nearest source in the disc's runs.
+
 ### Topographic correction vs RStoolbox, GDAL and terra
 
 [`topographic_correction`](../api/preprocessing.md#topographic_correction) is written from the published formulas (Horn 1981; Teillet et al. 1982; Soenen et al. 2005), so it is compared by outputs only: slope and aspect with `gdaldem slope` / `gdaldem aspect` (GDAL, `-compute_edges`) and `terra::terrain` (R, 8 neighbours = Horn), and the C-correction with **RStoolbox 1.0.2.2**'s `topCor(method = "C")` (the formula `rho (cos sz + c) / (cos i + c)`, `c = b / m` of the line `rho = b + m cos i`). `benchmarks/vs_originals/topocorr.py` (and `topocorr.R`) runs on synthetic terrain (hills of 1-6 km, slopes up to 62 degrees, median 22, 30 m pixels; no DEM ships with the repository) and a six-band scene made of a smooth vegetation/soil mix times `0.7 cos i / cos sz + 0.3` plus noise (sun zenith 38, azimuth 140).
@@ -423,6 +448,114 @@ On the same pixels the two are the same computation (float32 against float64). W
 
 **Timings.** Seconds, the best of 3, one thread, whole calls (Zeit's: slope and aspect, illumination, six regressions and the correction, with Python's conversions; RStoolbox's `topCor` of six bands, its sample of 10000): slope and aspect 1000 x 1000: `terra::terrain` 0.05, Zeit 0.037; the correction of 1000 x 1000 x 6: RStoolbox 0.41, Zeit 0.087 (4.7 times); 100 x 100 x 6: 0.06 and 0.003. RStoolbox fits on 10000 pixels where Zeit uses all of them (a million per band), so the correction itself is more work in Zeit. **One 2000 x 2000 x 6 date**, the whole call, Zeit only: 0.353 s with 1 thread and 0.117 s with 4 (SCS+C the same). The machine was not idle (other sessions' processes were running, load under 10% before the runs), so the times are indicative.
 
+### The radiative transfer vs FORCE
+
+The radiative transfer pieces of Zeit's core (`zeit_core::radtran`; the public atmospheric correction comes later) are a port of **FORCE 3.11.00** (David Frantz; GPL-3.0-or-later): all of `radtran-ll.c`, `wavelength` and `E0` of `table-ll.c` with the tables they read (the Thuillier irradiance, the HITRAN 2016 water vapour and the Bird and Riordan ozone absorption, the relative spectral response of Landsat 4, 5, 7, 8 and Sentinel-2A and B, 56 bands), `ozone_amount` of `gas-ll.c` and `localtime2gmt` of `sunview-ll.c`, with the overpass time of `standard_sunzenith`. The sun position (`sunpos`, and the zenith of `standard_sunzenith`) is not FORCE's `sun-cl.c` (adopted by FORCE from the NOAA calculator, whose license is not verified): it is `zeit_core::solpos`, a clean-room implementation from Meeus' *Astronomical Algorithms* (ch. 7, 25, 28) and NOAA's published documentation, so it is compared by the difference in degrees. The C harness (`force_radtran/`) compiles FORCE's `radtran-ll.c`, `table-ll.c` and `date-cl.c` as they are (and `sun-cl.c`, only as the reference of the sun position), with FORCE's flags (`gcc -O3 -fopenmp`, no `-ffast-math`), and copies the three functions of `gas-ll.c` and `sunview-ll.c` that cannot be compiled alone; both sides evaluate each function on the same float32 columns, and the bits of the outputs are compared.
+
+| Function | Values | Bit for bit | 1 ulp | More |
+| --- | --- | --- | --- | --- |
+| The 23 functions of `radtran-ll.c` (grid of angles, AOD, MOD, elevation, the 56 bands with water vapour and ozone paths) | 5,477,447 | 5,477,447 | 0 | 0 |
+| `wavelength`, `E0` (the 56 bands) | 112 | 112 | 0 | 0 |
+| `ozone_amount` | 200,004 | 200,004 | 0 | 0 |
+| `localtime2gmt` (year, month, day, day of year, hour, minute, second) | 1,400,000 | 1,400,000 | 0 | 0 |
+
+The functions above are equal bit for bit (7,077,563 values of 27 functions). The sun position is not, and is reported in degrees against FORCE's `sunpos` (float32; 200,000 random places, dates and times, in 1984-2030, latitudes within 90 degrees; `standard_sunzenith` 200,000 with latitudes within 80):
+
+| | Subset | Values | Mean | Maximum |
+| --- | --- | --- | --- | --- |
+| `sunpos` zenith | day (zenith < 90) | 101,593 | 0.0120 | 0.068 |
+| `sunpos` zenith | night | 98,407 | 0.0124 | 0.088 |
+| `sunpos` azimuth | day | 101,593 | 0.066 | 177 (sun within a fraction of a degree of the zenith) |
+| `standard_sunzenith` | day | 170,711 | 0.0126 | 0.051 |
+| `standard_sunzenith` | night | 29,289 | 0.0118 | 0.078 |
+
+The difference is FORCE's: its Julian day is a float32, so it moves in steps of a quarter of a day (the error of the declination is a sawtooth of period 6 h, as large as 0.049 degrees at the equinoxes and 0.003 at the solstices, and is zero at 0, 6, 12 and 18 h UT); with the time at a multiple of 6 h the zeniths agree to 1e-4 degrees, and the signed difference has mean zero in every zenith band. Zeit's is the more accurate one (Meeus' method is 0.01 degrees against an ephemeris). Beyond about 82 degrees of latitude the overpass time of `standard_sunzenith` is NaN and the C turns it into `INT_MIN` hours: both sides then compute a sun position at an absurd instant and differ (402 cases), which has no meaning.
+
+The other values are equal bit for bit: the arithmetic is the C's (`float` in `f32`, `double` where the C promotes, each float variable rounded where the C stores it; the products of two floats stay floats), and Windows' UCRT and glibc 2.39 give the same `sin`, `cos`, `tan`, `exp`, `pow`, `asin` and `acos` on these inputs. The first port of `wavelength` and `E0` summed `RSR*WVL` and `RSR*E0` in double where the C multiplies two floats, and was 1 ulp off in 5 bands: the harness found it. The relative spectral response is stored as the span between the first and last non-zero value of each band (the zeros add nothing to the sums). `python benchmarks/vs_originals/force_radtran.py`.
+
+
+### The coregistration vs AROSICS
+
+[`coregister`](../api/preprocessing.md#coregister) is a port of the global `COREG` of **AROSICS 1.14.0** (Scheffler et al. 2017; Apache-2.0), run here as it is in its own conda environment (`arosics-ref`, Python 3.14, GDAL 3.12, from conda-forge) by `benchmarks/vs_originals/arosics_driver.py`, on GeoTIFFs written by `benchmarks/vs_originals/arosics.py`, which then runs Zeit on the same files. AROSICS: `COREG(ref, tgt, ws=(256, 256), max_shift=5, max_iter=5, nodata=(nd, nd), align_grids=True, resamp_alg_deshift="cubic", ignore_errors=True)` and `calculate_spatial_shifts()`, then `correct_shifts()` for the aligned image. There is no satellite scene in the repository (the largest GeoTIFFs of `examples/data` are 25 x 25 pixels), so the pairs are synthetic, plus one of real image content: scikit-image's `camera` (512 x 512, 8 bit) with its copy moved by (2.3, -1.4) pixels (a cubic spline). The synthetic scenes are value noise (five octaves, 2-32 pixel features, 30 m cells) moved by known shifts.
+
+| Pair | Size | Known shift (x, y) | Zeit's shift | AROSICS' shift | Difference |
+|:---|:---|:---|:---|:---|:---|
+| `synth_int` | 1024 x 1024 | (3, -2) | (3.000000, -2.000000) | (3.000000, -2.000000) | 1e-10 |
+| `synth_sub` | 1024 x 1024 | (0.4, 1.7) | (0.285887, 1.783818) | the same | 9e-8 |
+| `synth_neg` | 1024 x 1024 | (-4.25, 3.1) | (-4.157352, 3.070672) | the same | 1.1e-7 |
+| `synth_zero` | 1024 x 1024 | (0, 0) | (0, 0) | (0, 0) | 6e-10 |
+| `synth_margin_u16` (uint16, NoData 0; 300 columns and 200 rows of no data) | 1024 x 1024 | (2.5, -1.2) | (2.360820, -1.164250) | the same | 1.5e-7 |
+| `synth_odd` | 1001 x 777 | (1.6, 0.7) | (1.710320, 0.768810) | the same | 6e-8 |
+| `synth_small` (smaller than the window) | 200 x 200 | (1.3, -0.8) | (1.245660, -0.823640) | the same | 2.1e-7 |
+| `synth_ws128` | 700 x 500 | (-2.2, 2.2) | (-2.121680, 2.124930) | the same | 6.7e-8 |
+| `synth_diag_nodata` (a diagonal no-data edge) | 1024 x 1024 | (2, 1) | (2.000000, 1.000000) | the same | 8e-10 |
+| `synth_4096` | 4096 x 4096 | (1.5, -2.5) | (1.585560, -2.393310) | the same | 1.2e-7 |
+| `natural_camera` (uint8, NoData 0) | 512 x 512 | (2.3, -1.4) | (2.232950, -1.319590) | the same | 1.5e-8 |
+| `synth_far` | 1024 x 1024 | (9, 0) | fails: above `max_shift` | fails: the same error | |
+| `synth_flat` (constant) | 1024 x 1024 | (0, 0) | fails: window too small | fails: "matching window became too small" | |
+
+(The subpixel part of a phase correlation is an estimate of a fraction, good to a tenth of a pixel on these scenes, not the known shift.) In all 13 pairs the two agree on whether the shift is found; on the 11 where it is, the integer part, the matching window (`[x0, y0, x1, y1]`, including the 200 x 200 image's, which AROSICS cuts to `[1, 1, 199, 199]`), the side of the final FFT window (128 where a whole-pixel shift was removed from the 256 window, 256 for the zero shift, 64 for the 128 window), the reliability (96.1-100%) and the structural similarity before and after the shift (0.9942-1.0000 after; the natural image 0.4858 to 0.9725) are equal, and the shifts differ by 2.1e-7 pixels at most: the single-precision noise of the two FFT libraries (scipy's pocketfft, rustfft), as both run the correlation in complex64. The aligned images (AROSICS' `correct_shifts()` resampled onto the same grid with GDAL's cubic, Zeit's `to_grid` with its port of the same kernel) differ by 0.00049 at most in float32 values of about 3000 (one unit in the last place), by 1 in the uint16 image (rounding), and are the same cells for whole-pixel shifts, over the pixels with data inside the 8 pixel border.
+
+**Timings** (seconds, the best of 3; one pair at a time, with GDAL, OpenBLAS and OpenMP at 1 thread; **the machine was not idle**: other sessions' processes ran, 15-60% load before the runs, so these are indicative). AROSICS: `COREG(...)` plus `calculate_spatial_shifts()` (it reads the files, finds the footprints and overlap, takes the windows, correlates and measures the similarity). Zeit: the core's call on arrays that are already in memory, which is the same work minus reading the files, and the whole `zeit.coregister` of the date from `rioxarray`'s arrays, which also moves the whole image.
+
+| Pair | AROSICS, `CPUs=1` | AROSICS, `CPUs=4` | Zeit, the core's estimate | Zeit, `coregister` (with the aligned image) |
+|:---|---:|---:|---:|---:|
+| `synth_sub` 1024 x 1024 | 0.038 | 0.040 | 0.011 | 0.039 |
+| `synth_margin_u16` 1024 x 1024 | 0.080 | 0.080 | 0.011 | 0.035 |
+| `synth_diag_nodata` 1024 x 1024 | 0.094 | 0.091 | 0.011 | 0.030 |
+| `synth_4096` 4096 x 4096 | 0.174 | 0.178 | 0.035 | 0.323 |
+| `natural_camera` 512 x 512 | 0.029 | 0.029 | 0.010 | 0.026 |
+
+The estimate is 3 to 8 times faster in Zeit: AROSICS' cost is in the footprint polygon and the file reading, where Zeit's is the correlation of one window (about 10 ms of FFTs, similarities and the overlap of the two masks; it grows with the image only through that overlap, 35 ms at 4096 x 4096). `CPUs` makes no difference for AROSICS' estimate (it only parallelises the warps of `equalize_pixGrids` and `correct_shifts`, which a pair on one grid does not run), and a single date is a single thread in Zeit. The whole `zeit.coregister` of a 4096 x 4096 date is dominated by the cubic warp of its 16.8 million cells (0.29 s). **Eight dates of 2048 x 2048** (a cube, one reference): 0.51 s with `n_jobs=1` (64 ms per date) and 0.39 s with `n_jobs=4` (49 ms per date): the dates run at once in the correlation and the warp is the part that threads share the least.
+
+### The local coregistration vs AROSICS
+
+[`coregister_local`](../api/preprocessing.md#coregister_local) is a port of `COREG_LOCAL` of **AROSICS 1.14.0** (the tie point grid, the match of each point, `Tie_Point_Refiner`'s three filters and the warp by the control points), run as above in the `arosics-ref` environment by `arosics_driver.py local` (`COREG_LOCAL(ref, tgt, grid_res, window_size=(ws, ws), nodata=(nd, nd), align_grids=True, resamp_alg_deshift="cubic", tieP_filter_level=3)`, then `calculate_spatial_shifts()` and `correct_shifts()`; its `CoRegPoints_table` is written to JSON and the warped image to `.npy`), with `python benchmarks/vs_originals/arosics.py local run 1`, `... local run 4` and `... local compare`. The pairs are synthetic (the target is the reference's value-noise scene at the positions a smooth field of shifts moves it from: an affine part and a sinusoid, up to 3 pixels in `local_smooth`, `local_odd`, `local_2048` and `local_margin_u16`, up to 1.5 in `local_patches` and `local_ws128_fine`) plus scikit-image's `camera` warped by such a field (cubic spline, 8 bit). `local_patches` has three outliers planted in the target: a block of another texture, a featureless block and a block displaced 3 pixels more than the field (a good match that does not fit the model); `local_margin_u16` is uint16 with NoData 0, 300 columns and 150 rows of no data and a diagonal no-data edge.
+
+Zeit runs `coregister_local(..., arosics_compat=True)` on the same files (the flag below) and its table is joined to AROSICS' on `POINT_ID`. Over the points both match:
+
+| Pair | Size (cols x rows) | `grid_res` / `ws` | Points A/Z | Matched A/Z | Shifts (px) | Reliability | SSIM before / after | Windows equal | Control points A/Z |
+|:---|:---|:---|:---|:---|---:|---:|---:|:---|:---|
+| `local_smooth` | 1400 x 1200 | 256 / 256 | 30/30 | 30/30 | 1.4e-6 | 1.0e-5 | 5e-11 / 6e-6 | 30/30 | 27/27 |
+| `local_patches` | 1400 x 1200 | 200 / 256 | 56/56 | 56/56 | 8.5e-7 | 4.3e-5 | 5e-11 / 4e-8 | 56/56 | 48/48 |
+| `local_margin_u16` | 1100 x 1024 | 200 / 256 | 19/19 | 18/18 | 3.3e-7 | 5.1e-6 | 4e-9 / 5e-8 | 18/18 | 16/16 |
+| `local_odd` | 777 x 1001 | 100 / 128 | 88/88 | 88/88 | 6.6e-7 | 2.8e-5 | 5e-11 / 2e-5 | 88/88 | 74/74 |
+| `local_ws128_fine` | 700 x 900 | 64 / 128 | 165/165 | 164/164 | 5.4e-7 | 7.5e-5 | 5e-11 / 1e-5 | 164/164 | 147/147 |
+| `local_2048` | 2048 x 2048 | 200 / 256 | 121/121 | 121/121 | 6.6e-7 | 1.1e-5 | 5e-11 / 8e-6 | 121/121 | 105/105 |
+| `natural_camera_local` (uint8) | 512 x 512 | 64 / 128 | 81/81 | 74/74 | 2.0e-3 | 7.4e-6 | 4e-8 / 3e-4 | 74/74 | 67/67 |
+
+(Largest absolute difference. The shifts of the natural image differ by 1.2e-7 at all points but one, at the top edge, where the 128 x 62 window's correlation peak moves by 2e-3: 8-bit data on a nearly degenerate window, the single-precision noise of the two FFT libraries. The similarity after the shift differs at the 1e-5 level in the float pairs and 3e-4 in the 8-bit image: GDAL's cubic of AROSICS' warp of the window against the port, at cells beside no data.)
+
+**The points that are placed and the points that match are the same in all 7 pairs**, including the 62-pixel windows at the image edges and the window of the point (400, 200) of `local_margin_u16`, which AROSICS grows from the point to 162 x 164 pixels where the diagonal edge crosses its 256 window (x 319 to 481, y 118 to 282, the box of Zeit exactly; Zeit's first version, which only clipped the window, failed there: the branch of AROSICS that grows a box from the position, which the global comparison above never ran, is in the port now). Flags (the points that differ from AROSICS / flagged by AROSICS / flagged by Zeit, with `arosics_compat=True`):
+
+| Pair | Reliability | SSIM | RANSAC | Any (`OUTLIER`) | Warped image, max / mean difference |
+|:---|:---|:---|:---|:---|:---|
+| `local_smooth` | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 3 / 3 | 0 / 3 / 3 | 0.00098 / 2.7e-5 |
+| `local_patches` | 0 / 1 / 1 | 0 / 1 / 1 | 0 / 6 / 6 | 0 / 8 / 8 | 0.00098 / 2.0e-5 |
+| `local_margin_u16` | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 2 / 2 | 0 / 2 / 2 | 1 / 1.6e-5 |
+| `local_odd` | 0 / 3 / 3 | 0 / 3 / 3 | 0 / 9 / 9 | 0 / 14 / 14 | 0.00049 / 1.1e-5 |
+| `local_ws128_fine` | 0 / 0 / 0 | 0 / 1 / 1 | 0 / 16 / 16 | 0 / 17 / 17 | 0.00049 / 9.7e-6 |
+| `local_2048` | 0 / 0 / 0 | 0 / 2 / 2 | 0 / 14 / 14 | 0 / 16 / 16 | 0.00049 / 1.5e-5 |
+| `natural_camera_local` | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 7 / 7 | 0 / 7 / 7 | 6 / 3.1e-4 |
+
+The RANSAC flags are the same in every pair because the core reproduces scikit-image's `ransac` and numpy's `default_rng(0)`: the generator's first values and the samples of `Generator.choice(n, 6, replace=False)` are checked against numpy's output in the core's tests, and on the 54 points of `local_patches` the number of inliers at each of the 8 thresholds AROSICS tries (5, 7, ..., 19) is the same as AROSICS'. The warped images (GDAL's thin plate spline of the same control points, rasterio's GDAL 3.12 against the `arosics-ref` one) differ by 1e-3 at most in the float pairs (float32 rounding), by 1 in the uint16 pair, and by up to 6 in 0.01% of the cells of the 8-bit image, over the pixels with data inside the 8 pixel border; the valid cells are the same.
+
+**AROSICS 1.14.0 puts RANSAC's flags on the wrong points.** Without `arosics_compat` (Zeit's default), the RANSAC flags of four pairs differ from AROSICS' (`local_patches` 8 points, `local_odd` 7, `local_ws128_fine` 26, `local_2048` 24; none in `local_smooth`, `local_margin_u16` and the natural image, where the reliability and similarity filters flagged nothing before it). Tracing AROSICS' `_RANSAC_outlier_detection` shows why: when the first two filters have removed points, the flags of RANSAC (one for each point it got, from 0) are assigned by `inGDF['outliers'] = outliers` to a table indexed by the points' positions in the whole table, so pandas aligns them by label and the k-th flag lands on the row labelled k, not on the k-th remaining point. The count flagged is right and the points are not. Zeit's default flags the points RANSAC found; `arosics_compat=True` reproduces AROSICS' assignment, to compare with it.
+
+**Timings** (seconds; AROSICS the best of 3, Zeit a warm-up and the best of 2; **the machine was not idle**: another session's process was using about a core and the load was 15-20% before the runs, so these are indicative). AROSICS: `COREG_LOCAL(...)` plus `calculate_spatial_shifts()` (reads the files, the footprints, a `COREG` for each point in a `joblib` process, the filters), `CPUs=1` and `4`; its `correct_shifts()` (GDAL's warp) took 0.02-0.13 s. Zeit: the core's tie points on arrays in memory, `n_jobs=1` and `4`, and the whole `zeit.coregister_local` of the date, which warps as well (rasterio's GDAL, one thread):
+
+| Pair | Points | AROSICS `CPUs=1` | AROSICS `CPUs=4` | Zeit tie points, 1 thread | Zeit tie points, 4 threads | `coregister_local`, 1 thread | `coregister_local`, 4 threads |
+|:---|---:|---:|---:|---:|---:|---:|---:|
+| `local_smooth` | 30 | 2.10 | 1.97 | 0.250 | 0.095 | 0.366 | 0.216 |
+| `local_patches` | 56 | 1.77 | 1.42 | 0.389 | 0.129 | 0.517 | 0.263 |
+| `local_margin_u16` | 19 | 0.77 | 0.69 | 0.139 | 0.046 | 0.203 | 0.118 |
+| `local_odd` | 88 | 1.80 | 1.64 | 0.185 | 0.068 | 0.259 | 0.151 |
+| `local_ws128_fine` | 165 | 1.99 | 1.55 | 0.326 | 0.104 | 0.424 | 0.200 |
+| `local_2048` | 121 | 5.25 | 4.24 | 1.023 | 0.351 | 1.419 | 0.757 |
+| `natural_camera_local` | 81 | 1.82 | 1.64 | 0.151 | 0.063 | 0.184 | 0.094 |
+
+The tie points are 4.5 to 12 times faster in Zeit on one thread against AROSICS on one CPU and 11 to 26 times on 4 threads against 4 CPUs (the window's FFTs and similarities cost the same in both; AROSICS also builds a `COREG` object with its footprints for each point and starts a pool of processes, and its 4 CPUs gain 6 to 22%, where the threads of the core gain a factor of 2.4 to 3.1 at 4). The warp of Zeit's `coregister_local` is the rest (0.05 to 0.4 s).
+
 ---
 
 ## Protocol
@@ -441,7 +574,7 @@ On the same pixels the two are the same computation (float32 against float64). W
 | Processor | `Intel64 Family 6 Model 183 Stepping 1, GenuineIntel` (the Intel Core i5-13600K of the other benchmarks), 20 logical processors |
 | R | 4.4.2, with sfdep 0.2.5, RecoverMetricsR 0.1.0, RStoolbox 1.0.2.2, sits 1.5.4, CAST 1.0.4, Rbeast 1.0.2, remotePARTS 1.0.4, blockCV 4.0.1 (with automap 1.1.20), scam 1.2.23 and survey 4.5 |
 | Python | pyxccd 1.1.0, in a virtual environment of its own |
-| Date | 2026-10-24 (the AR(1) trends and PARTS: 2026-10-28; the spatial cross-validation: 2026-10-29; the transitions: 2026-11-03; ImproPhe: 2026-11-06; the resolution merge: 2026-11-07) |
+| Date | 2026-10-24 (the AR(1) trends and PARTS: 2026-10-28; the spatial cross-validation: 2026-10-29; the transitions: 2026-11-03; ImproPhe: 2026-11-06; the resolution merge: 2026-11-07; the coregistration: 2026-11-07) |
 
 ---
 
@@ -470,7 +603,14 @@ wsl -e bash -lc 'bash benchmarks/vs_originals/force_improphe_timing.sh ~/force-r
 python benchmarks/vs_originals/force_improphe_timing.py                                    # Zeit's times against FORCE's compute stage
 wsl -e bash -lc 'bash benchmarks/vs_originals/force_resmerge/make_harness.sh'                  # FORCE's resolution merge, verbatim, on GSL 2.7 (static); then:
 python benchmarks/vs_originals/force_resmerge.py --size 500   # zeit.sentinel2_resmerge against it, and the times
+wsl -e bash -lc 'bash benchmarks/vs_originals/force_parallax/make_harness.sh'                  # FORCE's cloud_parallax and buffer_, verbatim; then:
+python benchmarks/vs_originals/force_parallax.py --size 512 --big 2048   # zeit.parallax_clouds and zeit.buffer_mask against it, and the times
+wsl -e bash -lc 'bash benchmarks/vs_originals/force_radtran/make_harness.sh'                  # FORCE's radiative transfer (radtran-ll.c, table-ll.c, sun-cl.c as they are, for the sun position's reference); then:
+python benchmarks/vs_originals/force_radtran.py   # zeit_core::radtran against it, bit for bit
 python benchmarks/vs_originals/topocorr.py            # gdaldem (GDAL_BIN) and terra/RStoolbox 1.0.2.2, against zeit.topographic_correction
+python benchmarks/vs_originals/arosics.py            # AROSICS 1.14.0 (conda env arosics-ref; AROSICS_ENV=...), against zeit.coregister
+python benchmarks/vs_originals/arosics.py local run 1   # COREG_LOCAL with CPUs=1 and with 4 (`local run 4`), then zeit.coregister_local against both:
+python benchmarks/vs_originals/arosics.py local compare
 python benchmarks/vs_originals/polar.py               # PolarMetrics 0.1.0 (R package from GitHub: R CMD INSTALL), against zeit.polar_metrics
 python benchmarks/vs_originals/ewmacd.py "path/to/EWMACD v1.3.0.r"   # Brooks' script, not distributed
 PYXCCD_PYTHON=path/to/pyxccd-env/python python benchmarks/vs_originals/sccd.py CCDC_Stack_Rondonia.tif CCDC_Stack_Rondonia_Dates.csv
