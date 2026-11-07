@@ -92,8 +92,11 @@
 | [`build_annual_composites`](data.md#build_annual_composites) | Cloud-masked annual composites from a STAC catalog (LandTrendr input) |
 | [`download_gee_timeseries`](data.md#download_gee_timeseries) | Harmonised Landsat composites from Earth Engine |
 | [`download_gee_image`](data.md#download_gee_image) / [`resolve_roi`](data.md#resolve_roi) | Download any `ee.Image`; turn tile ids, files or boxes into an area |
-| [`regularize_time_series`](data.md#regularize_time_series) | Median or medoid composites at a fixed step |
-| [`load_raster`](data.md#load_raster) / [`save_raster`](data.md#save_raster) | Read any time series as a georeferenced cube / write GeoTIFFs |
+| [`regularize_time_series`](data.md#regularize_time_series) | Median, medoid or clearest-date composites at a fixed step, gaps filled |
+| [`load_raster`](data.md#load_raster) / [`save_raster`](data.md#save_raster) | Read any time series as a georeferenced cube (scale and offset, bands by role, quality band, pixel windows) / write GeoTIFFs (with class names and colours) |
+| [`build_vrt`](data.md#build_vrt) | A VRT of tiles mosaicked and bands stacked, without GDAL's Python bindings |
+| [`nd`](data.md#nd) / [`normalized_difference`](data.md#nd) | The normalized difference of two bands, NaN where their sum is 0 |
+| [`qa_mask`](data.md#qa_mask) | The observations a quality band keeps (Fmask, Landsat C2, SCL, HLS) as a boolean mask |
 | [`get_georef`](data.md#get_georef) | CRS and transform of a raster or cube |
 | [`qc_sentinel2_scl`](data.md#qc_sentinel2_scl), [`qc_modis_summary`](data.md#qc_modis_summary), [`qc_modis_state`](data.md#qc_modis_state) | QA bands to observation weights |
 | **Embeddings** | |
@@ -145,6 +148,8 @@
 | [`mmu_sieve`](post-processing.md#mmu_sieve) | Merge patches below a minimum size into their neighbours |
 | [`smooth_probs`](post-processing.md#smooth_probs) | Bayesian smoothing of class probabilities (sits_smooth) |
 | [`desawtooth_classes`](post-processing.md#desawtooth_classes) | Remove short excursions from class series (A B A → A A A) |
+| [`pixel_area`](post-processing.md#pixel_area) / [`rasterize`](post-processing.md#rasterize) / [`polygonize`](post-processing.md#polygonize) | The area of each pixel (geodesic), a layer burned on a grid, a map's patches as polygons |
+| [`zonal_stats`](post-processing.md#zonal_stats) / [`zonal_areas`](post-processing.md#zonal_areas) | Statistics, class areas and transitions of maps in each zone of a layer |
 | [`train_classifier`](post-processing.md#train_classifier) / [`classify`](post-processing.md#classify) | Train at sample points, classify any cube, metrics or CCDC models |
 | [`aoa`](post-processing.md#aoa) / [`train_di`](post-processing.md#train_di) | Area of applicability of a model: dissimilarity index to the training data (CAST) |
 | [`error_profile`](post-processing.md#error_profile) | A model's error against the DI and the map of the error to expect (CAST's errorProfiles) |

@@ -222,6 +222,21 @@ cube = zeit.build_time_series(
 idx = zeit.compute_indices(cube, ["NDVI", "EVI", "NBR"])   # (time, 3, y, x), still lazy
 ```
 
+### `nd` { .api }
+
+<!-- sig: zeit.indices.nd -->
+```python
+zeit.indices.nd(a, b)
+zeit.indices.normalized_difference(cube, a, b, band_map=None)
+```
+
+The normalized difference `(a - b) / (a + b)`, NaN where `a + b` is 0: the formula of NDVI (`nd(nir, red)`), NDWI, NBR and the other normalized differences of `compute_indices`. `nd` takes two numpy arrays, scalars or `DataArray` objects (lazy on Dask; integers are computed as floats, so unsigned values cannot wrap around). `normalized_difference` takes two bands of a cube with a `band` dimension, by name or by role (`"nir"`, `"red"`, `"swir1"`...), found by their usual asset names or `band_map` as in `compute_indices`, and returns the cube without `band`. Both are exported at the top level.
+
+```python
+ndvi = zeit.normalized_difference(cube, "nir", "red")          # (time, band, y, x) -> (time, y, x)
+ndwi = zeit.nd(cube.sel(band="green"), cube.sel(band="nir"))
+```
+
 ### `download_gee_timeseries` { .api }
 
 <!-- sig: zeit.gee.download_gee_timeseries -->
@@ -361,11 +376,11 @@ Sentinel-1 has no fixed tiling grid, so describe Sentinel-1 areas with any of th
 <!-- sig: zeit.regularize.regularize_time_series -->
 ```python
 zeit.regularize.regularize_time_series(
-    cube, freq="16D", method="median",
+    cube, freq="16D", method="median", fill=None, max_gap=None, lmbda=10.0,
 )
 ```
 
-Composites an irregular cube to a fixed time step (16-day, monthly, yearly) with the median or the medoid of each window. Missing values (NaN and the cube's NoData) are left out; periods without observations, and pixels without one in a period, are NaN (an integer cube with NoData keeps its type, with NoData there). Georeferencing and NoData are kept. Stays lazy. Also exported as `zeit.regularize_time_series`.
+Composites an irregular cube to a fixed time step (16-day, monthly, yearly) with the median, the medoid or the clearest observation of each window, and can fill the periods without a value. Missing values (NaN and the cube's NoData) are left out; periods without observations, and pixels without one in a period, are NaN (an integer cube with NoData keeps its type, with NoData there). Georeferencing and NoData are kept. Stays lazy. Also exported as `zeit.regularize_time_series`.
 
 <div class="params" markdown>
 
@@ -373,12 +388,16 @@ Composites an irregular cube to a fixed time step (16-day, monthly, yearly) with
 | :--- | :--- | :--- | :--- |
 | `cube` | `DataArray` or path | required | Cube with a `time` dimension, `(time, y, x)` or `(time, band, y, x)`, or anything `load_raster` reads. |
 | `freq` | `str` | `"16D"` | pandas frequency: `"16D"`, `"1MS"`, `"1YS"`, … |
-| `method` | `str` | `"median"` | `"median"` (per band) or `"medoid"` (the real observation closest to the multi-band median, so a composite's bands come from one date; with one band, the observation closest to the median). Only observations with every band are candidates, and on a tie the earliest wins. The medoid runs in Rust, every pixel in parallel: on 60 dates of 4 bands and 300 × 300 pixels, 0.15 s against 1.0 s for xarray. |
+| `method` | `str` | `"median"` | `"median"` (per band), `"clearest"` or `"medoid"`. `"clearest"` ranks the dates of a period by the share of the cube's pixels that have every band (the clearest first, the earlier date on a tie) and gives each pixel the observation, with every band, of the first date that has one: a composite is a mosaic of whole observations, of the clearest date where it has data. `"medoid"` is (the real observation closest to the multi-band median, so a composite's bands come from one date; with one band, the observation closest to the median). Only observations with every band are candidates, and on a tie the earliest wins. The medoid runs in Rust, every pixel in parallel: on 60 dates of 4 bands and 300 × 300 pixels, 0.15 s against 1.0 s for xarray. |
+| `fill` | `str` | `None` | What to do with the periods without a value: `None` leaves them NaN; `"linear"` interpolates linearly in time between the values before and after (a series' ends stay NaN); `"whittaker"` fills the same gaps with a Whittaker curve through the values (`lmbda`) and keeps the values. |
+| `max_gap` | `float` | `None` | With `fill`, the largest gap filled, in days between the value before and the one after; larger gaps stay NaN. `None` fills any. |
+| `lmbda` | `float` | `10.0` | `fill="whittaker"`: the curve's smoothness, as in [`smooth`](preprocessing.md#smooth). |
 
 </div>
 
 ```python
 cube_16d = zeit.regularize_time_series(cube, freq="16D", method="medoid")
+clear = zeit.regularize_time_series(cube, "MS", method="clearest", fill="linear", max_gap=60)
 ```
 
 ## Reading and writing rasters
@@ -391,7 +410,9 @@ zeit.io.load_raster(
     source, *, dates=None, start_year=None, band=None, chunks=None,
     clip=None, masked="auto", pattern=None, date_format=None,
     recursive=False, like=None, crs=None, res=None, resampling="auto",
-    validate=None,
+    validate=None, scale=False, qa=None, qa_rule=None, bands=None,
+    window=None, pixel=None, extent=None, tap=False, nodata=None, dtype=None,
+    cutline=None,
 )
 ```
 
@@ -429,6 +450,17 @@ Without dates, the band axis keeps the name `band` and the algorithms ask for `y
 | `res` | number or `(x, y)` | `None` | Without a reference raster: the cell size, in the units of `crs` (or of the data's CRS), as `gdalwarp -tr`. |
 | `resampling` | `str` | `"auto"` | With `like`, `crs` or `res`: `"auto"` takes the nearest cell for integer rasters and interpolates floats bilinearly (QA bands always take the nearest cell); or a GDAL method: `"nearest"`, `"bilinear"`, `"cubic"`, `"cubic_spline"`, `"lanczos"`, `"average"`, `"mode"`, `"min"`, `"max"`, `"med"`, `"q1"`, `"q3"`, `"rms"`. |
 | `validate` | `str` | `None` | `"landtrendr"`, `"ccdc"` or `"cold"`: warn when the series looks unfit for that algorithm (too few dates, values that do not look scaled). |
+| `scale` | `bool` | `False` | Apply the `scale_factor` and `add_offset` each band stores (`value * scale + offset`, after NoData became NaN). Bands without them stay as they are (an Int16 file with no scale keeps its type); the files of a folder each use their own. Not for NetCDF/Zarr stores or `DataArray` sources, already decoded. Needs `masked` `"auto"` or `True`. |
+| `qa` | band, path, glob, list or `DataArray` | `None` | A quality band: the cube comes back with NaN where the observation is not usable by `qa_rule`. A band number reads it from the same files, like `band=` (`qa=7`: the Fmask of Landsat files of a date); anything else is another source with the same dates and grid, read with the same `clip`, `window`/`pixel`, `like`... (nearest cell). Integer data becomes float. |
+| `qa_rule` | `str` | `None` | With `qa`: `"fmask"`, `"landsat_c2"`, `"nonzero"`, `"scl"` or `"hls_fmask"`, see [`qa_mask`](#qa_mask). |
+| `bands` | `dict` | `None` | Bands by role, `{"blue": 1, "red": 3, "nir": 4}`: name to band (as `band=`). Gives a `(time, band, y, x)` cube whose `band` coordinate holds the names, in the order of the dict. Not with `band`. |
+| `window` | `(col0, row0, col1, row1)` | `None` | Read only a window of the raster's own pixels (the end is exclusive), no CRS needed. The cells keep their coordinates and transform. A file is read in the window only. Not with `clip`, `like`, `crs` or `res`. |
+| `pixel` | `(col, row)` | `None` | Read one pixel, as a `(time,)` series (`(time, band)` with several bands) with scalar `x` and `y` coordinates. Only that pixel is read from each file, so it takes a fraction of a second in a stack of many gigabytes. Same restrictions as `window`. |
+| `extent` | `(xmin, ymin, xmax, ymax)` | `None` | Without a reference raster: the extent of the grid, in the CRS of the result, as `gdalwarp -te`. With `res` the cells of that size are laid from its top-left corner; without it, the cells of the data (same CRS only), fitted to the extent as gdalwarp does (a whole number of them, a little larger or smaller). With another `crs`, `res` is needed. An extent a whole number of cells from the data's only crops it. Not with `cutline`. |
+| `tap` | `bool` | `False` | `gdalwarp -tap`: the extent aligned to whole cells counted from the origin of the coordinates. Needs `res`. |
+| `nodata` | `None`, `"source"` or number | `None` | What the cells no data covers hold, and the NoData of the result. `None`: the data's NoData, else NaN (floats) or the type's extreme (integers). `"source"`: as gdalwarp without `-dstnodata`: the data's NoData, and when it has none those cells are 0 and the result has no NoData. A number: `gdalwarp -dstnodata` (the data's NoData cells become it; a value equal to it moves one step). |
+| `dtype` | numpy type | `None` | The type of the result, as `gdalwarp -ot`: the warp is done in the wider of the data's type and this one, then rounded (half away from zero) and clamped to it. |
+| `cutline` | path, `(path, layer)`, `GeoDataFrame`, geometries | `None` | As `gdalwarp -cutline -crop_to_cutline`: the cells of the data outside the polygons take no part in the warp (the result there is `nodata`), and without `like` the grid is cropped to their extent (and, without `res`, to the cells of the data entirely inside it). Geometries without a CRS are in the result's. Not with `extent`. |
 
 </div>
 
@@ -442,6 +474,23 @@ ndvi.time.dt.year.values[[0, -1]]                         # array([1985, 2024])
 ndvi = zeit.load_raster("ndvi_stack.tif", start_year=1985, chunks="auto")   # lazy
 s2 = zeit.load_raster("S2/", pattern=r"_(?P<date>\d{8})_(?P<band>B\d{2})\.tif$")   # (time, band, y, x)
 ```
+
+#### Bands by role, scale, quality band and pixel windows
+
+The options below replace the lines of xarray that a script would otherwise write after reading.
+
+```python
+# Landsat files with the bands of a date in each (blue ... swir2, Fmask), reflectance x 10000 with a GDAL scale
+cube = zeit.load_raster("landsat/", bands={"blue": 1, "red": 3, "nir": 4}, scale=True,
+                        qa=7, qa_rule="fmask")          # (time, band, y, x), NaN where Fmask refuses
+ndvi = zeit.normalized_difference(cube, "nir", "red")    # (time, y, x)
+
+stack = "LT_Stack_NDVI_Rondonia.tif"                     # 40 bands, 20 GB-class stacks work the same
+series = zeit.load_raster(stack, pixel=(120, 80))        # (time,), reads that pixel only
+block = zeit.load_raster(stack, window=(100, 60, 140, 100))   # (time, 40, 40)
+```
+
+`window` and `pixel` count the columns and rows of the file's own grid (column first), so they also work on series with no CRS, where `clip=` cannot. Quality bands take the pixel or window too, and `bands=` reads each band with the same options.
 
 #### On the grid of another raster
 
@@ -460,6 +509,22 @@ bool((landsat.x == s2.x).all())                                     # True: they
 - **The same values however it runs**: in memory, lazily (`chunks=`) or from a file, with any number of threads. A file is read only in the window the grid sees, and a lazy cube stays lazy.
 - **No warp when it is not needed**: a grid with the same CRS and cells, a whole number of cells apart, is only a crop (and padding with NoData) of the data.
 - Cells outside the data are NoData (NaN for floats; integer rasters keep their NoData value, or get the largest value of unsigned types and the smallest of signed ones).
+
+#### The options of `gdalwarp`
+
+`extent=`, `tap=`, `nodata=`, `dtype=` and `cutline=` add `gdalwarp`'s `-te`, `-tap`, `-dstnodata`, `-ot` and `-cutline` to `crs=`, `res=` and `like=`, with the same grid, type, NoData and values (nearest cell: the same cells; bilinear and cubic: the same within 1e-5 of the values; see below). The defaults are unchanged: `nodata=None` still gives NaN or the type's extreme outside the data, where gdalwarp writes 0; pass `nodata="source"` for gdalwarp's.
+
+```python
+# Janus' "Reproject, resample, clip" with aligned pixels, a NoData value and a cutline
+zeit.save_raster(zeit.load_raster("ndvi.tif", crs="EPSG:4326", res=0.0003, tap=True, nodata=-9999,
+                                  cutline="zones.gpkg", resampling="bilinear"), "ndvi_zone.tif")
+```
+
+Notes on how close it is to `gdalwarp`:
+
+- A reprojection places the cells with Zeit's lattice of coordinates, not gdalwarp's approximate transformer (`-et 0.125`): with the default `tolerance` about 0.5 % of the nearest-cell picks in a reprojection differ from gdalwarp's (a neighbouring cell), and bilinear values by up to about 1e-3 (for values near 1) over the whole result. Against `gdalwarp -et 0` the values are the same bit for bit.
+- `cutline` is applied as gdalwarp does, to the cells of the source: those outside the polygons do not take part in the interpolation (cells whose nearest source cells are outside are NoData).
+- `crs` with `extent` or `cutline` needs `res`; and `cutline` with `extent` is an error, because gdalwarp's `-crop_to_cutline` replaces `-te`. `tap` without a `extent`/`cutline` rounds the data's west and south edges to the nearest multiples of `res`, as gdalwarp does; where an edge is half a cell from a multiple or the data is reprojected, its cell count can differ by one from gdalwarp's in a few cases.
 
 #### In another CRS or at another resolution
 
@@ -480,7 +545,7 @@ The cells start at the corner of the data's extent, so two rasters loaded this w
 zeit.io.save_raster(
     data, path, *, like=None, crs=None, transform=None, nodata=None,
     dtype=None, band_names=None, compress="deflate", driver=None,
-    reference_cube=None,
+    reference_cube=None, categories=None, colors=None,
 )
 ```
 
@@ -508,6 +573,8 @@ Writes a map, a stack or a result so that GIS software and `load_raster` read it
 | `compress` | `str` | `"deflate"` | GeoTIFF compression: `"deflate"`, `"lzw"`, `"zstd"`, `None`… |
 | `driver` | `str` | `None` | GDAL driver when the extension is not enough; `"COG"` writes a Cloud-Optimised GeoTIFF. |
 | `reference_cube` | path or `DataArray` | `None` | Deprecated name of `like`. |
+| `categories` | `dict` | `None` | The classes of a classified map, `{value: name}`, written as the first band's category names (GDAL's `SetCategoryNames`; for a GeoTIFF, in the `.aux.xml` beside it), where QGIS and Janus read them. Values are non-negative integers; a value without a name gets an empty one. One map only, not a `dict` or `Dataset`. |
+| `colors` | `dict` | `None` | The classes' colours, `{value: colour}`, with the colour as `"#RRGGBB"`, `"#RRGGBBAA"` or an `(r, g, b[, a])` tuple of 0-255, written as the first band's colour table. Needs a `uint8` or `uint16` map and a GeoTIFF or COG. A GeoTIFF palette keeps no per-class alpha. |
 
 </div>
 
@@ -518,6 +585,47 @@ ndvi = zeit.load_raster("LT_Stack_NDVI_Rondonia.tif")
 zeit.save_raster(ndvi.sel(time="2020"), "ndvi_2020.tif")       # georeferencing from the cube
 zeit.save_raster(loss, "lt_rondonia")                          # Dataset of maps: one GeoTIFF each
 zeit.save_raster(yod_array, "year_of_loss.tif", like=ndvi, nodata=0)     # numpy map
+zeit.save_raster(lc, "lc.tif", nodata=0, categories={1: "forest", 2: "water"}, colors={1: "#2ca02c", 2: "#1f77b4"})
+```
+
+### `build_vrt` { .api }
+
+<!-- sig: zeit._vrt.build_vrt -->
+```python
+zeit._vrt.build_vrt(
+    sources, path, *, separate=False, extent=None, res=None,
+    resampling="nearest", band_names=None, wavelengths=None,
+)
+```
+
+Writes a VRT, a small XML file that GDAL, rasterio, QGIS and `load_raster` read as a raster, of tiles mosaicked and bands stacked, with no pixel copied. It is what `gdal.BuildVRT` writes (the same grid, the same sources' windows, the same values), without GDAL's Python bindings. Returns the path written. Also exported as `zeit.build_vrt`.
+
+- `sources` is a list of files (the tiles of a scene, mosaicked; the bands of the files are kept), a list of files with `separate=True` (each file is one band, stacked), or a list of lists of files (one output band per inner list, made of the tiles of that band).
+- Where tiles overlap the later file wins, except where it holds NoData. Pixels no tile covers are NoData, or 0 for a band without one. A band has a NoData value when every file of it has one. The files must share a CRS and be north-up.
+- The source files are referred to by absolute path.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `sources` | list of paths | required | Files, or lists of files, as above. |
+| `path` | `str` or `Path` | required | The `.vrt` to write. Missing folders are created. |
+| `separate` | `bool` | `False` | A flat list of files: each is one band (its first), stacked. |
+| `extent` | `(xmin, ymin, xmax, ymax)` | `None` | The VRT's extent; `None`: the union of the files. |
+| `res` | `float` or `(xres, yres)` | `None` | The VRT's pixel; `None`: the finest pixel of the files. |
+| `resampling` | `str` | `"nearest"` | How a source of another pixel size or alignment is read: `"nearest"`, `"bilinear"`, `"cubic"`, `"average"`, `"mode"`, … |
+| `band_names` | list of `str` | `None` | The bands' descriptions; by default the first file's. |
+| `wavelengths` | `dict` | `None` | `{band name: nm}`, written as the `wavelength` and `wavelength_units` metadata of the bands with that name. |
+
+</div>
+
+**Returns** `pathlib.Path`.
+
+```python
+vrt = zeit.build_vrt([["B04_a.tif", "B04_b.tif"], ["B08_a.tif", "B08_b.tif"]], "scene.vrt",
+                     extent=(600000, 7396400, 606000, 7400000), res=30,
+                     band_names=["B04", "B08"], wavelengths={"B04": 664.6, "B08": 832.8})
+cube = zeit.load_raster(vrt)
 ```
 
 ### `get_georef` { .api }
@@ -546,6 +654,31 @@ cube = zeit.build_time_series(..., bands=["red", "nir", "scl"])
 ndvi = zeit.compute_indices(cube, ["NDVI"]).sel(band="NDVI")
 weights = zeit.qc_sentinel2_scl(cube.sel(band="scl"))     # (time, y, x), on the cube's grid
 pheno = zeit.phenology(ndvi, weights=weights)
+```
+
+### `qa_mask` { .api }
+
+<!-- sig: zeit.qc.qa_mask -->
+```python
+zeit.qc.qa_mask(qa, rule)
+```
+
+The observations a quality band keeps, as a boolean "usable" mask (the rules Janus applies to a quality band). A code counts when it is a number of 0 or more (fractions are cut); NaN, negative values and the raster's NoData are never usable. Exported as `zeit.qa_mask`; `load_raster(..., qa=, qa_rule=)` applies it while reading.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `qa` | array, `DataArray` or path | required | The quality band (lazy if the `DataArray` is). |
+| `rule` | `str` | required | `"fmask"`: 0 clear land and 1 water usable (2 shadow, 3 snow, 4 cloud, 255 fill masked). `"landsat_c2"`: QA_PIXEL bits 0 fill, 1 dilated cloud, 3 cloud, 4 shadow and 5 snow clear (`code & 0x3B == 0`). `"nonzero"`: any code but 0. `"scl"`: Sentinel-2 SCL 4 vegetation, 5 bare soil, 6 water. `"hls_fmask"`: HLS v2.0 Fmask bits 1 to 4 (cloud, adjacent, shadow, snow or ice) clear, and not 255. |
+
+</div>
+
+**Returns** a boolean array or `DataArray` with the input's dims and coordinates.
+
+```python
+usable = zeit.qa_mask(cube.sel(band="fmask"), "fmask")
+clear = cube.sel(band="nir").where(usable)
 ```
 
 ### `qc_sentinel2_scl` { .api }

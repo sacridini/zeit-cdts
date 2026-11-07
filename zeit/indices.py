@@ -219,3 +219,85 @@ def compute_indices(cube, indices: Sequence[str], band_map: Optional[Dict[str, s
     out.attrs = cube.attrs
     out.name = "indices"
     return out
+
+
+def nd(a, b):
+    """The normalized difference ``(a - b) / (a + b)``, NaN where ``a + b`` is 0.
+
+    The formula of NDVI (``nd(nir, red)``), NDWI, NBR and the other normalized
+    differences of `compute_indices`. Works on numpy arrays, scalars and xarray objects
+    (lazy on Dask); integer inputs are computed in floating point, so unsigned values
+    cannot wrap around.
+
+    Parameters
+    ----------
+    a, b
+        The two bands, on the same grid (or broadcastable): numpy arrays, scalars or
+        ``DataArray`` objects.
+
+    Returns
+    -------
+    The index, a float32 or float64 array (or ``DataArray`` with ``a``'s coordinates).
+
+    Examples
+    --------
+    >>> ndvi = zeit.nd(nir, red)
+    """
+    if hasattr(a, "dims") or hasattr(b, "dims"):
+        a, b = _floats(a), _floats(b)
+        total = a + b
+        with np.errstate(divide="ignore", invalid="ignore"):
+            out = ((a - b) / total).where(total != 0)
+        out.attrs = {}
+        return out
+    a, b = _floats(a), _floats(b)
+    total = a + b
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return np.where(total != 0, (a - b) / total, np.nan)
+
+
+def _floats(x):
+    """``x`` as a float array: integers of up to 16 bits as float32, larger ones as float64."""
+    if hasattr(x, "dims"):
+        if x.dtype.kind in "iub":
+            return x.astype(np.float32 if x.dtype.itemsize <= 2 else np.float64)
+        return x
+    x = np.asarray(x)
+    if x.dtype.kind in "iub":
+        return x.astype(np.float32 if x.dtype.itemsize <= 2 else np.float64)
+    return x
+
+
+def normalized_difference(cube, a: str, b: str, band_map: Optional[Dict[str, str]] = None):
+    """The normalized difference of two bands of a cube: ``(a - b) / (a + b)``, NaN where ``a + b`` is 0.
+
+    ``normalized_difference(cube, "nir", "red")`` is NDVI, the same formula as
+    `compute_indices` and `nd`. ``a`` and ``b`` are band names of the cube's ``band``
+    dimension, or band roles (``"nir"``, ``"red"``, ``"swir1"``...) found by their usual
+    asset names (``B08``, ``SR_B4``...) or ``band_map``, as `compute_indices` does.
+
+    Parameters
+    ----------
+    cube
+        A ``DataArray`` with a ``band`` dimension, e.g. ``load_raster(..., bands={...})``.
+    a, b
+        The two bands (band names or roles); ``a`` comes first in the difference.
+    band_map
+        Overrides for the band each role is read from, e.g. ``{"nir": "B8A"}``.
+
+    Returns
+    -------
+    A DataArray without the ``band`` dimension: ``(time, y, x)`` for a ``(time, band, y, x)`` cube.
+    """
+    available = [str(x) for x in cube.band.values]
+
+    def pick(name):
+        if band_map and name in band_map:
+            name = band_map[name]
+        if str(name) in available:
+            return cube.isel(band=available.index(str(name)), drop=True)
+        return cube.sel(band=resolve_band(name, available, band_map), drop=True)
+
+    out = nd(pick(a), pick(b))
+    out.attrs = cube.attrs
+    return out

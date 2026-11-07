@@ -35,6 +35,8 @@ def save_raster(
     compress: str = "deflate",
     driver: Optional[str] = None,
     reference_cube: Any = None,
+    categories: Optional[Mapping[int, str]] = None,
+    colors: Optional[Mapping[int, Any]] = None,
 ) -> Path:
     """Write a map, a stack or a result of zeit.
 
@@ -81,6 +83,17 @@ def save_raster(
         Cloud-Optimised GeoTIFF.
     reference_cube
         Deprecated name of ``like``.
+    categories
+        The classes of a classified map, ``{value: name}`` (``{1: "forest", 2: "water"}``),
+        written as the category names of the first band, as GDAL's ``SetCategoryNames``
+        does (for a GeoTIFF, in the ``.aux.xml`` file beside it), where QGIS and Janus read
+        them. Values must be non-negative integers; the values without a name get an empty one.
+    colors
+        The colours of the classes, ``{value: colour}`` with the colour as ``"#RRGGBB"``,
+        ``"#RRGGBBAA"`` or an ``(r, g, b)`` / ``(r, g, b, a)`` tuple of 0-255, written as the
+        first band's colour table. Needs a ``uint8`` or ``uint16`` map and a GeoTIFF (or COG);
+        values without a colour are transparent black. A GeoTIFF palette
+        has no per-class alpha: it is kept as 255 (and 0 for the NoData value).
 
     Returns
     -------
@@ -101,6 +114,8 @@ def save_raster(
     >>> zeit.save_raster(ndvi.sel(time="2020"), "ndvi_2020.tif")
     >>> zeit.save_raster(events, "lt_rondonia")            # dict/Dataset: one file per map
     >>> zeit.save_raster(numpy_map, "map.tif", like=ndvi)  # numpy: georeferenced by like
+    >>> zeit.save_raster(classes, "lc.tif", categories={1: "forest", 2: "water"},
+    ...                  colors={1: "#2ca02c", 2: "#1f77b4"})
     """
     if reference_cube is not None:
         warnings.warn("save_raster(reference_cube=) is deprecated; use like=", DeprecationWarning, stacklevel=2)
@@ -108,6 +123,11 @@ def save_raster(
     path = Path(os.path.expanduser(os.fspath(path)))
     options = dict(like=like, crs=crs, transform=transform, nodata=nodata, dtype=dtype,
                    compress=compress, driver=driver)
+
+    if categories is not None or colors is not None:
+        if isinstance(data, (xr.Dataset, Mapping)):
+            raise ValueError("categories= and colors= describe one map: save a dict or Dataset layer by layer")
+        categories, colors = _check_classes(categories, colors)
 
     if isinstance(data, (xr.Dataset, Mapping)):
         layers = _layers(data)
@@ -126,7 +146,52 @@ def save_raster(
         path = path.with_suffix(".tif")
     if path.suffix.lower() in _XARRAY_EXTENSIONS:
         return _write_xarray(_as_dataarray(data), path)
-    return _write(data, path, band_names=band_names, **options)
+    job = _prepare(data, path, band_names=band_names, **options)
+    job.colors = colors
+    if colors and job.profile["dtype"] not in ("uint8", "uint16"):
+        raise ValueError(f"colors= needs a uint8 or uint16 map, not {job.profile['dtype']}")
+    if colors and job.final_driver.upper() not in ("GTIFF", "COG"):
+        raise ValueError("colors= is written for GeoTIFF and COG files")
+    _run([job])
+    if categories:
+        _write_categories(path, categories)
+    return path
+
+
+def _check_classes(categories: Optional[Mapping[int, str]], colors: Optional[Mapping[int, Any]]):
+    """The categories as ``{int: str}`` and the colours as ``{int: (r, g, b, a)}``."""
+    def value(k: Any) -> int:
+        if int(k) != k or k < 0:
+            raise ValueError(f"class values are non-negative integers, got {k!r}")
+        return int(k)
+
+    cats = {value(k): str(v) for k, v in (categories or {}).items()}
+    cols = {}
+    for k, c in (colors or {}).items():
+        if isinstance(c, str):
+            h = c.lstrip("#")
+            if len(h) not in (6, 8) or any(ch not in "0123456789abcdefABCDEF" for ch in h):
+                raise ValueError(f"a colour is '#RRGGBB', '#RRGGBBAA' or an (r, g, b[, a]) tuple, got {c!r}")
+            c = tuple(int(h[i:i + 2], 16) for i in range(0, len(h), 2))
+        c = tuple(int(v) for v in c)
+        if len(c) == 3:
+            c += (255,)
+        if len(c) != 4 or not all(0 <= v <= 255 for v in c):
+            raise ValueError(f"a colour is (r, g, b[, a]) of 0-255, got {c!r}")
+        cols[value(k)] = c
+    return cats, cols
+
+
+def _write_categories(path: Path, categories: Mapping[int, str]) -> None:
+    """The category names of band 1 as GDAL stores them for a GeoTIFF: in the PAM ``.aux.xml``
+    (index = value, "" for the values without a name)."""
+    from xml.sax.saxutils import escape
+
+    names = [categories.get(v, "") for v in range(max(categories) + 1)]
+    xml = ['<PAMDataset>', '  <PAMRasterBand band="1">', '    <CategoryNames>']
+    xml += [f"      <Category>{escape(n)}</Category>" for n in names]
+    xml += ['    </CategoryNames>', '  </PAMRasterBand>', '</PAMDataset>']
+    path.with_name(path.name + ".aux.xml").write_text("\n".join(xml) + "\n", encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -211,6 +276,7 @@ class _Job:
         self.array, self.path, self.target, self.profile = array, path, target, profile
         self.names, self.times, self.final_driver, self.compress = names, times, final_driver, compress
         self.tags = tags or {}
+        self.colors = None
 
 
 def _write(data: Any, path: Path, **options) -> Path:
@@ -286,6 +352,9 @@ def _run(jobs: List[_Job]) -> None:
         warnings.simplefilter("ignore", rasterio.errors.NotGeoreferencedWarning)
         files = [rasterio.open(job.target, "w", **job.profile) for job in jobs]
         try:
+            for job, dst in zip(jobs, files):
+                if job.colors:   # before the pixels: a GeoTIFF's palette cannot change once they are written
+                    dst.write_colormap(1, job.colors)
             for window, blocks in _strips([job.array for job in jobs]):
                 for job, dst, block in zip(jobs, files, blocks):
                     dst.write(_cast(block, job.profile["dtype"], job.profile.get("nodata")), window=window)

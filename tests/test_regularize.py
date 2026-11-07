@@ -89,3 +89,75 @@ def test_an_integer_cube_keeps_its_nodata_out(method):
     out = regularize_time_series(cube, freq="MS", method=method)
     assert out.dtype == np.int16 and out.rio.nodata == -9999
     assert out.values.ravel().tolist() == [2000 if method == "median" else 1000, -9999, 5000]  # February: empty
+
+
+def _gappy_cube():
+    """Three bands-less dates in January, one in March, one in July (pixels 2x2)."""
+    times = pd.to_datetime(["2020-01-02", "2020-01-10", "2020-01-20", "2020-03-05", "2020-07-04"])
+    v = np.full((5, 2, 2), np.nan)
+    v[0] = [[1.0, np.nan], [np.nan, np.nan]]       # 1 of 4 pixels
+    v[1] = [[2.0, 3.0], [4.0, np.nan]]             # 3 of 4: the clearest of January
+    v[2] = [[5.0, 6.0], [np.nan, 7.0]]             # 3 of 4: ties with the 10th, which is earlier
+    v[3] = [[10.0, 10.0], [10.0, 10.0]]
+    v[4] = [[20.0, 20.0], [20.0, 20.0]]
+    return xr.DataArray(v, dims=("time", "y", "x"), coords={"time": times, "y": [1.5, 0.5], "x": [0.5, 1.5]})
+
+
+def test_clearest_takes_the_clearest_date_pixel_by_pixel():
+    out = regularize_time_series(_gappy_cube(), "MS", method="clearest")
+    assert list(out.time.dt.strftime("%Y-%m").values) == [f"2020-{m:02d}" for m in range(1, 8)]
+    # January: the 10th (3 of 4 pixels, earlier than the 20th), then the 20th, then the 2nd
+    assert np.array_equal(out.values[0], [[2.0, 3.0], [4.0, 7.0]], equal_nan=True)
+    assert np.isnan(out.values[1]).all() and (out.values[2] == 10).all() and (out.values[6] == 20).all()
+
+
+def test_clearest_needs_every_band_and_stays_lazy():
+    cube = _gappy_cube()
+    two = xr.concat([cube, cube * 2], dim="band").assign_coords(band=["a", "b"]).transpose("time", "band", "y", "x")
+    two = two.where(~((two.band == "b") & (two.time == two.time[1])))     # the 10th loses band b everywhere
+    out = regularize_time_series(two, "MS", method="clearest")
+    # the 10th has no complete observation now: January is the 20th (3 of 4 pixels), then the 2nd
+    assert np.array_equal(out.values[0, 0], [[5.0, 6.0], [np.nan, 7.0]], equal_nan=True)
+    assert np.array_equal(out.values[0, 1], 2 * out.values[0, 0], equal_nan=True)
+    lazy = regularize_time_series(two.chunk({"x": 1}), "MS", method="clearest")
+    assert np.array_equal(lazy.values, out.values, equal_nan=True)
+
+
+def test_fill_linear_in_time_and_max_gap():
+    cube = _gappy_cube()
+    full = regularize_time_series(cube, "MS", fill="linear")
+    # the value of the first pixel: 2 in January, 10 in March: February is the middle in time
+    jan, feb, mar = full.values[0, 0, 0], full.values[1, 0, 0], full.values[2, 0, 0]
+    assert (jan, mar) == (2.0, 10.0)
+    assert np.isclose(feb, 2.0 + (10.0 - 2.0) * 31 / 60)          # 2020-01-01 -> 02-01 -> 03-01 (60 days)
+    assert not np.isnan(full.values[:, 0, 0]).any()                  # no gap left (July is the last value)
+    limited = regularize_time_series(cube, "MS", fill="linear", max_gap=30)
+    assert np.isnan(limited.values[1]).all()                         # 60 days between its values
+    assert np.isnan(limited.values[3:6]).all()                       # March -> July: 122 days
+    assert np.array_equal(limited.values[0], full.values[0], equal_nan=True)
+
+
+def test_fill_whittaker_fills_only_the_gaps_and_keeps_the_values():
+    cube = _gappy_cube()
+    plain = regularize_time_series(cube, "MS")
+    filled = regularize_time_series(cube, "MS", fill="whittaker", lmbda=1.0)
+    keep = plain.notnull()
+    assert np.array_equal(filled.values[keep.values], plain.values[keep.values])
+    assert filled.notnull().values[:, 0, 0].all()
+    limited = regularize_time_series(cube, "MS", fill="whittaker", max_gap=30)
+    assert np.isnan(limited.values[1]).all()
+
+
+def test_integer_cube_with_nodata_is_filled_and_keeps_its_type():
+    cube = _gappy_cube().fillna(-9999).astype("int16").rio.write_nodata(-9999)
+    out = regularize_time_series(cube, "MS", fill="linear")
+    assert out.dtype == np.int16 and out.values[1, 0, 0] == round(2.0 + 8.0 * 31 / 60)
+
+
+def test_regularize_options_are_checked():
+    with pytest.raises(ValueError):
+        regularize_time_series(_gappy_cube(), "MS", fill="cubic")
+    with pytest.raises(ValueError):
+        regularize_time_series(_gappy_cube(), "MS", method="mode")
+    with pytest.raises(ValueError):
+        regularize_time_series(_gappy_cube(), "MS", fill="linear", max_gap=-1)

@@ -20,6 +20,7 @@ import rioxarray  # noqa: F401  (registers the .rio accessor)
 import xarray as xr
 
 from ._time import dates_from_labels, find_date, to_datetime_index
+from .qc import QA_RULES, qa_mask
 
 #: GDAL metadata tag where save_raster stores the dates of the bands.
 TIME_TAG = "ZEIT_TIME"
@@ -59,6 +60,17 @@ def load_raster(
     res: Any = None,
     resampling: str = "auto",
     validate: Optional[str] = None,
+    scale: bool = False,
+    qa: Any = None,
+    qa_rule: Optional[str] = None,
+    bands: Optional[Dict[str, Union[int, str]]] = None,
+    window: Optional[Tuple[int, int, int, int]] = None,
+    pixel: Optional[Tuple[int, int]] = None,
+    extent: Optional[Tuple[float, float, float, float]] = None,
+    tap: bool = False,
+    nodata: Any = None,
+    dtype: Any = None,
+    cutline: Any = None,
 ) -> xr.DataArray:
     """Read a time series (or a single map) as a georeferenced cube.
 
@@ -132,6 +144,68 @@ def load_raster(
     validate
         ``"landtrendr"``, ``"ccdc"`` or ``"cold"``: warn when the series looks unfit for
         that algorithm (too few dates, values that do not look scaled).
+    scale
+        ``True``: apply the ``scale_factor`` and ``add_offset`` the raster files store
+        for each band (GDAL's scale and offset, ``value * scale + offset``), after NoData
+        became NaN. Bands without them are left as they are, so a file with none keeps its
+        type. Files of a folder each use their own. Ignored for NetCDF/Zarr stores and
+        ``DataArray`` sources, which are already decoded. Needs ``masked`` ``"auto"`` or
+        ``True``.
+    qa
+        A quality band, so that the series comes back masked (NaN where the observation is
+        not usable, by ``qa_rule``): a band number of the same files (``qa=7`` for Landsat
+        files with the bands of a date in one file, read like ``band=7``), or another
+        source (a raster, folder, glob, list or ``DataArray``) with the same dates and
+        grid, read with the same ``clip``, ``window``/``pixel``, ``like``... as the data.
+        The quality band is read with the nearest cell. Integer data becomes float.
+    qa_rule
+        With ``qa``: how the quality band marks usable observations, one of ``"fmask"``,
+        ``"landsat_c2"``, ``"nonzero"``, ``"scl"`` or ``"hls_fmask"`` (see `zeit.qa_mask`).
+    bands
+        Bands by role, ``{"blue": 1, "green": 2, "red": 3, "nir": 4}``: name -> band (the
+        number of the band in each file, as ``band=``). Returns a ``(time, band, y, x)``
+        cube whose ``band`` coordinate holds the names, in the order of the dict. Give
+        ``band`` or ``bands``, not both.
+    window
+        Read only a window of pixels, ``(col0, row0, col1, row1)``: the first column and row
+        and the end (exclusive) of the raster's own grid, with no need for a CRS. The result
+        keeps the cells' coordinates and transform. A file is read in the window only. Not
+        with ``clip``, ``like``, ``crs`` or ``res``.
+    pixel
+        Read one pixel, ``(col, row)`` (``x`` first, as in ``window``), as a ``(time,)`` series
+        (``(time, band)`` with several bands) with the pixel's ``x`` and ``y`` as scalar
+        coordinates. Only that pixel is read from each file, so it is quick in a stack of many
+        gigabytes. The same restrictions as ``window``.
+    extent
+        Without a reference raster: the extent of the grid, ``(xmin, ymin, xmax, ymax)`` in the
+        CRS of the result (``crs`` or the data's), as ``gdalwarp -te``. With ``res`` the cells of
+        that size are laid from its top-left corner; without it, the cells of the data (same CRS
+        only), fitted to the extent as gdalwarp does: a whole number of them, a little larger or
+        smaller. With ``crs`` and ``extent``, ``res`` is needed. An extent that is a whole number
+        of cells apart from the data's crops it with no resampling.
+    tap
+        ``True``: the extent widened to whole cells counted from the origin of the coordinates, as
+        ``gdalwarp -tap``. Needs ``res``.
+    nodata
+        What the cells no data covers (outside the area, or the ``cutline``) hold, and the result's
+        NoData. ``None`` (default): the data's NoData, else NaN for floats and the type's extreme
+        for integers (the result's NoData). ``"source"``: as gdalwarp without ``-dstnodata``: the
+        data's NoData, and when it has none those cells are 0 and the result has no NoData (so
+        its zeros are values). A number: ``gdalwarp -dstnodata``; the data's own NoData cells
+        become it, and a value equal to it is moved one step. An error where it does not fit
+        ``dtype``.
+    dtype
+        The type of the result (``"float32"``, ``"int16"``, ``np.uint8``...), as ``gdalwarp -ot``:
+        the warp is done in the wider of the data's type and this one, then rounded (half away
+        from zero) and clamped to it. Without ``nodata`` the data's NoData is kept, or the type's
+        default.
+    cutline
+        Cells whose centre is outside the polygons get the ``nodata`` fill, as ``gdalwarp -cutline``:
+        a vector file (``"zones.gpkg"``, or ``("zones.gpkg", "layer")``), a GeoDataFrame or
+        GeoSeries, shapely geometries or GeoJSON-like objects (in the CRS of the result when they
+        have none). Without ``like``, the grid is also cropped to them, as ``-crop_to_cutline``: their
+        extent (so ``extent`` is not allowed), and without ``res`` the cells of the data entirely
+        inside it (same CRS only).
 
     Returns
     -------
@@ -169,11 +243,107 @@ def load_raster(
 
     >>> albers = zeit.load_raster("ndvi_stack.tif", crs="EPSG:5880", res=30)
     >>> coarse = zeit.load_raster("ndvi_stack.tif", res=250, resampling="average")
+
+    Surface reflectance by role, scaled and masked by its quality band, then an index:
+
+    >>> cube = zeit.load_raster("landsat/", bands={"red": 3, "nir": 4}, qa=7, qa_rule="fmask", scale=True)
+    >>> ndvi = zeit.normalized_difference(cube, "nir", "red")
+
+    One pixel of a large stack, or a window of its pixels:
+
+    >>> series = zeit.load_raster("LT_Stack_NDVI_Rondonia.tif", pixel=(120, 80))
+    >>> block = zeit.load_raster("LT_Stack_NDVI_Rondonia.tif", window=(100, 60, 140, 100))
     """
     if masked not in ("auto", True, False):
         raise ValueError(f"masked must be 'auto', True or False, got {masked!r}")
     if validate is not None and validate.lower() not in _VALIDATE:
         raise ValueError(f"validate must be one of {sorted(_VALIDATE)}, got {validate!r}")
+    if scale and masked is False:
+        raise ValueError("scale=True needs NoData as NaN (masked='auto' or True): "
+                         "the scale would change the NoData value")
+    rule = None
+    if qa is not None:
+        if qa_rule is None:
+            raise ValueError(f"qa= needs qa_rule= (one of {', '.join(QA_RULES)})")
+        rule = str(qa_rule).lower().replace("-", "_")
+        if rule not in QA_RULES:
+            raise ValueError(f"unknown qa_rule {qa_rule!r}; use one of {', '.join(QA_RULES)}")
+    elif qa_rule is not None:
+        raise ValueError("qa_rule= needs qa= (the quality band)")
+    win, point = _parse_window(window, pixel)
+    if win is not None and (clip is not None or like is not None or crs is not None or res is not None
+                            or extent is not None or tap or cutline is not None):
+        raise ValueError("window=/pixel= read the raster's own pixels: not with clip=, like=, crs=, res=, extent=, "
+                         "tap= or cutline=")
+    if nodata is not None and not isinstance(nodata, str):
+        try:
+            nodata = float(nodata)
+        except (TypeError, ValueError):
+            raise ValueError(f"nodata must be None, 'source' or a number, got {nodata!r}") from None
+    elif isinstance(nodata, str) and nodata != "source":
+        raise ValueError(f"nodata must be None, 'source' or a number, got {nodata!r}")
+    if dtype is not None:
+        try:
+            dtype = np.dtype(dtype)
+        except TypeError:
+            raise ValueError(f"dtype must be a numpy type, got {dtype!r}") from None
+        if not (np.issubdtype(dtype, np.number) or dtype == np.bool_) or np.issubdtype(dtype, np.complexfloating):
+            raise ValueError(f"dtype must be a real number type, got {dtype}")
+    if extent is not None:
+        try:
+            extent = tuple(float(v) for v in extent)
+        except (TypeError, ValueError):
+            extent = ()
+        if len(extent) != 4:
+            raise ValueError("extent= takes (xmin, ymin, xmax, ymax)")
+    if cutline is not None:
+        from ._warp import cutline_of
+        cutline = cutline_of(cutline)
+        if extent is not None:
+            raise ValueError("give extent= or cutline=, not both: gdalwarp crops to the cutline and ignores -te")
+    common = dict(dates=dates, start_year=start_year, chunks=chunks, clip=clip, masked=masked, pattern=pattern,
+                  date_format=date_format, recursive=recursive, like=like, crs=crs, res=res,
+                  resampling=resampling, scale=scale, window=win, point=point, extent=extent, tap=bool(tap),
+                  nodata=nodata, dtype=dtype, cutline=cutline)
+    if bands is not None:
+        if band is not None:
+            raise ValueError("give band= or bands=, not both")
+        da = _read_bands(source, bands, common)
+    else:
+        da = _read(source, band=band, **common)
+    if qa is not None:
+        da = _apply_qa(da, source, qa, rule, common)
+    if validate is not None:
+        _validate(da, validate.lower())
+    return da
+
+
+def _read(
+    source: Any,
+    *,
+    dates: Any,
+    start_year: Optional[int],
+    band: Any,
+    chunks: Any,
+    clip: Any,
+    masked: Union[bool, str],
+    pattern: Optional[str],
+    date_format: Optional[str],
+    recursive: bool,
+    like: Any,
+    crs: Any,
+    res: Any,
+    resampling: str,
+    scale: bool,
+    window: Optional[Tuple[int, int, int, int]],
+    point: bool,
+    extent: Any = None,
+    tap: bool = False,
+    nodata: Any = None,
+    dtype: Any = None,
+    cutline: Any = None,
+) -> xr.DataArray:
+    """``load_raster`` without ``bands``, ``qa`` and ``validate``."""
     if dates is not None and start_year is not None:
         raise ValueError("give dates or start_year, not both")
     from ._warp import RESAMPLING_NAMES
@@ -181,13 +351,17 @@ def load_raster(
         raise ValueError(f"unknown resampling {resampling!r}; use 'auto' or one of {', '.join(RESAMPLING_NAMES)}")
     is_array = isinstance(source, np.ndarray) or (hasattr(source, "dask")
                                                   and not isinstance(source, (xr.DataArray, xr.Dataset)))
-    target = crs is not None or res is not None
+    target = crs is not None or res is not None or extent is not None or tap
     if target and like is not None:
-        raise ValueError("give like= or crs=/res=, not both: like= already sets the CRS and the cells")
-    if target and is_array:
-        raise ValueError("crs=/res= need a georeferenced source; a numpy array has no grid "
-                         "(georeference it with like= first)")
+        raise ValueError("give like= or crs=/res=/extent=/tap=, not both: like= already sets the CRS and the cells")
+    if (target or nodata is not None or dtype is not None or cutline is not None) and is_array:
+        raise ValueError("crs=/res=/extent=/tap=/nodata=/dtype=/cutline= need a georeferenced source; a numpy array "
+                         "has no grid (georeference it with like= first)")
+    # nodata=, dtype= and cutline= without another grid: the data's own grid, converted
+    target = target or (like is None and (nodata is not None or dtype is not None or cutline is not None))
+    warp_kw = dict(nodata=nodata, dtype=dtype, cutline=cutline)
     grid = grid_of(like) if like is not None and not is_array else None
+    early = False  # the window is already cut (a raster file is read in the window only)
 
     if is_array:
         da = _from_array(source, like)
@@ -197,32 +371,163 @@ def load_raster(
     else:
         files = _expand(source, recursive)
         if len(files) == 1 and not _is_collection(source):
-            da = _open_one(files[0], band=band, chunks=chunks, date_format=date_format)
+            da = _open_one(files[0], band=band, chunks=chunks, date_format=date_format, scale=scale,
+                           window=window)
+            early = not _is_xarray_file(files[0])
         else:
             da = _open_many(files, band=band, chunks=chunks, pattern=pattern, date_format=date_format,
                             dates=dates, start_year=start_year, grid=grid, resampling=resampling,
-                            target=(crs, res) if target else None)
+                            target=(crs, res, extent, tap, cutline) if target else None, scale=scale,
+                            window=window, warp_kw=warp_kw)
+            early = True
             target = False  # already on the grid: the folder's extent is that of all its files
         band = None
 
     if band is not None and "band" in da.dims:
         da = da.sel(band=band)
     da = _normalize(da, dates=dates, start_year=start_year)
+    if window is not None and not early:
+        da = _cut(da, window)
     if target:
-        grid = _target_grid(da, crs, res)
+        grid = _target_grid(da, crs, res, extent, tap, cutline)
     if grid is not None:
         from ._warp import to_grid
-        da = to_grid(da, grid, resampling)
+        da = to_grid(da, grid, resampling, **warp_kw)
     if clip is not None:
         da = _clip(da, clip)
     da = _mask(da, masked)
+    if point:
+        da = da.isel(y=0, x=0)
     if chunks is None and not isinstance(source, (xr.DataArray, xr.Dataset)):
         da = da.load()
     elif chunks is not None and da.chunks is None:
         da = da.chunk(chunks)
-    if validate is not None:
-        _validate(da, validate.lower())
     return da
+
+
+# ---------------------------------------------------------------------------
+# Windows, scale and offset, bands by role, quality bands
+# ---------------------------------------------------------------------------
+
+def _parse_window(window: Any, pixel: Any) -> Tuple[Optional[Tuple[int, int, int, int]], bool]:
+    """``(window, point)``: the window ``(col0, row0, col1, row1)`` to read (``pixel=(col, row)`` is the window
+    of one cell) and whether the result is a single pixel."""
+    if window is not None and pixel is not None:
+        raise ValueError("give window= or pixel=, not both")
+
+    def whole(values: Any, n: int, name: str) -> Tuple[int, ...]:
+        try:
+            items = tuple(values)
+            out = tuple(int(v) for v in items)
+        except (TypeError, ValueError):
+            raise ValueError(f"{name} takes {n} whole numbers, got {values!r}") from None
+        if len(out) != n or any(a != b for a, b in zip(out, items)) or any(v < 0 for v in out):
+            raise ValueError(f"{name} takes {n} whole numbers of 0 or more, got {values!r}")
+        return out
+
+    if pixel is not None:
+        col, row = whole(pixel, 2, "pixel= (col, row)")
+        return (col, row, col + 1, row + 1), True
+    if window is not None:
+        col0, row0, col1, row1 = whole(window, 4, "window= (col0, row0, col1, row1)")
+        if col1 <= col0 or row1 <= row0:
+            raise ValueError(f"window= is empty: {tuple(window)!r} (the end is exclusive)")
+        return (col0, row0, col1, row1), False
+    return None, False
+
+
+def _cut(da: xr.DataArray, window: Tuple[int, int, int, int]) -> xr.DataArray:
+    """The window of pixels ``(col0, row0, col1, row1)`` of a cube, with its coordinates and transform."""
+    from affine import Affine
+
+    from ._warp import transform_of
+
+    col0, row0, col1, row1 = window
+    if "y" not in da.dims or "x" not in da.dims:
+        raise ValueError(f"window=/pixel= need y and x dimensions, got {da.dims}")
+    if col1 > da.sizes["x"] or row1 > da.sizes["y"]:
+        raise ValueError(f"the window {tuple(window)} is outside the raster ({da.sizes['x']} columns x "
+                         f"{da.sizes['y']} rows)")
+    try:
+        transform = transform_of(da)
+    except Exception:  # noqa: BLE001 - no georeferencing to move
+        transform = None
+    out = da.isel(x=slice(col0, col1), y=slice(row0, row1))
+    if transform is not None:
+        out = out.rio.write_transform(transform * Affine.translation(col0, row0))
+    return out
+
+
+def _scale_offsets(src: Any) -> Tuple[np.ndarray, np.ndarray]:
+    """The scale and offset of each band of an open rasterio dataset (1 and 0 where it has none)."""
+    scales = np.array([1.0 if s is None or not np.isfinite(s) else s for s in src.scales], dtype=np.float64)
+    offsets = np.array([0.0 if o is None or not np.isfinite(o) else o for o in src.offsets], dtype=np.float64)
+    return scales, offsets
+
+
+def _apply_scale(da: xr.DataArray, scales: Any, offsets: Any) -> xr.DataArray:
+    """``da * scale + offset`` with NoData as NaN, where a scale or an offset changes something (else ``da`` as it
+    is). ``scales`` and ``offsets`` hold one value, or one for each band of ``da``."""
+    scales = np.atleast_1d(np.asarray(scales, dtype=np.float64))
+    offsets = np.atleast_1d(np.asarray(offsets, dtype=np.float64))
+    if (scales == 1.0).all() and (offsets == 0.0).all():
+        return da
+    da = _mask(da, True)  # the NoData value is not a measurement: it must not be scaled
+    if not np.issubdtype(da.dtype, np.floating):
+        da = da.astype(np.float64 if da.dtype.itemsize >= 4 else np.float32)
+    with xr.set_options(keep_attrs=True):
+        if "band" in da.dims and da.sizes["band"] == len(scales) and not (
+                (scales == scales[0]).all() and (offsets == offsets[0]).all()):
+            da = (da * xr.DataArray(scales.astype(da.dtype), dims="band")
+                  + xr.DataArray(offsets.astype(da.dtype), dims="band"))
+        else:
+            da = da * float(scales[0]) + float(offsets[0])
+    for key in ("scale_factor", "add_offset"):
+        da.attrs.pop(key, None)
+        da.encoding.pop(key, None)
+    return da.rio.write_nodata(np.nan, encoded=True)
+
+
+def _read_bands(source: Any, bands: Any, common: Dict[str, Any]) -> xr.DataArray:
+    """``load_raster(..., bands={name: band})``: a ``(time, band, y, x)`` cube of the named bands."""
+    if not isinstance(bands, dict) or not bands:
+        raise ValueError("bands= takes a dict of band roles to bands, e.g. {'red': 3, 'nir': 4}")
+    names = [str(k) for k in bands]
+    if len(set(names)) != len(names):
+        raise ValueError(f"bands= has a name twice: {names}")
+    layers = [_read(source, band=b, **common).drop_vars("band", errors="ignore") for b in bands.values()]
+    try:
+        cube = xr.concat(layers, dim=pd.Index(names, name="band"), coords="minimal", compat="override",
+                         join="exact")
+    except ValueError as err:
+        raise ValueError(f"the bands do not share dates and grid: {err}") from None
+    cube.attrs = dict(layers[0].attrs)
+    return cube.transpose(*[d for d in ("time", "band", "y", "x") if d in cube.dims])
+
+
+def _apply_qa(da: xr.DataArray, source: Any, qa: Any, rule: str, common: Dict[str, Any]) -> xr.DataArray:
+    """The cube where the quality band ``qa`` (a band of ``source``, or another source) keeps the observation."""
+    in_source = isinstance(qa, (int, np.integer)) or (
+        isinstance(qa, str) and isinstance(source, (xr.DataArray, xr.Dataset)))
+    kw = dict(common, masked=True, resampling="nearest", nodata=None, dtype=None, cutline=None)
+    if (common["like"] is not None or common["crs"] is not None or common["res"] is not None
+            or common["extent"] is not None or common["tap"] or common["cutline"] is not None):
+        # the data is on its grid already: the quality band is put on the same one
+        kw.update(like=da, crs=None, res=None, clip=None, extent=None, tap=False)
+    q = _read(source if in_source else qa, band=qa if in_source else None, **kw)
+    mask = qa_mask(q, rule)
+    for dim in ("time", "y", "x"):
+        if dim in mask.dims:
+            if dim not in da.dims or mask.sizes[dim] != da.sizes[dim]:
+                raise ValueError(f"the quality band has {dim} {mask.sizes[dim]}, the data "
+                                 f"{da.sizes.get(dim, 'none')}: they must share dates and grid")
+            if dim == "time" and not np.array_equal(mask["time"].values, da["time"].values):
+                raise ValueError("the quality band and the data have different dates")
+            mask = mask.assign_coords({dim: da[dim].values})
+    keep = mask.drop_vars([c for c in mask.coords if c not in mask.dims], errors="ignore")
+    out = da.where(keep)
+    out.attrs = dict(da.attrs)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -263,9 +568,16 @@ def _expand(source: Any, recursive: bool) -> List[str]:
     raise FileNotFoundError(f"file not found: {path}")
 
 
-def _open_one(path: str, *, band: Any, chunks: Any, date_format: Optional[str]) -> xr.DataArray:
+def _is_xarray_file(path: str) -> bool:
+    """A Zarr store or a NetCDF file (opened by xarray, not by rasterio)."""
     lower = path.rstrip("/\\").lower()
-    if _is_store(lower) or lower.endswith((".nc", ".nc4", ".netcdf")):
+    return _is_store(lower) or lower.endswith((".nc", ".nc4", ".netcdf"))
+
+
+def _open_one(path: str, *, band: Any, chunks: Any, date_format: Optional[str], scale: bool = False,
+              window: Optional[Tuple[int, int, int, int]] = None) -> xr.DataArray:
+    lower = path.rstrip("/\\").lower()
+    if _is_xarray_file(path):
         engine = "zarr" if _is_store(lower) else None
         ds = xr.open_dataset(path, engine=engine, chunks=chunks if chunks is not None else {},
                              decode_coords="all")
@@ -274,8 +586,11 @@ def _open_one(path: str, *, band: Any, chunks: Any, date_format: Optional[str]) 
     with rasterio.open(path) as src:
         descriptions = list(src.descriptions)
         tags = src.tags()
+        scales, offsets = _scale_offsets(src) if scale else (None, None)
     tag = tags.get(TIME_TAG)
     da = rioxarray.open_rasterio(path, masked=False, chunks=_file_chunks(chunks))
+    if window is not None:  # lazily indexed: only the window is read from the file
+        da = _cut(da, window)
     da.attrs.pop("long_name", None)
     count = da.sizes["band"]
     times: Optional[pd.DatetimeIndex] = None
@@ -309,8 +624,12 @@ def _open_one(path: str, *, band: Any, chunks: Any, date_format: Optional[str]) 
         if any(not isinstance(b, (int, np.integer)) for b in idx):
             raise ValueError(f"band of a raster file: 1-based band numbers, got {band!r}")
         da = da.isel(band=[int(b) - 1 for b in idx])
+        if scale:
+            scales, offsets = scales[[int(b) - 1 for b in idx]], offsets[[int(b) - 1 for b in idx]]
         if np.isscalar(band):
             da = da.squeeze("band", drop=False)
+    if scale:
+        da = _apply_scale(da, scales, offsets)
     da.attrs["source"] = path
     from ._embeddings import TAG, attrs_from_tag
 
@@ -380,7 +699,9 @@ def _dates_of_bands(times: pd.DatetimeIndex, count: int, descriptions: Sequence[
 
 def _open_many(files: List[str], *, band: Any, chunks: Any, pattern: Optional[str],
                date_format: Optional[str], dates: Any, start_year: Optional[int], grid: Any = None,
-               resampling: str = "auto", target: Optional[Tuple[Any, Any]] = None) -> xr.DataArray:
+               resampling: str = "auto", target: Optional[Tuple[Any, ...]] = None, scale: bool = False,
+               window: Optional[Tuple[int, int, int, int]] = None,
+               warp_kw: Optional[Dict[str, Any]] = None) -> xr.DataArray:
     import re
 
     regex = re.compile(pattern) if pattern else None
@@ -424,18 +745,26 @@ def _open_many(files: List[str], *, band: Any, chunks: Any, pattern: Optional[st
     reference = None
     for path, when, spectral in records:
         layer = rioxarray.open_rasterio(path, masked=False, chunks=_file_chunks(chunks, single=True))
+        if window is not None:
+            layer = _cut(layer, window)
         if layer.sizes["band"] > 1:
             if band is None:
                 raise ValueError(f"{os.path.basename(path)} has {layer.sizes['band']} bands; "
                                  "files of a series need one band each, or give band=N")
             layer = layer.isel(band=int(band) - 1)
+            at = int(band) - 1
         else:
             layer = layer.isel(band=0)
+            at = 0
+        if scale:
+            with rasterio.open(path) as src:
+                scales, offsets = _scale_offsets(src)
+            layer = _apply_scale(layer, scales[at], offsets[at])
         layer = layer.drop_vars("band", errors="ignore")
         layer.attrs.pop("long_name", None)
         if grid is not None:  # every file onto the reference grid
             from ._warp import to_grid
-            layers.append(to_grid(layer, grid, resampling))
+            layers.append(to_grid(layer, grid, resampling, **(warp_kw or {})))
             continue
         here = (layer.shape, layer.rio.transform(), layer.rio.crs)
         if reference is None:
@@ -503,13 +832,14 @@ def grid_of(like: Any):
                 ref["y"].values)
 
 
-def _target_grid(da: xr.DataArray, crs: Any, res: Any):
-    """The grid of ``load_raster(..., crs=, res=)`` for a cube (``_warp.suggested_grid``)."""
+def _target_grid(da: xr.DataArray, crs: Any, res: Any, extent: Any = None, tap: bool = False, cutline: Any = None):
+    """The grid of ``load_raster(..., crs=, res=, extent=, tap=, cutline=)`` for a cube (``_warp.suggested_grid``)."""
     from ._warp import suggested_grid, transform_of
 
     if "y" not in da.dims or "x" not in da.dims:
         raise ValueError("crs=/res=: the data needs y and x dimensions")
-    return suggested_grid([(transform_of(da), (da.sizes["y"], da.sizes["x"]), da.rio.crs)], crs, res)
+    return suggested_grid([(transform_of(da), (da.sizes["y"], da.sizes["x"]), da.rio.crs)], crs, res, extent, tap,
+                          cutline)
 
 
 def _from_xarray(obj: Union[xr.DataArray, xr.Dataset], band: Any) -> xr.DataArray:
@@ -646,7 +976,7 @@ def _mask(da: xr.DataArray, masked: Union[bool, str]) -> xr.DataArray:
 
 def _validate(da: xr.DataArray, algorithm: str) -> None:
     label = {"landtrendr": "LandTrendr", "ccdc": "CCDC/COLD", "cold": "CCDC/COLD"}[algorithm]
-    steps = da.sizes.get("time", da.sizes.get("band", 1)) if da.ndim > 2 else 1
+    steps = da.sizes.get("time", da.sizes.get("band", 1)) if da.ndim > 2 or "time" in da.dims else 1
     if steps < _VALIDATE[algorithm]:
         kind = "an annual time series" if algorithm == "landtrendr" else "a dense time series"
         warnings.warn(f"{label}: expected {kind}, but only {steps} time steps were found.", stacklevel=3)

@@ -442,3 +442,30 @@ def test_cog_and_other_formats(ndvi, tmp_path):
     img = save_raster(cube.isel(time=0), tmp_path / "map.img")
     with rasterio.open(img) as src:
         assert src.driver == "HFA"
+
+
+def test_save_raster_writes_category_names_and_a_colour_table(tmp_path):
+    classes = np.array([[0, 1, 2], [2, 1, 0]], dtype="uint8")
+    for name, driver in (("lc.tif", None), ("lc_cog.tif", "COG")):
+        path = save_raster(classes, tmp_path / name, crs="EPSG:32723", transform=from_origin(0, 2, 1, 1), nodata=0,
+                           categories={1: "forest", 3: "a < b"}, colors={1: "#2ca02c", 2: (31, 119, 180)},
+                           driver=driver)
+        with rasterio.open(path) as src:
+            cmap = src.colormap(1)
+            assert cmap[1] == (44, 160, 44, 255) and cmap[2] == (31, 119, 180, 255) and cmap[0] == (0, 0, 0, 0)
+            assert np.array_equal(src.read(1), classes)
+        xml = (tmp_path / (name + ".aux.xml")).read_text(encoding="utf-8")
+        names = [part.split("</Category>")[0] for part in xml.split("<Category>")[1:]]
+        assert names == ["", "forest", "", "a &lt; b"]          # index = value
+
+
+def test_save_raster_categories_and_colors_are_checked(tmp_path):
+    one = np.zeros((2, 2), dtype="float32")
+    with pytest.raises(ValueError, match="uint8 or uint16"):
+        save_raster(one, tmp_path / "a.tif", colors={1: "#000000"})
+    with pytest.raises(ValueError, match="non-negative"):
+        save_raster(one.astype("uint8"), tmp_path / "b.tif", categories={-1: "x"})
+    with pytest.raises(ValueError, match="colour"):
+        save_raster(one.astype("uint8"), tmp_path / "c.tif", colors={1: "green"})
+    with pytest.raises(ValueError, match="one map"):
+        save_raster({"a": xr.DataArray(one, dims=("y", "x"))}, tmp_path / "d", categories={1: "x"})

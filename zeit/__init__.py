@@ -39,7 +39,7 @@ from ._texture_api import texture
 from ._som_api import som, clean_samples
 from ._smooth import smooth
 from .masks import extract_water_mask
-from .qc import qc_modis_summary, qc_modis_state, qc_sentinel2_scl
+from .qc import qc_modis_summary, qc_modis_state, qc_sentinel2_scl, qa_mask
 
 from ._tmask_api import tmask
 from ._sma import unmix
@@ -55,8 +55,10 @@ from ._topocorr import topographic_correction
 
 from .regularize import regularize_time_series
 
-from .indices import compute_indices
+from .indices import compute_indices, nd, normalized_difference
 from .io import load_raster, save_raster, get_georef
+from ._vrt import build_vrt
+from .vector import pixel_area, rasterize, polygonize, zonal_stats, zonal_areas, ZonalTables
 
 try:
     import zeit.xarray_api # This registers the xarray accessor automatically
@@ -121,7 +123,7 @@ __all__ = [
     "emerging_hotspots",
     "snic_grid", "snic_to_polygons",
     "extract_water_mask",
-    "qc_modis_summary", "qc_modis_state", "qc_sentinel2_scl",
+    "qc_modis_summary", "qc_modis_state", "qc_sentinel2_scl", "qa_mask",
     "build_time_series",
     "nbar",
     "sentinel2_angles",
@@ -133,9 +135,10 @@ __all__ = [
     "topographic_correction",
     "build_annual_composites",
     "build_spectral_temporal_metrics",
-    "compute_indices",
+    "compute_indices", "nd", "normalized_difference",
     "regularize_time_series",
-    "load_raster", "save_raster", "plot", "interpret",
+    "load_raster", "save_raster", "build_vrt", "plot", "interpret",
+    "pixel_area", "rasterize", "polygonize", "zonal_stats", "zonal_areas", "ZonalTables",
     "load_embeddings", "similarity", "embedding_change",
     "run_tiles", "run_worker", "invite_helpers", "tile_urls", "stac_tiles", "gee_tiles", "fetch_tiles", "fetch_weights",
     "doctor", "ai"

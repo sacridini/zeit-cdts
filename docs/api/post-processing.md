@@ -151,6 +151,155 @@ Temporal consistency of yearly (or any) classifications: in each pixel's series,
 
 </div>
 
+## Zones and vectors
+
+Vector layers and maps on one grid: the area of each pixel, a layer burned on a grid, a map's patches as polygons and a layer's zones measured on maps. A layer is a `GeoDataFrame` or a vector file path (reprojected to the maps' CRS); a map is a `DataArray` or a raster path. Janus' Python history writes its zonal statistics, rasterize and polygonize runs as calls to these functions.
+
+### `pixel_area` { .api }
+
+<!-- sig: zeit.vector.pixel_area -->
+```python
+zeit.vector.pixel_area(da, *, samples=128)
+```
+
+The area of each pixel of a grid, in m². On a geographic CRS and on a projection that does not preserve areas it is the geodesic area on the CRS's ellipsoid (Karney's algorithm, as GDAL's `OGR_G_GeodesicArea`), measured at the nodes of a grid of at most `samples` + 1 a side and bilinearly interpolated; on an equal-area projection it is the transform's area; without a CRS, the transform's in grid units squared. Also exported as `zeit.pixel_area`. (`accuracy` still weighs the rows of a geographic map by their area on the authalic sphere.)
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `da` | `DataArray`, `Dataset` or path | required | A raster (only its grid is used). |
+| `samples` | `int` or `None` | `128` | Nodes a side of the measured grid; `None` measures every pixel. |
+
+</div>
+
+Returns a `(y, x)` `DataArray` of m² on the grid of `da`.
+
+### `rasterize` { .api }
+
+<!-- sig: zeit.vector.rasterize -->
+```python
+zeit.vector.rasterize(vector, like, burn=1, *, layer=None, all_touched=False, name=None)
+```
+
+Burns a layer on the grid of `like` (rasterio's `rasterize`: the features in reading order, a later one over an earlier one; a pixel is burned when its centre is inside the feature, or when the feature touches it with `all_touched`). Also exported as `zeit.rasterize`.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `vector` | `GeoDataFrame` or path | required | The layer. |
+| `like` | `DataArray`, `Dataset` or path | required | The grid of the result. |
+| `burn` | number or `str` | `1` | `1` (or another number): that value, `uint8` where it fits (0 elsewhere). `"id"`: the feature's number, 1, 2... counting every feature read (`int32`, no data 0). An attribute: its value (an integer field as `int32`, no data -2³¹; a real one as `float64`, no data NaN) or, for a text, a class numbered from 1 in sorted order (`uint8`, `int32` from 255 classes; no data 0) named in the `flag_values` and `flag_meanings` attributes. Features with no geometry or no value are left out. |
+| `layer` | `str` | `None` | The layer of a multi-layer file. |
+| `all_touched` | `bool` | `False` | Burn every pixel a feature touches. |
+| `name` | `str` | `None` | The result's name. |
+
+</div>
+
+```python
+crops = zeit.rasterize("fields.gpkg", ndvi, "crop")          # classes 1, 2... by name
+zeit.save_raster(crops, "fields.tif")
+print(dict(zip(crops.attrs["flag_values"], crops.attrs["flag_meanings"].split())))
+```
+
+### `polygonize` { .api }
+
+<!-- sig: zeit.vector.polygonize -->
+```python
+zeit.vector.polygonize(
+    raster, *, band=None, connectivity=4, min_area_ha=0.0, min_pixels=None,
+    simplify=0.0, classes=None, years=False,
+    mean_of=None, mean_band=None, mean_name="mean",
+)
+```
+
+The patches of a map (pixels of one value connected 4- or 8-wise, no data left out) as polygons, from GDAL's polygonizer. Also exported as `zeit.polygonize`.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `raster` | `DataArray` or path | required | A 2-D map. |
+| `band` | `int` | `None` | The band (1-based) of a file. |
+| `connectivity` | `int` | `4` | `4` or `8`. |
+| `min_area_ha`, `min_pixels` | `float`, `int` | `0.0`, `None` | A minimum patch, in hectares (the pixel's area is taken at the grid's centre) or in pixels: smaller patches are merged by [`mmu_sieve`](#mmu_sieve) into the neighbour they share the longest border with, and one with no neighbour to join is left out. |
+| `simplify` | `float` | `0.0` | Simplification tolerance in metres (a geographic CRS: degrees at 111,320 m), keeping the topology. |
+| `classes` | `dict` | `None` | Class names by value: a `class` column. |
+| `years` | `bool` | `False` | The values are decimal years: a `date` column (`YYYY-MM-DD`; a whole year as itself). |
+| `mean_of`, `mean_band`, `mean_name` | map, `int`, `str` | `None`, `None`, `"mean"` | Another map put on this grid, whose mean in each patch is the `mean_name` column. |
+
+</div>
+
+Returns a `GeoDataFrame` in the raster's CRS with `value`, `class`, `date`, `area_ha` and `perimeter_m` (on the CRS's ellipsoid), `pixels`, the mean and `geometry`, those asked for.
+
+```python
+patches = zeit.polygonize("landcover_2020.tif", connectivity=8, min_area_ha=1, classes={1: "forest", 2: "pasture"})
+patches.to_file("patches.gpkg", layer="polygons", driver="GPKG")
+```
+
+### `zonal_stats` { .api }
+
+<!-- sig: zeit.vector.zonal_stats -->
+```python
+zeit.vector.zonal_stats(
+    zones, rasters, *, bands=None, labels=None, layer=None, id_field=None,
+    all_touched=False, stat="mean", window=None,
+)
+```
+
+The statistics of continuous maps in each zone. Each feature is a zone, its pixels those whose centre is inside it (or that it touches, with `all_touched`; a pixel in several features counts in each). In each map the zone's values, no data left out, give `n`, `mean`, `std` (population), `min`, `p10`, `p25`, `median`, `p75`, `p90` (linear interpolation) and `max`. Also exported as `zeit.zonal_stats`.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `zones` | `GeoDataFrame` or path | required | The layer, reprojected to the maps' CRS. |
+| `rasters` | map or list | required | Maps on one grid: paths, `DataArray`s (2-D, or with a leading `time`/`band` dimension whose layers are maps) or `(path, band[, label])` tuples. |
+| `bands` | `int` or list | `None` | The band (1-based) of each file. |
+| `labels` | `list[str]` | `None` | A label for each map (default: the file's name, the tuple's label, the layer's coordinate). |
+| `layer` | `str` | `None` | The layer of a multi-layer file. |
+| `id_field` | `str` | `None` | The attribute that names the zones in the `id` column (default: the feature id). |
+| `all_touched` | `bool` | `False` | Also the pixels a zone touches. |
+| `stat` | `str` | `"mean"` | The statistic of the wide table. |
+| `window` | `tuple` | `None` | Pixel window `(x0, y0, x1, y1)` of the maps. |
+
+</div>
+
+Returns `ZonalTables(long, wide, transitions)`: `long` has `id`, `fid`, `date` (the map's label) and the ten statistics, a row per zone and map; `wide` has `id`, `fid`, `pixels` (the zone's, valid or not) and a `<stat>_<label>` column per map; `transitions` is `None`.
+
+### `zonal_areas` { .api }
+
+<!-- sig: zeit.vector.zonal_areas -->
+```python
+zeit.vector.zonal_areas(
+    zones, rasters, *, kind="classes", names=None, bands=None, labels=None,
+    layer=None, id_field=None, all_touched=False, transitions=None, window=None,
+)
+```
+
+The pixels and area of each class (or year) of class maps in each zone, and the transitions between two maps. The zones are those of [`zonal_stats`](#zonal_stats); each pixel counts with its true area (see [`pixel_area`](#pixel_area), measured over the zones' extent) in the class of its value rounded (halves away from zero) or, with `kind="years"`, in its year. Pixels with no data are left out. Also exported as `zeit.zonal_areas`.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `zones`, `rasters`, `bands`, `labels`, `layer`, `id_field`, `all_touched`, `window` | | | As in `zonal_stats`. |
+| `kind` | `str` | `"classes"` | `"classes"` or `"years"`. |
+| `names` | `dict` | `None` | Class names by value (the `class` column and the `ha_<name>` columns). |
+| `transitions` | `(int, int)` | `None` | The positions of two maps: the area of each change from the first to the second. |
+
+</div>
+
+Returns `ZonalTables(long, wide, transitions)`: `long` has `id`, `fid`, `date`, `value`, `class` (`year`), `pixels`, `area_m2`, `area_ha` and `percent` of the zone's counted area, a row per zone, map and class; `wide` has `id`, `fid`, `pixels` and an `ha_<class>` column per class (`_<label>` after it with several maps); `transitions` has `id`, `fid`, `from`, `from_class`, `to`, `to_class`, `pixels`, `area_m2` and `area_ha`.
+
+```python
+t = zeit.zonal_areas("municipalities.gpkg", sorted(glob("lc_*.tif")), names={1: "forest", 2: "pasture"}, transitions=(0, -1))
+t.to_csv("tables/")     # zonal_long.csv, zonal_wide.csv and transitions.csv (if any), the folder created
+```
+
+`ZonalTables.to_csv(folder)` writes the tables as `DataFrame.to_csv(path, index=False)` does and returns the paths written.
+
 ## Classification
 
 ### `train_classifier` { .api }
