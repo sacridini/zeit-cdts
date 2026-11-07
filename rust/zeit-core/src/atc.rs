@@ -122,6 +122,12 @@ pub struct Atc {
     pub hr: f32,
     /// Asymmetry of the two-term Henyey-Greenstein phase function (`tthg.sob`).
     pub sob: f32,
+    /// AOD of the scene per band (`atc->aod`): the mean of the map, or the fallback spectrum.
+    pub aod: Vec<f32>,
+    /// Was an AOD map compiled from dark targets (`aodmap`), or is the fallback used?
+    pub aodmap: bool,
+    /// Cells of the AOD map without an estimate of their own (`xy_interp`, band 0: 1 where the cell was interpolated).
+    pub xy_interp: CoarseBrick,
     /// AOD per band and coarse cell (`xy_aod`; its band domains name the bands: the grid also defines the cells the
     /// dark targets fall in).
     pub xy_aod: CoarseBrick,
@@ -165,6 +171,9 @@ impl Atc {
             ha: 0.0,
             hr: 0.0,
             sob: 0.0,
+            aod: vec![0.0; nb],
+            aodmap: false,
+            xy_interp: brick(1),
             xy_aod: brick(nb),
             xy_mod: brick(nb),
             xy_pr: brick(1),

@@ -1,6 +1,7 @@
-//! zeit._core.aod: a minimal binding of the dark target and AOD functions of zeit-core (a port of the first half of
+//! zeit._core.aod: a minimal binding of the dark target and AOD functions of zeit-core (a port of
 //! FORCE's `aod-ll.c`: `aodfileread`, `extract_dark_target`, the spectral libraries, `aod_lib_to_target`,
-//! `aod_from_target`, `aod_elev_dependency`), for the comparison with FORCE. The public function
+//! `aod_from_target`, `aod_elev_dependency`, and the AOD map: `compile_aod` with GDAL's `invdist` gridding), for the
+//! comparison with FORCE. The public function
 //! (`zeit.atmospheric_correction`) comes later.
 
 use numpy::{PyArray1, PyReadonlyArray1};
@@ -84,12 +85,20 @@ fn dump_fit(o: &mut Out, d: &[DarkObj], k: i32) {
     }
 }
 
-/// The scene of FORCE's dark target functions (see `benchmarks/vs_originals/force_aod/main.inc` for the layout of the
-/// arrays, here the keys of a dict): runs `extract_dark_target` (water, shadow, vegetation), `aod_lib_to_target` on
-/// the targets, `aod_from_target` and `aod_elev_dependency` in the order of `compile_aod`, and returns the dumps of
-/// the stages as bytes in the layout the C harness writes, with the times (ms) of the extraction and the estimation.
-#[pyfunction]
-fn scene<'py>(py: Python<'py>, d: &Bound<'py, PyDict>) -> PyResult<(Bound<'py, PyBytes>, f64, f64)> {
+struct Loaded {
+    nb: usize,
+    res: f64,
+    multi: bool,
+    rsr: Vec<usize>,
+    atc: Atc,
+    toa: Toa,
+    qai: Vec<i16>,
+    top: Top,
+}
+
+/// The arrays of a scene dict (see `benchmarks/vs_originals/force_aod/main.inc` for the layout) as the `zeit-core`
+/// structures.
+fn load_scene<'py>(d: &Bound<'py, PyDict>) -> PyResult<Loaded> {
     let nb: usize = get(d, "nb")?.extract()?;
     let (nx, ny): (usize, usize) = (get(d, "nx")?.extract()?, get(d, "ny")?.extract()?);
     let res: f64 = get(d, "res")?.extract()?;
@@ -155,6 +164,16 @@ fn scene<'py>(py: Python<'py>, d: &Bound<'py, PyDict>) -> PyResult<(Bound<'py, P
     let toa = Toa { grid: SceneGrid { nx, ny, res }, bands: toa_v.chunks(npix).map(|c| c.to_vec()).collect(), domain };
     let qai: Vec<i16> = vec_of(d, "qai")?;
     let top = Top { dem: vec_of(d, "top_dem")?, slope: vec_of(d, "slope")?, ill: vec_of(d, "ill")?, sky: vec_of(d, "sky")? };
+    Ok(Loaded { nb, res, multi, rsr, atc, toa, qai, top })
+}
+
+/// The scene of FORCE's dark target functions (see `benchmarks/vs_originals/force_aod/main.inc` for the layout of the
+/// arrays, here the keys of a dict): runs `extract_dark_target` (water, shadow, vegetation), `aod_lib_to_target` on
+/// the targets, `aod_from_target` and `aod_elev_dependency` in the order of `compile_aod`, and returns the dumps of
+/// the stages as bytes in the layout the C harness writes, with the times (ms) of the extraction and the estimation.
+#[pyfunction]
+fn scene<'py>(py: Python<'py>, d: &Bound<'py, PyDict>) -> PyResult<(Bound<'py, PyBytes>, f64, f64)> {
+    let Loaded { nb, res, multi, rsr, mut atc, toa, qai, top } = load_scene(d)?;
     let green = atc.xy_aod.find_domain("GREEN").ok_or_else(|| PyValueError::new_err("no GREEN band"))?;
     let (blue, red, sw2) = (
         atc.xy_aod.find_domain("BLUE").ok_or_else(|| PyValueError::new_err("no BLUE band"))?,
@@ -208,6 +227,77 @@ fn scene<'py>(py: Python<'py>, d: &Bound<'py, PyDict>) -> PyResult<(Bound<'py, P
     };
     let (bytes, t_extract, t_fit) = py.detach(run).map_err(err)?;
     Ok((PyBytes::new(py, &bytes), t_extract, t_fit))
+}
+
+/// `compile_aod` on a scene dict (as [`scene`]; the sun zenith band of the view brick is set to 30 where there is a
+/// view and to the nodata value where there is none, as the C harness does): returns the bytes of the layout
+/// `force_aod/main.inc` writes for its `compile` mode (`ret`, `aodmap`, `aod`, `Hp`, `Ha`, `aod_bands`, `xy_aod`,
+/// `xy_interp`, `xy_Ha`) and the time (ms). `dir` is `"NULL"` for the global fallback.
+#[pyfunction]
+#[pyo3(signature = (d, doaod, dir, lon, lat, doy))]
+fn compile_scene<'py>(
+    py: Python<'py>,
+    d: &Bound<'py, PyDict>,
+    doaod: bool,
+    dir: &str,
+    lon: f64,
+    lat: f64,
+    doy: i32,
+) -> PyResult<(Bound<'py, PyBytes>, f64)> {
+    let Loaded { nb, multi, rsr, mut atc, toa, qai, top, .. } = load_scene(d)?;
+    let gn = atc.xy_aod.ncell();
+    for g in 0..gn {
+        let cz = atc.xy_view.bands[C_ZEN][g];
+        atc.xy_view.bands[zeit_core::atc::ZEN][g] = if cz < 0.0 { cz } else { 30.0 };
+    }
+    let dir = if dir == "NULL" { None } else { Some(dir) };
+    let par = aod::AodParams { doaod, dir, center_lon: lon, center_lat: lat, doy, rsr_band: &rsr, multi };
+    let t0 = std::time::Instant::now();
+    let ret = py.detach(|| aod::compile_aod(&mut atc, &par, &toa, &qai, &top));
+    let ms = t0.elapsed().as_secs_f64() * 1e3;
+    let mut o = Out(Vec::new());
+    o.i(ret.is_ok() as i32 - 1); // SUCCESS is 0, FAILURE -1 in FORCE
+    o.i(atc.aodmap as i32);
+    if ret.is_ok() {
+        o.fs(&atc.aod);
+        o.f(atc.hp);
+        o.f(atc.ha);
+        for b in 0..nb {
+            o.i(atc.aod_bands[b] as i32);
+        }
+        for b in 0..nb {
+            o.fs(&atc.xy_aod.bands[b]);
+        }
+        o.fs(&atc.xy_interp.bands[0]);
+        o.fs(&atc.xy_ha.bands[0]);
+    }
+    Ok((PyBytes::new(py, &o.0), ms))
+}
+
+/// Whether the CPU's `rcpps` is Intel's, the one the bits of the tests were printed with ([`zeit_core::gdal_grid::rcp_is_intel`]).
+#[pyfunction]
+fn rcp_is_intel() -> bool {
+    zeit_core::gdal_grid::rcp_is_intel()
+}
+
+/// GDAL's `GDALGridCreate` as `interpolate_aod_map` calls it (algorithm `"invdist"` with its default options over
+/// `(0, nx - 1, 0, ny - 1)`; [`zeit_core::gdal_grid`]): the grid of `nx * ny` values (rows from the top).
+#[pyfunction]
+fn idw_grid<'py>(
+    py: Python<'py>,
+    x: PyReadonlyArray1<'py, f64>,
+    y: PyReadonlyArray1<'py, f64>,
+    z: PyReadonlyArray1<'py, f64>,
+    nx: usize,
+    ny: usize,
+) -> PyResult<(Bound<'py, PyArray1<f64>>, f64)> {
+    let (x, y, z) = (x.as_slice()?, y.as_slice()?, z.as_slice()?);
+    if x.len() != y.len() || x.len() != z.len() || nx == 0 || ny == 0 {
+        return Err(PyValueError::new_err("x, y and z need the same length, and the grid a size"));
+    }
+    let t0 = std::time::Instant::now();
+    let g = py.detach(|| zeit_core::gdal_grid::invdist_grid(x, y, z, 0.0, (nx - 1) as f64, 0.0, (ny - 1) as f64, nx, ny));
+    Ok((PyArray1::from_vec(py, g), t0.elapsed().as_secs_f64() * 1e3))
 }
 
 /// `aod_elev_dependency` on small synthetic cases `(dem_avg, dem_min, dem_max, dem_step, view[4], dem_bin[4],
@@ -299,6 +389,9 @@ pub fn module(py: Python<'_>) -> PyResult<Bound<'_, PyModule>> {
         "Dark targets and the AOD over each of them of FORCE's atmospheric correction (pieces, for the comparison with FORCE)",
     )?;
     m.add_function(wrap_pyfunction!(scene, &m)?)?;
+    m.add_function(wrap_pyfunction!(compile_scene, &m)?)?;
+    m.add_function(wrap_pyfunction!(idw_grid, &m)?)?;
+    m.add_function(wrap_pyfunction!(rcp_is_intel, &m)?)?;
     m.add_function(wrap_pyfunction!(elev_cases, &m)?)?;
     m.add_function(wrap_pyfunction!(aodfile, &m)?)?;
     m.add_function(wrap_pyfunction!(image_functions, &m)?)?;

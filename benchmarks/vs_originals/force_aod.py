@@ -1,13 +1,15 @@
-"""The dark targets and the AOD over each of them of zeit-core (``zeit_core::aod``, a port of the first half of FORCE
+"""The dark targets, the AOD over each of them and the AOD map of zeit-core (``zeit_core::aod``, a port of FORCE
 3.11.00's ``aod-ll.c``: ``aodfileread``, ``extract_dark_target`` for the water and the vegetation type, the spectral
 libraries ``water_lib`` and ``veg_lib``, ``aod_lib_to_target``, ``aod_from_target`` with ``aod_linear_fit`` and
 ``aod_polynomial_fit`` (GSL's ``nmsimplex2`` in three dimensions), ``aod_elev_dependency`` (GSL's Brent minimizer), and
-the ``dist_transform_`` and ``connectedcomponents_`` of ``imagefuns-cl.c`` they use) against FORCE's own functions on
-synthetic scenes.
+the ``dist_transform_`` and ``connectedcomponents_`` of ``imagefuns-cl.c`` they use; ``aod_map``,
+``interpolate_aod_map`` with the inverse distance weighting of GDAL's ``GDALGridCreate`` (``zeit_core::gdal_grid``) and
+``compile_aod``) against FORCE's own functions on synthetic scenes.
 
-The C side is ``force_aod/`` (``make_harness.sh``, WSL): FORCE's aod-ll.c compiled as it is (up to ``aod_map``, and but
-for its first include, behind shims for the brick, atc, meta, parameter and topography structures), with radtran-ll.c and
-table-ll.c, against the real GSL 2.7 and its reference CBLAS, linked statically; run with ``OMP_NUM_THREADS=1`` (the
+The C side is ``force_aod/`` (``make_harness.sh``, WSL): FORCE's aod-ll.c compiled as it is (whole, but for its first
+include, behind shims for the brick, atc, meta, parameter and topography structures), with radtran-ll.c and table-ll.c,
+against the real GSL 2.7 and its reference CBLAS, linked statically, and the real GDAL 3.9.3 of the env ``force-ref``
+(``GDAL_NUM_THREADS=1``; the threads of GDAL do not change the result); run with ``OMP_NUM_THREADS=1`` (the
 scene-average environment reflectance of FORCE is a sum per thread, and its loop over the targets hands each thread one
 set of work arrays, so the output depends on the number of threads; Zeit's is FORCE with one thread, see the notes of
 ``zeit_core::aod``). Zeit's side is ``zeit._core.aod`` (Windows, UCRT libm; the harness runs on glibc 2.39)::
@@ -25,6 +27,12 @@ integers exactly, the floats in float32 ulps): the target lists (position, size,
 target and environment), the band-wise AOD that best matches each library spectrum, the fitted AOD and its
 coefficients, the elevation factors. Exits with 1 if anything differs by more than 1 float32 ulp. Then the elevation
 dependency on small random lists of targets (Brent), the files of ``aodfileread`` and the segmentation functions.
+
+The AOD map: the inverse distance weighting alone (``GDALGridCreate`` on random points of grids of many shapes: 0 to 600
+points, which takes GDAL's AVX path, float arithmetic with the CPU's reciprocal approximation), then ``compile_aod`` of
+FORCE as it is against Zeit's on the scenes above and on scenes with a single target, only water, only vegetation, no
+target (the fallback), targets that fail the fit, with and without an AOD file and with ``doaod`` off: the final AOD
+map per band and cell, ``xy_interp``, ``atc->aod`` and the other fields it writes.
 """
 import argparse
 import subprocess
@@ -171,6 +179,7 @@ def make_scene(rng, nx, ny, cs, kind="normal"):
     cls = np.zeros((ny, nx), np.int32)  # 0 land, 1..26 water spectrum + 1, 100..105 vegetation spectrum + 100
     slope = rng.integers(20, 120, (ny, nx)).astype(np.uint16)
     ndisk = 10
+    lakes = []
     for k in range(ndisk):
         ci, cj = rng.uniform(0.1 * ny, 0.9 * ny), rng.uniform(0.1 * nx, 0.9 * nx)
         ri, rj, rot = rng.uniform(5, 14), rng.uniform(5, 14), rng.uniform(0, np.pi)
@@ -178,6 +187,7 @@ def make_scene(rng, nx, ny, cs, kind="normal"):
         if k == 1:  # a lake with an island
             m &= ~ellipse(ny, nx, ci, cj, ri * 0.35, rj * 0.35, rot)
         cls[m] = 1 + int(rng.integers(0, 26))
+        lakes.append(m.copy())
         if k == 2:
             slope[m] = 300  # steep: fails above 1 km
         # vegetation patches next to some lakes, touching them (8-connected, different classes)
@@ -196,6 +206,12 @@ def make_scene(rng, nx, ny, cs, kind="normal"):
     cls[3:6, 3:6] = 9  # a pond of 9 pixels: under 10
     salt = rng.random((ny, nx)) < 0.004
     cls[salt & (cls == 0)] = 12
+    if kind == "single":  # one lake only (a single target)
+        cls[~max(lakes, key=lambda a: int(a.sum()))] = 0
+    elif kind == "water":
+        cls[cls >= 100] = 0
+    elif kind == "veg":
+        cls[(cls >= 1) & (cls < 100)] = 0
     pix_cell = (np.minimum(ii // cs, gny - 1) * gnx + np.minimum(jj // cs, gnx - 1)).astype(int)
 
     toa = np.zeros((NB, ny, nx))
@@ -206,7 +222,10 @@ def make_scene(rng, nx, ny, cs, kind="normal"):
     for b in range(NB):
         toa[b][wmask] = t_water[cls[wmask] - 1, b, pix_cell[wmask]]
         toa[b][vmask] = t_veg[cls[vmask] - 100, b, pix_cell[vmask]]
-    toa = np.round(10000 * toa + rng.normal(0, 10 if kind != "noisy" else 40, toa.shape)).astype(np.int16)
+    if kind == "garbage":  # spectra no library matches: the targets fail the fit
+        gm = wmask | vmask
+        toa[:, gm] = rng.uniform(0.02, 0.45, (NB, int(gm.sum())))
+    toa = np.round(10000 * toa + rng.normal(0, 10 if kind not in ("noisy", "garbage") else 40, toa.shape)).astype(np.int16)
 
     # QAI: cloud (some with cloudy TOA, some with the flag only), cirrus, shadow, no data
     qai = np.zeros((ny, nx), np.int16)
@@ -474,15 +493,170 @@ def check_image(rng):
     return bad == 0
 
 
+def parse_compile(raw, nb, gn):
+    """The dump of the ``compile`` mode of the harness (see force_aod/main.inc)."""
+    pos = 0
+
+    def take(dtype, n):
+        nonlocal pos
+        a = np.frombuffer(raw, dtype, n, pos)
+        pos += a.nbytes
+        return a
+
+    out = {}
+    out["ret"], out["aodmap"] = (int(v) for v in take("<i4", 2))
+    if out["ret"] == 0:
+        out["aod"] = take("<f4", nb)
+        out["hp"], out["ha"] = take("<f4", 2)
+        out["aod_bands"] = take("<i4", nb)
+        out["xy_aod"] = take("<f4", nb * gn)
+        out["xy_interp"] = take("<f4", gn)
+        out["xy_ha"] = take("<f4", gn)
+    assert pos == len(raw), (pos, len(raw))
+    return out
+
+
+def run_force_compile(name, sc, doaod=True, wdir="NULL", lon=0.0, lat=0.0, doy=1):
+    fin, fout = DATA / f"{name}.in", DATA / f"{name}.cout"
+    write_scene(fin, sc)
+    cmd = f"OMP_NUM_THREADS=1 GDAL_NUM_THREADS=1 {EXE} compile {_wsl(fin)} {_wsl(fout)} {int(doaod)} {wdir} {lon!r} {lat!r} {doy}"
+    r = subprocess.run(["wsl", "-e", "bash", "-lc", cmd], capture_output=True, text=True)
+    if r.returncode != 0:
+        raise RuntimeError(f"harness failed on {name}: {r.stdout}{r.stderr}")
+    ms = float(r.stdout.split()[-1])
+    return parse_compile(fout.read_bytes(), NB, sc["gnx"] * sc["gny"]), ms
+
+
+def run_zeit_compile(sc, doaod=True, wdir="NULL", lon=0.0, lat=0.0, doy=1):
+    from zeit import _core
+
+    raw, ms = _core.aod.compile_scene(sc, doaod, wdir, lon, lat, doy)
+    return parse_compile(raw, NB, sc["gnx"] * sc["gny"]), ms
+
+
+def compare_compile(title, c, z):
+    """Print the rows of one scene of compile_aod; returns (bad, values, equal)."""
+    rows = [("return value, aodmap, aod_bands", exact(np.append([c["ret"], c["aodmap"]], c.get("aod_bands", [])),
+                                                      np.append([z["ret"], z["aodmap"]], z.get("aod_bands", []))))]
+    if c["ret"] == 0 and z["ret"] == 0:
+        rows += [("atc->aod, Hp, Ha", ulp_compare(np.concatenate([c["aod"], [c["hp"], c["ha"]]]),
+                                                   np.concatenate([z["aod"], [z["hp"], z["ha"]]]))),
+                 ("xy_aod (AOD map, all bands)", ulp_compare(c["xy_aod"], z["xy_aod"])),
+                 ("xy_interp, xy_Ha", ulp_compare(np.concatenate([c["xy_interp"], c["xy_ha"]]),
+                                                  np.concatenate([z["xy_interp"], z["xy_ha"]])))]
+    bad, tv, te = False, 0, 0
+    for name, r in rows:
+        if len(r) == 3:
+            n, e, d = r
+            mx, diff = 0, d
+            bad |= d > 0
+        else:
+            n, e, one, more, mx = r
+            diff = one + more
+            bad |= more > 0
+        tv += n
+        te += e
+        print(f"{title + ': ' + name:58s} {n:9d} {e:12d} {diff:8d} {mx:6d}")
+    return bad, tv, te
+
+
+def check_compile(rng, scale):
+    """compile_aod of FORCE and of Zeit on scenes of every kind, and the options."""
+    scenes = [("map: small 120x90, 150 m cells", (120, 90, 15, "normal")),
+              ("map: medium 240x200, 300 m cells", (240, 200, 30, "normal")),
+              ("map: noisy 240x200, 200 m cells", (240, 200, 20, "noisy")),
+              ("map: large 400x340, 100 m cells", (int(400 * np.sqrt(scale)), int(340 * np.sqrt(scale)), 10, "normal")),
+              ("map: one target (a lake)", (120, 90, 15, "single")),
+              ("map: one target, 2x2 cells", (60, 45, 30, "single")),
+              ("map: only water", (120, 90, 15, "water")),
+              ("map: only vegetation", (120, 90, 15, "veg")),
+              ("map: targets that fail the fit", (120, 90, 15, "garbage")),
+              ("map: no target (fallback)", (90, 60, 15, "empty")),
+              ("map: all cloud (fallback)", (90, 60, 15, "allcloud"))]
+    bad = False
+    tot = np.zeros(2, np.int64)
+    fdir = DATA / "aodfiles"
+    fdir.mkdir(exist_ok=True)
+    (fdir / "AOD_045.txt").write_text("1.0 45.0 -2.5 -1.3 -0.05\n2.0 46.0 -2.2 -1.1 -0.02\n")
+    for k, (title, (nx, ny, cs, kind)) in enumerate(scenes):
+        sc = make_scene(rng, nx, ny, cs, kind)
+        runs = [("", dict())]
+        if kind in ("normal", "empty"):  # with an AOD file: the fallback of a scene without targets is the file's
+            runs.append((" + AOD file", dict(wdir=_wsl(fdir), lon=1.9, lat=45.7, doy=45)))
+        if k == 0:
+            runs.append((" + doaod off", dict(doaod=False)))
+            runs.append((" + doaod off + AOD file", dict(doaod=False, wdir=_wsl(fdir), lon=1.9, lat=45.7, doy=45)))
+        for suffix, kw in runs:
+            c, ms_c = run_force_compile(f"cmp{k}", sc, **kw)
+            kz = dict(kw)
+            if "wdir" in kz:
+                kz["wdir"] = str(fdir)
+            z, ms_z = run_zeit_compile(sc, **kz)
+            b, tv, te = compare_compile(title + suffix, c, z)
+            bad |= b
+            tot += (tv, te)
+            if c["ret"] == 0:
+                gn = sc["gnx"] * sc["gny"]
+                print(f"{'':58s} aodmap {c['aodmap']}; AOD green {c['aod'][2]:.4f}; {gn} cells, interpolated "
+                      f"{int(c['xy_interp'].sum())}; FORCE {ms_c:.1f} ms, Zeit {ms_z:.1f} ms")
+    print(f"{'total (compile_aod, bit for bit)':58s} {tot[0]:9d} {tot[1]:12d} {tot[0] - tot[1]:8d}")
+    return not bad
+
+
+def check_idw(rng, scale):
+    """GDALGridCreate (invdist, defaults) of the real GDAL against zeit_core::gdal_grid, on random points and grids."""
+    from zeit import _core
+
+    cases = []
+    for k in range(int(240 * scale)):
+        nx, ny = [(1, 1), (2, 2), (1, 9), (9, 1), (7, 5), (13, 11), (37, 37), (60, 50), (33, 29)][k % 9]
+        npts = int(rng.choice([0, 1, 2, 3, 7, 8, 9, 15, 16, 17, 31, 32, 33, 47, 48, 49, 100, 257, 600]))
+        npts = min(npts, nx * ny)
+        cells = rng.choice(nx * ny, npts, replace=False) if npts else np.zeros(0, int)
+        x = (cells % nx).astype(np.float64)
+        y = (cells // nx).astype(np.float64)
+        z = rng.uniform(0.005, 1.5, npts).astype(F32).astype(np.float64)
+        if k % 5 == 0 and npts:  # extreme dynamic range
+            z = (z * 10.0 ** rng.integers(-4, 3, npts)).astype(F32).astype(np.float64)
+        cases.append((nx, ny, x, y, z))
+    tot = bitsame = 0
+    worst = 0.0
+    for k, (nx, ny, x, y, z) in enumerate(cases):
+        fin, fout = DATA / f"idw{k % 3}.in", DATA / f"idw{k % 3}.out"
+        with open(fin, "wb") as f:
+            f.write(np.array([nx, ny, len(x)], np.int32).tobytes() + x.tobytes() + y.tobytes() + z.tobytes())
+        r = subprocess.run(["wsl", "-e", "bash", "-lc",
+                            f"OMP_NUM_THREADS=1 GDAL_NUM_THREADS=1 {EXE} idw {_wsl(fin)} {_wsl(fout)}"],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            raise RuntimeError(r.stderr)
+        ref = np.frombuffer(fout.read_bytes(), np.float64)
+        out, _ = _core.aod.idw_grid(x, y, z, nx, ny)
+        tot += ref.size
+        eq = ref.view(np.int64) == out.view(np.int64)
+        bitsame += int(eq.sum())
+        if (~eq).any():
+            worst = max(worst, float(np.max(np.abs(ref - out)[~eq] / np.maximum(np.abs(ref[~eq]), 1e-300))))
+    print(f"{'GDALGridCreate invdist (AVX path)':34s} {'cells':>9s} {tot:9d} {bitsame:12d} {tot - bitsame:8d}   "
+          f"({len(cases)} grids; worst relative difference {worst:.2e})")
+    return bitsame == tot
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--scale", type=float, default=1.0, help="multiplies the number of random cases and the big scene")
     ap.add_argument("--skip-build", action="store_true")
+    ap.add_argument("--only-map", action="store_true", help="only the AOD map (the inverse distance weighting, compile_aod)")
     args = ap.parse_args()
     no_power_throttling()
     rng = np.random.default_rng(23)
     if not args.skip_build:
         build_harness()
+    if args.only_map:
+        print(f"{'AOD map':58s} {'values':>9s} {'bit for bit':>12s} {'differ':>8s} {'max':>6s}")
+        ok = check_idw(np.random.default_rng(25), args.scale)
+        ok &= check_compile(np.random.default_rng(24), args.scale)
+        sys.exit(0 if ok else 1)
     big = int(round(240 * np.sqrt(args.scale)))
     scenes = [("small 120x90, 150 m cells", (120, 90, 15, "normal")),
               ("medium 240x200, 300 m cells", (240, 200, 30, "normal")),
@@ -519,6 +693,10 @@ def main():
     bad |= not check_elev(rng, args.scale)
     bad |= not check_aodfile(rng, args.scale)
     bad |= not check_image(rng)
+    print()
+    print(f"{'AOD map':58s} {'values':>9s} {'bit for bit':>12s} {'differ':>8s} {'max':>6s}")
+    bad |= not check_idw(np.random.default_rng(25), args.scale)
+    bad |= not check_compile(np.random.default_rng(24), args.scale)
     sys.exit(1 if bad else 0)
 
 

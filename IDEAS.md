@@ -2902,9 +2902,50 @@ validação.
     desligado no FORCE ("until further notice") e aqui também; a `_AERO_LANDLIB_` (34x1991) não é gerada: o
     `land_lib` não a lê (devolve um espectro de zeros). (4) O `print_dark_object` (só com `FORCE_DEBUG`, só
     imprime) não foi portado.
-  - **Quarta parte:** `aod_map` (a média por célula, com o R2 ao quadrado de peso), `interpolate_aod_map` (o
-    `GDALGridCreate` de inverso da distância, que pede um IDW igual ao do GDAL) e `compile_aod`; o
-    `compile_topography` do `topo-ll.c`; depois o `atmo-ll.c` (2.126 linhas), que consome tudo.
+  - **Falta:** o `compile_topography` do `topo-ll.c`; depois o `atmo-ll.c` (2.126 linhas), que consome tudo (ver
+    a quarta parte).
+- **23g, quarta parte (mapa de AOD):** a segunda metade do `aod-ll.c` do FORCE 3.11.00: `aod_map` (a média por
+  célula da grade grossa, com o R2 ao quadrado como peso e o AOD de cada alvo levado à elevação média da cena),
+  `interpolate_aod_map` (o inverso da distância do `GDALGridCreate` do GDAL e o filtro passa-baixa 3x3 nas células
+  com visada) e `compile_aod` (a orquestração: o arquivo de AOD ou o fallback global, as bandas do AOD, a extração,
+  o AOD por alvo, a dependência da elevação, o mapa, ou o fallback se nenhum alvo valer), em
+  `rust/zeit-core/src/aod.rs`; o IDW em `rust/zeit-core/src/gdal_grid.rs`, um port de `alg/gdalgrid.cpp` e
+  `alg/gdalgridavx.cpp` do GDAL **3.9.3** (a versão do env `force-ref`; MIT, nos avisos). O `Atc` ganhou `aod`,
+  `aodmap` e `xy_interp`; a ligação mínima `zeit._core.aod` ganhou `compile_scene` e `idw_grid` (sem API pública).
+  - **O que o FORCE passa ao GDAL e o caminho portado:** `GDALGridCreate(GGA_InverseDistanceToAPower, <opções de
+    "invdist": potência 2, suavização 0, sem elipse de busca, sem limite de pontos, nodata 0>, k pontos (colunas e
+    linhas inteiras das células com estimativa), 0, nf-1, 0, ne-1, nf, ne, GDT_Float64)`, uma banda por vez. Com
+    essas opções o `GDALGridContextCreate` escolhe `GDALGridInverseDistanceToAPower2NoSmoothingNoSearchAVX` (o
+    SSE se `GDAL_USE_AVX=NO` ou sem AVX; o `double` escalar só se a alocação falhar), e esse caminho **não é em
+    `double`**: coordenadas e valores viram `float`; 16 pontos por vez entram em 8 raias de `float` (cada raia soma
+    o termo do primeiro vetor e depois o do segundo), as raias são somadas da esquerda para a direita, os pontos
+    que sobram entram um a um (aí o teste de r2 é contra um `double`, no laço vetorial contra um `float`), e o
+    `1/r2` do laço vetorial é o `_mm256_rcp_ps`, a aproximação do hardware (erro relativo até 1,5 * 2^-12), não
+    uma divisão. Os nós são `xmin + (i + 0,5) * (xmax - xmin) / nx`: com `xmax = nf - 1` não caem no centro das
+    células (uma esquisitice do FORCE, reproduzida). As threads do GDAL (`GDAL_NUM_THREADS`) repartem as linhas;
+    cada célula é calculada por uma thread com todos os pontos na mesma ordem, então o resultado não depende do
+    número de threads (conferido no código; o harness roda com 1).
+  - **Igual ao C, bit a bit, em 195.593 valores:** 143.903 células de 240 grades do `GDALGridCreate` de verdade
+    (1x1 a 60x50, de 0 a 600 pontos, faixa dinâmica de sete décadas; os blocos de 16, as sobras, o nó sobre um
+    ponto, sem pontos) contra o `gdal_grid.rs`, e 51.690 valores de 16 execuções do `compile_aod` do FORCE como
+    está (11 cenas: as quatro da terceira parte, um alvo só, um alvo numa grade 2x2, só água, só vegetação, alvos
+    que falham no ajuste, nenhum alvo, tudo nuvem; com e sem arquivo de AOD, e `doaod` desligado) contra o do
+    Zeit: o mapa de AOD final por banda e célula, `xy_interp`, `atc->aod`, `Hp`, `Ha`, `xy_Ha`, `aod_bands`, `aodmap`
+    e o código de retorno. O harness (`force_aod/`) agora compila o `aod-ll.c` inteiro (menos o primeiro
+    `#include`) contra o GDAL 3.9.3 de verdade (`-lgdal`), `OMP_NUM_THREADS=1` e `GDAL_NUM_THREADS=1`.
+  - **Onde o Zeit fica diferente do C:** (1) **o `rcpps` depende da CPU:** a Intel e a AMD têm tabelas diferentes
+    para a aproximação do recíproco, e o GDAL (portanto o FORCE) dá mapas de AOD diferentes em uma e outra (por
+    cerca de 1e-3 relativo na célula); em x86-64 o Zeit executa a mesma instrução (`_mm_rcp_ss`, a forma escalar,
+    mesma tabela), então na mesma CPU é o bit do GDAL (aqui, um i5-13600K, o mesmo no WSL e no Windows); em outras
+    arquiteturas usa `1/x` exato, e difere. (2) Só o caminho AVX do GDAL foi portado: com `GDAL_USE_AVX=NO` ou
+    sem AVX o GDAL usa o SSE (4 raias, outra ordem de soma) e o Zeit não acompanha. As outras opções do
+    `GDALGridCreate` (elipse, `max_points`, outras potências, o quadtree) não são usadas pelo FORCE e não foram
+    portadas. (3) O `compile_aod` devolve os alvos (o FORCE os libera) e não imprime a mensagem final; as
+    posições do centro da cena e o dia do ano entram como parâmetros (`AodParams`), como no `aodfileread`.
+  - **O que o `atmo-ll.c` vai precisar:** o `compile_topography` do `topo-ll.c` (hoje o `aod::Top` é uma entrada
+    sintética) e do `Atc` os campos que `compile_aod` deixa prontos: `aod` (por banda), `aodmap`, `xy_aod` (o
+    mapa), `xy_interp`, `hp`, `ha`, `xy_ha`, `aod_bands`; os que o `atmo-ll.c` vai somar são `xy_Ts`, `xy_Tv`, o
+    albedo esférico, as funções de fase e `Hr` por célula (alguns já existem como `xyz_*`, `xy_pr`, `xy_pa`).
 - **Janus:** o `zeit-core` foi para o `7c01978` sem mudar nada do que o Janus já chamava. As
   ferramentas pedem duas coisas novas no Janus:
   - saídas cujas bandas a ferramenta decide (a grade nova, os anos, as janelas);

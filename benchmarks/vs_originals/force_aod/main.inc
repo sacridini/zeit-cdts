@@ -14,6 +14,10 @@
  *       target of those (int32 nvalid; per target float32 aodest[lib.n][nb]); aod_from_target of both (int32 k; per
  *       object int32 valid, lib_id, ang_fit; float32 rsq, coef[3], aod[nb], est[nb]); aod_elev_dependency (float32 Hp,
  *       Ha; xy_Ha[gn]; the Ha of each water and vegetation object). Prints the times of the stages (ms).
+ *   aod_harness compile in.bin out.bin doaod dir lon lat doy: FORCE's compile_aod as it is on the same scene (dir "NULL": the
+ *     global fallback): int32 ret, aodmap; float32 aod[nb], Hp, Ha; int32 aod_bands[nb]; float32 xy_aod[nb][gn], xy_interp[gn],
+ *     xy_Ha[gn]; prints the time (ms).
+ *   aod_harness idw in.bin out.bin: GDALGridCreate as FORCE's interpolate_aod_map calls it (see idw()).
  *   aod_harness image in.bin out.bin: int32 nx, ny, uint8 image[nx*ny] -> int32 n, uint16 dist, int32 labels.
  *   aod_harness elev < cases.txt: aod_elev_dependency on small synthetic target lists.
  *   aod_harness aodfile < scenarios.txt: aodfileread. */
@@ -76,7 +80,16 @@ static void dump_fit(FILE *f, darkobj_t *d, int num, int k, int nb){
   }
 }
 
-static int scene(const char *fin, const char *fout){
+typedef struct {
+  int nb, nx, ny, gnx, gny, gn, multi;
+  double res;
+  meta_t meta;
+  atc_t atc;
+  brick_t *TOA, *QAI;
+  top_t top;
+} sc_t;
+
+static int load_scene(const char *fin, sc_t *sc){
   FILE *f = fopen(fin, "rb");
   if (!f){ perror("input"); return 2; }
   int nb, nx, ny, gnx, gny, nodata, multi;
@@ -109,6 +122,8 @@ static int scene(const char *fin, const char *fout){
   atc.xy_Ha = mkbrick(gnx, gny, gres, 1, nodata, 0);
   atc.xy_fresnel = mkbrick(gnx, gny, gres, 1, nodata, 0);
   atc.xy_dem = mkbrick(gnx, gny, gres, 1, nodata, 0);
+  atc.xy_interp = mkbrick(gnx, gny, gres, 1, nodata, 0);
+  atc.aod = calloc(nb, 4);
   for (int b = 0; b < nb; b++) memcpy(atc.xy_aod->domain[b], domain[b], 16);
   rd(atc.xy_sun->vfloat[cZEN], 4, gn, f); rd(atc.xy_sun->vfloat[AZI], 4, gn, f);
   rd(atc.xy_view->vfloat[cZEN], 4, gn, f); rd(atc.xy_view->vfloat[AZI], 4, gn, f);
@@ -132,9 +147,21 @@ static int scene(const char *fin, const char *fout){
   rd(top.ill->vshort[0], 2, npix, f); rd(top.sky->vushort[0], 2, npix, f);
   fclose(f);
 
+  sc->nb = nb; sc->nx = nx; sc->ny = ny; sc->gnx = gnx; sc->gny = gny; sc->gn = gn; sc->multi = multi; sc->res = res;
+  sc->meta = meta; sc->atc = atc; sc->TOA = TOA; sc->QAI = QAI; sc->top = top;
+  return 0;
+}
+
+static int scene(const char *fin, const char *fout){
+  sc_t sc;
+  if (load_scene(fin, &sc)) return 2;
+  int nb = sc.nb, gn = sc.gn, multi = sc.multi;
+  double res = sc.res;
+  meta_t meta = sc.meta; atc_t atc = sc.atc; brick_t *TOA = sc.TOA, *QAI = sc.QAI; top_t top = sc.top;
+
   int blue = find_domain(atc.xy_aod, "BLUE"), green = find_domain(atc.xy_aod, "GREEN");
   int red = find_domain(atc.xy_aod, "RED"), sw2 = find_domain(atc.xy_aod, "SWIR2");
-  f = fopen(fout, "wb");
+  FILE *f = fopen(fout, "wb");
   double t0 = now_ms();
   dark_t dark; memset(&dark, 0, sizeof(dark));
   dark.kwat = extract_dark_target(&atc, TOA, QAI, &top, _AOD_WAT_, &dark.wat);
@@ -176,6 +203,64 @@ static int scene(const char *fin, const char *fout){
   for (int o = 0; o < dark.kveg; o++) wr(f, &dark.veg[o].Ha, 4, 1);
   fclose(f);
   printf("%.3f %.3f\n", t1 - t0, t3 - t2);
+  return 0;
+}
+
+/* compile_aod of FORCE as it is, on the scene of the `scene` mode (the sun zenith of the view brick, which FORCE fills
+ * and the dark target functions do not read except for the swath test of the map, is 30 where there is a view and the
+ * nodata value where there is none). */
+static int compile(const char *fin, const char *fout, int doaod, const char *dir, double lon, double lat, int doy){
+  sc_t sc;
+  if (load_scene(fin, &sc)) return 2;
+  int nb = sc.nb, gn = sc.gn;
+  atc_t *atc = &sc.atc;
+  for (int g = 0; g < gn; g++){
+    float cz = atc->xy_view->vfloat[cZEN][g];
+    atc->xy_view->vfloat[ZEN][g] = (cz < 0) ? cz : 30.0f;
+  }
+  atc->xy_aod->lon = lon; atc->xy_aod->lat = lat; atc->xy_aod->doy = doy;
+  par_ll_t pl2; pl2.d_aod = (char*)dir; pl2.domulti = sc.multi; pl2.doaod = doaod; pl2.d_log = "NULL";
+  double t0 = now_ms();
+  int ret = compile_aod(&pl2, &sc.meta, atc, sc.TOA, sc.QAI, &sc.top);
+  double t1 = now_ms();
+  FILE *f = fopen(fout, "wb");
+  int v[2] = {ret, atc->aodmap};
+  wr(f, v, 4, 2);
+  if (ret == SUCCESS){
+    wr(f, atc->aod, 4, nb);
+    wr(f, &atc->Hp, 4, 1); wr(f, &atc->Ha, 4, 1);
+    for (int b = 0; b < nb; b++){ int u = atc->aod_bands[b]; wr(f, &u, 4, 1); }
+    for (int b = 0; b < nb; b++) wr(f, atc->xy_aod->vfloat[b], 4, gn);
+    wr(f, atc->xy_interp->vfloat[0], 4, gn);
+    wr(f, atc->xy_Ha->vfloat[0], 4, gn);
+  }
+  fclose(f);
+  printf("%.3f\n", t1 - t0);
+  return 0;
+}
+
+/* GDALGridCreate as interpolate_aod_map calls it: in.bin: int32 nx, ny, np; float64 x[np], y[np], z[np] -> float64
+ * grid[nx*ny] over (0, nx-1, 0, ny-1). */
+static int idw(const char *fin, const char *fout){
+  FILE *f = fopen(fin, "rb");
+  if (!f){ perror("input"); return 2; }
+  int nx, ny, np;
+  rd(&nx, 4, 1, f); rd(&ny, 4, 1, f); rd(&np, 4, 1, f);
+  double *x = calloc(np + 1, 8), *y = calloc(np + 1, 8), *z = calloc(np + 1, 8);
+  rd(x, 8, np, f); rd(y, 8, np, f); rd(z, 8, np, f);
+  fclose(f);
+  GDALGridAlgorithm eAlgorithm = GGA_InverseDistanceToAPower;
+  void *pOptions = NULL;
+  ParseAlgorithmAndOptions(szAlgNameInvDist, &eAlgorithm, &pOptions);
+  double *out = calloc((size_t)nx * ny, 8);
+  double t0 = now_ms();
+  GDALGridCreate(eAlgorithm, pOptions, np, x, y, z, 0, nx - 1, 0, ny - 1, nx, ny, GDT_Float64, (void*)out, NULL, NULL);
+  double t1 = now_ms();
+  CPLFree(pOptions);
+  f = fopen(fout, "wb");
+  wr(f, out, 8, (size_t)nx * ny);
+  fclose(f);
+  printf("%.3f\n", t1 - t0);
   return 0;
 }
 
@@ -257,8 +342,11 @@ static int image(const char *fin, const char *fout){
 int main(int argc, char **argv){
   if (argc >= 4 && !strcmp(argv[1], "scene")) return scene(argv[2], argv[3]);
   if (argc >= 4 && !strcmp(argv[1], "image")) return image(argv[2], argv[3]);
+  if (argc >= 8 && !strcmp(argv[1], "compile"))
+    return compile(argv[2], argv[3], atoi(argv[4]), !strcmp(argv[5], "NULL") ? "NULL" : argv[5], atof(argv[6]), atof(argv[7]), argc > 8 ? atoi(argv[8]) : 1);
+  if (argc >= 4 && !strcmp(argv[1], "idw")) return idw(argv[2], argv[3]);
   if (argc >= 2 && !strcmp(argv[1], "elev")) return elev();
   if (argc >= 2 && !strcmp(argv[1], "aodfile")) return aodfile();
-  fprintf(stderr, "usage: %s scene in.bin out.bin | elev < cases.txt | aodfile < scenarios.txt\n", argv[0]);
+  fprintf(stderr, "usage: %s scene in.bin out.bin | compile in.bin out.bin doaod dir lon lat doy | idw in.bin out.bin | elev < cases.txt | aodfile < scenarios.txt\n", argv[0]);
   return 2;
 }

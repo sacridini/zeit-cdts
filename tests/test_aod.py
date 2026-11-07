@@ -1,5 +1,5 @@
-"""The dark targets and the AOD over each of them of FORCE's atmospheric correction (zeit._core.aod), ported from the first
-half of FORCE 3.11's aod-ll.c. There is no public function yet; the comparison with FORCE's C code is
+"""The dark targets, the AOD over each of them and the AOD map of FORCE's atmospheric correction (zeit._core.aod), ported
+from FORCE 3.11's aod-ll.c (with the inverse distance weighting of GDAL 3.9.3's GDALGridCreate). There is no public function yet; the comparison with FORCE's C code is
 benchmarks/vs_originals/force_aod.py, whose harness printed the reference values below for this scene (dyadic rationals
 and integers, the same bits in the harness and here)."""
 import numpy as np
@@ -206,3 +206,99 @@ def test_the_libraries():
     assert water.shape == (26, NB) and veg.shape == (81, NB)
     assert (water[:, 12] == 0).all() and (water[:, 1] > 0).all()  # the library ends at 900 nm
     assert veg[0, 1] == F32(0.01) and veg[0, 2] == F32(0.02) and (veg[:, 1] == veg[:, 3]).all()
+
+
+def parse_compile(raw):
+    """The dump of compile_aod, in the layout of force_aod/main.inc (the `compile` mode)."""
+    pos = 0
+
+    def take(dtype, n):
+        nonlocal pos
+        a = np.frombuffer(raw, dtype, n, pos)
+        pos += a.nbytes
+        return a
+
+    out = {}
+    out["ret"], out["aodmap"] = (int(v) for v in take("<i4", 2))
+    if out["ret"] == 0:
+        out["aod"] = take("<f4", NB)
+        out["hp"], out["ha"] = take("<f4", 2)
+        out["aod_bands"] = take("<i4", NB)
+        out["xy_aod"] = take("<f4", NB * GN).reshape(NB, GN)
+        out["xy_interp"] = take("<f4", GN)
+        out["xy_ha"] = take("<f4", GN)
+    assert pos == len(raw)
+    return out
+
+
+def same_or_close(values, want_bits, width=32):
+    """The bits FORCE and GDAL printed on an Intel CPU; elsewhere the values to the approximation of the CPU's ``rcpps``
+    (GDAL's 1/r2 in the inverse distance weighting, whose table is the CPU maker's)."""
+    values = np.asarray(values, np.float32 if width == 32 else np.float64)
+    want = np.array(want_bits, np.uint32 if width == 32 else np.uint64).view(values.dtype)
+    if _core.aod.rcp_is_intel():
+        assert values.view(want.dtype.str.replace("f", "u")).tolist() == list(want_bits)
+    else:
+        assert np.allclose(values, want, rtol=2e-3, atol=0)
+
+
+def test_compile_aod_equals_the_c_harness():
+    """The values FORCE's compile_aod (GSL 2.7, GDAL 3.9.3 with its AVX inverse distance weighting) printed for the scene."""
+    raw, ms = _core.aod.compile_scene(tiny_scene(), True, "NULL", 0.0, 0.0, 1)
+    c = parse_compile(raw)
+    assert (c["ret"], c["aodmap"]) == (0, 1)
+    same_or_close(c["aod"], [0x3e25374f, 0x3e0811e2, 0x3de55694, 0x3db75797, 0x3da5deec, 0x3d970a89, 0x3d8e5ade,
+                               0x3d7ea295, 0x3d718d7b, 0x3d5a8e8b, 0x3cfaf5b9, 0x3cc7d4d7, 0x3c803349])
+    assert bits([c["hp"], c["ha"]]) == [0x447a0000, 0x3f7fcede]
+    assert list(c["aod_bands"]) == [0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1]
+    same_or_close(c["xy_aod"][2], [0x3ddc3e32, 0x3ddd8ed8, 0x3dddc3a2, 0, 0x3de7fa0d, 0x3de68414, 0x3de2c664, 0, 0x3df1f892,
+                                     0x3dede578, 0x3de757f9, 0])
+    same_or_close(c["xy_aod"][12], [0x3c763d06, 0x3c7db0d1, 0x3c83067d, 0, 0x3c7bf8a9, 0x3c805623, 0x3c82e91c, 0,
+                                      0x3c80066b, 0x3c8101a5, 0x3c828c84, 0])
+    assert list(c["xy_interp"]) == [1, 0, 0, 1, 0, 1, 1, 1, 0, 1, 1, 1]
+    assert ms >= 0
+
+
+def test_compile_aod_fallbacks(tmp_path):
+    sc = tiny_scene()
+    # no target in the image (land only, clouds): the global fallback and no map
+    land = np.array(sc["toa"]).reshape(NB, -1)
+    land[:, :] = np.where(land == -9999, -9999, T_L[:, None] + (np.arange(NX * NY) % 5)[None]).astype(np.int16)
+    sc_land = dict(sc, toa=land.ravel())
+    raw, _ = _core.aod.compile_scene(sc_land, True, "NULL", 0.0, 0.0, 1)
+    c = parse_compile(raw)
+    assert c["aodmap"] == 0 and not c["xy_aod"].any() and not c["xy_interp"].any()
+    spec = np.exp(np.float64(-2.8665)) * WVL.astype(np.float64) ** (-1.4787 - 0.0486 * np.log(WVL.astype(np.float64)))
+    assert np.allclose(c["aod"], spec, rtol=1e-6)
+    # doaod off: the same, whatever is in the image
+    raw, _ = _core.aod.compile_scene(sc, False, "NULL", 0.0, 0.0, 1)
+    c2 = parse_compile(raw)
+    assert c2["aodmap"] == 0 and bits(c2["aod"]) == bits(c["aod"])
+    assert list(c2["aod_bands"]) == list(sc["aod_bands"])  # untouched without doaod
+    # an AOD file gives the fallback (the site closest to the scene centre is the second one); a missing file is a failure
+    (tmp_path / "AOD_045.txt").write_text("1.0 45.0 -2.5 -1.3 -0.05\n2.0 46.0 -2.2 -1.1 -0.02\n")
+    raw, _ = _core.aod.compile_scene(sc, False, str(tmp_path), 1.9, 45.7, 45)
+    c3 = parse_compile(raw)
+    assert np.allclose(c3["aod"], np.exp(-2.2) * WVL.astype(np.float64) ** (-1.1 - 0.02 * np.log(WVL.astype(np.float64))),
+                       rtol=1e-6)
+    raw, _ = _core.aod.compile_scene(sc, False, str(tmp_path), 1.9, 45.7, 46)
+    assert parse_compile(raw)["ret"] == -1
+
+
+def test_inverse_distance_weighting_of_gdal():
+    # the values GDAL 3.9.3's GDALGridCreate (invdist, defaults) printed: 4 points, 5 x 4 nodes, only the tail of the loop
+    x, y, z = np.array([0.0, 4.0, 2.0, 1.0]), np.array([0.0, 3.0, 1.0, 3.0]), np.array([0.25, 0.5, 0.125, 0.75])
+    g, ms = _core.aod.idw_grid(x, y, z, 5, 4)
+    same_or_close(g[:4], [0x3fd0a69e80000000, 0x3fcdbb3b00000000, 0x3fc61891a0000000, 0x3fcbeadec0000000], width=64)
+    # no points: nodata (0); a node on a point takes the value of the point (the 1 x 1 grid has its node at (0, 0))
+    assert (_core.aod.idw_grid(np.zeros(0), np.zeros(0), np.zeros(0), 3, 3)[0] == 0).all()
+    assert _core.aod.idw_grid(np.array([0.0]), np.array([0.0]), np.array([0.375]), 1, 1)[0][0] == 0.375
+    # many points: the vector loop (16 at a time) and the tail agree with the double sum to the approximation of 1/r2
+    rng = np.random.default_rng(1)
+    cells = rng.choice(100, 37, replace=False)
+    px, py, pz = (cells % 10).astype(float), (cells // 10).astype(float), rng.uniform(0.1, 1.0, 37)
+    g, _ = _core.aod.idw_grid(px, py, pz, 10, 10)
+    nodes = (np.arange(10) + 0.5) * 9 / 10
+    r2 = (px[None, None] - nodes[None, :, None]) ** 2 + (py[None, None] - nodes[:, None, None]) ** 2
+    want = ((pz / r2).sum(-1) / (1 / r2).sum(-1)).ravel()
+    assert np.allclose(g, want, rtol=5e-3)

@@ -1,4 +1,4 @@
-/* What FORCE's aod-ll.c (copied as it is by make_harness.sh, from its start to the end of aod_polynomial_fit, without its
+/* What FORCE's aod-ll.c (copied as it is by make_harness.sh, whole, without its
  * first include aod-ll.h) needs around it: the minimal brick_t, atc_t, meta_t, par_ll_t and top_t with the fields the file
  * reads, the types of aod-ll.h (copied verbatim), and the helpers of the cross-level files it calls that pull in GDAL
  * (the geographic position of a brick, the citation). Functions of FORCE's that matter to the result (get_qai, get_off,
@@ -16,6 +16,7 @@
 #include <unistd.h>
 #include <omp.h>
 #include <gsl/gsl_min.h>
+#include <gsl/gsl_multimin.h>
 
 #include "../cross-level/const-cl.h"
 #include "../cross-level/enum-cl.h"
@@ -61,6 +62,9 @@ typedef struct {
   float Hp, Ha;
   tthg_t tthg;
   bool *aod_bands;
+  float *aod;
+  bool aodmap;
+  brick_t *xy_interp;
   brick_t *xy_mod, *xy_aod, *xy_Pr, *xy_Pa, *xy_Hr, *xy_Ha, *xy_Tvo, *xy_Tso, *xy_Tg, *xy_brdf, *xy_fresnel, *xy_dem,
           *xy_view, *xy_sun;
 } atc_t;
@@ -109,6 +113,9 @@ int aod_lib_to_target(atc_t *atc, double res, bool multi, darkobj_t dobj, specli
 int aod_linear_fit(atc_t *atc, float *logaod, float *angb, float *angn);
 int aod_polynomial_fit(atc_t *atc, int naod, float *logaod, float *a0, float *a1, float *a2);
 int aod_elev_dependency(atc_t *atc, dark_t *dark, int green);
+int aod_map(atc_t *atc, dark_t *dark);
+int interpolate_aod_map(atc_t *atc, float **map_aod);
+int compile_aod(par_ll_t *pl2, meta_t *meta, atc_t *atc, brick_t *TOA, brick_t *QAI, top_t *TOP);
 
 static int get_brick_nbands(brick_t *b){ return b->nb; }
 static int get_brick_ncols(brick_t *b){ return b->nx; }

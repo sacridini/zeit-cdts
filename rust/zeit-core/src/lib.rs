@@ -28,6 +28,7 @@ pub mod dist;
 pub mod eigen;
 pub mod ewmacd;
 pub mod gas;
+pub mod gdal_grid;
 pub mod gls;
 pub mod gsl_brent;
 pub mod gsl_nmsimplex;

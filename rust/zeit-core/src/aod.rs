@@ -1,4 +1,4 @@
-//! The dark targets and the aerosol optical depth over each of them: the first half of FORCE's `aod-ll.c`. A port of
+//! The dark targets and the aerosol optical depth over each of them, and the AOD map: FORCE's `aod-ll.c`. A port of
 //! FORCE 3.11.00 (Framework for Operational Radiometric Correction for Environmental monitoring, Copyright (C)
 //! 2013-2022 David Frantz, GPL-3.0-or-later, https://github.com/davidfrantz/force), `src/modules/lower-level/aod-ll.c`
 //! lines 45-1370: `aodfileread`, `extract_dark_target`, `water_lib`, `land_lib`, `veg_lib`, `aod_lib_to_target`,
@@ -6,8 +6,9 @@
 //! `aod_polynomial_fit` (lines 1371-1480, which `aod_from_target` calls), the segmentation and the distance
 //! transform of `cross-level/imagefuns-cl.c` (`connectedcomponents_`: Chang, Chen & Lu 2004; `dist_transform_`:
 //! Meijster, Roerdink & Hesselink 2006), and `get_cloud` of `quality-cl.c` ([`crate::qai`]). The minimizers are GSL
-//! 2.7's ([`crate::gsl_brent`], [`crate::gsl_nmsimplex`]). The map (`aod_map`, `interpolate_aod_map`) and
-//! `compile_aod` are not here yet.
+//! 2.7's ([`crate::gsl_brent`], [`crate::gsl_nmsimplex`]). The rest of the file (lines 1481-1837) is here too:
+//! `aod_map`, `interpolate_aod_map` (with the inverse distance weighting of GDAL 3.9.3's `GDALGridCreate`,
+//! [`crate::gdal_grid`]) and `compile_aod`.
 //!
 //! The arithmetic is the C's, as in [`crate::radtran`]: C `float` is `f32`, and every `float` variable is rounded
 //! where it is assigned; where C promotes to `double` (`exp`, `log`, `pow`, `/ 10000.0`, a `double` literal) the
@@ -38,7 +39,7 @@ use crate::gsl_brent::{self, Brent, IntervalTest};
 use crate::gsl_nmsimplex::NmSimplex;
 use crate::qai;
 use crate::radtran::{
-    aod_elev_factor, env_weight, env_weight_aerosol, env_weight_molecular, mod_elev_factor, mod_elev_scale, optical_depth,
+    aod_elev_factor, aod_elev_scale, env_weight, env_weight_aerosol, env_weight_molecular, mod_elev_factor, mod_elev_scale, optical_depth,
     path_ref, scatt_transmitt, sphere_albedo,
 };
 use crate::radtran_tables as tab;
@@ -1344,6 +1345,203 @@ pub fn aod_elev_dependency(atc: &mut Atc, dark: &mut DarkTargets, green: usize) 
     Ok(())
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// aod_map, interpolate_aod_map, compile_aod
+// ---------------------------------------------------------------------------------------------------------------
+
+/// `interpolate_aod_map`: the average AOD maps `map_aod` (`nb` bands of `ng` cells, zero where a cell has no
+/// estimate) are interpolated to every cell by inverse distance weighting (GDAL's `GDALGridCreate`, algorithm
+/// `"invdist"` with its defaults, over the cells that have a green-band estimate: [`crate::gdal_grid`]) and lowpass
+/// filtered (a 3 x 3 mean over the interpolation, in the cells with view data) into `atc.xy_aod`; `atc.aod` is the mean
+/// of each band over the cells with an AOD over 0.
+fn interpolate_aod_map(atc: &mut Atc, map_aod: &[Vec<f32>]) -> Result<(), AodError> {
+    let nb = atc.xy_aod.nb();
+    let (nf, ne) = (atc.xy_aod.nx, atc.xy_aod.ny);
+    let green = atc.xy_aod.find_domain("GREEN").ok_or(AodError::NoDomain("GREEN"))?;
+    if atc.aod.len() != nb {
+        atc.aod = vec![0.0; nb];
+    }
+
+    // the cells with an AOD estimate
+    let mut aod_x = Vec::new();
+    let mut aod_y = Vec::new();
+    let mut aod_z: Vec<Vec<f64>> = vec![Vec::new(); nb];
+    let mut g = 0;
+    for e in 0..ne {
+        for f in 0..nf {
+            if map_aod[green][g] > 0.0 {
+                for b in 0..nb {
+                    aod_z[b].push(map_aod[b][g] as f64);
+                }
+                aod_x.push(f as f64);
+                aod_y.push(e as f64);
+            }
+            g += 1;
+        }
+    }
+
+    // interpolate and smooth AOD
+    for b in 0..nb {
+        let interpol =
+            crate::gdal_grid::invdist_grid(&aod_x, &aod_y, &aod_z[b], 0.0, (nf - 1) as f64, 0.0, (ne - 1) as f64, nf, ne);
+
+        let (mut sum, mut num) = (0.0f64, 0.0f64);
+        // lowpass filter
+        let mut g = 0;
+        for e in 0..ne {
+            for f in 0..nf {
+                let cell = g;
+                g += 1;
+                if atc.xy_view.bands[crate::atc::ZEN][cell] < 0.0 {
+                    continue;
+                }
+                let (mut gsum, mut gnum) = (0.0f64, 0.0f64);
+                for ee in -1i64..=1 {
+                    for ff in -1i64..=1 {
+                        let (r, c) = (e as i64 + ee, f as i64 + ff);
+                        if r < 0 || c < 0 || r >= ne as i64 || c >= nf as i64 {
+                            continue;
+                        }
+                        gsum += interpol[r as usize * nf + c as usize];
+                        gnum += 1.0;
+                    }
+                }
+                let aod = if gnum > 0.0 { (gsum / gnum) as f32 } else { 0.0 };
+                atc.xy_aod.bands[b][cell] = aod;
+                if aod > 0.0 {
+                    sum += aod as f64;
+                    num += 1.0;
+                }
+            }
+        }
+        atc.aod[b] = if num > 0.0 { (sum / num) as f32 } else { 0.0 };
+    }
+    Ok(())
+}
+
+/// `aod_map`: the continuous AOD field at the resolution of the coarse grid. The AOD of each valid target (water,
+/// shadow, vegetation), scaled to the elevation of the scene average with the target's and the scene's elevation
+/// factors (`Ha`), is averaged per grid cell weighted by the squared R2 of its fit; the cells without a target are
+/// marked in `atc.xy_interp` and filled by [`interpolate_aod_map`], which also sets `atc.aod`.
+fn aod_map(atc: &mut Atc, dark: &DarkTargets) -> Result<(), AodError> {
+    let nb = atc.xy_aod.nb();
+    let ng = atc.xy_aod.ncell();
+    let mut map = vec![vec![0.0f32; ng]; nb];
+    let mut weight = vec![0.0f32; ng];
+
+    // add the water, shade and vegetation measurements to the map
+    for list in [&dark.wat, &dark.shd, &dark.veg] {
+        for o in list.iter() {
+            if !o.valid {
+                continue;
+            }
+            let g = o.g as usize;
+            if o.g < 0 || g >= ng || o.aod.len() != nb {
+                return Err(AodError::Shape("a target lies outside the coarse grid".into()));
+            }
+            let w = o.rsq * o.rsq;
+            for b in 0..nb {
+                let aod = aod_elev_scale(o.aod[b], o.ha, atc.ha);
+                map[b][g] += aod * w;
+            }
+            weight[g] += w;
+        }
+    }
+
+    // compute the AOD average for the coarse grid cells
+    for g in 0..ng {
+        for b in 0..nb {
+            if weight[g] > 0.0 {
+                map[b][g] /= weight[g];
+            } else {
+                atc.xy_interp.bands[0][g] = 1.0;
+            }
+        }
+    }
+
+    // interpolate the AOD map
+    interpolate_aod_map(atc, &map)
+}
+
+/// The parameters of `compile_aod` that FORCE reads from its parameter file, its metadata and the image: whether to
+/// estimate the AOD (`doaod`), the directory of the AOD files (`d_aod`; `None` for `"NULL"`), the scene centre in
+/// geographic coordinates and the day of the year (for [`aodfileread`]), `meta->cal[b].rsr_band` of each band, and
+/// whether the objects are matched with the multiple scattering (`domulti`).
+#[derive(Clone, Debug)]
+pub struct AodParams<'a> {
+    pub doaod: bool,
+    pub dir: Option<&'a str>,
+    pub center_lon: f64,
+    pub center_lat: f64,
+    pub doy: i32,
+    pub rsr_band: &'a [usize],
+    pub multi: bool,
+}
+
+/// `compile_aod`: the entry point of the AOD estimation. The fallback is the global constant or the spectrum of the
+/// AOD file ([`aodfileread`]); without `par.doaod` that is `atc.aod`. Else the bands of the AOD estimation are the
+/// visible ones and the SWIR2 (added to `atc.aod_bands`, which is not cleared), the dark targets are extracted from the
+/// image ([`extract_dark_target`], water, shadow, vegetation), the AOD is estimated per target ([`aod_from_target`]),
+/// the elevation dependency is estimated ([`aod_elev_dependency`]) and, if there is any valid target, the AOD map is
+/// compiled (`atc.xy_aod`, `atc.xy_interp`, `atc.aod`, `atc.aodmap = true`); else the fallback is `atc.aod` and
+/// `atc.aodmap` is false. Returns the targets (FORCE frees them; `nwat`, `nshd` and `nveg` count the valid ones; empty
+/// without `doaod`). `top` (FORCE's `top_t`) is an input until `compile_topography` is ported. `toa` and `qai` are on
+/// the image grid. The message FORCE prints at the end is not here.
+pub fn compile_aod(atc: &mut Atc, par: &AodParams, toa: &Toa, qai: &[i16], top: &Top) -> Result<DarkTargets, AodError> {
+    let nb = toa.bands.len();
+    let res = toa.grid.res;
+    let green = toa.find_domain("GREEN").ok_or(AodError::NoDomain("GREEN"))?;
+    let sw2 = toa.find_domain("SWIR2").ok_or(AodError::NoDomain("SWIR2"))?;
+
+    // read the external AOD file
+    let aod_lut = aodfileread(atc, par.dir, par.center_lon, par.center_lat, par.doy)?;
+    atc.aod = vec![0.0; atc.xy_aod.nb()];
+
+    if !par.doaod {
+        for b in 0..nb {
+            atc.aod[b] = aod_lut[b];
+        }
+        return Ok(DarkTargets::default());
+    }
+
+    // estimate AOD from the image: all visible bands and the SWIR2
+    if atc.aod_bands.len() != nb || atc.wvl.len() != nb {
+        return Err(AodError::Shape("the atc needs nb bands".into()));
+    }
+    for b in 0..nb {
+        if (atc.wvl[b] as f64) < 0.7 || b == sw2 {
+            atc.aod_bands[b] = true;
+        }
+    }
+
+    // extract the dark targets from the image and tabulate the information
+    let mut dark = DarkTargets {
+        wat: extract_dark_target(atc, toa, qai, top, TargetType::Water)?,
+        shd: extract_dark_target(atc, toa, qai, top, TargetType::Shadow)?,
+        veg: extract_dark_target(atc, toa, qai, top, TargetType::Vegetation)?,
+        ..Default::default()
+    };
+    // object-based estimation of AOD
+    dark.nwat = aod_from_target(atc, par.rsr_band, res, par.multi, &mut dark.wat, TargetType::Water)?;
+    dark.nshd = aod_from_target(atc, par.rsr_band, res, par.multi, &mut dark.shd, TargetType::Shadow)?;
+    dark.nveg = aod_from_target(atc, par.rsr_band, res, par.multi, &mut dark.veg, TargetType::Vegetation)?;
+
+    // estimate the elevation dependency
+    aod_elev_dependency(atc, &mut dark, green)?;
+
+    // compile the AOD map or use the fallback
+    if dark.nwat + dark.nshd + dark.nveg > 0 {
+        aod_map(atc, &dark)?;
+        atc.aodmap = true;
+    } else {
+        for b in 0..nb {
+            atc.aod[b] = aod_lut[b];
+        }
+        atc.aodmap = false;
+    }
+    Ok(dark)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1580,6 +1778,154 @@ mod tests {
         assert_eq!(ha, [0x3f7feac1, 0, 0x3f7fda61, 0, 0x3f7fe6a9, 0x3f7fc5ea]);
     }
 
+    /// What the harness does before `compile_aod`: the sun zenith band of the view brick is 30 where there is a view.
+    fn with_view_zenith(mut t: Tiny) -> Tiny {
+        for g in 0..GNX * GNY {
+            let cz = t.atc.xy_view.bands[C_ZEN][g];
+            t.atc.xy_view.bands[crate::atc::ZEN][g] = if cz < 0.0 { cz } else { 30.0 };
+        }
+        t
+    }
+
+    fn params<'a>(t: &'a Tiny, doaod: bool) -> AodParams<'a> {
+        AodParams { doaod, dir: None, center_lon: 0.0, center_lat: 0.0, doy: 1, rsr_band: &t.rsr, multi: true }
+    }
+
+    /// `compile_aod` on the scene above: the values the C harness printed (FORCE's `compile_aod` as it is, GSL 2.7, GDAL
+    /// 3.9.3, one thread).
+    #[test]
+    fn compile_aod_values_of_the_c_harness() {
+        let mut t = with_view_zenith(tiny());
+        let rsr = t.rsr.clone();
+        let par = AodParams { doaod: true, dir: None, center_lon: 0.0, center_lat: 0.0, doy: 1, rsr_band: &rsr, multi: true };
+        let dark = compile_aod(&mut t.atc, &par, &t.toa, &t.qai, &t.top).unwrap();
+        assert_eq!((dark.nwat, dark.nshd, dark.nveg), (2, 0, 2));
+        assert!(t.atc.aodmap);
+        let b = |v: &[f32]| v.iter().map(|x| x.to_bits()).collect::<Vec<u32>>();
+        // the map (and the AOD averaged over it) goes through GDAL's approximate 1/r2 (`rcpps`), whose table is the CPU
+        // maker's: the bits of the harness on an Intel CPU, the values to that approximation elsewhere
+        let same_or_close = |got: &[f32], want: &[u32]| {
+            if crate::gdal_grid::rcp_is_intel() {
+                assert_eq!(b(got), want);
+            } else {
+                assert_eq!(got.len(), want.len());
+                for (g, &w) in got.iter().zip(want) {
+                    let w = f32::from_bits(w);
+                    assert!((g - w).abs() <= 2e-3 * w.abs(), "{g} vs {w}");
+                }
+            }
+        };
+        same_or_close(
+            &t.atc.aod,
+            &[
+                0x3e25374f, 0x3e0811e2, 0x3de55694, 0x3db75797, 0x3da5deec, 0x3d970a89, 0x3d8e5ade, 0x3d7ea295, 0x3d718d7b, 0x3d5a8e8b,
+                0x3cfaf5b9, 0x3cc7d4d7, 0x3c803349
+            ],
+        );
+        assert_eq!((t.atc.hp.to_bits(), t.atc.ha.to_bits()), (0x447a0000, 0x3f7fcede));
+        let bands: Vec<bool> = (0..NB).map(|b| matches!(b, 1 | 2 | 3 | 12)).collect();
+        assert_eq!(t.atc.aod_bands, bands); // the vegetation estimation leaves the blue, green, red and SWIR2 bands
+        // the cells outside the swath (the last column) keep no AOD; the other cells are interpolated or averaged
+        same_or_close(
+            &t.atc.xy_aod.bands[2],
+            &[
+                0x3ddc3e32, 0x3ddd8ed8, 0x3dddc3a2, 0, 0x3de7fa0d, 0x3de68414, 0x3de2c664, 0, 0x3df1f892, 0x3dede578, 0x3de757f9, 0,
+            ],
+        );
+        same_or_close(
+            &t.atc.xy_aod.bands[12],
+            &[
+                0x3c763d06, 0x3c7db0d1, 0x3c83067d, 0, 0x3c7bf8a9, 0x3c805623, 0x3c82e91c, 0, 0x3c80066b, 0x3c8101a5, 0x3c828c84, 0,
+            ],
+        );
+        // the cells without a target of their own are the ones marked as interpolated (the targets are in 1 and 4)
+        assert_eq!(t.atc.xy_interp.bands[0], [1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 1.0, 0.0, 1.0, 1.0, 1.0]);
+        assert_eq!(b(&t.atc.xy_ha.bands[0])[..3], [0x3f7fef5d, 0x3f7feb44, 0x3f7fe72c]);
+    }
+
+    /// No target (the fallback), only invalid targets, `doaod` off and an AOD file: `atc.aod` is the fallback spectrum.
+    #[test]
+    fn compile_aod_without_targets_uses_the_fallback() {
+        let t = with_view_zenith(tiny());
+        let fallback = aodfileread(&t.atc, None, 0.0, 0.0, 1).unwrap();
+        let check = |toa: &Toa, qai: &[i16], doaod: bool| {
+            let mut atc = t.atc.clone();
+            let dark = compile_aod(&mut atc, &params(&t, doaod), toa, qai, &t.top).unwrap();
+            assert_eq!(atc.aod, fallback);
+            assert!(!atc.aodmap);
+            assert!(atc.xy_aod.bands.iter().flatten().all(|&v| v == 0.0));
+            assert!(atc.xy_interp.bands[0].iter().all(|&v| v == 0.0));
+            (dark.nwat, dark.nveg)
+        };
+        // land only: no candidates
+        let mut land = Toa { grid: t.toa.grid, bands: t.toa.bands.clone(), domain: t.toa.domain.clone() };
+        for (b, band) in land.bands.iter_mut().enumerate() {
+            for (p, v) in band.iter_mut().enumerate() {
+                if *v != -9999 {
+                    *v = T_L[b] + (p % 5) as i16;
+                }
+            }
+        }
+        assert_eq!(check(&land, &t.qai, true), (0, 0));
+        // all cloud: every candidate is invalid
+        let cloud: Vec<i16> = t.qai.iter().map(|&q| q | (1 << 1)).collect();
+        assert_eq!(check(&t.toa, &cloud, true), (0, 0));
+        // doaod off: nothing is extracted, whatever is in the image
+        assert_eq!(check(&t.toa, &t.qai, false), (0, 0));
+        // the bands of the estimation are not touched without doaod
+        let mut atc = t.atc.clone();
+        atc.aod_bands = vec![false; NB];
+        compile_aod(&mut atc, &params(&t, false), &t.toa, &t.qai, &t.top).unwrap();
+        assert!(atc.aod_bands.iter().all(|&v| !v));
+
+        // an AOD file: the line closest to the scene centre
+        let dir = std::env::temp_dir().join(format!("zeit_aod_compile_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("AOD_045.txt"), "1.0 45.0 -2.5 -1.3 -0.05\n2.0 46.0 -2.2 -1.1 -0.02\n").unwrap();
+        let mut atc = t.atc.clone();
+        let par = AodParams { dir: dir.to_str(), center_lon: 1.9, center_lat: 45.7, doy: 45, ..params(&t, false) };
+        compile_aod(&mut atc, &par, &t.toa, &t.qai, &t.top).unwrap();
+        assert_eq!(atc.aod, aodfileread(&t.atc, dir.to_str(), 1.9, 45.7, 45).unwrap());
+        assert_ne!(atc.aod, fallback);
+        // a missing file is a failure
+        let par = AodParams { doy: 46, ..par };
+        assert!(matches!(compile_aod(&mut atc, &par, &t.toa, &t.qai, &t.top), Err(AodError::OpenFile(_))));
+        std::fs::remove_dir_all(&dir).unwrap();
+
+        // a TOA brick without the green or the SWIR2 domain
+        let mut atc = t.atc.clone();
+        let mut bad = Toa { grid: t.toa.grid, bands: t.toa.bands.clone(), domain: t.toa.domain.clone() };
+        bad.domain[2] = String::new();
+        assert_eq!(compile_aod(&mut atc, &params(&t, true), &bad, &t.qai, &t.top).unwrap_err(), AodError::NoDomain("GREEN"));
+    }
+
+    /// A single estimate is the whole field: the interpolation of one point is its value (to a rounding of the float
+    /// division) everywhere with view data.
+    #[test]
+    fn the_map_of_one_cell_is_flat() {
+        let mut t = with_view_zenith(tiny());
+        let mut dark = DarkTargets::default();
+        dark.wat.push(DarkObj { valid: true, g: 5, rsq: 0.5, ha: 1.0, aod: (0..NB).map(|b| 0.125 + 0.015625 * b as f32).collect(), ..Default::default() });
+        t.atc.ha = 1.0;
+        aod_map(&mut t.atc, &dark).unwrap();
+        for b in 0..NB {
+            let want = 0.125 + 0.015625 * b as f32;
+            for g in 0..GNX * GNY {
+                let got = t.atc.xy_aod.bands[b][g];
+                if g % GNX == GNX - 1 {
+                    assert_eq!(got, 0.0, "outside the swath"); // the zenith band is the nodata value there
+                } else {
+                    assert!((got - want).abs() <= want * 1e-6, "band {b} cell {g}: {got} vs {want}");
+                }
+            }
+            assert!((t.atc.aod[b] - want).abs() <= want * 1e-6);
+        }
+        assert_eq!(t.atc.xy_interp.bands[0].iter().filter(|&&v| v == 0.0).count(), 1);
+        // a target outside the grid is an error, not a crash
+        dark.wat[0].g = 99;
+        assert!(matches!(aod_map(&mut t.atc, &dark), Err(AodError::Shape(_))));
+    }
+
     /// `aod_elev_dependency` on lists of targets; the values the C harness printed for the same inputs (Brent's method).
     #[test]
     fn the_elevation_dependency_of_the_c_harness() {
@@ -1783,5 +2129,65 @@ mod tests {
         assert_eq!((atc.xyz_rho_p.len(), N_ELEV), (256, 256));
         assert_eq!(atc.xy_aod.nb(), 3);
         assert!(!atc.xy_view.is_nodata(0, 0));
+    }
+
+    /// Writes the scene above in the layout of `benchmarks/vs_originals/force_aod/main.inc` (to the file named by
+    /// `ZEIT_TINY_SCENE`), for the C harness that gave the values of the tests of `compile_aod`:
+    /// `cargo test --release --lib write_tiny_scene -- --ignored`, then `aod_harness compile <file> <out> 1 NULL 0 0 1`.
+    #[test]
+    #[ignore]
+    fn write_tiny_scene_for_the_c_harness() {
+        use std::io::Write;
+        let path = std::env::var("ZEIT_TINY_SCENE").expect("ZEIT_TINY_SCENE");
+        let t = tiny();
+        let mut f = std::fs::File::create(path).unwrap();
+        let mut w = |b: &[u8]| f.write_all(b).unwrap();
+        let (gn, npix) = (GNX * GNY, NX * NY);
+        for v in [NB as i32, NX as i32, NY as i32] {
+            w(&v.to_le_bytes());
+        }
+        w(&10.0f64.to_le_bytes());
+        for v in [GNX as i32, GNY as i32] {
+            w(&v.to_le_bytes());
+        }
+        w(&150.0f64.to_le_bytes());
+        for v in [-9999i32, 1] {
+            w(&v.to_le_bytes());
+        }
+        for d in DOMAIN {
+            let mut b = [0u8; 16];
+            b[..d.len()].copy_from_slice(d.as_bytes());
+            w(&b);
+        }
+        for r in &t.rsr {
+            w(&(*r as i32).to_le_bytes());
+        }
+        for v in &t.atc.aod_bands {
+            w(&[*v as u8]);
+        }
+        let fs = |v: &[f32]| v.iter().flat_map(|x| x.to_le_bytes()).collect::<Vec<u8>>();
+        for v in [&t.atc.wvl[..], &t.atc.lwvl, &t.atc.e0, &[t.atc.dem.avg, t.atc.dem.min, t.atc.dem.max, t.atc.dem.step, t.atc.sob]] {
+            w(&fs(v));
+        }
+        for v in [&t.atc.xy_sun.bands[C_ZEN], &t.atc.xy_sun.bands[AZI], &t.atc.xy_view.bands[C_ZEN], &t.atc.xy_view.bands[AZI]] {
+            w(&fs(v));
+        }
+        for brick in [&t.atc.xy_tso, &t.atc.xy_tvo, &t.atc.xy_tg, &t.atc.xy_mod, &t.atc.xy_brdf] {
+            for b in 0..NB {
+                w(&fs(&brick.bands[b]));
+            }
+        }
+        for v in [&t.atc.xy_pr, &t.atc.xy_pa, &t.atc.xy_hr, &t.atc.xy_fresnel, &t.atc.xy_dem] {
+            w(&fs(&v.bands[0]));
+        }
+        let _ = (gn, npix);
+        for b in 0..NB {
+            w(&t.toa.bands[b].iter().flat_map(|x| x.to_le_bytes()).collect::<Vec<u8>>());
+        }
+        w(&t.qai.iter().flat_map(|x| x.to_le_bytes()).collect::<Vec<u8>>());
+        w(&t.top.dem);
+        w(&t.top.slope.iter().flat_map(|x| x.to_le_bytes()).collect::<Vec<u8>>());
+        w(&t.top.ill.iter().flat_map(|x| x.to_le_bytes()).collect::<Vec<u8>>());
+        w(&t.top.sky.iter().flat_map(|x| x.to_le_bytes()).collect::<Vec<u8>>());
     }
 }
