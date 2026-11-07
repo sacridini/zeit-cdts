@@ -2945,6 +2945,41 @@ validação.
   reproduz um bug do AROSICS 1.14.0 na atribuição das flags do RANSAC). Falta a ferramenta no
   Janus, com os vetores de deslocamento como camada.
 - **Zeit:** 23g (correção atmosférica), como nas Etapas acima.
+- **Zeit, depois da 23g (decidido em 2026-11-07): o que falta para ir do L1 ao ARD como o
+  FORCE.** O usuário quer, por ora, só as funções do FORCE: nada de 6S (licença sem declaração
+  aberta, e o ganho é pequeno, já que o que pesa é a AOD) nem de outros métodos. A ordem:
+  - **23h, a máscara de nuvem do FORCE sobre o L1 (`cloud-ll.c`).** É a lacuna maior: o
+    `qa_mask` lê as máscaras dos produtos L2 (SCL, `QA_PIXEL`) e o `tmask` é multitemporal,
+    mas o L1C não traz SCL, e sem nuvem por cena a correção não dá ARD utilizável (o FORCE
+    também usa a máscara para escolher os alvos escuros). O `cloud-ll.c` é a adaptação do Fmask
+    pelo Frantz. O GERSL/Fmask atual é MIT; antes do port, confirmar que isso vale para a versão
+    que o FORCE adaptou (Zhu & Woodcock 2012; Zhu et al. 2015). Junto, a QAI completa do FORCE
+    e os produtos auxiliares que saem quase de graça: a distância à nuvem (DST, que o BAP usa),
+    o HOT e os mapas de AOD e de vapor.
+  - **23i, a cadeia L1C → ARD do Sentinel-2:** uma função (`zeit.level2`, nome a decidir) que
+    faça o que o `force-l2ps` faz, nesta ordem:
+    - ler o L1C pelo Earth Search e os metadados (`MTD_MSIL1C.xml`, o offset radiométrico da
+      baseline 04.00, e os ângulos do `MTD_TL.xml` pelo `sentinel2_angles`);
+    - buscar o MDE (Copernicus GLO-30 pelo STAC);
+    - a nuvem (23h), a atmosfera e a topografia (23g), o BRDF (`nbar`), o merge de 20 m
+      (`sentinel2_resmerge`) e, se pedido, o coregistro (`coregister`);
+    - gravar a reflectância com a QAI.
+
+    A comparação é contra o `force-l2ps` nas mesmas cenas e contra o L2A da ESA como
+    referência independente. No Janus: a ferramenta que leva uma pasta de L1 a ARD.
+  - **Depois, só se houver demanda: o Landsat L1.** Faltam:
+    - o leitor do MTL;
+    - as bandas térmicas, que o Fmask usa;
+    - o vapor pela LUT do MODIS (`force-lut-modis`, que pede login no Earthdata), porque o
+      Landsat não tem banda de vapor;
+    - o acesso, que pede login no USGS.
+
+    Pesa menos que o Sentinel-2: o L2 do Landsat C2 já está no STAC, e os ajustes do Zeit valem
+    sobre ele.
+  - **Lacunas menores, sem data:** o STARFM (fora pela licença; provavelmente é obra do governo
+    dos EUA, o que reabriria o caso) e o BAP paramétrico do FORCE (Frantz 2017, só como
+    comparação ao de Griffiths 2013). O datacube em tiles, o Equi7 e o GLANCE não fazem falta,
+    porque o Zeit monta a grade sob demanda (`like=`).
 - **Self-test do Janus:** a Fenologia polar é pulada nos dados de teste, que são irregulares.
   Um dado regular no `tools/make_selftest_data.py` a cobriria.
 - A temporada final cortada do `polar_metrics` (hoje medida; poderia ser NaN): decisão do
