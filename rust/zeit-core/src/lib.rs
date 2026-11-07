@@ -9,6 +9,7 @@
 #![allow(clippy::neg_cmp_op_on_partial_ord)]
 
 pub mod aoa;
+pub mod aod;
 pub mod atc;
 pub mod ar_reml;
 pub mod bap;
@@ -28,6 +29,7 @@ pub mod eigen;
 pub mod ewmacd;
 pub mod gas;
 pub mod gls;
+pub mod gsl_brent;
 pub mod gsl_nmsimplex;
 pub mod gsl_symmv;
 pub mod hotspots;

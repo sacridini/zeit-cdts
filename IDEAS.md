@@ -2855,15 +2855,56 @@ validação.
     linha de LUT com menos de três campos derruba o FORCE (`atof(NULL)`) e aqui é pulada. (5) O
     centro da cena (longitude e latitude, que o FORCE tira da projeção do brick `xy_sun`) e a data
     entram como argumentos.
-  - **Próximas partes:** o `aod-ll.c` (1.837 linhas) em duas sub-etapas. (a) Os alvos escuros e
+  - **Próximas partes:** o `aod-ll.c` (1.837 linhas) em duas sub-etapas. (a) (feita na terceira parte) Os alvos escuros e
     a AOD de cada um: `aodfileread`, `extract_dark_target` (lê `top_t`: DEM binado, iluminação e
     céu visível do `topo-ll.c`, que precisa de um `compile_topography` antes), as bibliotecas de
     espectros (`water_lib`, `land_lib`, `veg_lib`, com as tabelas `_AERO_WATERLIB_` 26x491 e
     `_AERO_LANDLIB_` 34x1991 do `table-ll.c`, que o `gen_radtran_tables.py` ainda não gera),
     `aod_lib_to_target`, `aod_from_target` e `aod_elev_dependency` (o `gsl_min` de Brent). (b) O
-    mapa: `aod_linear_fit`, `aod_polynomial_fit` (o `nmsimplex` original do GSL, não o `nmsimplex2`),
+    mapa: `aod_linear_fit`, `aod_polynomial_fit` (o `nmsimplex2` do GSL em três dimensões; foram para a terceira parte, onde `aod_from_target` os chama),
     `aod_map`, `interpolate_aod_map` (o `GDALGridCreate` de inverso da distância, que pede um IDW
     igual ao do GDAL) e `compile_aod`. Depois, o `atmo-ll.c` (2.126 linhas), que consome tudo.
+- **23g, terceira parte (alvos escuros e AOD):** a primeira metade do `aod-ll.c` do FORCE 3.11.00, em
+  `rust/zeit-core/src/aod.rs` (o Brent do GSL em `gsl_brent.rs`; ligação mínima `zeit._core.aod`, sem API
+  pública): `aodfileread`, `extract_dark_target` (alvos de água e de vegetação: os testes espectrais, a
+  divisão pela grade grossa, os componentes conexos de Chang et al. 2004 e a distância à margem de Meijster
+  et al. 2006, ambos do `imagefuns-cl.c`, os espectros decrescentes, a refletância do alvo e do entorno),
+  `water_lib` (a `_AERO_WATERLIB_` 26x491 do `table-ll.c`, gerada por `tools/gen_radtran_tables.py` em
+  `radtran_tables.rs`, convoluída com a resposta espectral de cada banda), `land_lib`, `veg_lib`,
+  `aod_lib_to_target`, `aod_from_target` com `aod_linear_fit` e `aod_polynomial_fit` (o `nmsimplex2` do GSL em
+  três dimensões, que `gsl_nmsimplex.rs` ganhou: o `dnrm2`, `ddot` e `daxpy` de referência do CBLAS do GSL),
+  `aod_elevation_minimizer` e `aod_elev_dependency` (o `gsl_min_fminimizer_brent` do GSL 2.7, operação por
+  operação). O QAI ganhou o bit de nuvem (`qai::cloud`), o `Atc` os campos que estas funções leem (`wvl`,
+  `lwvl`, `e0`, `aod_bands`, `dem`, `hp`, `ha`, `sob`, `xy_aod`, `xy_mod`, `xy_pr`, `xy_pa`, `xy_hr`, `xy_ha`,
+  `xy_brdf`, `xy_fresnel`, `xy_dem`; o `CoarseBrick` ganhou o domínio de cada banda). O `top_t` (DEM binado,
+  declividade, iluminação, céu visível) é uma entrada (`aod::Top`): o `compile_topography` do `topo-ll.c` não
+  foi portado.
+  - **Igual ao C, bit a bit, em 275.809 valores:** 161.773 de 6 cenas sintéticas (120x90 a 480x440 pixels de
+    10 m, células de 150 a 300 m; lagos, um rio cortado pela grade, vegetação, nuvem, sombra, regiões sem dado,
+    de 0 a 741 alvos candidatos; os espectros dos alvos vêm do modelo direto da transferência radiativa) com as
+    listas de alvos, o AOD de cada espectro da biblioteca, o ajuste (espectro, tipo, R2, coeficientes) e os
+    fatores de elevação; 9.703 de 300 listas aleatórias para a dependência da elevação (o Brent); 200 de 200
+    arquivos de AOD; 104.133 da segmentação e da distância. O harness (`benchmarks/vs_originals/force_aod/`)
+    compila o `aod-ll.c` do FORCE como está, do começo ao fim do `aod_polynomial_fit`, menos o primeiro
+    `#include`, com `radtran-ll.c` e `table-ll.c`, atrás de shims de `brick_t`, `atc_t`, `meta_t`, `par_ll_t` e
+    `top_t`, contra o GSL 2.7 de verdade ligado estaticamente; as funções do `quality-cl.c`,
+    `brick_base-cl.c`, `utils-cl.c` e `imagefuns-cl.c` de que ele depende entram copiadas literalmente. O
+    script é `benchmarks/vs_originals/force_aod.py`.
+  - **Onde o Zeit fica diferente do C, de propósito:** (1) o FORCE roda os laços com OpenMP: a soma do
+    ambiente médio da cena é por thread (`reduction`), e o laço dos alvos do `aod_from_target` dá a cada thread
+    UM conjunto de `aodest`, `aodlog` e `aodfit` que o alvo seguinte encontra como o anterior deixou (uma
+    entrada que o `aod_lib_to_target` não escreve guarda o valor do alvo anterior); o Zeit é o FORCE com uma
+    thread (`OMP_NUM_THREADS=1`): somas na ordem dos pixels, os arranjos levados de alvo em alvo. Na cena
+    grande, 4 threads deram os mesmos alvos e AOD. (2) Onde o C imprime e devolve `FAILURE`/`NULL`, o Zeit
+    devolve um `AodError`; uma linha do arquivo de AOD com menos de cinco campos (`atof(NULL)` no FORCE) é
+    pulada; uma célula grossa menor que o pixel (laço infinito no FORCE) é erro; o minimizador de elevação cuja
+    função não é finita (o FORCE segue com um estado não inicializado) é "sem mínimo". (3) O tipo sombra está
+    desligado no FORCE ("until further notice") e aqui também; a `_AERO_LANDLIB_` (34x1991) não é gerada: o
+    `land_lib` não a lê (devolve um espectro de zeros). (4) O `print_dark_object` (só com `FORCE_DEBUG`, só
+    imprime) não foi portado.
+  - **Quarta parte:** `aod_map` (a média por célula, com o R2 ao quadrado de peso), `interpolate_aod_map` (o
+    `GDALGridCreate` de inverso da distância, que pede um IDW igual ao do GDAL) e `compile_aod`; o
+    `compile_topography` do `topo-ll.c`; depois o `atmo-ll.c` (2.126 linhas), que consome tudo.
 - **Janus:** o `zeit-core` foi para o `7c01978` sem mudar nada do que o Janus já chamava. As
   ferramentas pedem duas coisas novas no Janus:
   - saídas cujas bandas a ferramenta decide (a grade nova, os anos, as janelas);

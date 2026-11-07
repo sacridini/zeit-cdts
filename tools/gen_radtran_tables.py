@@ -4,7 +4,9 @@ FORCE (Framework for Operational Radiometric Correction for Environmental monito
 David Frantz, GPL-3.0-or-later. The tables it reads are the exoatmospheric irradiance (Thuillier spectrum, 1 nm,
 410-2400 nm), the water vapour absorption (HITRAN 2016), the ozone absorption (Bird & Riordan 1986), the wavelengths
 and the relative spectral response (RSR) of every band of Landsat 4, 5, 7, 8 and Sentinel-2A and B (courtesy of
-USGS/ESA); the aerosol libraries of table-ll.c are not needed by the radiative transfer functions and are skipped.
+USGS/ESA); the water aerosol library `_AERO_WATERLIB_` (26 spectra, 410-900 nm) is read by `water_lib` of aod-ll.c and is
+generated too; `_AERO_LANDLIB_` (34 x 1991) is skipped: `land_lib` never reads it (it returns one spectrum of zeros)
+and the shadow targets that would use it are disabled in FORCE 3.11.00.
 
 C parses `0.41` as a double and converts it to float; numpy does the same here (float64, then float32), and the
 shortest decimal that round-trips the float32 is written, so Rust reads back exactly the float of the C table.
@@ -57,6 +59,8 @@ def main(src, dst):
         v = numbers(block(text, name, r"\[1991\]"))
         assert len(v) == N, (name, len(v))
         tables[name] = v
+    wl = numbers(block(text, "_AERO_WATERLIB_", r"\[26\]\[491\]"))
+    assert len(wl) == 26 * 491, len(wl)
     rsr_text = block(text, "_RSR_", r"\[56\]\[1991\]")
     rows = [numbers(r) for r in re.findall(r"\{([^{}]*)\}", rsr_text)]
     assert len(rows) == 56 and all(len(r) == N for r in rows), (len(rows), [len(r) for r in rows])
@@ -88,6 +92,13 @@ def main(src, dst):
         out.append("#[rustfmt::skip]")
         emit_array(out, name[1:-1], vals)
         out.append("")
+    out.append("/// Water aerosol library (`_AERO_WATERLIB_`): 26 reflectance spectra of water bodies on the first 491")
+    out.append("/// wavelengths (410-900 nm), row-major: spectrum `i` is `AERO_WATERLIB[i * 491..(i + 1) * 491]`.")
+    out.append("pub const AERO_WATERLIB_N: usize = 26;")
+    out.append("pub const AERO_WATERLIB_W: usize = 491;")
+    out.append("#[rustfmt::skip]")
+    emit_array(out, "AERO_WATERLIB", wl)
+    out.append("")
     out.append("#[rustfmt::skip]")
     out.append("pub static RSR: [(usize, &[f32]); RSR_DIM] = [")
     for i, r in enumerate(rows):
