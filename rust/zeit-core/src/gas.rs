@@ -489,7 +489,7 @@ pub struct WvpSource {
 }
 
 /// C's `atof` on a token: the longest decimal (or `inf`/`nan`) prefix as a double, 0 if there is none.
-fn atof(s: &[u8]) -> f64 {
+pub(crate) fn atof(s: &[u8]) -> f64 {
     let mut k = 0;
     while k < s.len() && matches!(s[k], b' ' | b'\t' | b'\n' | 0x0b | 0x0c | b'\r') {
         k += 1;
