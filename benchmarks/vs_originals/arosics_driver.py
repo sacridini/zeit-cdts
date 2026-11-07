@@ -3,6 +3,8 @@ environment (AROSICS 1.14.0 and its GDAL, Python 3.14), which has none of Zeit's
 
     python arosics_driver.py run <spec.json> <result.json>
     python arosics_driver.py natural <folder>          # writes a pair of a natural image (scikit-image's camera)
+    python arosics_driver.py local <spec.json> <result.json>   # AROSICS' COREG_LOCAL (see run_local)
+    python arosics_driver.py natural_local <folder>    # the camera image warped by a smooth field of shifts
 
 ``spec.json``: ``{"pairs": [{"name", "ref", "tgt", "nodata", "ws", "cpus", "aligned": "<npy to write>"}], "repeat"}``.
 Each pair is timed as ``COREG(...)`` plus ``calculate_spatial_shifts()`` (best of ``repeat``; the footprints, the
@@ -95,10 +97,94 @@ def natural(folder):
     json.dump({"dx": dx, "dy": dy}, open(folder / "camera_shift.json", "w"))
 
 
+def run_local(spec_path, out_path):
+    """AROSICS' ``COREG_LOCAL`` on pairs of GeoTIFFs: the tie point table (``CoRegPoints_table``, every point of the
+    grid with its shifts, reliability, SSIM and the flags of the filters) and the target warped by its GCPs
+    (``correct_shifts()``, GDAL's thin plate spline), with the times of both steps.
+
+    ``spec.json``: ``{"pairs": [{"name", "ref", "tgt", "nodata", "ws", "grid_res", "cpus", "aligned": "<npy>",
+    "table": "<json>"}], "repeat"}``; the estimate (``COREG_LOCAL(...)`` + ``calculate_spatial_shifts()``) is timed
+    ``repeat`` times (the first one writes the table), the correction once.
+    """
+    from arosics import COREG_LOCAL
+
+    spec = json.load(open(spec_path))
+    out = []
+    for p in spec["pairs"]:
+        nd = p.get("nodata")
+        kw = dict(grid_res=p["grid_res"], window_size=(p["ws"], p["ws"]), max_shift=p.get("max_shift", 5),
+                  max_iter=p.get("max_iter", 5), nodata=(nd, nd), CPUs=p.get("cpus", 1), q=True, progress=False,
+                  align_grids=True, resamp_alg_deshift="cubic", tieP_filter_level=p.get("filter_level", 3))
+        times = []
+        for _ in range(spec.get("repeat", 1)):
+            t0 = time.perf_counter()
+            try:
+                crl = COREG_LOCAL(p["ref"], p["tgt"], **kw)
+                crl.calculate_spatial_shifts()
+                err = None
+            except Exception as e:  # no overlap, ...
+                crl, err = None, repr(e)
+            times.append(time.perf_counter() - t0)
+        r = {"name": p["name"], "t_estimate": min(times), "t_all": times, "cpus": kw["CPUs"]}
+        if crl is None:
+            r.update(success=False, error=err)
+            out.append(r)
+            continue
+        tab = crl.CoRegPoints_table
+        tab = tab.drop(columns=[c for c in ("geometry",) if c in tab.columns])
+        tab["LAST_ERR"] = [None if (isinstance(v, (int, float)) and v == -9999) else repr(v) for v in tab["LAST_ERR"]]
+        tab["WARNINGS"] = [repr(v) for v in tab["WARNINGS"]] if "WARNINGS" in tab.columns else None
+        tab.to_json(p["table"], orient="records")
+        r["success"] = bool(crl.success)
+        r["n_gcps"] = len(crl.tiepoint_grid.GCPList)
+        if r["success"]:
+            t0 = time.perf_counter()
+            res = crl.correct_shifts()
+            r["t_correct"] = time.perf_counter() - t0
+            r["warped"] = bool(res["is resampled"])
+            if p.get("aligned"):
+                np.save(p["aligned"], np.asarray(res["arr_shifted"]))
+        out.append(r)
+    json.dump(out, open(out_path, "w"), indent=1)
+
+
+def natural_local(folder):
+    """The natural pair for the local comparison: scikit-image's ``camera`` and a copy of it warped by a smooth
+    field (an affine part and a sinusoid, up to about 3 pixels), as ``camera_local_ref.tif`` and
+    ``camera_local_tgt.tif``; the field is written to ``camera_local_field.json``."""
+    from pathlib import Path
+
+    from osgeo import gdal, osr
+    from scipy import ndimage as ndi
+    from skimage import data
+
+    folder = Path(folder)
+    folder.mkdir(exist_ok=True)
+    cam = data.camera().astype(np.float64)
+    r, c = np.mgrid[0:512, 0:512].astype(np.float64)
+    dx = 1.0 + 0.002 * c + 0.9 * np.sin(r / 90.0)
+    dy = -0.8 + 0.0015 * r + 0.6 * np.sin(c / 110.0)
+    tgt = ndi.map_coordinates(cam, [r + dy, c + dx], order=3, mode="nearest")  # target(p) = ref(p + d(p))
+    srs = osr.SpatialReference()
+    srs.ImportFromEPSG(32633)
+    for name, arr in (("camera_local_ref", cam), ("camera_local_tgt", tgt)):
+        a = np.clip(np.rint(arr), 1, 255).astype(np.uint8)
+        ds = gdal.GetDriverByName("GTiff").Create(str(folder / f"{name}.tif"), a.shape[1], a.shape[0], 1, gdal.GDT_Byte)
+        ds.SetGeoTransform((500000.0, 30.0, 0.0, 4600000.0, 0.0, -30.0))
+        ds.SetProjection(srs.ExportToWkt())
+        ds.GetRasterBand(1).SetNoDataValue(0)
+        ds.GetRasterBand(1).WriteArray(a)
+        ds = None
+
+
 if __name__ == "__main__":
     if sys.argv[1] == "run":
         run(sys.argv[2], sys.argv[3])
+    elif sys.argv[1] == "local":
+        run_local(sys.argv[2], sys.argv[3])
     elif sys.argv[1] == "natural":
         natural(sys.argv[2])
+    elif sys.argv[1] == "natural_local":
+        natural_local(sys.argv[2])
     else:
         raise SystemExit(__doc__)

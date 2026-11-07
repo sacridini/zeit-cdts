@@ -1,11 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Global co-registration of each date of a cube to a reference image: ``zeit.coregister``.
+"""Co-registration of each date of a cube to a reference image: ``zeit.coregister`` and ``zeit.coregister_local``.
 
-A port of the global ``COREG`` of AROSICS 1.14.0 (Scheffler, Hollstein, Hofmann and Bochow 2017, *Remote Sensing*
-9(7):676; Copyright (C) 2017-2026 Daniel Scheffler and the GFZ Helmholtz Centre for Geosciences, Potsdam;
-Apache-2.0, https://git.gfz-potsdam.de/danschef/arosics). The shift is estimated by the compiled core
-(``zeit._core.coreg``, ``rust/zeit-core/src/coreg.rs``); the cube is moved by it with the warp kernel of
-``load_raster(..., like=)`` (GDAL's resampling).
+A port of the global ``COREG`` and of ``COREG_LOCAL`` of AROSICS 1.14.0 (Scheffler, Hollstein, Hofmann and Bochow
+2017, *Remote Sensing* 9(7):676; Copyright (C) 2017-2026 Daniel Scheffler and the GFZ Helmholtz Centre for
+Geosciences, Potsdam; Apache-2.0, https://git.gfz-potsdam.de/danschef/arosics). The shifts are estimated by the
+compiled core (``zeit._core.coreg``, ``rust/zeit-core/src/coreg.rs`` and ``coreg_local.rs``); the global one moves
+the cube with the warp kernel of ``load_raster(..., like=)`` (GDAL's resampling), the local one warps it with GDAL
+(rasterio) from the tie points.
 """
 
 from __future__ import annotations
@@ -241,7 +242,8 @@ def coregister(
         plane = match.isel(time=k) if has_time else match
         data, ok, fill = _prepare(plane.transpose("y", "x").values, nd_cube)
         return _core.coreg.coregister(ref_data, ref_ok, data, ok, int(window_size), wpos, float(max_shift),
-                                      int(max_iter), integer, nd_cube, float(fill))
+                                      int(max_iter), integer, nd_cube, float(fill),
+                                      (abs(t_cube.a), abs(t_cube.e)))
 
     if threads > 1:
         with ThreadPoolExecutor(max_workers=threads) as pool:
@@ -306,3 +308,322 @@ def coregister(
     if cube.rio.crs is not None:
         aligned = aligned.rio.write_crs(cube.rio.crs)
     return aligned, shifts
+
+
+#: The columns of the table of tie points.
+TIE_POINT_COLUMNS = ("time", "point_id", "col", "row", "x", "y", "x_shift_px", "y_shift_px", "x_shift_map",
+                     "y_shift_map", "abs_shift", "angle", "reliability", "ssim_before", "ssim_after", "ssim_improved",
+                     "success", "reason", "win_size_x", "win_size_y", "fft_size", "outlier_reliability",
+                     "outlier_ssim", "outlier_ransac", "outlier", "used", "date_applied")
+
+#: Most tie points GDAL's thin plate spline is given (AROSICS: "a GDAL bottleneck").
+MAX_GCPS = 7000
+
+
+def _grid_points(size: int, res: float) -> np.ndarray:
+    """AROSICS' ``np.arange(0, size + grid_res, grid_res)``: the corners of the grid's cells, from the first one to
+    the one past the last."""
+    return np.arange(0, size + res, res)
+
+
+class _GdalOptionNotice:
+    """A logging filter that drops GDAL's notice that the warper does not support the transformer's options."""
+
+    def filter(self, record) -> bool:
+        msg = record.getMessage()
+        return not ("does not support option" in msg and ("SRC_METHOD" in msg or "MAX_GCP_ORDER" in msg))
+
+
+def _warp_gcps(plane: np.ndarray, gcps: list, crs: CRS, transform: Any, method: str, order: Optional[int],
+               resampling: str, nodata: Optional[float], threads: int) -> np.ndarray:
+    """``plane`` (``(y, x)`` or ``(band, y, x)``) warped onto its own grid by GDAL from ground control points given as
+    ``(col, row, x, y)`` (a point of the image and the map position it has to take)."""
+    import logging
+
+    from rasterio.control import GroundControlPoint
+    from rasterio.enums import Resampling
+    from rasterio.warp import reproject
+
+    # rasterio hands the options to the transformer, which takes them, and to the warper, which says it does not
+    # know them
+    log = logging.getLogger("rasterio._env")
+    if not any(isinstance(f, _GdalOptionNotice) for f in log.filters):
+        log.addFilter(_GdalOptionNotice())
+
+    g = [GroundControlPoint(row=r, col=c, x=x, y=y, z=0.0) for c, r, x, y in gcps]
+    extra = {"SRC_METHOD": "GCP_TPS"} if method == "tps" else {"SRC_METHOD": "GCP_POLYNOMIAL"}
+    if method == "polynomial" and order is not None:
+        extra["MAX_GCP_ORDER"] = str(int(order))
+    floating = np.issubdtype(plane.dtype, np.floating)
+    nd = nodata if nodata is not None else (np.nan if floating else None)
+    out = np.empty_like(plane)
+    reproject(plane, out, gcps=g, src_crs=crs, src_nodata=nd, dst_transform=transform, dst_crs=crs, dst_nodata=nd,
+              resampling=getattr(Resampling, resampling), num_threads=threads, **extra)
+    return out
+
+
+def coregister_local(
+    cube: xr.DataArray,
+    reference: xr.DataArray,
+    *,
+    grid_res: float = 200,
+    window_size: Union[int, Tuple[int, int]] = (256, 256),
+    max_shift: float = 5,
+    max_iter: int = 5,
+    min_reliability: float = 60,
+    tie_point_filter_level: int = 3,
+    rs_max_outlier: float = 10,
+    rs_tolerance: float = 2.5,
+    rs_random_state: Optional[int] = 0,
+    warp: str = "auto",
+    order: Optional[int] = None,
+    min_points: int = 5,
+    band: Any = None,
+    ref_band: Any = None,
+    resampling: str = "cubic",
+    nodata: Union[str, float, None, tuple] = "auto",
+    arosics_compat: bool = False,
+    n_jobs: int = -1,
+) -> Tuple[xr.DataArray, pd.DataFrame]:
+    """Each date of a cube warped to fit a reference image by its local shifts: AROSICS' ``COREG_LOCAL``.
+
+    For every date, the shift of one band to the reference's is found at the points of a grid (the phase
+    correlation of a window of ``window_size`` pixels centred on each point, as :func:`zeit.coregister` does for one
+    window); the points whose shift is not reliable are filtered out (a low reliability, no gain in the structural
+    similarity, and a RANSAC fit of an affine model to the shifts); and what remains are ground control points that
+    warp each date onto the cube's grid with GDAL: a thin plate spline, as AROSICS does, or a polynomial. It
+    corrects shifts that vary across the scene (a misregistration of the viewing geometry, of a bad orthorectification)
+    where :func:`zeit.coregister` corrects one shift for the whole date. The compiled core
+    (``rust/zeit-core/src/coreg_local.rs``) is a port of ``arosics/CoReg_local.py`` and
+    ``arosics/Tie_Point_Grid.py`` 1.14.0 (Scheffler et al. 2017, *Remote Sensing* 9(7):676; Apache-2.0), RANSAC
+    included: scikit-image's, with numpy's random generator reproduced, so the same ``rs_random_state`` flags the
+    same points.
+
+    As in :func:`zeit.coregister`, the cube and the reference must be on the same pixel grid (the same projected
+    CRS and cell size, the cells a whole number apart), and the overlap is that of the images' valid pixels. The
+    grid of points is AROSICS': the corners of the cube's cells ``0, grid_res, 2 * grid_res, ...`` in each
+    direction, up to one step past the image; a point is used where it is on data of both images, and its window is
+    cut down to the overlap as in the global case.
+
+    Parameters
+    ----------
+    cube
+        ``(time, band, y, x)``, ``(band, y, x)``, ``(time, y, x)`` or ``(y, x)`` in a projected CRS. A lazy cube is
+        read a date at a time; the result is in memory.
+    reference
+        ``(band, y, x)`` or ``(y, x)`` in the same CRS and on the same pixel grid.
+    grid_res
+        The spacing of the tie points in pixels (AROSICS' ``grid_res``; 200).
+    window_size
+        The matching window's side in pixels, an int or ``(x, y)`` of equal values (AROSICS' ``window_size``).
+    max_shift, max_iter
+        The largest shift accepted in pixels, and the tries to validate the integer shift (as :func:`coregister`).
+    min_reliability
+        Tie points below this reliability (0-100) are flagged (AROSICS' ``min_reliability``, 60).
+    tie_point_filter_level
+        AROSICS' ``tieP_filter_level``: 0 no filter, 1 reliability, 2 plus the structural similarity (the point's
+        window must not become less similar to the reference's by the shift), 3 plus RANSAC (default).
+    rs_max_outlier, rs_tolerance
+        RANSAC's expected outliers in percent (10) and the tolerance of that percent (2.5): the residual threshold
+        is searched until the outliers are within ``rs_max_outlier`` +/- ``rs_tolerance``.
+    rs_random_state
+        RANSAC's seed (AROSICS' ``rs_random_state``, 0); ``None`` takes one from the clock.
+    warp
+        ``"tps"`` (GDAL's thin plate spline, which AROSICS always uses), ``"polynomial"`` (GDAL's polynomial of
+        ``order``), or ``"auto"`` (``"tps"``).
+    order
+        The polynomial's order (1 to 3) for ``warp="polynomial"``; ``None``: GDAL's choice from the number of points.
+    min_points
+        A date with fewer valid tie points than this (AROSICS' ``min_points_local_corr``, 5) is left as it is and
+        flagged (AROSICS then corrects with the mean shift of the points).
+    band, ref_band
+        The band of the cube and of the reference to match, by label or position (the first by default). Every
+        band of a date is warped with the same points.
+    resampling
+        GDAL's resampling of the warp (``"cubic"``, ``"bilinear"``, ``"nearest"``, ``"lanczos"``...).
+    nodata
+        Missing values besides NaN: ``"auto"`` (each image's raster NoData), a number for both, None, or a pair
+        ``(reference, cube)``.
+    arosics_compat
+        Reproduce a bug of AROSICS 1.14.0, to compare with it: when the reliability or SSIM filter has flagged points,
+        RANSAC's flags are put on the wrong rows of its table (a pandas index misalignment), so some of the points it
+        found to be outliers stay and as many good ones are dropped. ``False`` (default): each flag is on its point.
+    n_jobs
+        Threads: the dates, and the points of each, run on them (``-1``: the processors zeit may use by default).
+
+    Returns
+    -------
+    aligned : xarray.DataArray
+        The cube on its own grid with each date warped (dates with too few valid tie points as they were).
+    tie_points : pandas.DataFrame
+        One row per tie point of every date: ``time``, ``point_id`` (its position in the grid), ``col``/``row``
+        (the position in the cube's pixel corners), ``x``/``y`` (map), ``x_shift_px``/``y_shift_px`` and
+        ``x_shift_map``/``y_shift_map`` (the amount the date has to be moved there, ``x`` right and ``y`` down in
+        pixels; NaN where the match failed), ``abs_shift`` (length in map units) and ``angle`` (degrees from north),
+        ``reliability``, ``ssim_before``/``ssim_after``/``ssim_improved``, ``success``/``reason``,
+        ``win_size_x``/``win_size_y`` (the matching window), ``fft_size``, the flags of the filters
+        ``outlier_reliability``, ``outlier_ssim``, ``outlier_ransac`` and their union ``outlier``, ``used`` (the point
+        is a control point of the warp) and ``date_applied``. ``tie_points.attrs["dates"]`` is a table with one
+        row per date: the points placed, matched, used, whether the date was warped and why not.
+
+    Examples
+    --------
+    >>> aligned, points = zeit.coregister_local(cube, reference, grid_res=100, window_size=128)
+    >>> points.groupby("time")["used"].sum()
+    """
+    from . import _core
+    from ._threads import resolve
+    from ._warp import RESAMPLING_NAMES
+
+    if not isinstance(cube, xr.DataArray) or not isinstance(reference, xr.DataArray):
+        raise TypeError("coregister_local needs two xarray.DataArray (the cube and the reference)")
+    for da, what in ((cube, "the cube"), (reference, "the reference")):
+        if not {"y", "x"} <= set(da.dims):
+            raise ValueError(f"{what} needs y and x dimensions")
+    extra = [d for d in cube.dims if d not in ("time", "band", "y", "x")]
+    if extra:
+        raise ValueError(f"the cube has dimensions {extra}; coregister_local takes (time, band, y, x)")
+    extra = [d for d in reference.dims if d not in ("band", "y", "x")]
+    if extra:
+        raise ValueError(f"the reference has dimensions {extra}; it must be (band, y, x) or (y, x)")
+    if resampling not in RESAMPLING_NAMES:
+        raise ValueError(f"unknown resampling {resampling!r}; use one of {', '.join(RESAMPLING_NAMES)}")
+    if warp not in ("auto", "tps", "polynomial"):
+        raise ValueError(f"warp must be 'auto', 'tps' or 'polynomial', got {warp!r}")
+    method = "tps" if warp == "auto" else warp
+    if order is not None and (method != "polynomial" or int(order) not in (1, 2, 3)):
+        raise ValueError("order (1, 2 or 3) is for warp='polynomial'")
+    if isinstance(window_size, (tuple, list)):
+        if len(window_size) != 2 or int(window_size[0]) != int(window_size[1]):
+            raise ValueError("window_size must be one number or two equal ones: the matching window is square")
+        window_size = window_size[0]
+    window_size = int(window_size)
+    if not (grid_res > 0):
+        raise ValueError("grid_res must be positive")
+    if not (max_shift > 0) or int(max_iter) < 1 or window_size < 16:
+        raise ValueError("max_shift must be positive, max_iter at least 1 and window_size at least 16")
+    if int(tie_point_filter_level) not in (0, 1, 2, 3):
+        raise ValueError("tie_point_filter_level must be 0, 1, 2 or 3")
+    if not (0 < rs_max_outlier < 100):
+        raise ValueError("rs_max_outlier must be between 0 and 100 (percent)")
+    if int(min_points) < 1:
+        raise ValueError("min_points must be at least 1")
+
+    rows_r, cols_r, rows_c, cols_c, t_ref, t_cube = _grids(cube, reference)
+    nd_ref, nd_cube = _nodata_values(nodata, reference, cube)
+    ref2d = _pick_band(reference, ref_band, "the reference").isel(y=rows_r, x=cols_r)
+    match = _pick_band(cube, band, "the cube").isel(y=rows_c, x=cols_c)
+    ref_data, ref_ok, _ = _prepare(ref2d.transpose("y", "x").values, nd_ref)
+    if not ref_ok.any():
+        raise ValueError("the reference has no valid data where the cube is")
+
+    has_time = "time" in cube.dims
+    n = cube.sizes["time"] if has_time else 1
+    integer = None
+    if np.issubdtype(cube.dtype, np.integer):
+        info = np.iinfo(cube.dtype)
+        integer = (float(info.min), float(info.max))
+    threads = max(1, resolve(n_jobs))
+    ny, nx = cube.sizes["y"], cube.sizes["x"]
+    gx, gy = np.meshgrid(_grid_points(nx, grid_res), _grid_points(ny, grid_res))
+    points = np.ascontiguousarray(np.column_stack([gx.ravel(), gy.ravel()]), dtype=np.float64)
+    geo = (float(t_cube.c), float(t_cube.a), float(t_cube.f), float(t_cube.e))
+    offset = (float(cols_c.start), float(rows_c.start))
+    seed = None if rs_random_state is None else int(rs_random_state)
+
+    def one(k: int) -> dict:
+        plane = match.isel(time=k) if has_time else match
+        data, ok, fill = _prepare(plane.transpose("y", "x").values, nd_cube)
+        return _core.coreg.tie_points(ref_data, ref_ok, data, ok, points, offset, geo, window_size, float(max_shift),
+                                      int(max_iter), integer, nd_cube, float(fill), int(tie_point_filter_level),
+                                      float(min_reliability), float(rs_max_outlier), float(rs_tolerance), 15, seed,
+                                      bool(arosics_compat), int(threads))
+
+    if threads > 1 and n > 1:
+        with ThreadPoolExecutor(max_workers=min(threads, n)) as pool:
+            results = list(pool.map(one, range(n)))
+    else:
+        results = [one(k) for k in range(n)]
+
+    times = cube["time"].values if has_time else np.zeros(1, dtype=np.int64)
+    frames, dates, gcps_of = [], [], []
+    for k, res in enumerate(results):
+        idx = np.asarray(res["index"], dtype=np.int64)
+        success = np.asarray(res["success"], dtype=bool)
+        outlier = np.asarray(res["outlier"], dtype=bool)
+        used = success & ~outlier
+        frame = pd.DataFrame({
+            "time": np.repeat(times[k:k + 1], len(idx)), "point_id": idx,
+            "col": points[idx, 0] if len(idx) else np.zeros(0), "row": points[idx, 1] if len(idx) else np.zeros(0),
+            "x": res["x_map"], "y": res["y_map"], "x_shift_px": res["x_shift_px"], "y_shift_px": res["y_shift_px"],
+            "x_shift_map": res["x_shift_map"], "y_shift_map": res["y_shift_map"], "abs_shift": res["abs_shift"],
+            "angle": res["angle"], "reliability": res["reliability"], "ssim_before": res["ssim_before"],
+            "ssim_after": res["ssim_after"], "ssim_improved": np.asarray(res["ssim_improved"], dtype=bool),
+            "success": success, "reason": res["reason"],
+            "win_size_x": [w[2] - w[0] for w in res["window"]], "win_size_y": [w[3] - w[1] for w in res["window"]],
+            "fft_size": res["fft_size"], "outlier_reliability": np.asarray(res["l1"], dtype=bool),
+            "outlier_ssim": np.asarray(res["l2"], dtype=bool), "outlier_ransac": np.asarray(res["l3"], dtype=bool),
+            "outlier": outlier, "used": used,
+        })
+        n_used = int(used.sum())
+        applied = n_used >= int(min_points)
+        if applied:
+            why = None
+        elif len(idx) == 0:
+            why = "no tie point on data of both images"
+        elif not success.any():
+            why = "no tie point matched"
+        else:
+            why = f"only {n_used} valid tie point(s), fewer than min_points={int(min_points)}"
+        frame["date_applied"] = applied
+        for col in ("win_size_x", "win_size_y", "fft_size"):
+            frame[col] = frame[col].astype("int64")
+        frames.append(frame)
+        dates.append({"time": times[k], "points": len(idx), "matched": int(success.sum()), "used": n_used,
+                      "applied": applied, "reason": why})
+        gcps_of.append(frame[used] if applied else None)
+    table = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=list(TIE_POINT_COLUMNS))
+    table = table[list(TIE_POINT_COLUMNS)]
+    table.attrs["dates"] = pd.DataFrame(dates).set_index("time")
+
+    if not any(g is not None for g in gcps_of):
+        return cube.copy(), table
+
+    crs = CRS.from_user_input(cube.rio.crs)
+    mid = nd_cube
+
+    def warped(k: int) -> xr.DataArray:
+        plane = cube.isel(time=k) if has_time else cube
+        used_pts = gcps_of[k]
+        if used_pts is None:
+            return plane
+        if len(used_pts) > MAX_GCPS:
+            used_pts = used_pts.iloc[np.linspace(0, len(used_pts) - 1, MAX_GCPS).round().astype(int)]
+        gcps = list(zip(used_pts["col"], used_pts["row"], used_pts["x"] + used_pts["x_shift_map"],
+                        used_pts["y"] + used_pts["y_shift_map"]))
+        lead = [d for d in plane.dims if d not in ("y", "x")]
+        p = plane.transpose(*lead, "y", "x")
+        values = np.asarray(p.values)
+        if mid is not None and np.issubdtype(values.dtype, np.floating):
+            values = np.where(np.isfinite(values), values, mid).astype(values.dtype)
+        out = _warp_gcps(values, gcps, crs, t_cube, method, order, resampling, mid, 1)
+        return p.copy(data=out).transpose(*plane.dims)
+
+    if threads > 1 and n > 1:
+        with ThreadPoolExecutor(max_workers=min(threads, n)) as pool:
+            planes = list(pool.map(warped, range(n)))
+    else:
+        planes = [warped(k) for k in range(n)]
+    if has_time:
+        aligned = xr.concat(planes, dim="time", coords="minimal", compat="override", join="override")
+        aligned = aligned.assign_coords(time=cube["time"]).transpose(*cube.dims)
+    else:
+        aligned = planes[0].transpose(*cube.dims)
+    aligned.name = cube.name
+    aligned.attrs = {k: v for k, v in cube.attrs.items()}
+    n_applied = sum(g is not None for g in gcps_of)
+    aligned.attrs["coregister_local"] = (
+        f"{n_applied} of {n} dates warped to the reference with the tie points of AROSICS' COREG_LOCAL "
+        f"(Scheffler et al. 2017, Apache-2.0), warp={method}, resampling={resampling}")
+    aligned = aligned.rio.write_crs(cube.rio.crs)
+    return aligned, table

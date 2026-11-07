@@ -436,13 +436,73 @@ good = aligned.sel(time=shifts.index[shifts.success])
 
 **Where it differs from AROSICS.** The numbers are AROSICS' (see below); the plumbing is not:
 
-- The overlap is that of the two images' *valid pixels* (not NaN, not NoData), and the window is placed on it as AROSICS places it on the intersection of the footprint polygons: the centroid, clipped to the overlap, moved to the grid by the floor of its edges, and cut down by one pixel a side when AROSICS' other window does not fit, as it does in an image smaller than the window. AROSICS fills the holes of a footprint, so a cloud masked as NaN is inside its window; here the window avoids it or fails.
+- The overlap is that of the two images' *valid pixels* (not NaN, not NoData), and the window is placed on it as AROSICS places it on the intersection of the footprint polygons: the centroid, clipped to the overlap, moved to the grid by the floor of its edges, and cut down by one pixel a side when AROSICS' other window does not fit, as it does in an image smaller than the window. AROSICS fills the holes of a footprint, so a cloud masked as NaN is inside its window; here the window is grown from its centre until it meets the hole (as AROSICS grows it where its footprint polygon has an edge), or fails when nothing of 16 x 16 pixels is left.
 - The aligned images are resampled onto the cube's grid; AROSICS with `align_grids=False` only moves the origin of the geotransform. Zeit's grid stays the cube's, which is what a time series needs.
 - The window's values are float32 (AROSICS reads the file's type and converts to single precision for the FFT; the similarity of an integer image rounds and clamps the shifted window to the type as GDAL does).
 - In AROSICS' retry loop, a shift found by a retry gets `(0, 0)` as its integer part (a quirk of `calculate_spatial_shifts`); it is kept, since the shifts are meant to be AROSICS'.
-- Only the global variant is here; AROSICS' `COREG_LOCAL` (a grid of tie points and a transformation fitted to them) is not.
+- This is the global variant; the local one, with a grid of tie points and a warp fitted to them, is [`coregister_local`](#coregister_local).
 
 **Agreement with AROSICS 1.14.0.** On 13 pairs (12 synthetic and a natural image; the two where neither finds a shift fail alike), the shifts differ from AROSICS' by 2e-7 pixels at most (the single-precision noise of two FFT libraries); the integer part, the window, the FFT size and the reliability are equal; the similarity too on the synthetic pairs; and the two aligned images differ by one unit of float32 (see [Against the Original Implementations](../benchmarks/vs-originals.md#the-coregistration-vs-arosics)).
+
+### `coregister_local` { .api }
+
+<!-- sig: zeit.coregister_local -->
+```python
+zeit.coregister_local(
+    cube, reference, *, grid_res=200, window_size=(256, 256), max_shift=5, max_iter=5,
+    min_reliability=60, tie_point_filter_level=3, rs_max_outlier=10, rs_tolerance=2.5,
+    rs_random_state=0, warp="auto", order=None, min_points=5, band=None, ref_band=None,
+    resampling="cubic", nodata="auto", arosics_compat=False, n_jobs=-1,
+)
+```
+
+Warps each date of a cube to fit a reference image by shifts that vary across the scene: the local co-registration of **AROSICS** (`COREG_LOCAL` of AROSICS 1.14.0, Apache-2.0, Daniel Scheffler, GFZ Potsdam; Scheffler et al. 2017, *Remote Sensing* 9(7):676), ported to the compiled core (`rust/zeit-core/src/coreg_local.rs`, with the matching of [`coregister`](#coregister) for each point). A grid of tie points is laid over the image, every `grid_res` pixels from the corner (AROSICS' own grid: `0, grid_res, 2 * grid_res, ...` up to one step past the image); each point on data of both images is matched with a window of `window_size` pixels centred on it, which gives the shift there, its reliability and the structural similarity of the window before and after. The points are then filtered in AROSICS' order: **level 1**, a reliability below `min_reliability`; **level 2**, a window that is less similar to the reference's after the shift; **level 3**, **RANSAC**: scikit-image's `ransac` of an affine model of the shifts, with 6 samples, up to 2000 trials and a residual threshold that AROSICS searches (in map units) until the outliers are `rs_max_outlier` percent plus or minus `rs_tolerance`. The points that remain are control points: each date is warped onto the cube's grid by GDAL (through rasterio) from them, with a **thin plate spline**, which AROSICS always uses (`warp="tps"`, what `"auto"` is), or a polynomial (`warp="polynomial"`, GDAL's choice of order from the number of points or an `order` of 1 to 3). It corrects what a single shift cannot: a misregistration that grows across the scene, a bad orthorectification, a viewing-geometry effect.
+
+As in [`coregister`](#coregister), the cube and the reference must be on the same pixel grid and the overlap is that of the valid pixels (NaN, NoData); the points are on the cube's own pixel corners.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `cube` | `DataArray` | required | `(time, band, y, x)`, `(band, y, x)`, `(time, y, x)` or `(y, x)` in a projected CRS. A lazy cube is read a date at a time; the result is in memory. |
+| `reference` | `DataArray` | required | `(band, y, x)` or `(y, x)` in the same CRS, on the same pixel grid. |
+| `grid_res` | `float` | `200` | The spacing of the tie points in pixels (AROSICS' `grid_res`). |
+| `window_size` | `int` or `(x, y)` | `(256, 256)` | The matching window's side in pixels; a pair must be of equal values (the window is square). |
+| `max_shift`, `max_iter` | `float`, `int` | `5`, `5` | As in `coregister`, for each point. |
+| `min_reliability` | `float` | `60` | Tie points below this reliability (0-100) are flagged (level 1). |
+| `tie_point_filter_level` | `int` | `3` | AROSICS' `tieP_filter_level`: 0 none, 1 reliability, 2 plus the similarity, 3 plus RANSAC. |
+| `rs_max_outlier`, `rs_tolerance` | `float` | `10`, `2.5` | RANSAC's expected outliers and the tolerance of that, in percent. |
+| `rs_random_state` | `int` or `None` | `0` | RANSAC's seed (AROSICS' `rs_random_state`); `None` takes one from the clock. With the same seed the flags are AROSICS'. |
+| `warp` | `str` | `"auto"` | `"tps"` (GDAL's thin plate spline), `"polynomial"`, or `"auto"` (`"tps"`, as AROSICS). |
+| `order` | `int` | `None` | The polynomial's order, 1 to 3 (`warp="polynomial"`); `None` lets GDAL choose from the number of points. |
+| `min_points` | `int` | `5` | A date with fewer control points (AROSICS' `min_points_local_corr`) is left as it was and flagged. |
+| `band`, `ref_band` | label or position | `None` | The band of the cube and of the reference to match (the first by default); every band of a date is warped with the same points. |
+| `resampling` | `str` | `"cubic"` | The resampling of the warp (`"cubic"`, `"bilinear"`, `"nearest"`, `"lanczos"`...). |
+| `nodata` | `"auto"`, number, `None` or `(reference, cube)` | `"auto"` | Missing values besides NaN: each image's raster NoData, a number for both, `None`, or a pair. |
+| `arosics_compat` | `bool` | `False` | Reproduces a bug of AROSICS 1.14.0 in the RANSAC flags (below), to compare with it. |
+| `n_jobs` | `int` | `-1` | Threads (the processors zeit may use by default): the points of each date, and the dates, run on them. |
+
+</div>
+
+**Returns** `(aligned, tie_points)`. `aligned` is the cube on its own grid with each date warped (the dates with fewer than `min_points` control points as they were). `tie_points` is a `pandas.DataFrame` with a row for every tie point of every date: `time`, `point_id` (the position in the whole grid, AROSICS' `POINT_ID`), `col` and `row` (the corner of the cube's pixels), `x` and `y` (map), `x_shift_px` and `y_shift_px`, `x_shift_map` and `y_shift_map` (the amount the date has to be moved there, `x` to the right and `y` down, as in `coregister`; NaN where the match failed), `abs_shift` (map units) and `angle` (degrees from north), `reliability`, `ssim_before`, `ssim_after` and `ssim_improved`, `success` and `reason`, `win_size_x` and `win_size_y`, `fft_size`, the flags of the filters `outlier_reliability`, `outlier_ssim` and `outlier_ransac` and their union `outlier`, `used` (the point is a control point) and `date_applied`. `tie_points.attrs["dates"]` is a table with one row per date: the points placed, matched and used, whether the date was warped, and why not.
+
+```python
+aligned, points = zeit.coregister_local(cube, reference, grid_res=100, window_size=128, band="nir", ref_band="nir")
+points[points.used][["time", "x", "y", "x_shift_map", "y_shift_map"]]
+points.attrs["dates"]
+```
+
+**A point or a date that fails is flagged, not raised.** A point whose window cannot be placed on data, with no clear match or a shift above `max_shift` has `success=False` and a `reason`; a date with too few control points is returned as it was (`date_applied=False`; AROSICS in that case corrects with the mean shift of the points, Zeit leaves the date alone, since a global shift is [`coregister`](#coregister)'s job). A date with more than 7000 control points is warped from 7000 evenly spaced ones (AROSICS draws them at random: a limit of GDAL's spline).
+
+**Where it differs from AROSICS.**
+
+- As in `coregister`, the overlap is the valid pixels, not the footprint polygons. A window that touches a diagonal edge or a hole is grown from the point until it meets the no-data pixels, as AROSICS grows it inside its polygon; the same windows on the benchmark's pairs, which have a diagonal edge.
+- **RANSAC's flags are put on their points; AROSICS 1.14.0 puts them on others.** When the reliability or similarity filter has flagged points, AROSICS gives the flags of RANSAC (one for each point RANSAC got) to the table's rows by their labels instead of their positions (`inGDF['outliers'] = outliers` in `_RANSAC_outlier_detection`), so the flags land on the wrong points: real outliers stay and as many good points are dropped. Zeit's default flags the points RANSAC found. `arosics_compat=True` reproduces AROSICS' assignment, which is how the comparison below is exact.
+- RANSAC is scikit-image's, with numpy's random generator (PCG64 seeded by a `SeedSequence`, `Generator.choice` without replacement) reproduced in the core, so the samples, the inliers at every threshold and the flags are AROSICS'. The time limit of the threshold search (`rs_timeout`, 20 s of clock) is not kept; with 5 or 6 points left for RANSAC (where AROSICS raises or returns nothing) none is flagged.
+- The warp is GDAL's, as AROSICS' (rasterio's `reproject` with the control points, `SRC_METHOD=GCP_TPS`), onto the cube's own grid.
+- Points run on threads of the core where AROSICS starts a process for each.
+
+**Agreement with AROSICS 1.14.0.** On 7 pairs (6 synthetic and the `camera` image warped by a field; 19 to 165 points each), the points of the grid that are placed are the same, and so are the successes; the shifts differ from AROSICS' by 2e-6 pixels at most (2e-3 at one point of the natural image), the windows are equal, the reliability agrees to 8e-5 and the similarity before to 4e-8 and after to 2e-5 (3e-4 in the 8-bit image); the flags of the three filters are identical with `arosics_compat=True`; and the warped image, from the same control points, differs by 0.001 at most in float32 (by 1 in uint16), the 8-bit image by up to 6 in 0.01% of the cells (see [Against the Original Implementations](../benchmarks/vs-originals.md#the-local-coregistration-vs-arosics)).
 
 ## Cloud masking
 

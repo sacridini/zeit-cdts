@@ -18,8 +18,10 @@
 //!   overlap of the two images' valid data (or a given position), `window_size` pixels square, clipped to the
 //!   overlap, moved to the pixel grid by taking the floor of its edges (`move_shapelyPoly_to_image_grid`, `NW`),
 //!   shrunk while the window of the other image, which AROSICS keeps as the unrounded box of the full size until it
-//!   has to be replaced, is not within the overlap; an odd count of rows or columns loses the last one
-//!   (`_get_image_windows_to_match`);
+//!   has to be replaced, is not within the overlap's bounds; where the clipped window's rectangle holds pixels
+//!   without data (a diagonal edge, a hole), a box grown from the position, a pixel a side at a time, until it meets
+//!   them (AROSICS' box of one map unit that "touches no data area"); an odd count of rows or columns loses the last
+//!   one (`_get_image_windows_to_match`);
 //! * the shifted cross power spectrum (`_calc_shifted_cross_power_spectrum`): the largest power of 2 not above the
 //!   window (the same on both sides), centred, single-precision FFTs, `F0 conj(F1) / (|F0| |F1| + eps)` with
 //!   `eps = max|F1| 1e-15`, the inverse FFT's magnitude, `fftshift`;
@@ -29,7 +31,8 @@
 //! * the subpixel shift from the side maxima of the peak (`_find_side_maximum`, `_calc_subpixel_shifts`), the
 //!   `max_shift` test, the reliability (`_calc_shift_reliability`) and the structural similarity of the window
 //!   before and after the shift (`_validate_ssim_improvement` with scikit-image's `structural_similarity` at its
-//!   defaults: a 7 x 7 uniform window, K1 0.01, K2 0.03, sample covariance, on the windows scaled to 0..1).
+//!   defaults: a 7 x 7 uniform window, K1 0.01, K2 0.03, sample covariance, on the windows scaled to 0..1; the cells
+//!   missing in the shifted window, at an image's edge, keep their raw values as under a numpy mask).
 //!
 //! Shifts are as AROSICS': in pixels of the target, `x` to the right and `y` down, the amount the target has to be
 //! moved to fit the reference. A target pixel `(r, c)` of the aligned image is the target's at `(r - y, c - x)`.
@@ -37,11 +40,13 @@
 //! Where it differs from AROSICS (which works on footprint polygons and GDAL): the overlap is the intersection of
 //! the two valid-data masks (holes are not filled; AROSICS fills those of a footprint), its centroid is the mean
 //! of its pixels' centres, a centroid outside it is replaced by the valid pixel nearest to it (AROSICS takes
-//! shapely's representative point), the branch of AROSICS that shrinks the window from a one-unit box (which only
-//! runs on rounding noise there) is left out, the two images must be on the same grid (AROSICS resamples the
+//! shapely's representative point), a window whose rectangle is not all data is grown from the position on the
+//! pixel masks where AROSICS does it on the footprint polygon (the same boxes on the benchmark's pairs, which
+//! have a diagonal edge), the two images must be on the same grid (AROSICS resamples the
 //! other image's window with GDAL when they are not; they are then equal windows on equal grids anyway), and the
 //! shifted window of the similarity is GDAL's cubic of 4 x 4 cells (Keys' with a = -0.5, bilinear where it does
-//! not fit or a cell is invalid, as `GWKCubicResample4Sample`).
+//! not fit or a cell is invalid, as `GWKCubicResample4Sample`, and none where the cell's own source pixel is
+//! invalid).
 
 use rustfft::num_complex::Complex;
 use rustfft::FftPlanner;
@@ -103,6 +108,9 @@ pub struct Params {
     pub nodata: Option<f64>,
     /// The value of the window's cells where the shifted target has no data.
     pub fill: f32,
+    /// The size `(x, y)` of a cell in map units: AROSICS grows a window that touches no data from a box of one map
+    /// unit, and how that box rounds to pixels depends on it (30).
+    pub cell: [f64; 2],
 }
 
 impl Default for Params {
@@ -115,6 +123,7 @@ impl Default for Params {
             integer_range: None,
             nodata: None,
             fill: 0.0,
+            cell: [30.0, 30.0],
         }
     }
 }
@@ -153,7 +162,7 @@ pub struct Outcome {
 }
 
 impl Outcome {
-    fn failed(f: Failure) -> Outcome {
+    pub(crate) fn failed(f: Failure) -> Outcome {
         Outcome {
             success: false,
             failure: Some(f),
@@ -175,8 +184,9 @@ impl Outcome {
 
 // --- the overlap and the window ----------------------------------------------------------------
 
-/// The pixels valid in both images, with the counts of the others in a summed-area table.
-struct Overlap {
+/// The pixels valid in both images, with the counts of the others in a summed-area table. Built once for the
+/// many matching windows of one pair of images (`coregister_with`).
+pub struct Overlap {
     nx: usize,
     ny: usize,
     ok: Vec<bool>,
@@ -189,7 +199,7 @@ struct Overlap {
 }
 
 impl Overlap {
-    fn new(a: &Image, b: &Image) -> Overlap {
+    pub fn new(a: &Image, b: &Image) -> Overlap {
         let (ny, nx) = (a.ny, a.nx);
         let ok: Vec<bool> = a.valid.iter().zip(b.valid).map(|(&p, &q)| p && q).collect();
         let w = nx + 1;
@@ -231,6 +241,19 @@ impl Overlap {
         }
     }
 
+    /// The pixel containing `(x, y)` (pixel coordinates, the corner of the first pixel is the origin) is valid in
+    /// both images; a point on the far edge of the image counts as in its last pixel (a point on the border of
+    /// AROSICS' overlap polygon is inside it).
+    pub fn contains(&self, x: f64, y: f64) -> bool {
+        let (nx, ny) = (self.nx as f64, self.ny as f64);
+        if !(x >= 0.0 && y >= 0.0 && x <= nx && y <= ny) {
+            return false;
+        }
+        let c = (x.floor() as usize).min(self.nx - 1);
+        let r = (y.floor() as usize).min(self.ny - 1);
+        self.ok[r * self.nx + c]
+    }
+
     /// The box `[x0, x1) x [y0, y1)` is inside the image and all of it valid.
     fn box_valid(&self, x0: i64, y0: i64, x1: i64, y1: i64) -> bool {
         if x1 <= x0 || y1 <= y0 || x0 < 0 || y0 < 0 || x1 > self.nx as i64 || y1 > self.ny as i64 {
@@ -264,8 +287,7 @@ fn match_box(ov: &Overlap, p: &Params) -> Result<[i64; 4], Failure> {
     let (nx, ny) = (ov.nx as i64, ov.ny as i64);
     let (wpx, wpy) = match p.window_pos {
         Some((x, y)) => {
-            let (c, r) = (x.floor() as i64, y.floor() as i64);
-            if c < 0 || r < 0 || c >= nx || r >= ny || !ov.ok[r as usize * ov.nx + c as usize] {
+            if !ov.contains(x, y) {
                 return Err(Failure::WindowPosition);
             }
             (x, y)
@@ -325,6 +347,29 @@ fn match_box(ov: &Overlap, p: &Params) -> Result<[i64; 4], Failure> {
     let (mut x0, mut y0, mut x1, mut y1) = (fl(mx0), fl(my0), fl(mx1), fl(my1));
     let ob = ov.bbox;
 
+    // The clipped window's rectangle holds pixels without data (AROSICS: it is larger than its part of the overlap
+    // polygon, which it takes for a window that touches a no data area): the box grows from the position, a pixel a
+    // side at a time, from AROSICS' start box of one map unit (rounded to the pixel grid) until the next step would
+    // leave the rectangle or reach a pixel without data.
+    if !ov.box_valid_f(mx0, my0, mx1, my1) {
+        let (hx, hy) = (0.5 / p.cell[0], 0.5 / p.cell[1]);
+        let (bx0, bx1) = ((wpx - hx).round_ties_even() as i64, (wpx + hx).round_ties_even() as i64);
+        let (by0, by1) = ((wpy - hy).round_ties_even() as i64, (wpy + hy).round_ties_even() as i64);
+        let mut k = 0i64;
+        while k <= p.window_size as i64 {
+            let (gx0, gy0, gx1, gy1) = (bx0 - k - 1, by0 - k - 1, bx1 + k + 1, by1 + k + 1);
+            let inside = gx0 as f64 >= mx0 - EPS
+                && gy0 as f64 >= my0 - EPS
+                && gx1 as f64 <= mx1 + EPS
+                && gy1 as f64 <= my1 + EPS;
+            if !(inside && ov.box_valid(gx0, gy0, gx1, gy1)) {
+                break;
+            }
+            k += 1;
+        }
+        (x0, y0, x1, y1) = (bx0 - k, by0 - k, bx1 + k, by1 + k);
+    }
+
     // Moved out of the overlap: smaller by one pixel a side in the dimension that is larger than it.
     if !ov.box_valid(x0, y0, x1, y1) {
         let xl = x0 < ob[0] || x1 > ob[2];
@@ -350,9 +395,15 @@ fn match_box(ov: &Overlap, p: &Params) -> Result<[i64; 4], Failure> {
         }
     }
     for _ in 0..10_000 {
+        // within the overlap's bounds (AROSICS: its `overlapWin`, the bounding box of the overlap polygon)
         let within = match other {
-            Some(o) => ov.box_valid_f(o[0], o[1], o[2], o[3]),
-            None => ov.box_valid(x0, y0, x1, y1),
+            Some(o) => {
+                o[0] >= ob[0] as f64 - EPS
+                    && o[1] >= ob[1] as f64 - EPS
+                    && o[2] <= ob[2] as f64 + EPS
+                    && o[3] <= ob[3] as f64 + EPS
+            }
+            None => x0 >= ob[0] && y0 >= ob[1] && x1 <= ob[2] && y1 <= ob[3],
         };
         if within {
             break;
@@ -648,9 +699,9 @@ fn reliability(s: &Scps) -> f64 {
 
 // --- structural similarity ----------------------------------------------------------------------
 
-/// `_compute_ssim`: the windows scaled to 0..1 by their values' range over the cells valid in both, then
-/// scikit-image's `structural_similarity` (7 x 7 uniform window, data range 1, K1 0.01, K2 0.03, sample
-/// covariance), averaged over the cells whose window is whole.
+/// `_compute_ssim`: the windows scaled to 0..1 by their values' range over the cells valid in both (the others keep
+/// their raw values, as under a numpy mask), then scikit-image's `structural_similarity` (7 x 7 uniform window,
+/// data range 1, K1 0.01, K2 0.03, sample covariance), averaged over the cells whose window is whole.
 fn ssim(a: &[f32], b: &[f32], ok: &[bool], h: usize, w: usize) -> f64 {
     let norm = |v: &[f32]| -> Option<Vec<f64>> {
         let (mut mn, mut mx) = (f32::INFINITY, f32::NEG_INFINITY);
@@ -666,7 +717,14 @@ fn ssim(a: &[f32], b: &[f32], ok: &[bool], h: usize, w: usize) -> f64 {
         if mx == mn {
             mx += 1e-5; // avoids the zero division
         }
-        Some(v.iter().map(|&x| ((x - mn) / (mx - mn)) as f64).collect())
+        // The cells missing in either window are masked in AROSICS' numpy masked arrays, which keep their raw
+        // values through `(a - min) / (max - min)`, and scikit-image's filters read those values as they are.
+        Some(
+            v.iter()
+                .zip(ok)
+                .map(|(&x, &o)| if o { ((x - mn) / (mx - mn)) as f64 } else { x as f64 })
+                .collect(),
+        )
     };
     let (Some(x), Some(y)) = (norm(a), norm(b)) else {
         return f64::NAN;
@@ -738,14 +796,22 @@ fn cubic_weights(x: f64) -> [f64; 4] {
 
 /// The image at `(x, y)`, pixel coordinates (the corner of the first pixel is the origin), by GDAL's cubic
 /// resampling: the 4 x 4 cells when all are inside and valid, else the bilinear one of the valid cells among the
-/// 2 x 2 around (`GWKCubicResample4Sample`, `GWKBilinearResample4Sample`); None outside the image or without
-/// valid cells.
+/// 2 x 2 around (`GWKCubicResample4Sample`, `GWKBilinearResample4Sample`); None outside the image, where the pixel
+/// that contains the position is not valid, or without valid cells.
 fn sample_cubic(im: &Image, x: f64, y: f64) -> Option<f64> {
     let (nx, ny) = (im.nx as i64, im.ny as i64);
     if !(x >= 0.0 && y >= 0.0 && x < nx as f64 && y < ny as f64) {
         return None;
     }
     let at = |r: i64, c: i64| (r as usize) * im.nx + c as usize;
+    // GDAL's kernel skips the output cell whose own source pixel (the one that contains the position) is not valid
+    let (px, py) = (
+        ((x + 1e-10).floor() as i64).min(nx - 1),
+        ((y + 1e-10).floor() as i64).min(ny - 1),
+    );
+    if !im.valid[at(py, px)] {
+        return None;
+    }
     let isx = (x - 0.5).floor() as i64;
     let isy = (y - 0.5).floor() as i64;
     if isx > 0 && isx + 2 < nx && isy > 0 && isy + 2 < ny {
@@ -811,6 +877,13 @@ fn sample_cubic(im: &Image, x: f64, y: f64) -> Option<f64> {
 
 /// The shift of `target` to `reference` (the images on the same grid): AROSICS' `COREG.calculate_spatial_shifts`.
 pub fn coregister(reference: &Image, target: &Image, p: &Params) -> Outcome {
+    check_images(reference, target);
+    let ov = Overlap::new(reference, target);
+    coregister_with(&ov, reference, target, p, &mut FftPlanner::<f32>::new())
+}
+
+/// The two images have the same shape and `ny * nx` values.
+fn check_images(reference: &Image, target: &Image) {
     assert!(
         reference.ny == target.ny && reference.nx == target.nx,
         "the images must have the same shape"
@@ -822,8 +895,18 @@ pub fn coregister(reference: &Image, target: &Image, p: &Params) -> Outcome {
             && target.valid.len() == reference.data.len(),
         "data and valid must have ny * nx values"
     );
-    let ov = Overlap::new(reference, target);
-    let bx = match match_box(&ov, p) {
+}
+
+/// `coregister` with the overlap of the images (`Overlap::new(reference, target)`) and the FFT planner given, for
+/// the many windows of one pair (the tie points of `coreg_local`).
+pub fn coregister_with(
+    ov: &Overlap,
+    reference: &Image,
+    target: &Image,
+    p: &Params,
+    planner: &mut FftPlanner<f32>,
+) -> Outcome {
+    let bx = match match_box(ov, p) {
         Ok(b) => b,
         Err(f) => return Outcome::failed(f),
     };
@@ -851,8 +934,7 @@ pub fn coregister(reference: &Image, target: &Image, p: &Params) -> Outcome {
         o
     };
 
-    let mut planner = FftPlanner::<f32>::new();
-    let Some(scps0) = calc_scps(&im0, &im1, &mut planner) else {
+    let Some(scps0) = calc_scps(&im0, &im1, planner) else {
         return fail(Failure::WindowTooSmall, 0);
     };
     let (mut x_int, mut y_int) = shifts_from_peak(&scps0);
@@ -860,7 +942,7 @@ pub fn coregister(reference: &Image, target: &Image, p: &Params) -> Outcome {
     let scps: Scps = if (x_int, y_int) == (0, 0) {
         scps0
     } else {
-        let (mut valid, mut found, mut sc) = validate_integer(&im0, &im1, x_int, y_int, &mut planner);
+        let (mut valid, mut found, mut sc) = validate_integer(&im0, &im1, x_int, y_int, planner);
         let mut count = 1usize;
         while !valid {
             count += 1;
@@ -870,7 +952,7 @@ pub fn coregister(reference: &Image, target: &Image, p: &Params) -> Outcome {
             let Some((xv, yv)) = found else {
                 return fail(Failure::WindowTooSmall, count - 1);
             };
-            (valid, found, sc) = validate_integer(&im0, &im1, xv, yv, &mut planner);
+            (valid, found, sc) = validate_integer(&im0, &im1, xv, yv, planner);
             if valid {
                 // AROSICS overwrites the integer shift with the one the validation returns, which is (0, 0)
                 // for a valid one.
@@ -955,15 +1037,15 @@ fn both(a: &[bool], b: &[bool]) -> Vec<bool> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     /// A textured scene: value noise of 5 octaves (lattices of 2 to 32 pixels, cubic Hermite between the nodes),
     /// continuous, so that a scene moved by a fraction of a pixel is exact; `at(x, y)` in pixel coordinates.
-    struct Scene(u64);
+    pub(crate) struct Scene(u64);
 
     impl Scene {
-        fn new(seed: u64) -> Scene {
+        pub(crate) fn new(seed: u64) -> Scene {
             Scene(seed)
         }
         fn node(&self, octave: u64, ix: i64, iy: i64) -> f64 {
@@ -976,7 +1058,7 @@ mod tests {
             h ^= h >> 29;
             (h >> 11) as f64 / (1u64 << 52) as f64 - 1.0
         }
-        fn at(&self, x: f64, y: f64) -> f32 {
+        pub(crate) fn at(&self, x: f64, y: f64) -> f32 {
             let mut v = 0.0;
             for o in 0..5u64 {
                 let period = (2u64 << o) as f64;
@@ -1153,6 +1235,68 @@ mod tests {
     }
 
     #[test]
+    fn window_grows_from_the_position_where_the_overlap_is_not_a_rectangle() {
+        // The geometry of AROSICS' `local_margin_u16` benchmark pair: 300 columns and 150 rows without data and a
+        // diagonal edge. AROSICS puts the window of the point (400, 200) at x 319..481, y 118..282 (162 x 164): the
+        // box grown from the point a pixel a side until it meets the edge, then one pixel less in x where the
+        // other image's window of 256 is larger than the overlap's bounds.
+        let (ny, nx) = (1024usize, 1100usize);
+        let sc = Scene::new(8);
+        let reference = sc.image(ny, nx, 0.0, 0.0);
+        let target = sc.image(ny, nx, -2.0, 0.0);
+        let valid: Vec<bool> = (0..ny * nx)
+            .map(|k| {
+                let (r, c) = ((k / nx) as f64, (k % nx) as f64);
+                c >= 300.0 && r < (ny - 150) as f64 && r + 0.6 * c > 0.3 * ny as f64
+            })
+            .collect();
+        let p = Params {
+            window_pos: Some((400.0, 200.0)),
+            ..Params::default()
+        };
+        let o = run(&reference, &target, &valid, &valid, ny, nx, &p);
+        assert!(o.success, "{:?}", o.failure);
+        assert_eq!(o.window, [319, 118, 481, 282]);
+        assert!((o.x_shift - 2.0).abs() < 0.15 && o.y_shift.abs() < 0.15);
+        // a window of valid pixels only
+        let [x0, y0, x1, y1] = o.window;
+        for r in y0..y1 {
+            for c in x0..x1 {
+                assert!(valid[r * nx + c]);
+            }
+        }
+    }
+
+    #[test]
+    fn a_window_around_a_hole_avoids_it() {
+        // a hole of no data next to the position: the window is the largest box around the position without it
+        let (ny, nx) = (400usize, 400usize);
+        let sc = Scene::new(9);
+        let reference = sc.image(ny, nx, 0.0, 0.0);
+        let target = sc.image(ny, nx, -1.0, 1.0);
+        let mut valid = vec![true; ny * nx];
+        for r in 180..230 {
+            for c in 250..300 {
+                valid[r * nx + c] = false;
+            }
+        }
+        let p = Params {
+            window_pos: Some((200.0, 200.0)),
+            window_size: 128,
+            ..Params::default()
+        };
+        let o = run(&reference, &target, &valid, &valid, ny, nx, &p);
+        assert!(o.success, "{:?}", o.failure);
+        let [x0, y0, x1, y1] = o.window;
+        assert!(x1 <= 250 && x1 - x0 >= 16, "{:?}", o.window);
+        for r in y0..y1 {
+            for c in x0..x1 {
+                assert!(valid[r * nx + c]);
+            }
+        }
+    }
+
+    #[test]
     fn pieces() {
         assert_eq!(binary_size(198, 300), Some((128, 256)));
         assert_eq!(binary_size(7, 300), None);
@@ -1178,6 +1322,17 @@ mod tests {
         };
         assert!((sample_cubic(&im, 3.5, 4.5).unwrap() - d[4 * 8 + 3] as f64).abs() < 1e-12);
         assert!(sample_cubic(&im, 8.0, 1.0).is_none());
+        // GDAL skips the cell whose own source pixel is not valid, but not one whose neighbours are
+        let mut v2 = vec![true; 64];
+        v2[4 * 8 + 3] = false;
+        let im2 = Image {
+            data: &d,
+            valid: &v2,
+            ny: 8,
+            nx: 8,
+        };
+        assert!(sample_cubic(&im2, 3.2, 4.9).is_none());
+        assert!(sample_cubic(&im2, 4.2, 4.9).is_some());
         // identical windows have a similarity of 1
         let a: Vec<f32> = (0..400).map(|k| ((k * 7919) % 101) as f32).collect();
         let ok = vec![true; 400];

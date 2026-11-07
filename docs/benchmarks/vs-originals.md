@@ -482,6 +482,54 @@ On the same pixels the two are the same computation (float32 against float64). W
 
 The estimate is 3 to 8 times faster in Zeit: AROSICS' cost is in the footprint polygon and the file reading, where Zeit's is the correlation of one window (about 10 ms of FFTs, similarities and the overlap of the two masks; it grows with the image only through that overlap, 35 ms at 4096 x 4096). `CPUs` makes no difference for AROSICS' estimate (it only parallelises the warps of `equalize_pixGrids` and `correct_shifts`, which a pair on one grid does not run), and a single date is a single thread in Zeit. The whole `zeit.coregister` of a 4096 x 4096 date is dominated by the cubic warp of its 16.8 million cells (0.29 s). **Eight dates of 2048 x 2048** (a cube, one reference): 0.51 s with `n_jobs=1` (64 ms per date) and 0.39 s with `n_jobs=4` (49 ms per date): the dates run at once in the correlation and the warp is the part that threads share the least.
 
+### The local coregistration vs AROSICS
+
+[`coregister_local`](../api/preprocessing.md#coregister_local) is a port of `COREG_LOCAL` of **AROSICS 1.14.0** (the tie point grid, the match of each point, `Tie_Point_Refiner`'s three filters and the warp by the control points), run as above in the `arosics-ref` environment by `arosics_driver.py local` (`COREG_LOCAL(ref, tgt, grid_res, window_size=(ws, ws), nodata=(nd, nd), align_grids=True, resamp_alg_deshift="cubic", tieP_filter_level=3)`, then `calculate_spatial_shifts()` and `correct_shifts()`; its `CoRegPoints_table` is written to JSON and the warped image to `.npy`), with `python benchmarks/vs_originals/arosics.py local run 1`, `... local run 4` and `... local compare`. The pairs are synthetic (the target is the reference's value-noise scene at the positions a smooth field of shifts moves it from: an affine part and a sinusoid, up to 3 pixels in `local_smooth`, `local_odd`, `local_2048` and `local_margin_u16`, up to 1.5 in `local_patches` and `local_ws128_fine`) plus scikit-image's `camera` warped by such a field (cubic spline, 8 bit). `local_patches` has three outliers planted in the target: a block of another texture, a featureless block and a block displaced 3 pixels more than the field (a good match that does not fit the model); `local_margin_u16` is uint16 with NoData 0, 300 columns and 150 rows of no data and a diagonal no-data edge.
+
+Zeit runs `coregister_local(..., arosics_compat=True)` on the same files (the flag below) and its table is joined to AROSICS' on `POINT_ID`. Over the points both match:
+
+| Pair | Size (cols x rows) | `grid_res` / `ws` | Points A/Z | Matched A/Z | Shifts (px) | Reliability | SSIM before / after | Windows equal | Control points A/Z |
+|:---|:---|:---|:---|:---|---:|---:|---:|:---|:---|
+| `local_smooth` | 1400 x 1200 | 256 / 256 | 30/30 | 30/30 | 1.4e-6 | 1.0e-5 | 5e-11 / 6e-6 | 30/30 | 27/27 |
+| `local_patches` | 1400 x 1200 | 200 / 256 | 56/56 | 56/56 | 8.5e-7 | 4.3e-5 | 5e-11 / 4e-8 | 56/56 | 48/48 |
+| `local_margin_u16` | 1100 x 1024 | 200 / 256 | 19/19 | 18/18 | 3.3e-7 | 5.1e-6 | 4e-9 / 5e-8 | 18/18 | 16/16 |
+| `local_odd` | 777 x 1001 | 100 / 128 | 88/88 | 88/88 | 6.6e-7 | 2.8e-5 | 5e-11 / 2e-5 | 88/88 | 74/74 |
+| `local_ws128_fine` | 700 x 900 | 64 / 128 | 165/165 | 164/164 | 5.4e-7 | 7.5e-5 | 5e-11 / 1e-5 | 164/164 | 147/147 |
+| `local_2048` | 2048 x 2048 | 200 / 256 | 121/121 | 121/121 | 6.6e-7 | 1.1e-5 | 5e-11 / 8e-6 | 121/121 | 105/105 |
+| `natural_camera_local` (uint8) | 512 x 512 | 64 / 128 | 81/81 | 74/74 | 2.0e-3 | 7.4e-6 | 4e-8 / 3e-4 | 74/74 | 67/67 |
+
+(Largest absolute difference. The shifts of the natural image differ by 1.2e-7 at all points but one, at the top edge, where the 128 x 62 window's correlation peak moves by 2e-3: 8-bit data on a nearly degenerate window, the single-precision noise of the two FFT libraries. The similarity after the shift differs at the 1e-5 level in the float pairs and 3e-4 in the 8-bit image: GDAL's cubic of AROSICS' warp of the window against the port, at cells beside no data.)
+
+**The points that are placed and the points that match are the same in all 7 pairs**, including the 62-pixel windows at the image edges and the window of the point (400, 200) of `local_margin_u16`, which AROSICS grows from the point to 162 x 164 pixels where the diagonal edge crosses its 256 window (x 319 to 481, y 118 to 282, the box of Zeit exactly; Zeit's first version, which only clipped the window, failed there: the branch of AROSICS that grows a box from the position, which the global comparison above never ran, is in the port now). Flags (the points that differ from AROSICS / flagged by AROSICS / flagged by Zeit, with `arosics_compat=True`):
+
+| Pair | Reliability | SSIM | RANSAC | Any (`OUTLIER`) | Warped image, max / mean difference |
+|:---|:---|:---|:---|:---|:---|
+| `local_smooth` | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 3 / 3 | 0 / 3 / 3 | 0.00098 / 2.7e-5 |
+| `local_patches` | 0 / 1 / 1 | 0 / 1 / 1 | 0 / 6 / 6 | 0 / 8 / 8 | 0.00098 / 2.0e-5 |
+| `local_margin_u16` | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 2 / 2 | 0 / 2 / 2 | 1 / 1.6e-5 |
+| `local_odd` | 0 / 3 / 3 | 0 / 3 / 3 | 0 / 9 / 9 | 0 / 14 / 14 | 0.00049 / 1.1e-5 |
+| `local_ws128_fine` | 0 / 0 / 0 | 0 / 1 / 1 | 0 / 16 / 16 | 0 / 17 / 17 | 0.00049 / 9.7e-6 |
+| `local_2048` | 0 / 0 / 0 | 0 / 2 / 2 | 0 / 14 / 14 | 0 / 16 / 16 | 0.00049 / 1.5e-5 |
+| `natural_camera_local` | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 7 / 7 | 0 / 7 / 7 | 6 / 3.1e-4 |
+
+The RANSAC flags are the same in every pair because the core reproduces scikit-image's `ransac` and numpy's `default_rng(0)`: the generator's first values and the samples of `Generator.choice(n, 6, replace=False)` are checked against numpy's output in the core's tests, and on the 54 points of `local_patches` the number of inliers at each of the 8 thresholds AROSICS tries (5, 7, ..., 19) is the same as AROSICS'. The warped images (GDAL's thin plate spline of the same control points, rasterio's GDAL 3.12 against the `arosics-ref` one) differ by 1e-3 at most in the float pairs (float32 rounding), by 1 in the uint16 pair, and by up to 6 in 0.01% of the cells of the 8-bit image, over the pixels with data inside the 8 pixel border; the valid cells are the same.
+
+**AROSICS 1.14.0 puts RANSAC's flags on the wrong points.** Without `arosics_compat` (Zeit's default), the RANSAC flags of four pairs differ from AROSICS' (`local_patches` 8 points, `local_odd` 7, `local_ws128_fine` 26, `local_2048` 24; none in `local_smooth`, `local_margin_u16` and the natural image, where the reliability and similarity filters flagged nothing before it). Tracing AROSICS' `_RANSAC_outlier_detection` shows why: when the first two filters have removed points, the flags of RANSAC (one for each point it got, from 0) are assigned by `inGDF['outliers'] = outliers` to a table indexed by the points' positions in the whole table, so pandas aligns them by label and the k-th flag lands on the row labelled k, not on the k-th remaining point. The count flagged is right and the points are not. Zeit's default flags the points RANSAC found; `arosics_compat=True` reproduces AROSICS' assignment, to compare with it.
+
+**Timings** (seconds; AROSICS the best of 3, Zeit a warm-up and the best of 2; **the machine was not idle**: another session's process was using about a core and the load was 15-20% before the runs, so these are indicative). AROSICS: `COREG_LOCAL(...)` plus `calculate_spatial_shifts()` (reads the files, the footprints, a `COREG` for each point in a `joblib` process, the filters), `CPUs=1` and `4`; its `correct_shifts()` (GDAL's warp) took 0.02-0.13 s. Zeit: the core's tie points on arrays in memory, `n_jobs=1` and `4`, and the whole `zeit.coregister_local` of the date, which warps as well (rasterio's GDAL, one thread):
+
+| Pair | Points | AROSICS `CPUs=1` | AROSICS `CPUs=4` | Zeit tie points, 1 thread | Zeit tie points, 4 threads | `coregister_local`, 1 thread | `coregister_local`, 4 threads |
+|:---|---:|---:|---:|---:|---:|---:|---:|
+| `local_smooth` | 30 | 2.10 | 1.97 | 0.250 | 0.095 | 0.366 | 0.216 |
+| `local_patches` | 56 | 1.77 | 1.42 | 0.389 | 0.129 | 0.517 | 0.263 |
+| `local_margin_u16` | 19 | 0.77 | 0.69 | 0.139 | 0.046 | 0.203 | 0.118 |
+| `local_odd` | 88 | 1.80 | 1.64 | 0.185 | 0.068 | 0.259 | 0.151 |
+| `local_ws128_fine` | 165 | 1.99 | 1.55 | 0.326 | 0.104 | 0.424 | 0.200 |
+| `local_2048` | 121 | 5.25 | 4.24 | 1.023 | 0.351 | 1.419 | 0.757 |
+| `natural_camera_local` | 81 | 1.82 | 1.64 | 0.151 | 0.063 | 0.184 | 0.094 |
+
+The tie points are 4.5 to 12 times faster in Zeit on one thread against AROSICS on one CPU and 11 to 26 times on 4 threads against 4 CPUs (the window's FFTs and similarities cost the same in both; AROSICS also builds a `COREG` object with its footprints for each point and starts a pool of processes, and its 4 CPUs gain 6 to 22%, where the threads of the core gain a factor of 2.4 to 3.1 at 4). The warp of Zeit's `coregister_local` is the rest (0.05 to 0.4 s).
+
 ---
 
 ## Protocol
@@ -533,6 +581,8 @@ wsl -e bash -lc 'bash benchmarks/vs_originals/force_parallax/make_harness.sh'   
 python benchmarks/vs_originals/force_parallax.py --size 512 --big 2048   # zeit.parallax_clouds and zeit.buffer_mask against it, and the times
 python benchmarks/vs_originals/topocorr.py            # gdaldem (GDAL_BIN) and terra/RStoolbox 1.0.2.2, against zeit.topographic_correction
 python benchmarks/vs_originals/arosics.py            # AROSICS 1.14.0 (conda env arosics-ref; AROSICS_ENV=...), against zeit.coregister
+python benchmarks/vs_originals/arosics.py local run 1   # COREG_LOCAL with CPUs=1 and with 4 (`local run 4`), then zeit.coregister_local against both:
+python benchmarks/vs_originals/arosics.py local compare
 python benchmarks/vs_originals/polar.py               # PolarMetrics 0.1.0 (R package from GitHub: R CMD INSTALL), against zeit.polar_metrics
 python benchmarks/vs_originals/ewmacd.py "path/to/EWMACD v1.3.0.r"   # Brooks' script, not distributed
 PYXCCD_PYTHON=path/to/pyxccd-env/python python benchmarks/vs_originals/sccd.py CCDC_Stack_Rondonia.tif CCDC_Stack_Rondonia_Dates.csv

@@ -53,7 +53,7 @@ from ._improphe import improphe
 from ._resmerge import sentinel2_resmerge
 from ._parallax import buffer_mask, cloud_displacement_index, parallax_clouds
 from ._topocorr import topographic_correction
-from ._coreg import coregister
+from ._coreg import coregister, coregister_local
 
 from .regularize import regularize_time_series
 
@@ -137,6 +137,7 @@ __all__ = [
     "buffer_mask",
     "topographic_correction",
     "coregister",
+    "coregister_local",
     "build_annual_composites",
     "build_spectral_temporal_metrics",
     "compute_indices",

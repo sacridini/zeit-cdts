@@ -2706,8 +2706,68 @@ validação.
     AROSICS aplica qualquer deslocamento que passe nelas, e o `min_reliability` é a opção do Zeit
     para recusar os fracos. (5) Um quirk do AROSICS foi mantido de propósito: no laço de novas
     tentativas, um deslocamento achado por uma nova tentativa fica com parte inteira `(0, 0)`.
-  - **O que não tem:** o `COREG_LOCAL` (a grade de pontos de controle e a transformação ajustada a
-    eles), a reamostragem da janela em grades diferentes e máscaras de dado ruim por entrada.
+  - **O que não tem:** a reamostragem da janela em grades diferentes e máscaras de dado ruim por
+    entrada (o `COREG_LOCAL` veio na parte seguinte, abaixo).
+- **23f, o coregistro local:** `zeit.coregister_local(cube, reference, *, grid_res=200,
+  window_size=(256, 256), max_shift=5, max_iter=5, min_reliability=60, tie_point_filter_level=3,
+  rs_max_outlier=10, rs_tolerance=2.5, rs_random_state=0, warp="auto", order=None, min_points=5,
+  band=None, ref_band=None, resampling="cubic", nodata="auto", arosics_compat=False, n_jobs=-1)`,
+  que devolve `(aligned, tie_points)`: a cena no próprio grid, com cada data deformada, e uma tabela
+  com todos os pontos de todas as datas. No core em `rust/zeit-core/src/coreg_local.rs` (o laço dos
+  pontos e os filtros) sobre o `coreg.rs` (o casamento de cada ponto, com a `Overlap` e o
+  planejador de FFT compartilhados; a `coregister_with`), com a ligação em `zeit-py/src/coreg.rs`.
+  Port do `COREG_LOCAL` do AROSICS 1.14.0 (`CoReg_local.py`, `Tie_Point_Grid.py`; Apache-2.0, a
+  linha do `THIRD_PARTY_NOTICES.md` estendida): a grade `np.arange(0, tamanho + grid_res,
+  grid_res)` nos cantos dos pixels do alvo, o ponto mantido onde cai em dado das duas imagens, o
+  `COREG` de cada um com a janela centrada nele, as saídas por ponto (`ABS_SHIFT`, `ANGLE`,
+  `SSIM_IMPROVED`, a confiabilidade, o SSIM antes e depois, o tamanho da janela) e os filtros na
+  ordem do `Tie_Point_Refiner` (confiabilidade, SSIM e RANSAC, com a busca do limiar do AROSICS em
+  unidades do mapa, até `rs_max_iter` = 15). Os pontos usados viram GCPs (a posição do pixel do
+  alvo, o ponto mais o deslocamento em unidades do mapa) e a data é deformada pelo GDAL (o
+  `reproject` do rasterio): `tps`, o que o AROSICS sempre usa (`gdal.Warp(tps=True)`), ou
+  polinomial de ordem 1 a 3 (ou a escolha do GDAL). Os pontos e as datas rodam em threads do core
+  (um pool do rayon do helper `parallel`; as datas em threads do Python que dividem o mesmo pool).
+  - **Igual ao AROSICS:** contra o `COREG_LOCAL` 1.14.0 do `arosics-ref`, em 7 pares (6 sintéticos
+    de 777 x 1001 a 2048 x 2048, com um campo suave de até 3 pixels, manchas de textura trocada,
+    sem feição e deslocada, uint16 com margem sem dado e borda diagonal, tamanho ímpar, grade
+    fina, e a `camera` do scikit-image deformada por um campo), com 19 a 165 pontos cada, os mesmos
+    pontos são colocados e casam, as janelas são iguais, os deslocamentos diferem em 2e-6 pixel no
+    máximo (2e-3 em um ponto da imagem natural, de 8 bits), a confiabilidade em 8e-5 e o SSIM em
+    2e-5 (3e-4 em 8 bits), as flags dos três filtros são idênticas com `arosics_compat=True` e a
+    imagem deformada, dos mesmos GCPs, difere em 1e-3 no máximo (1 em uint16; até 6 em 0,01% das
+    células de 8 bits). O RANSAC é o `ransac` do scikit-image com o `default_rng` do numpy
+    reproduzidos no core (PCG64, `SeedSequence`, `Generator.choice(n, 6, replace=False)`, conferidos
+    com a saída do numpy), então as amostras e o número de inliers em cada limiar são os do
+    AROSICS. Tempo (máquina carregada por outra sessão, indicativo): os pontos 4,5 a 12 vezes mais
+    rápidos em 1 thread contra `CPUs=1` e 11 a 26 vezes em 4 contra `CPUs=4`.
+  - **Um bug do AROSICS 1.14.0, achado na comparação:** quando os filtros de confiabilidade ou de
+    SSIM já marcaram pontos, o `_RANSAC_outlier_detection` atribui as flags do RANSAC (uma por
+    ponto que ele recebeu, de 0) com `inGDF['outliers'] = outliers` a uma tabela indexada pela
+    posição na tabela toda, e o pandas alinha por rótulo: a flag k cai na linha de rótulo k e não
+    no k-ésimo ponto restante, então bons pontos são descartados e outliers ficam (7 a 26 pontos
+    diferentes em 4 dos 7 pares). O padrão do Zeit marca os pontos que o RANSAC achou;
+    `arosics_compat=True` reproduz a atribuição do AROSICS, só para comparar.
+  - **Onde fugiu do plano:** (1) A API: a `window_size` é int ou um par de valores iguais (a janela
+    é quadrada), `min_points` e `rs_random_state` entram, e a `warp="auto"` é `"tps"`, porque o
+    AROSICS não escolhe entre polinomial e TPS (usa sempre a TPS; a polinomial é uma opção do
+    Zeit). (2) Uma data com menos de 5 pontos de controle (`min_points_local_corr`) fica como
+    estava e sinalizada, como pedido; o AROSICS corrige então globalmente com a média dos pontos.
+    (3) Mais de 7000 pontos de controle: 7000 igualmente espaçados (o AROSICS sorteia 7000, por
+    um limite do GDAL). (4) O `rs_timeout` (20 s de relógio) não é mantido; com 5 ou 6 pontos para
+    o RANSAC, onde o AROSICS dá erro ou resultado vazio, nenhum ponto é marcado. (5) A
+    sobreposição continua sendo a dos pixels válidos, e agora a janela que toca uma borda diagonal
+    ou um buraco cresce a partir do ponto, um pixel de cada lado (o ramo do AROSICS de uma caixa de
+    uma unidade, que eu tinha dito rodar só por ruído e deixado de fora na parte global: roda
+    porque a caixa do `boxObj` é o retângulo das coordenadas do polígono recortado). Sem ele um
+    ponto do par com borda diagonal falhava onde o AROSICS casa, com uma janela de 162 x 164; com
+    ele a janela é igual, e o ramo vale também para a parte global. (6) O SSIM depois do
+    deslocamento, nas janelas que tocam a borda da imagem, usa os valores crus nas células sem dado
+    (os arrays mascarados do numpy mantêm o valor bruto na normalização, e o filtro do scikit-image
+    os lê); e o pixel de origem inválido deixa a célula sem dado, como o kernel do GDAL. Os dois
+    ajustes, achados pelos pares com borda, não mudam nenhum dos 13 pares da parte global. (7) O
+    aviso de mais de 70% de pontos marcados e a `max_points` não foram portados.
+  - **O que não tem:** a opção `max_points` (sorteio de um subconjunto dos pontos), a correção
+    global pela média dos pontos quando são poucos, e a ferramenta no Janus.
 - **Janus:** o `zeit-core` foi para o `7c01978` sem mudar nada do que o Janus já chamava. As
   ferramentas pedem duas coisas novas no Janus:
   - saídas cujas bandas a ferramenta decide (a grade nova, os anos, as janelas);
@@ -2740,11 +2800,13 @@ validação.
   `zeit.parallax_clouds`, `zeit.cloud_displacement_index` e `zeit.buffer_mask` (o passo da
   paralaxe do Frantz e o buffer, iguais ao FORCE em todos os valores; as entradas do Fmask são
   entradas). Faltam ferramentas no Janus para elas.
-- ~~**Zeit:** 23f: o coregistro global~~: feito, `zeit.coregister` (o `COREG` do AROSICS, igual a ele
-  no inteiro, na janela, na confiabilidade e no SSIM e a 2e-7 pixel no subpixel). Falta o
-  `COREG_LOCAL` do AROSICS (a grade de pontos de controle, a filtragem por confiabilidade e SSIM e a
-  transformação ajustada a eles, que corrige distorções e não só um deslocamento), e a ferramenta
-  no Janus, com os vetores de deslocamento como camada.
+- ~~**Zeit:** 23f: o coregistro~~: feito, `zeit.coregister` (o `COREG` do AROSICS, igual a ele
+  no inteiro, na janela, na confiabilidade e no SSIM e a 2e-7 pixel no subpixel) e
+  `zeit.coregister_local` (o `COREG_LOCAL`: a grade de pontos, a filtragem por confiabilidade, SSIM e
+  RANSAC, com o RANSAC do scikit-image e o `default_rng` do numpy reproduzidos, e a deformação por
+  GCPs do GDAL; igual ao AROSICS nos pontos, nas janelas e nas flags com `arosics_compat=True`, que
+  reproduz um bug do AROSICS 1.14.0 na atribuição das flags do RANSAC). Falta a ferramenta no
+  Janus, com os vetores de deslocamento como camada.
 - **Zeit:** 23g (correção atmosférica), como nas Etapas acima.
 - **Self-test do Janus:** a Fenologia polar é pulada nos dados de teste, que são irregulares.
   Um dado regular no `tools/make_selftest_data.py` a cobriria.
