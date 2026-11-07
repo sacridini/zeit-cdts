@@ -115,6 +115,11 @@ pub struct Coords<'a> {
     pub dense_row0: i64,
     pub dense_col0: i64,
     pub dense_stride: i64,
+    /// DENSE: 2 values a sample (x, y), or 4 for the area methods: the upper-left corner of the
+    /// cell (j, i) in the first two, its lower-right corner in the other two (GDAL transforms those
+    /// as two lines of its own, `GWKAverageOrModeComputeLineCoords`, which approximate differently).
+    /// 0 is 2.
+    pub dense_channels: i64,
     /// The exact transformation (GDAL's transformer, one argument per thread):
     /// the samples of EXACT coordinates, and the points GDAL transforms on
     /// demand (near the edge of a projection's domain, across the
@@ -164,6 +169,30 @@ impl Coords<'_> {
         });
     }
 
+    fn channels(&self) -> usize {
+        if self.dense_channels == 4 {
+            4
+        } else {
+            2
+        }
+    }
+
+    /// Whether the area methods find the lower-right corners of their cells apart (4 channels).
+    pub fn has_lower_right(&self) -> bool {
+        self.kind == DENSE && self.channels() == 4
+    }
+
+    /// The lower-right corners of the cells (i0 .. i0 + x.len() - 1, j) (DENSE with 4 channels).
+    pub fn row_lower_right(&self, j: i64, i0: i64, x: &mut [f64], y: &mut [f64]) {
+        let n = x.len();
+        let start = 4 * ((j - self.dense_row0) * self.dense_stride + (i0 - self.dense_col0)) as usize;
+        let p = &self.dense[start..start + 4 * n];
+        for k in 0..n {
+            x[k] = p[4 * k + 2];
+            y[k] = p[4 * k + 3];
+        }
+    }
+
     /// x, y of the samples (i0 .. i0 + x.len() - 1, j).
     pub fn row(&self, j: i64, i0: i64, x: &mut [f64], y: &mut [f64]) {
         let n = x.len();
@@ -201,11 +230,12 @@ impl Coords<'_> {
                 });
             }
             DENSE => {
-                let start = 2 * ((j - self.dense_row0) * self.dense_stride + (i0 - self.dense_col0)) as usize;
-                let p = &self.dense[start..start + 2 * n];
+                let ch = self.channels();
+                let start = ch * ((j - self.dense_row0) * self.dense_stride + (i0 - self.dense_col0)) as usize;
+                let p = &self.dense[start..start + ch * n];
                 for k in 0..n {
-                    x[k] = p[2 * k];
-                    y[k] = p[2 * k + 1];
+                    x[k] = p[ch * k];
+                    y[k] = p[ch * k + 1];
                 }
             }
             _ => self.lattice_row(j, i0, x, y),

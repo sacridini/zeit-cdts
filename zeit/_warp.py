@@ -3,13 +3,19 @@
 
 From landschaft 1.35.0 (``_reproject.py``, by the same author), the raster part. Rasters are
 warped by a port of GDAL's warp kernel (``_core.warp``, from GDAL 3.12's gdalwarpkernel.cpp)
-on source coordinates that do not depend on how the work is split: the source coordinates of
-the destination's cells come from a lattice anchored at its origin, exact (PROJ) every 16
-cells, refined down to every cell where interpolating them would be off by more than the
-tolerance, interpolated bilinearly in between; the kernel scale is GDAL's for the whole
-destination in one chunk. In memory, lazily or from a file, with any number of threads,
-every cell gets the same bits. tolerance=0 transforms every cell exactly: GDAL's values for
-the whole destination at once.
+on source coordinates that do not depend on how the work is split. For the methods that sample at
+cell centres (nearest, bilinear, cubic, cubic spline, Lanczos) they are those of GDAL's
+approximate transformer, which gdalwarp uses by default (``-et 0.125``; ``_approx_coords``): row by
+row of the whole destination, exact at the ends and the middle of a range of cells and on a line
+between them where the line is within the tolerance, splitting the range where it is not. For the
+area methods (average, mode, ...) too, but as GDAL gives them: two lines of corners for every row of
+cells (the upper-left corners and the lower-right ones), each approximated on its own (four values
+a sample in the dense array). The kernel scale is GDAL's for the whole destination in one chunk, and so are the rows
+the approximate transformer sees: gdalwarp splits a destination that needs more than 64 MB of
+working memory, or whose source window is mostly outside the source, and approximates each part
+in rows of its own. In memory, lazily or from a file, with any number of threads, every cell
+gets the same bits. tolerance=0 transforms every cell exactly: GDAL's values for the whole
+destination at once (``gdalwarp -et 0``).
 
 What zeit adds to landschaft's: every plane of a cube (every date, every band) is warped
 with a validity mask of its own (GDAL's unified mask would let a cloud of one date into the
@@ -493,7 +499,9 @@ def _kernel_scales(points: _Points, src_shape, dst_shape, method: str, translati
     """GDAL's dfXScale, dfYScale for the whole destination in one chunk: the source window of
     GDALWarpOperation::ComputeSourceWindow (points along the edges; a grid when some fail or
     a pole is in the destination, widened by the source points that land in it), then
-    GDALWarpKernel::PerformWarp's rules."""
+    GDALWarpKernel::PerformWarp's rules. Returns (xscale, yscale, window), the window being the source
+    cells (column offset, columns, row offset, rows) of that ComputeSourceWindow (None when it
+    is not known)."""
     h, w = src_shape
     dh, dw = dst_shape
     step = 1.0 / (_STEP_COUNT - 1)
@@ -548,7 +556,7 @@ def _kernel_scales(points: _Points, src_shape, dst_shape, method: str, translati
         x, y, ok = sample(*grid())
     failed = int((~ok).sum())
     if failed > x.size - 5:
-        return 1.0, 1.0
+        return 1.0, 1.0, None
     min_x, max_x, min_y, max_y = x[ok].min(), x[ok].max(), y[ok].min(), y[ok].max()
     if use_grid:  # ComputeSourceWindowStartingFromSource
         sx = np.array([rx * w for _ in ratios(h) for rx in ratios(w)])
@@ -559,7 +567,7 @@ def _kernel_scales(points: _Points, src_shape, dst_shape, method: str, translati
             min_x, max_x = min(min_x, sx[inside].min()), max(max_x, sx[inside].max())
             min_y, max_y = min(min_y, sy[inside].min()), max(max_y, sy[inside].max())
     if min_x > w or max_x < 0 or min_y > h or max_y < 0:
-        return 1.0, 1.0
+        return 1.0, 1.0, None
 
     def snap(v):
         r = float(np.round(v))
@@ -577,7 +585,7 @@ def _kernel_scales(points: _Points, src_shape, dst_shape, method: str, translati
         hi_c = int(min(math.ceil(hi), float(n_src)))
         raw = max(0.0, min(float(n_src - lo_c), hi - lo))
         if hi_c - lo_c > 0.9 * n_src:
-            size = n_src
+            off, size = 0, n_src
         else:
             off = max(0, min(lo_c - radius, n_src))
             size = max(0, min(n_src - off, hi_c - off + radius))
@@ -591,10 +599,10 @@ def _kernel_scales(points: _Points, src_shape, dst_shape, method: str, translati
             whole = int(reciprocal + 0.5)
             if abs(reciprocal - whole) < 0.05:
                 scale = 1.0 / whole
-        return scale
+        return scale, (off, size)
 
-    xscale = side(min_x, max_x, dw, w)
-    yscale = side(min_y, max_y, dh, h)
+    xscale, xwin = side(min_x, max_x, dw, w)
+    yscale, ywin = side(min_y, max_y, dh, h)
     if yscale / xscale > 100:
         # A wide source wrapped around the antimeridian: the mean scale at a few points.
         nx, ny = min(10, dw), min(10, dh)
@@ -618,7 +626,7 @@ def _kernel_scales(points: _Points, src_shape, dst_shape, method: str, translati
             for s in kept:
                 total += s
             xscale = total / len(kept)
-    return float(xscale), float(yscale)
+    return float(xscale), float(yscale), (*xwin, *ywin)
 
 
 class _Lattice:
@@ -710,6 +718,136 @@ def _finite_box(flat):
                          np.nanmax(ys, axis=1)], -1)
 
 
+def _expand(row, start, count):
+    """The (row, column) of every cell of runs of ``count`` cells from column ``start`` in ``row``, and
+    the run each belongs to."""
+    total = int(count.sum())
+    rep = np.repeat(np.arange(row.size), count)
+    first = np.cumsum(count) - count
+    return row[rep], start[rep] + (np.arange(total) - first[rep]), rep
+
+
+def _approx_coords(points: _Points, rows, width: int, c0: int, c1: int, max_error: float, window,
+                   n_threads: int, uoff: float = 0.5, voff: float = 0.5, retry_outside: bool = True):
+    """The source coordinates of the cell centres of destination ``rows``, columns [c0, c1), as GDAL's
+    approximate transformer (``GDALApproxTransform`` and ``GDALApproxTransformInternal``,
+    gdaltransformer.cpp; gdalwarp's ``-et``, 0.125 by default) gives them to the warp kernel. It is
+    called with the ``width`` centres of one row of the destination: it transforms the first, the middle
+    and the last exactly and, when the middle is off the line through the ends by more than
+    ``max_error`` source cells (|dx| + |dy|), splits the row in two (the first ``(width - 1) // 2``
+    cells, and the rest) and goes on with each (ends and middle exact), down to ranges where a line is
+    good enough (each cell then lies on it) or where every cell is exact (ranges of 5 cells or fewer,
+    and where a point fails). The ranges are those of a row of the whole destination, which is one
+    chunk of GDAL's warp operation: a destination that GDAL splits in chunks (its 64 MB of working
+    memory) is approximated by GDAL in rows of the chunk. Returns (len(rows), c1 - c0, 2); failed
+    points are infinite. The rows are done together, level by level. ``uoff``, ``voff``: the point of a
+    cell given to the transformer (its centre, or a corner for the area methods)."""
+    rows = np.asarray(rows, dtype=np.int64)
+    nrows = rows.size
+
+    def exact(r, i):
+        res = np.empty((r.size, 2))
+        if r.size:
+            points.many(i + uoff, rows[r] + voff, n_threads, res)
+            res[~np.isfinite(res).all(1)] = np.inf
+        return res
+
+    out = np.full((nrows, c1 - c0, 2), np.nan)
+    runs = [[], [], []]  # exact cells: row, first column, count
+    leaves = []  # (row, first column, count, start (x, y), step (dx, dy)) of cells on a line
+
+    def exact_run(r, a, count):
+        runs[0].append(r)
+        runs[1].append(a)
+        runs[2].append(count)
+
+    r_all = np.arange(nrows)
+    if width <= 5 or max_error == 0:
+        exact_run(r_all, np.zeros(nrows, dtype=np.int64), np.full(nrows, width, dtype=np.int64))
+    else:
+        mid = (width - 1) // 2
+        p3 = exact(np.repeat(r_all, 3), np.tile(np.array([0, mid, width - 1], dtype=np.int64), nrows)).reshape(-1, 3, 2)
+        good = np.isfinite(p3).all(axis=(1, 2))
+        bad = r_all[~good]
+        exact_run(bad, np.zeros(bad.size, dtype=np.int64), np.full(bad.size, width, dtype=np.int64))
+        qr, qa, qn = r_all[good], np.zeros(good.sum(), dtype=np.int64), np.full(good.sum(), width, dtype=np.int64)
+        qs, qm, qe = p3[good, 0], p3[good, 1], p3[good, 2]
+        while qr.size:
+            half = (qn - 1) // 2
+            x0, xm, xl = qa + 0.5, qa + half + 0.5, qa + qn - 1 + 0.5
+            span = xl - x0
+            dx = (qe[:, 0] - qs[:, 0]) / span
+            dy = (qe[:, 1] - qs[:, 1]) / span
+            err = np.abs((qs[:, 0] + dx * (xm - x0)) - qm[:, 0]) + np.abs((qs[:, 1] + dy * (xm - x0)) - qm[:, 1])
+            line = ~(err > max_error)
+            if line.any():
+                leaves.append((qr[line], qa[line], qn[line], qs[line], np.stack([dx[line], dy[line]], -1)))
+            keep = ~line
+            qr, qa, qn, half = qr[keep], qa[keep], qn[keep], half[keep]
+            qs, qm, qe = qs[keep], qm[keep], qe[keep]
+            if not qr.size:
+                break
+            m0, m1, m2 = (half - 1) // 2, half - 1, half + (qn - half - 1) // 2
+            base1, base2 = half <= 5, qn - half <= 5
+            need1, need2 = ~base1, ~base2
+            p0 = np.full((qr.size, 2), np.nan)
+            p1, p2 = p0.copy(), p0.copy()
+            if need1.any():
+                p0[need1] = exact(qr[need1], qa[need1] + m0[need1])
+                p1[need1] = exact(qr[need1], qa[need1] + m1[need1])
+            if need2.any():
+                p2[need2] = exact(qr[need2], qa[need2] + m2[need2])
+            ok = (base1 | (np.isfinite(p0).all(1) & np.isfinite(p1).all(1))) & (base2 | np.isfinite(p2).all(1)) \
+                & ~(base1 & base2)
+            # nothing to split with, or a point failed: every cell of the range exact
+            miss = ~ok
+            exact_run(qr[miss], qa[miss], qn[miss])
+            nq = []
+            first = ok & need1  # the first half goes on, from the start to the point before the middle
+            if first.any():
+                nq.append((qr[first], qa[first], half[first], qs[first], p0[first], p1[first]))
+            lone = ok & base1
+            exact_run(qr[lone], qa[lone], half[lone])
+            second = ok & need2  # the second, from the middle to the end
+            if second.any():
+                nq.append((qr[second], qa[second] + half[second], qn[second] - half[second], qm[second], p2[second],
+                           qe[second]))
+            lone = ok & base2
+            exact_run(qr[lone], qa[lone] + half[lone], qn[lone] - half[lone])
+            if not nq:
+                break
+            qr, qa, qn, qs, qm, qe = (np.concatenate(c) for c in zip(*nq))
+    for r, a, n, s, d in leaves:
+        lo, hi = np.maximum(a, c0), np.minimum(a + n, c1)
+        sel = hi > lo
+        if not sel.any():
+            continue
+        r, a, lo, hi, s, d = r[sel], a[sel], lo[sel], hi[sel], s[sel], d[sel]
+        row, col, rep = _expand(r, lo, hi - lo)
+        dist = (col + 0.5) - (a[rep] + 0.5)
+        out[row, col - c0] = s[rep] + d[rep] * dist[:, None]
+    if runs[0]:
+        r, a, n = (np.concatenate(c) for c in runs)
+        lo, hi = np.maximum(a, c0), np.minimum(a + n, c1)
+        sel = hi > lo
+        row, col, _ = _expand(r[sel], lo[sel], (hi - lo)[sel])
+        out[row, col - c0] = exact(row, col)
+    if not retry_outside:  # (the area methods do not retry)
+        return out
+    # GWKCheckAndComputeSrcOffsets: a point slightly outside the source window of the warp (by less than a
+    # cell, the first of its tests to fail) is transformed alone, exactly, and that value is the one the
+    # kernel takes
+    xoff, xsize, yoff, ysize = window
+    x, y = out[..., 0], out[..., 1]
+    with np.errstate(invalid="ignore"):
+        t1, t2, t3, t4 = x < xoff, y < yoff, x + 1e-10 > xsize + xoff, y + 1e-10 > ysize + yoff
+        retry = (t1 & (x > xoff - 1)) | (~t1 & t2 & (y > yoff - 1)) | (~t1 & ~t2 & t3 & (x < xsize + xoff + 1))             | (~t1 & ~t2 & ~t3 & t4 & (y < ysize + yoff + 1))
+    row, col = np.nonzero(retry)
+    if row.size:
+        out[row, col] = exact(row, col + c0)
+    return out
+
+
 class _Warp:
     """A warp by the kernel: the whole destination in one call (in memory), or tasks of a
     lazy result reading the source window they see. The source coordinates of every
@@ -726,6 +864,7 @@ class _Warp:
         self.keep = keep
         self.tolerance = tolerance
         self.n_threads = n_threads
+        self.approx = False
         self.points = _Points(src_t, src_crs, src_shape, dst_t, dst_crs, dst_shape)
         translation = _translation(self.points, src_t, dst_t)
         if translation:
@@ -734,18 +873,21 @@ class _Warp:
         self.area = method in _AREA_METHODS
         self.offset = 0.0 if self.area else 0.5
         self.extra = 1 if self.area else 0
-        self.scales = _kernel_scales(self.points, src_shape, dst_shape, method, translation)
+        *self.scales, self.source_window = _kernel_scales(self.points, src_shape, dst_shape, method, translation)
+        self.scales = tuple(self.scales)
         if self.points.same:
             self.kind = _AFFINE
         elif tolerance == 0:
             self.kind = _EXACT if self.points.gdal is not None else _DENSE
         else:
-            self.kind = _LATTICE
+            self.kind = _DENSE  # GDAL's approximate transformer, row by row (_approx_coords)
+            self.approx = True
         radius = _FILTER_RADIUS.get(method, 0)
         xs, ys = self.scales
         rx = math.ceil(radius / xs) if xs < 1.0 else radius
         ry = math.ceil(radius / ys) if ys < 1.0 else radius
-        margin = 2 if self.kind in (_DENSE, _EXACT) else 0  # exact points stray from the lattice's
+        # exact points stray from the lattice's, approximated ones by up to the tolerance
+        margin = (2 + math.ceil(2 * tolerance) if self.approx else 2) if self.kind in (_DENSE, _EXACT) else 0
         self.pad = (ry + 2 + margin, rx + 2 + margin)
 
     def lattice(self, r0, c0, rh, cw, n_threads: int) -> _Lattice:
@@ -838,13 +980,31 @@ class _Warp:
         """GDAL's transformer for the kernel (n threads), but for the same CRS (never needed)."""
         return self.points.handles(n) if self.kind != _AFFINE else (0, np.empty(0, dtype=np.uintp))
 
+    def _dense(self, r0, c0, nr, nc, n_threads: int) -> np.ndarray:
+        """The coordinates of samples rows r0.. (nr), columns c0.. (nc), (nr, nc, 2): exact, or GDAL's
+        approximate transformer's (centres of the cells, rows of the whole destination)."""
+        if self.approx and self.area:
+            # GWKAverageOrModeComputeLineCoords: two lines of every row of cells, the upper-left corners
+            # (i, j) and the lower-right (i + 1, j + 1), each approximated on its own; (nr, nc, 4)
+            rows, cols = nr - self.extra, nc - self.extra
+            out = np.full((nr, nc, 4), np.inf)
+            r = np.arange(r0, r0 + rows)
+            out[:rows, :cols, :2] = _approx_coords(self.points, r, self.shape[1], c0, c0 + cols, self.tolerance,
+                                                   None, n_threads, 0.0, 0.0, False)
+            out[:rows, :cols, 2:] = _approx_coords(self.points, r, self.shape[1], c0, c0 + cols, self.tolerance,
+                                                   None, n_threads, 1.0, 1.0, False)
+            return out
+        if self.approx:
+            return _approx_coords(self.points, np.arange(r0, r0 + nr), self.shape[1], c0, c0 + nc, self.tolerance,
+                                  self.source_window or (0, self.src_shape[1], 0, self.src_shape[0]), n_threads)
+        return self.points.grid(np.arange(c0, c0 + nc), np.arange(r0, r0 + nr), self.offset, n_threads)
+
     def sample_coords(self, r0, c0, nr, nc, n_threads: int = 1) -> np.ndarray:
         """The source coordinates the kernel takes for samples rows r0.., columns c0..: (nr, nc, 2)."""
         from . import _core
 
         lat = self.lattice(r0, c0, nr - self.extra, nc - self.extra, n_threads) if self.kind == _LATTICE else None
-        dense = (self.points.grid(np.arange(c0, c0 + nc), np.arange(r0, r0 + nr), self.offset, n_threads), r0, c0) \
-            if self.kind == _DENSE else None
+        dense = (self._dense(r0, c0, nr, nc, n_threads), r0, c0) if self.kind == _DENSE else None
         handles = self._handles(1)
         try:
             return _core.warp.coords(*self._coords_args(lat if lat is not None else dense, handles),
@@ -867,8 +1027,7 @@ class _Warp:
             rows = max(1, _DENSE_POINTS // (cw + self.extra))
             for a in range(r0, r0 + rh, rows):
                 nr = min(rows, r0 + rh - a)
-                g = self.points.grid(np.arange(c0, c0 + cw + self.extra), np.arange(a, a + nr + self.extra),
-                                     self.offset, n_threads)
+                g = self._dense(a, c0, nr + self.extra, cw + self.extra, n_threads)
                 out[:, a - r0:a - r0 + nr] = self._call(src, origin, a, c0, nr, cw, (g, a, c0), handles, n_threads)
             return out
         finally:
@@ -943,6 +1102,9 @@ def suggested_grid(sources, crs: Any = None, res: Any = None, extent: Any = None
     corner, or GDAL's suggested resolution, the finest of the sources'. Without ``crs`` the
     sources' own; one source in its own CRS and resolution keeps its grid as it is.
 
+    The cells of the border that fall entirely outside the (single) source are dropped, as gdalwarp 3.8 and
+    later does when it takes the extent from the data (``-tr`` without ``-te``).
+
     ``extent`` ``(xmin, ymin, xmax, ymax)`` in ``crs`` (``-te``): that extent instead; without ``res``
     the cells of the source (the same CRS only), fitted to the extent as gdalwarp does (a whole
     number of them, a little larger or smaller). ``tap`` (``-tap``, needs ``res``): the extent widened
@@ -952,7 +1114,7 @@ def suggested_grid(sources, crs: Any = None, res: Any = None, extent: Any = None
     from math import ceil, floor
 
     from rasterio.transform import Affine, array_bounds
-    from rasterio.warp import calculate_default_transform, transform_bounds
+    from rasterio.warp import calculate_default_transform
 
     if not sources:
         raise ValueError("crs=/res=: no raster to take the extent from")
@@ -979,7 +1141,6 @@ def suggested_grid(sources, crs: Any = None, res: Any = None, extent: Any = None
             raise ValueError(f"extent= is empty: {tuple(extent)!r}")
 
     boxes = []
-    true_boxes = []  # the extents of the sources, not rounded to cells
     same = True
     for t, (h, w), src_crs in sources:
         if t.b or t.d:
@@ -988,14 +1149,12 @@ def suggested_grid(sources, crs: Any = None, res: Any = None, extent: Any = None
         if src_crs == dst:
             left_, bottom_, right_, top_ = array_bounds(h, w, t)
             boxes.append((left_, bottom_, right_, top_, abs(t.a), abs(t.e)))
-            true_boxes.append((left_, bottom_, right_, top_))
             if len(sources) == 1 and res is None and extent is None and cutline is None:
                 return _grid(t, (h, w), dst)
         else:
             same = False
             st, sw, sh = calculate_default_transform(src_crs, dst, w, h, *array_bounds(h, w, t))
             boxes.append((st.c, st.f + st.e * sh, st.c + st.a * sw, st.f, st.a, -st.e))
-            true_boxes.append(transform_bounds(src_crs, dst, *array_bounds(h, w, t), densify_pts=21))
     fit = False
     if cutline is not None or extent is not None:
         if cutline is not None:
@@ -1020,9 +1179,11 @@ def suggested_grid(sources, crs: Any = None, res: Any = None, extent: Any = None
     else:
         left, bottom = min(b[0] for b in boxes), min(b[1] for b in boxes)
         right, top = max(b[2] for b in boxes), max(b[3] for b in boxes)
+        # the union of the suggested extents, in whole cells of the finest suggested resolution (dfWrkRes)
+        wx, wy = min(b[4] for b in boxes), min(b[5] for b in boxes)
+        right, bottom = left + wx * _cells(right - left, wx), top - wy * _cells(top - bottom, wy)
         if res is None:
-            rx, ry = min(b[4] for b in boxes), min(b[5] for b in boxes)
-    from_south = False
+            rx, ry = wx, wy
     if tap and (extent is not None or cutline is not None):  # (-te, -crop_to_cutline: whole cells around it)
         def near(v):  # GDAL's ROUND_IF_CLOSE
             r = round(v)
@@ -1030,19 +1191,74 @@ def suggested_grid(sources, crs: Any = None, res: Any = None, extent: Any = None
 
         left, right = floor(near(left / rx)) * rx, ceil(near(right / rx)) * rx
         bottom, top = floor(near(bottom / ry)) * ry, ceil(near(top / ry)) * ry
-    elif tap:  # the extent of the data: its west and south edges to the nearest multiples of the cell (halves go down)
-        left, bottom = min(b[0] for b in true_boxes), min(b[1] for b in true_boxes)
-        right, top = max(b[2] for b in true_boxes), max(b[3] for b in true_boxes)
-        left, bottom = ceil(left / rx - 0.5) * rx, ceil(bottom / ry - 0.5) * ry
-        from_south = True
+    elif tap:
+        # gdalwarp_lib.cpp (GDALWarpCreateOutput): the suggested extent, widened to whole cells from the origin
+        # of the coordinates (EPS = 1e-8 of a cell)
+        left, right = floor(left / rx + 1e-8) * rx, ceil(right / rx - 1e-8) * rx
+        bottom, top = floor(bottom / ry + 1e-8) * ry, ceil(top / ry - 1e-8) * ry
     # gdalwarp's count of cells (the extent rounded to whole cells from the top-left corner)
-    nx = max(1, int((right - left + rx / 2) / rx))
-    ny = max(1, int((top - bottom + ry / 2) / ry))
-    if from_south:  # (the cells are counted up from the aligned south edge)
-        top = bottom + ny * ry
+    nx, ny = _cells(right - left, rx), _cells(top - bottom, ry)
+    if extent is None and cutline is None and res is not None and len(sources) == 1:
+        # Cells of the border that fall outside the source altogether are dropped (-tr, no -te; #7905).
+        left, bottom, right, top, nx, ny = _trim_blank_borders(sources[0], dst, left, bottom, right, top, rx, ry)
     if fit:  # an extent without cells: gdalwarp fits the cells to it
         rx, ry = (right - left) / nx, (top - bottom) / ny
     return _grid(Affine(rx, 0.0, left, 0.0, -ry, top), (ny, nx), dst)
+
+
+def _cells(span: float, res: float) -> int:
+    """gdalwarp's count of cells of an extent: std::round(span / res), at least one."""
+    x = span / res
+    r = math.floor(x)
+    return max(1, r + 1 if x - r >= 0.5 else r)
+
+
+def _trim_blank_borders(source, dst: CRS, left, bottom, right, top, rx, ry):
+    """The loop of GDALWarpCreateOutput (gdalwarp_lib.cpp, ``bDetectBlankBorders``; GDAL >= 3.8) for a
+    single source: while a whole border row or column of the destination, taken at the centres of its
+    cells, falls outside the source (only the side facing the source is tested: y >= 0 for the top
+    row, y <= source rows for the bottom, x >= 0 for the left column, x <= source columns for the
+    right), the extent loses a cell on that side. Returns the extent and the count of cells."""
+    from rasterio.transform import Affine
+
+    t, (h, w), src_crs = source
+    src_crs = CRS.from_user_input(src_crs)
+    while True:
+        nx, ny = _cells(right - left, rx), _cells(top - bottom, ry)
+        if not (nx > 1 or ny > 1):
+            break
+        dst_t = Affine(rx, 0.0, left, 0.0, -ry if top > bottom else ry, top)
+        points = _Points(t, src_crs, (h, w), dst_t, dst, (ny, nx))
+
+        def blank(u, v, inside, points=points):
+            x, y = points(np.asarray(u, dtype=np.float64), np.asarray(v, dtype=np.float64))
+            ok = np.isfinite(x) & np.isfinite(y)
+            return not (ok & inside(x, y)).any()
+
+        cols, rows = np.arange(nx) + 0.5, np.arange(ny) + 0.5
+        top_blank = blank(cols, np.full(nx, 0.5), lambda x, y: y >= 0)
+        bottom_blank = blank(cols, np.full(nx, ny - 0.5), lambda x, y: y <= h)
+        left_blank = blank(np.full(ny, 0.5), rows, lambda x, y: x >= 0)
+        right_blank = blank(np.full(ny, nx - 0.5), rows, lambda x, y: x <= w)
+        if not (top_blank or bottom_blank or left_blank or right_blank):
+            break
+        if top_blank:
+            if top - bottom <= 2 * ry:
+                break
+            top -= ry
+        if bottom_blank:
+            if top - bottom <= 2 * ry:
+                break
+            bottom += ry
+        if left_blank:
+            if right - left <= 2 * rx:
+                break
+            left += rx
+        if right_blank:
+            if right - left <= 2 * rx:
+                break
+            right -= rx
+    return left, bottom, right, top, _cells(right - left, rx), _cells(top - bottom, ry)
 
 
 def _grid(t, shape, crs: CRS) -> Grid:

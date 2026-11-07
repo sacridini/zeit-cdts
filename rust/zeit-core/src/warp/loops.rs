@@ -526,14 +526,20 @@ fn warp_areas_loop<T: Raster, const M: i32, const PB: bool>(
         for jr in range {
             d.clear_row(fill, jr, w);
             let j = row0 + jr as i64;
-            if jr as i64 == wk.last + 1 {
+            if coords.has_lower_right() {
+                // GDAL's two lines of corners: (i, j) for i < w, and (i + 1, j + 1) for i < w
+                coords.row(j, col0, &mut wk.x0[..w], &mut wk.y0[..w]);
+                coords.row_lower_right(j, col0, &mut wk.x1[1..], &mut wk.y1[1..]);
+            } else if jr as i64 == wk.last + 1 {
                 // its upper corners: the lower ones of the row before
                 std::mem::swap(&mut wk.x0, &mut wk.x1);
                 std::mem::swap(&mut wk.y0, &mut wk.y1);
             } else {
                 coords.row(j, col0, &mut wk.x0, &mut wk.y0);
             }
-            coords.row(j + 1, col0, &mut wk.x1, &mut wk.y1);
+            if !coords.has_lower_right() {
+                coords.row(j + 1, col0, &mut wk.x1, &mut wk.y1);
+            }
             wk.last = jr as i64;
             for ir in 0..w {
                 let Some(f) = footprint(

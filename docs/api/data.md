@@ -522,9 +522,9 @@ zeit.save_raster(zeit.load_raster("ndvi.tif", crs="EPSG:4326", res=0.0003, tap=T
 
 Notes on how close it is to `gdalwarp`:
 
-- A reprojection places the cells with Zeit's lattice of coordinates, not gdalwarp's approximate transformer (`-et 0.125`): with the default `tolerance` about 0.5 % of the nearest-cell picks in a reprojection differ from gdalwarp's (a neighbouring cell), and bilinear values by up to about 1e-3 (for values near 1) over the whole result. Against `gdalwarp -et 0` the values are the same bit for bit.
+- A reprojection places the cells with the coordinates of gdalwarp's approximate transformer (`-et 0.125`, GDAL's `GDALApproxTransform`: exact at the ends and middle of a row of the result, a line between them where it is within the tolerance), so every method (the area ones from the corners of their cells, as GDAL approximates them) gives the same cells and values as `gdalwarp`'s default, bit for bit, for a result that gdalwarp warps in one piece (it splits one that needs more than 64 MB of working memory, or whose source window is mostly outside the source, and approximates each piece in its own rows; then a few cells, 0.01 % to 1 %, take a neighbouring cell).
 - `cutline` is applied as gdalwarp does, to the cells of the source: those outside the polygons do not take part in the interpolation (cells whose nearest source cells are outside are NoData).
-- `crs` with `extent` or `cutline` needs `res`; and `cutline` with `extent` is an error, because gdalwarp's `-crop_to_cutline` replaces `-te`. `tap` without a `extent`/`cutline` rounds the data's west and south edges to the nearest multiples of `res`, as gdalwarp does; where an edge is half a cell from a multiple or the data is reprojected, its cell count can differ by one from gdalwarp's in a few cases.
+- `crs` with `extent` or `cutline` needs `res`; and `cutline` with `extent` is an error, because gdalwarp's `-crop_to_cutline` replaces `-te`. `tap` without a `extent`/`cutline` widens the extent of the data to whole cells from the origin of the coordinates, as gdalwarp does. Without `extent`, gdalwarp drops a border row or column of the result that falls entirely outside the source (GDAL 3.8 and later); so does Zeit.
 
 #### In another CRS or at another resolution
 

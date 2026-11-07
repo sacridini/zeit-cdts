@@ -133,8 +133,8 @@ impl CoordArgs<'_> {
         } else if self.kind == zw::DENSE {
             let shape = self.dense.as_array().raw_dim();
             let shape = shape.slice();
-            if shape.len() != 3 || shape[2] != 2 {
-                return err("dense coordinates must be (rows, columns, 2)");
+            if shape.len() != 3 || (shape[2] != 2 && shape[2] != 4) {
+                return err("dense coordinates must be (rows, columns, 2 or 4)");
             }
             if self.dense_row0 > r0
                 || self.dense_col0 > c0
@@ -147,6 +147,7 @@ impl CoordArgs<'_> {
             c.dense_row0 = self.dense_row0;
             c.dense_col0 = self.dense_col0;
             c.dense_stride = shape[1] as i64;
+            c.dense_channels = shape[2] as i64;
         } else if self.kind != zw::AFFINE && self.kind != zw::EXACT {
             return err("unknown coordinate kind");
         }
