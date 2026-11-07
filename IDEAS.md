@@ -2572,6 +2572,45 @@ validação.
   - Tempo (máquina carregada por outros builds, 93-96%, então indicativo): a regressão do Zeit
     é 5,9x o FORCE com 1 thread e 7x com 4; o ImproPhe é 0,6x o C do FORCE (inclui as conversões
     do Python).
+- **23e, a correção topográfica:** `zeit.topographic_correction(cube, dem, sun_zenith=,
+  sun_azimuth=, method="c"|"scs+c", sample=, min_slope=5, min_sample=100)`, no core em
+  `rust/zeit-core/src/topocorr.rs` (o Janus liga direto). Só das fórmulas publicadas, sem copiar
+  código de ninguém: inclinação e aspecto pelo kernel 3x3 de Horn (1981), `cos i`, e a correção C
+  (Teillet, Guindon e Goodenough 1982) e a SCS+C (Soenen, Peddle e Coburn 2005), com a reta
+  `rho = b + m cos i` ajustada por banda e por data e `c = b / m`.
+  - **O C-factor do próprio FORCE (`topo-ll.c`) ficou para a 23g:** ele está amarrado aos termos
+    de radiação da correção atmosférica dele, e esta função é a correção empírica genérica, que
+    roda em qualquer cubo de reflectância.
+  - Decisões que o plano não fixava:
+    - o CRS tem de ser projetado (unidade linear convertida para metros; geográfico é um erro que
+      manda reprojetar);
+    - o MDE tem de estar exatamente na grade do cubo (erro com `rio.reproject_match` na mensagem,
+      nada é reamostrado);
+    - na borda do MDE o vizinho que falta é a célula mais próxima e a diferença é de um lado só,
+      sobre uma célula (o GDAL com `-compute_edges` faz outra coisa, e o terra deixa NA);
+    - a amostra padrão é "pixels com inclinação >= 5 graus" (em terreno plano `cos i` é o mesmo em
+      todo pixel e não diz nada do relevo; num cenário quase plano puxaria a reta por um só
+      aglomerado), e uma máscara dada é usada como veio;
+    - banda sem ajuste (menos de `min_sample` pixels, `cos i` sem variância ou `m <= 0`) é copiada
+      com um aviso que nomeia a data, a banda e o motivo, com `topo_c` NaN;
+    - pixel com `cos i + c < 0,01`, numerador não positivo, ângulo do sol faltando ou inclinação
+      NaN fica como estava;
+    - o `c` de cada banda e data sai como a coordenada `topo_c`;
+    - o sol vem de número, sequência por data, `DataArray` por pixel (a saída de
+      `sentinel2_angles` serve), ou `"scene"` (bandas `SZA`/`SAA` do cubo, que não são
+      corrigidas, ou metadados `sun_zenith`/`sun_elevation`/`sun_azimuth`).
+  - Contra a saída dos outros: a inclinação e o aspecto iguais ao `terra::terrain` a 8e-6 e 5e-5
+    graus e ao `gdaldem` a 2,5e-4 (float32 do GDAL) por dentro; o `topCor(method = "C")` do
+    RStoolbox, com a inclinação e o aspecto do Zeit, igual a 4e-7 relativo quando a reta usa os
+    mesmos pixels (imagem de 100x100, que ele amostra inteira) e 0,3 a 4,5% de diferença em
+    1000x1000, onde ele ajusta numa amostra aleatória de 10 000 pixels. Não havia MDE real no
+    disco: o terreno é sintético (`benchmarks/vs_originals/topocorr.py` e `.R`).
+  - Tempo de uma data de 2000x2000x6, a chamada inteira: 0,35 s com 1 thread e 0,12 s com 4
+    (indicativo: a máquina não estava ociosa). O RStoolbox leva 0,41 s em 1000x1000x6 numa
+    amostra de 10 000 pixels; o Zeit, 0,087 s usando todos.
+  - Onde fugiu do plano: um cubo dask é lido em memória (a reta precisa de uma data inteira), e a
+    SCS+C devolve `rho cos s` num terreno lambertiano de `c` zero, não `rho`, porque é assim que
+    ela é definida; só a C leva de volta ao `rho` plano.
 - **Janus:** o `zeit-core` foi para o `7c01978` sem mudar nada do que o Janus já chamava. As
   ferramentas pedem duas coisas novas no Janus:
   - saídas cujas bandas a ferramenta decide (a grade nova, os anos, as janelas);
@@ -2599,8 +2638,9 @@ validação.
   (`resolution_merge_1` e `_2` do `resmerge-ll.c`; o STARFM fica de fora). Igual ao FORCE em todos
   os valores com `force=True`, por um harness em C com as funções do FORCE, já que o merge só
   roda dentro do `force-l2ps`. Falta uma ferramenta no Janus, se couber na janela de ARD.
-- **Zeit:** 23e (correção topográfica, paralaxe e buffer de nuvem), 23f (coregistro) e 23g
-  (correção atmosférica), como nas Etapas acima.
+- **Zeit:** 23e: a correção topográfica está feita (`zeit.topographic_correction`, C e SCS+C;
+  o C-factor do FORCE espera a 23g); faltam a paralaxe e o buffer de nuvem. 23f (coregistro) e
+  23g (correção atmosférica), como nas Etapas acima.
 - **Self-test do Janus:** a Fenologia polar é pulada nos dados de teste, que são irregulares.
   Um dado regular no `tools/make_selftest_data.py` a cobriria.
 - A temporada final cortada do `polar_metrics` (hoje medida; poderia ser NaN): decisão do

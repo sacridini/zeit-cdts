@@ -113,6 +113,55 @@ cube_nbar = zeit.nbar(cube, angles)
 each = zeit.sentinel2_angles(items, cube, view_band="each")   # a view geometry per band
 ```
 
+### `topographic_correction` { .api }
+
+<!-- sig: zeit.topographic_correction -->
+```python
+zeit.topographic_correction(
+    cube, dem, *, sun_zenith="scene", sun_azimuth="scene", method="c", sample=None,
+    min_slope=5.0, min_sample=100, bands=None, nodata="auto", n_jobs=-1,
+)
+```
+
+Takes the modulation of the relief's illumination out of surface reflectance, by the **C-correction** (Teillet, Guindon & Goodenough 1982, *Canadian Journal of Remote Sensing* 8:84-106) or **SCS+C** (Soenen, Peddle & Coburn 2005, *IEEE TGRS* 43:2148-2159). A pixel facing the sun is brighter than one facing away, whatever it is made of; the correction flattens that so that a classifier or an index sees the cover and not the slope. Written from the published formulas, not from any implementation, and computed in the Rust core (`zeit._core.topocorr`).
+
+1. **Slope and aspect** of the DEM by Horn's (1981, *Proceedings of the IEEE* 69:14-47) 3 × 3 kernel, in the cube's projected units (metres; a foot-based CRS is converted). The slope is `atan(|∇z|)`, the aspect the direction the surface faces, clockwise from north. A geographic CRS is an error: reproject the cube and the DEM to the scene's UTM zone first.
+2. **Illumination** `cos i = cos sz · cos s + sin sz · sin s · cos(saz − a)`, with the sun's zenith `sz` and azimuth `saz` and the slope `s` and aspect `a`.
+3. **The line** `ρ = b + m · cos i`, fitted by least squares over the sample pixels of each band and date, and `c = b / m`.
+4. **The correction** `ρ_H = ρ · (cos sz + c) / (cos i + c)` (`method="c"`) or `ρ_H = ρ · (cos s · cos sz + c) / (cos i + c)` (`method="scs+c"`; the sun-canopy-sensor geometry, for forests on steep slopes, which leaves a flat pixel's value times `cos s` on a slope).
+
+It is multiplicative, so the units of the reflectance do not matter (scaled integers, 0-1, percent). It is an empirical flattening: Lambertian surface, the same cover on every slope, no diffuse or adjacent-terrain light, and a DEM about as fine as the image. FORCE's own C-factor, which is tied to its atmospheric correction's radiation terms, is a different step.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `cube` | `DataArray` or path | required | Reflectance `(time, band, y, x)`, `(band, y, x)`, `(time, y, x)` or `(y, x)` in a projected CRS. A dask cube is read into memory (the line needs a whole date). NaN and the `nodata` values stay missing and stay out of the fit. |
+| `dem` | `DataArray` or path | required | Elevation in metres `(y, x)` on **exactly** the cube's grid (same size and coordinates). It is never resampled: a mismatch is an error that suggests `dem.rio.reproject_match(cube)`. A NaN or NoData cell makes the slope of its eight neighbours NaN, and those pixels are left as they are. |
+| `sun_zenith`, `sun_azimuth` | number, sequence, `DataArray`, `Dataset` or `"scene"` | `"scene"` | Degrees, azimuth clockwise from north. A number, one per date, or a per-pixel `DataArray` `(y, x)` / `(time, y, x)` on the cube's grid and dates. `"scene"` reads the cube's own bands `SZA` and `SAA` (per pixel; the angle bands are never corrected), else a coordinate or attribute `sun_zenith` (or `sun_elevation` or STAC's `view:sun_elevation`, zenith = 90 − elevation) and `sun_azimuth`. The output of [`sentinel2_angles`](#sentinel2_angles), or a `DataArray` with an `angle` dimension, may be given as either one and then serves both. A zenith outside 0-90° or missing leaves that pixel as it is. |
+| `method` | `"c"` or `"scs+c"` | `"c"` | The correction above. |
+| `sample` | boolean `DataArray` or array | `None` | `(y, x)` or `(time, y, x)`: the pixels the lines are fitted on (say the vegetated, clear ones), used as given. `None`: the pixels with a finite reflectance and `cos i` and a slope of at least `min_slope`. |
+| `min_slope` | `float` | `5.0` | Degrees. Flat terrain has the same `cos i` (`cos sz`) everywhere and says nothing about the relief; in a mostly flat scene it would pull the line through one cluster. Below the limit a pixel is still corrected (its factor is 1). |
+| `min_sample` | `int` | `100` | Fewest sample pixels for a line. |
+| `bands` | list | `None` | The bands to correct; the default is all but `SZA`, `SAA`, `VZA`, `VAA`. The others are copied. |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | Missing values besides NaN (the raster's NoData; 0 for integers without one). |
+| `n_jobs` | `int` | `-1` | Threads. |
+
+</div>
+
+**Returns** the cube as float32 with the same dimensions, coordinates and georeferencing, missing values NaN, and a coordinate `topo_c` (`(time, band)` or `(band,)`): the `c` of every band and date, NaN where the band was copied. `attrs["topocorr"]` says the method and where the sun came from.
+
+**Guards.** A band of a date is **copied unchanged**, with a warning that names it and why, when it has fewer than `min_sample` sample pixels, `cos i` has no variance, or the line's slope `m` is zero or negative (the reflectance does not rise with illumination: the topography does not drive it, or the sample is wrong). A pixel is **left as it is** when its `cos i + c` is below 0.01 (a deep shadow under a poorly fitted `c`), when `cos sz + c` (or `cos s · cos sz + c`) is not positive, when its sun angle is missing, or when its slope is NaN. The cells on the DEM's edge replicate the nearest cell and take the one-sided difference over one cell, so they have a slope; a flat cell has aspect 0.
+
+**Against R.** RStoolbox's `topCor(method = "C")`, given Zeit's slope and aspect, gives the same corrected values to 4e-7 relative when the line is fitted on the same pixels (a 100 × 100 image, which RStoolbox samples whole); on a 1000 × 1000 image RStoolbox fits on a random sample of 10000 pixels (and so a slightly different `c`, a different one in each run) and the two differ by 0.3-4.5% at most, 1-2e-4 on average in reflectance (see the [benchmarks](../benchmarks/vs-originals.md#topographic-correction)). Slope and aspect agree with `gdaldem` (inside: 2.5e-4° in slope, the float32 of GDAL's output) and `terra::terrain` (8e-6°).
+
+```python
+dem = rioxarray.open_rasterio("dem.tif").squeeze(drop=True).rio.reproject_match(cube)
+flat = zeit.topographic_correction(cube, dem, sun_zenith=38.5, sun_azimuth=142.0)
+flat = zeit.topographic_correction(cube, dem, sun_zenith=angles, method="scs+c")   # angles from sentinel2_angles
+flat.topo_c                     # the c of each band (and date)
+```
+
 ### `bandpass_adjust` { .api }
 
 <!-- sig: zeit.bandpass_adjust -->

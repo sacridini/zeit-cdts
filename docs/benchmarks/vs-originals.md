@@ -398,6 +398,31 @@ Every value of the six bands is the same, for both methods (the first comparison
 
 Zeit's regression is 5.9 times as fast as FORCE's on one thread (the SVD is done once per pixel and not six times, in fixed-size arrays) and 7.0 times with four; its ImproPhe is slower than FORCE's C (0.6 times), where the time includes Python's conversions of the cube and the masks, and the kernel itself is small (13 neighbours).
 
+### Topographic correction vs RStoolbox, GDAL and terra
+
+[`topographic_correction`](../api/preprocessing.md#topographic_correction) is written from the published formulas (Horn 1981; Teillet et al. 1982; Soenen et al. 2005), so it is compared by outputs only: slope and aspect with `gdaldem slope` / `gdaldem aspect` (GDAL, `-compute_edges`) and `terra::terrain` (R, 8 neighbours = Horn), and the C-correction with **RStoolbox 1.0.2.2**'s `topCor(method = "C")` (the formula `rho (cos sz + c) / (cos i + c)`, `c = b / m` of the line `rho = b + m cos i`). `benchmarks/vs_originals/topocorr.py` (and `topocorr.R`) runs on synthetic terrain (hills of 1-6 km, slopes up to 62 degrees, median 22, 30 m pixels; no DEM ships with the repository) and a six-band scene made of a smooth vegetation/soil mix times `0.7 cos i / cos sz + 0.3` plus noise (sun zenith 38, azimuth 140).
+
+**Slope and aspect**, 1000 x 1000 cells, maximum differences:
+
+| | slope (degrees) | aspect (degrees) |
+|:---|---:|---:|
+| `terra::terrain`, inside (its edge is NA) | 8.1e-6 | 4.8e-5 |
+| `gdaldem`, inside | 2.5e-4 (GDAL writes float32) | 0.089 (cells of almost no slope) |
+| `gdaldem -compute_edges`, edge cells | 7.1 | 157 |
+
+The edge cells are the one convention that differs: Zeit replicates the nearest cell and takes the difference over the single cell it spans (a plane's slope comes out exact on the edge); GDAL's `-compute_edges` does something else, and RStoolbox/terra leave the edge NA.
+
+**C-correction.** RStoolbox is given Zeit's slope and aspect (radians), so that only the correction is compared. It fits the line on a sample of at most 10000 pixels of the image (random, with `spatSample`; all the pixels when the image has 10000), with no slope limit for `method = "C"`; Zeit on every pixel with a slope of at least `min_slope` (set to 0 here, to have the same pixels):
+
+| Image | Zeit's `c` (six bands) | Max relative difference | Mean \|difference\| (reflectance 0-1) |
+|:---|:---|---:|---:|
+| 100 x 100 (RStoolbox fits on all the pixels) | 0.37, 0.36, 0.38, 0.32, 0.35, 0.37 | 4.3e-7 | 8.6e-9 |
+| 1000 x 1000 (RStoolbox fits on 10000 of them) | 0.34 in every band | 3e-3 to 4.5e-2 (three runs) | 2e-5 to 1.7e-4 |
+
+On the same pixels the two are the same computation (float32 against float64). With a sample the line, and so `c`, moves with the pixels RStoolbox happens to draw, and the correction by the same amount; the 1000 x 1000 figures change from run to run (RStoolbox draws a different sample each time). With RStoolbox's own `terrain` slope and aspect (NA on the edge) on the 100 x 100 image the maximum difference is 1.1e-4 in reflectance, from the slopes (float32 and edge cells).
+
+**Timings.** Seconds, the best of 3, one thread, whole calls (Zeit's: slope and aspect, illumination, six regressions and the correction, with Python's conversions; RStoolbox's `topCor` of six bands, its sample of 10000): slope and aspect 1000 x 1000: `terra::terrain` 0.05, Zeit 0.037; the correction of 1000 x 1000 x 6: RStoolbox 0.41, Zeit 0.087 (4.7 times); 100 x 100 x 6: 0.06 and 0.003. RStoolbox fits on 10000 pixels where Zeit uses all of them (a million per band), so the correction itself is more work in Zeit. **One 2000 x 2000 x 6 date**, the whole call, Zeit only: 0.353 s with 1 thread and 0.117 s with 4 (SCS+C the same). The machine was not idle (other sessions' processes were running, load under 10% before the runs), so the times are indicative.
+
 ---
 
 ## Protocol
@@ -445,6 +470,7 @@ wsl -e bash -lc 'bash benchmarks/vs_originals/force_improphe_timing.sh ~/force-r
 python benchmarks/vs_originals/force_improphe_timing.py                                    # Zeit's times against FORCE's compute stage
 wsl -e bash -lc 'bash benchmarks/vs_originals/force_resmerge/make_harness.sh'                  # FORCE's resolution merge, verbatim, on GSL 2.7 (static); then:
 python benchmarks/vs_originals/force_resmerge.py --size 500   # zeit.sentinel2_resmerge against it, and the times
+python benchmarks/vs_originals/topocorr.py            # gdaldem (GDAL_BIN) and terra/RStoolbox 1.0.2.2, against zeit.topographic_correction
 python benchmarks/vs_originals/polar.py               # PolarMetrics 0.1.0 (R package from GitHub: R CMD INSTALL), against zeit.polar_metrics
 python benchmarks/vs_originals/ewmacd.py "path/to/EWMACD v1.3.0.r"   # Brooks' script, not distributed
 PYXCCD_PYTHON=path/to/pyxccd-env/python python benchmarks/vs_originals/sccd.py CCDC_Stack_Rondonia.tif CCDC_Stack_Rondonia_Dates.csv

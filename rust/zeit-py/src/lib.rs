@@ -42,6 +42,7 @@ mod specadjust;
 mod tasseled;
 mod texture;
 mod tmask;
+mod topocorr;
 mod tsa;
 mod twdtw;
 mod utils;
@@ -97,5 +98,6 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     add_submodule(m, &tasseled::module(m.py())?)?;
     add_submodule(m, &improphe::module(m.py())?)?;
     add_submodule(m, &resmerge::module(m.py())?)?;
+    add_submodule(m, &topocorr::module(m.py())?)?;
     Ok(())
 }

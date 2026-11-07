@@ -1308,6 +1308,39 @@
    "threads": 6,
    "note": "FORCE: compute stage, min of 3; Zeit: the whole call, best of 3",
    "date": "2026-11-06"
+  },
+  {
+   "method": "slope and aspect (Horn)",
+   "original": "terra 1.x terrain (R)",
+   "size": "1000x1000 px",
+   "original_s": 0.07,
+   "zeit_s": 0.036624899999878835,
+   "speedup": 1.911268017120363,
+   "threads": 1,
+   "note": "max diff to gdaldem 2.5e-04 deg (slope, inside)",
+   "date": "2026-11-07"
+  },
+  {
+   "method": "topographic correction (C)",
+   "original": "RStoolbox 1.0.2.2 topCor (R)",
+   "size": "100x100 px x 6 bands",
+   "original_s": 0.06,
+   "zeit_s": 0.0029687000023841392,
+   "speedup": 20.210866693102865,
+   "threads": 1,
+   "note": "max rel diff 4.3e-07; whole image is the sample; slope/aspect given",
+   "date": "2026-11-07"
+  },
+  {
+   "method": "topographic correction (C)",
+   "original": "RStoolbox 1.0.2.2 topCor (R)",
+   "size": "1000x1000 px x 6 bands",
+   "original_s": 0.41,
+   "zeit_s": 0.08703059999970719,
+   "speedup": 4.710986710437242,
+   "threads": 1,
+   "note": "max rel diff 1.9e-02; sampled by RStoolbox; slope/aspect given",
+   "date": "2026-11-07"
   }
  ],
  "machine": {
