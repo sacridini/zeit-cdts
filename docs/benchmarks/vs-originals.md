@@ -448,6 +448,32 @@ On the same pixels the two are the same computation (float32 against float64). W
 
 **Timings.** Seconds, the best of 3, one thread, whole calls (Zeit's: slope and aspect, illumination, six regressions and the correction, with Python's conversions; RStoolbox's `topCor` of six bands, its sample of 10000): slope and aspect 1000 x 1000: `terra::terrain` 0.05, Zeit 0.037; the correction of 1000 x 1000 x 6: RStoolbox 0.41, Zeit 0.087 (4.7 times); 100 x 100 x 6: 0.06 and 0.003. RStoolbox fits on 10000 pixels where Zeit uses all of them (a million per band), so the correction itself is more work in Zeit. **One 2000 x 2000 x 6 date**, the whole call, Zeit only: 0.353 s with 1 thread and 0.117 s with 4 (SCS+C the same). The machine was not idle (other sessions' processes were running, load under 10% before the runs), so the times are indicative.
 
+### The radiative transfer vs FORCE
+
+The radiative transfer pieces of Zeit's core (`zeit_core::radtran`; the public atmospheric correction comes later) are a port of **FORCE 3.11.00** (David Frantz; GPL-3.0-or-later): all of `radtran-ll.c`, `wavelength` and `E0` of `table-ll.c` with the tables they read (the Thuillier irradiance, the HITRAN 2016 water vapour and the Bird and Riordan ozone absorption, the relative spectral response of Landsat 4, 5, 7, 8 and Sentinel-2A and B, 56 bands), `ozone_amount` of `gas-ll.c` and `localtime2gmt` of `sunview-ll.c`, with the overpass time of `standard_sunzenith`. The sun position (`sunpos`, and the zenith of `standard_sunzenith`) is not FORCE's `sun-cl.c` (adopted by FORCE from the NOAA calculator, whose license is not verified): it is `zeit_core::solpos`, a clean-room implementation from Meeus' *Astronomical Algorithms* (ch. 7, 25, 28) and NOAA's published documentation, so it is compared by the difference in degrees. The C harness (`force_radtran/`) compiles FORCE's `radtran-ll.c`, `table-ll.c` and `date-cl.c` as they are (and `sun-cl.c`, only as the reference of the sun position), with FORCE's flags (`gcc -O3 -fopenmp`, no `-ffast-math`), and copies the three functions of `gas-ll.c` and `sunview-ll.c` that cannot be compiled alone; both sides evaluate each function on the same float32 columns, and the bits of the outputs are compared.
+
+| Function | Values | Bit for bit | 1 ulp | More |
+| --- | --- | --- | --- | --- |
+| The 23 functions of `radtran-ll.c` (grid of angles, AOD, MOD, elevation, the 56 bands with water vapour and ozone paths) | 5,477,447 | 5,477,447 | 0 | 0 |
+| `wavelength`, `E0` (the 56 bands) | 112 | 112 | 0 | 0 |
+| `ozone_amount` | 200,004 | 200,004 | 0 | 0 |
+| `localtime2gmt` (year, month, day, day of year, hour, minute, second) | 1,400,000 | 1,400,000 | 0 | 0 |
+
+The functions above are equal bit for bit (7,077,563 values of 27 functions). The sun position is not, and is reported in degrees against FORCE's `sunpos` (float32; 200,000 random places, dates and times, in 1984-2030, latitudes within 90 degrees; `standard_sunzenith` 200,000 with latitudes within 80):
+
+| | Subset | Values | Mean | Maximum |
+| --- | --- | --- | --- | --- |
+| `sunpos` zenith | day (zenith < 90) | 101,593 | 0.0120 | 0.068 |
+| `sunpos` zenith | night | 98,407 | 0.0124 | 0.088 |
+| `sunpos` azimuth | day | 101,593 | 0.066 | 177 (sun within a fraction of a degree of the zenith) |
+| `standard_sunzenith` | day | 170,711 | 0.0126 | 0.051 |
+| `standard_sunzenith` | night | 29,289 | 0.0118 | 0.078 |
+
+The difference is FORCE's: its Julian day is a float32, so it moves in steps of a quarter of a day (the error of the declination is a sawtooth of period 6 h, as large as 0.049 degrees at the equinoxes and 0.003 at the solstices, and is zero at 0, 6, 12 and 18 h UT); with the time at a multiple of 6 h the zeniths agree to 1e-4 degrees, and the signed difference has mean zero in every zenith band. Zeit's is the more accurate one (Meeus' method is 0.01 degrees against an ephemeris). Beyond about 82 degrees of latitude the overpass time of `standard_sunzenith` is NaN and the C turns it into `INT_MIN` hours: both sides then compute a sun position at an absurd instant and differ (402 cases), which has no meaning.
+
+The other values are equal bit for bit: the arithmetic is the C's (`float` in `f32`, `double` where the C promotes, each float variable rounded where the C stores it; the products of two floats stay floats), and Windows' UCRT and glibc 2.39 give the same `sin`, `cos`, `tan`, `exp`, `pow`, `asin` and `acos` on these inputs. The first port of `wavelength` and `E0` summed `RSR*WVL` and `RSR*E0` in double where the C multiplies two floats, and was 1 ulp off in 5 bands: the harness found it. The relative spectral response is stored as the span between the first and last non-zero value of each band (the zeros add nothing to the sums). `python benchmarks/vs_originals/force_radtran.py`.
+
+
 ### The coregistration vs AROSICS
 
 [`coregister`](../api/preprocessing.md#coregister) is a port of the global `COREG` of **AROSICS 1.14.0** (Scheffler et al. 2017; Apache-2.0), run here as it is in its own conda environment (`arosics-ref`, Python 3.14, GDAL 3.12, from conda-forge) by `benchmarks/vs_originals/arosics_driver.py`, on GeoTIFFs written by `benchmarks/vs_originals/arosics.py`, which then runs Zeit on the same files. AROSICS: `COREG(ref, tgt, ws=(256, 256), max_shift=5, max_iter=5, nodata=(nd, nd), align_grids=True, resamp_alg_deshift="cubic", ignore_errors=True)` and `calculate_spatial_shifts()`, then `correct_shifts()` for the aligned image. There is no satellite scene in the repository (the largest GeoTIFFs of `examples/data` are 25 x 25 pixels), so the pairs are synthetic, plus one of real image content: scikit-image's `camera` (512 x 512, 8 bit) with its copy moved by (2.3, -1.4) pixels (a cubic spline). The synthetic scenes are value noise (five octaves, 2-32 pixel features, 30 m cells) moved by known shifts.
@@ -579,6 +605,8 @@ wsl -e bash -lc 'bash benchmarks/vs_originals/force_resmerge/make_harness.sh'   
 python benchmarks/vs_originals/force_resmerge.py --size 500   # zeit.sentinel2_resmerge against it, and the times
 wsl -e bash -lc 'bash benchmarks/vs_originals/force_parallax/make_harness.sh'                  # FORCE's cloud_parallax and buffer_, verbatim; then:
 python benchmarks/vs_originals/force_parallax.py --size 512 --big 2048   # zeit.parallax_clouds and zeit.buffer_mask against it, and the times
+wsl -e bash -lc 'bash benchmarks/vs_originals/force_radtran/make_harness.sh'                  # FORCE's radiative transfer (radtran-ll.c, table-ll.c, sun-cl.c as they are, for the sun position's reference); then:
+python benchmarks/vs_originals/force_radtran.py   # zeit_core::radtran against it, bit for bit
 python benchmarks/vs_originals/topocorr.py            # gdaldem (GDAL_BIN) and terra/RStoolbox 1.0.2.2, against zeit.topographic_correction
 python benchmarks/vs_originals/arosics.py            # AROSICS 1.14.0 (conda env arosics-ref; AROSICS_ENV=...), against zeit.coregister
 python benchmarks/vs_originals/arosics.py local run 1   # COREG_LOCAL with CPUs=1 and with 4 (`local run 4`), then zeit.coregister_local against both:

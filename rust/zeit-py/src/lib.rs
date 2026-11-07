@@ -33,6 +33,7 @@ mod parts;
 mod phenology;
 mod postproc;
 mod profile;
+mod radtran;
 mod recovery;
 mod resmerge;
 mod sccd;
@@ -101,6 +102,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     add_submodule(m, &improphe::module(m.py())?)?;
     add_submodule(m, &parallax::module(m.py())?)?;
     add_submodule(m, &resmerge::module(m.py())?)?;
+    add_submodule(m, &radtran::module(m.py())?)?;
     add_submodule(m, &topocorr::module(m.py())?)?;
     add_submodule(m, &coreg::module(m.py())?)?;
     Ok(())

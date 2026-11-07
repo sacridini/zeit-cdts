@@ -2418,7 +2418,7 @@ validação.
   adjacência, e o MDE para a pressão e o terreno.
   - **Licença:** `atmo-ll.c`, `aod-ll.c`, `gas-ll.c`, `radtran-ll.c` e `atc-ll.c` são do Frantz
     (GPL-3) e entram por port direto. O resto se resolve à parte:
-    - o calculador solar da NOAA (`sun-cl.c`) se refaz pelas fórmulas publicadas;
+    - o calculador solar da NOAA (`sun-cl.c`) se refaz pelas fórmulas publicadas (feito na 23g, primeira parte: `solpos.rs`, em sala limpa);
     - o Fmask (`cloud-ll.c`) fica de fora: o Zeit já tem o seu;
     - o BRDF segue o NBAR da 23c.
   - **Entradas:** os leitores de metadados do L1 (MTL do Landsat, `MTD_MSIL1C.xml` e
@@ -2768,6 +2768,58 @@ validação.
     aviso de mais de 70% de pontos marcados e a `max_points` não foram portados.
   - **O que não tem:** a opção `max_points` (sorteio de um subconjunto dos pontos), a correção
     global pela média dos pontos quando são poucos, e a ferramenta no Janus.
+- **23g, primeira parte (transferência radiativa):** as peças puras da correção atmosférica do
+  FORCE 3.11.00 (David Frantz, GPL-3.0-or-later), portadas para o core em
+  `rust/zeit-core/src/radtran.rs` (os dados em `radtran_tables.rs`, gerado por
+  `tools/gen_radtran_tables.py` a partir do `table-ll.c`; o `zeit.atmospheric_correction` e a API
+  pública vêm nas partes seguintes, aqui só a ligação mínima `zeit._core.radtran.radtran_eval`, para
+  a comparação). Portado: todo o `radtran-ll.c` (`molecular_optical_depth`, `aod_elev_factor`,
+  `mod_elev_factor`, `mod_elev_scale`, `aod_elev_scale`, `optical_depth`, `scatt_transmitt`,
+  `path_ref`, `sphere_albedo`, `env_weight_aerosol`, `env_weight_molecular`, `env_weight`,
+  `backscatter`, `phase_molecular`, `phase_aerosol`, `wvp_transmitt`, `ozone_transmitt`,
+  `gas_transmitt`, `fresnel_reflection`, `illumin`, `c_factor_emp`, `c_factor_com`, `f_factor`),
+  `wavelength` e `E0` do `table-ll.c` com as tabelas que elas leem (E0 de Thuillier, absorção do
+  vapor d'água e do ozônio, comprimentos de onda e a resposta espectral relativa das 56 bandas:
+  Landsat 4, 5, 7 e 8, mais Sentinel-2A e 2B; o FORCE aponta o Landsat 9 para as linhas do 8 e o
+  Sentinel-2C/2D para as do 2A; as bibliotecas de espectros de aerossol do `table-ll.c` não entram,
+  nenhuma das peças as lê), `ozone_amount` do `gas-ll.c`, `localtime2gmt` e `standard_sunzenith` do
+  `sunview-ll.c`, e do `cross-level/` a parte de dia do ano do `date-cl.c`. O `sun-cl.c` não é
+  portado: a posição do sol (`sunpos`) é `solpos.rs`, em sala limpa, de Meeus e da documentação da
+  NOAA. O `brdf-ll.c` fica fora (código do Ambrals, de licença a
+  verificar), e a parte do `gas-ll.c` e do `sunview-ll.c` que mexe com bricks e metadados vem com a
+  API.
+  - **Igual ao C em todos os valores, bit a bit:** 7.077.563 valores de 27 funções numa grade
+    grande de ângulos, AOD, profundidade óptica molecular, altitude, vapor, ozônio, as 56 bandas,
+    dia do ano, latitude e longitude: 7.077.563 iguais bit a bit, 0 com 1 ulp de diferença, 0 com
+    mais. Ficam de fora o `sunpos` e o zênite do `standard_sunzenith`, que não são do FORCE: contra
+    ele, em graus, o zênite difere 0,012 em média e 0,09 no máximo (de dia, 0,012 e 0,068), e o
+    azimute de dia 0,066 em média. A diferença é do FORCE: o dia juliano dele é `float`, em passos de
+    um quarto de dia, e a declinação erra até 0,05 grau perto dos equinócios (dente de serra de 6 h;
+    nas horas múltiplas de 6 os zênites batem em 1e-4 grau, e a diferença com sinal tem média zero
+    em toda faixa de zênite). Além de ~82 graus de latitude o `standard_sunzenith` vira `INT_MIN`
+    horas e os dois lados calculam um sol sem sentido. O
+    harness em C (`benchmarks/vs_originals/force_radtran/`) compila o `radtran-ll.c`, o `table-ll.c`,
+    o `sun-cl.c` e o `date-cl.c` do FORCE como estão, com as flags do Makefile do FORCE (`gcc -O3`,
+    sem `-ffast-math`), e copia literalmente as três funções do `gas-ll.c` e do `sunview-ll.c` que
+    não compilam sozinhas (glibc 2.39; o Zeit rodou no Windows, com a UCRT); o script é
+    `benchmarks/vs_originals/force_radtran.py`.
+  - **A aritmética do C:** `float` é `f32` e cada variável `float` do C é arredondada onde é
+    atribuída; onde o C promove para `double` (`sin`, `exp`, `pow`, literais) o cálculo é em `f64`.
+    As armadilhas estão no código: produtos de dois `float` ficam em `float` (por exemplo
+    `RSR*WVL` e `RSR*E0` do `wavelength` e do `E0`, `D*(DOY+F)` do `ozone_amount`, os `te*te*te` da
+    refração do `sunpos`); a primeira versão do `wavelength` os fazia em `double` e errava 1 ulp em
+    5 bandas, o harness achou.
+  - **O `sun-cl.c` foi refeito em sala limpa:** o do FORCE foi adotado do calculador solar do NOAA
+    ESRL, de licença não verificada, então não foi portado. `solpos.rs` (`sun_position`) vem de uma
+    especificação escrita só de Meeus (cap. 7, 25, 28) e da documentação publicada da NOAA, sem abrir
+    nenhum código de posição solar; testes: os exemplos 25.a e 28.a do Meeus, os dias julianos do
+    cap. 7, propriedades (equinócio, solstício, polos, simetria, deslocamentos de dia). A linha do
+    `THIRD_PARTY_NOTICES.md` diz o mesmo.
+  - **O que fica diferente de propósito:** os valores da resposta espectral estão guardados só no
+    trecho não nulo de cada banda (as somas do C sobre os 1991 comprimentos de onda somam zeros fora
+    dele; só um `0*inf` mudaria algo, e o `exp` não dá `inf` com vapor e ozônio não negativos).
+    `Date` leva só os campos que o `sunpos` lê (ano, mês, dia, dia do ano, hora, minuto, segundo,
+    fuso), com o ano de 365 dias do FORCE.
 - **Janus:** o `zeit-core` foi para o `7c01978` sem mudar nada do que o Janus já chamava. As
   ferramentas pedem duas coisas novas no Janus:
   - saídas cujas bandas a ferramenta decide (a grade nova, os anos, as janelas);
