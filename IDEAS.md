@@ -2551,13 +2551,21 @@ validação.
   As oito ferramentas do TSA saíram no Janus 1.16.0 (2026-11-06), com o "Copy Python" de cada
   uma; o Zeit 3.1.0 saiu no mesmo dia com tudo da 23a à 23d.
 
-### O que falta (em 2026-11-06)
+### O que falta (em 2026-11-06; atualizado em 2026-11-07)
 
-- **Janus, J4:** o Tasseled Cap e o ajuste espectral como ferramentas, com o `zeit-core` no
-  `f20ff43` (Zeit 3.1.0). O trabalho começado está guardado no Janus como `git stash`
-  ("J4 WIP ...": `git stash pop`). Não foi compilado nem testado. Falta decidir de onde vem o
-  sensor de cada data (o agente começou um `sensors.rs`).
-- **Janus:** o NBAR (pede os ângulos por pixel como entrada) e o ImproPhe (duas resoluções).
+- ~~**Janus, J4:** o Tasseled Cap e o ajuste espectral como ferramentas~~: feito no Janus
+  271b45c, com o `zeit-core` no `f20ff43`. O sensor de cada data vem do STAC (plataforma ou item
+  que o VRT registra) ou do nome do arquivo (`janus_zeit::sensors`); uma data sem sensor é um
+  erro que a nomeia. Iguais ao Zeit bit a bit. O stash "J4 WIP" do Janus ficou para apagar
+  (`git stash drop`): o conteúdo está no 271b45c.
+- ~~**Janus:** o NBAR e o ImproPhe~~: feitos no Janus. NBAR (26971a8) com os ângulos de bandas
+  da série; com os do Sentinel-2 (bee30a0), lidos do `MTD_TL.xml` de cada data por um port do
+  `zeit.sentinel2_angles` em Rust (igual ao Zeit a 4e-5° nos dois grânulos do 23LKC); a janela do
+  STAC grava o href do `granule-metadata` de cada data no VRT. ImproPhe (c1681e9), a série grossa
+  escolhida entre as abertas, igual ao `zeit.improphe` bit a bit. Falta conferir o href real do
+  `granule_metadata` do Earth Search (sem rede nos testes).
+- ~~A janela de Time series analysis no Janus~~: feita (fase 56 do Janus, 338b683 a 9709d2f),
+  menos as capturas e a página no site, que esperam o redesenho do site (branch `site-redesign`).
 - **Zeit:** o merge de 20 m para 10 m do Sentinel-2 (`resolution_merge_1` e `_2` do
   `resmerge-ll.c`, do Frantz, GPL-3; o STARFM do mesmo arquivo fica de fora). Não roda contra o
   FORCE com ARD: só dentro do `force-l2ps` (ver a especificação do ImproPhe, seção 4.5).
