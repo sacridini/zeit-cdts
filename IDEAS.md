@@ -2568,6 +2568,68 @@ validação.
 - A temporada final cortada do `polar_metrics` (hoje medida; poderia ser NaN): decisão do
   usuário.
 
+### O FORCE no Janus: duas janelas além das ferramentas (proposta de 2026-11-07)
+
+O valor do FORCE está na cadeia, não em cada peça: ninguém quer o "Fold by period" sozinho, e
+sim ir da série a um cubo de features ou a um mapa. No FORCE isso é um arquivo de parâmetros por
+módulo, que é o que afasta o usuário. No Janus (35 ferramentas em 2026-11-07), as do FORCE estão
+espalhadas por *Data preparation*, *Temporal dynamics* e *Change detection*, e quem não conhece o
+FORCE não sabe a ordem.
+
+Proposta: um caminho híbrido.
+
+- **As ferramentas comuns ficam** como estão (paleta, MCP, scripts, *Copy Python*, self-test), e
+  as novas (J4, NBAR, ImproPhe, merge, 23e-23g) também entram como ferramentas.
+- **Por cima delas, duas janelas especiais**, no padrão da janela de classificação (abas e um
+  bloco de diagnóstico "To look at"). Não uma janela por ferramenta: Tasseled Cap ou Standardize
+  sozinhos cabem na janela comum.
+- **As janelas são só orquestração:** cada etapa chama a ferramenta que já existe, com os
+  mesmos parâmetros. O *Copy Python* dá a cadeia inteira, e a proveniência registra cada etapa.
+
+**1. Time series analysis** (o TSA do FORCE, visual):
+
+```
+Time series analysis
+[ Input ]  [ Steps ]  [ Output ]
+ Série: S2 2018-2024 · índice: NDVI ▼ · máscara de qualidade ✓
+ ☑ Clear-sky observations      ☑ Interpolate: RBF, 16 dias ▼
+ ☑ Fold: por ano ▼  → STM: mediana, p10, p90, desvio ▼
+ ☐ Linear trend  ☐ CAT  ☐ Polar phenology
+ Gráfico no cursor: obs. brutas · limpas · interpolada · fold
+ To look at: 2019 tem 6 obs. limpas · a última temporada é cortada
+ Output: cubo de features → [Usar na Classification]
+```
+
+- O gráfico do pixel sob o cursor mostra cada etapa sobreposta.
+- O diagnóstico aponta, por exemplo, anos com poucas observações limpas, a temporada cortada e
+  a série irregular, que a Fenologia polar recusa.
+- A saída vai direto à janela de classificação como features. É aí que está o ganho maior para
+  o usuário final.
+
+**2. Analysis-ready data (Level 2):** da pasta de L1 ou do STAC até um cubo harmonizado.
+
+- Etapas em lista: correção atmosférica (23g), coregistro (23f), topografia (23e), NBAR, ajuste
+  Landsat → Sentinel-2, merge de 20 m para 10 m, ImproPhe.
+- Prévia na ROI e swipe de antes e depois.
+- A janela lê dos metadados da cena ou do STAC o que as ferramentas soltas pedem como entrada.
+  Isso resolve duas pendências da lista acima:
+  - o sensor de cada data no J4;
+  - os ângulos por pixel no NBAR.
+
+**Ordem:**
+
+1. A janela de TSA vem primeiro. As 8 ferramentas já existem e conferem com o Zeit (Janus
+   1.16.0), então o trabalho é só de interface e serve para validar o padrão.
+2. Depois a de Level 2. Ela começa pequena (ajuste espectral, Tasseled Cap, NBAR) e cresce com a
+   23e, a 23f e a 23g. O J4 e o NBAR nascem já pensados para ela.
+
+**Antes de implementar:**
+
+- mapear como a janela de classificação está montada no `janus-app` (abas, tarefas,
+  diagnóstico), o que ainda não se leu: até aqui só o `tools.json` e a captura do site;
+- escrever o plano no `IDEIAS.md` do Janus;
+- prever o `--selftest-ui`, as capturas e a página no site de cada janela.
+
 ## Para depois
 
 - Fase 19: `zeit.ai.predict` com fp16 na GPU (2,4× no Siamese, medido) vale para todos os
