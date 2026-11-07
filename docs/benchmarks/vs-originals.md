@@ -398,6 +398,31 @@ Every value of the six bands is the same, for both methods (the first comparison
 
 Zeit's regression is 5.9 times as fast as FORCE's on one thread (the SVD is done once per pixel and not six times, in fixed-size arrays) and 7.0 times with four; its ImproPhe is slower than FORCE's C (0.6 times), where the time includes Python's conversions of the cube and the masks, and the kernel itself is small (13 neighbours).
 
+### The parallax cloud test and the cloud buffer vs FORCE
+
+[`parallax_clouds`](../api/preprocessing.md#parallax_clouds), [`cloud_displacement_index`](../api/preprocessing.md#cloud_displacement_index) and [`buffer_mask`](../api/preprocessing.md#buffer_mask) are compared with **FORCE 3.11.00**'s `cloud_parallax` (`cloud-ll.c`; Frantz's own parallax step, the Cloud Displacement Index of Frantz et al. 2018) and `buffer_` (`imagefuns-cl.c`), the code they are ported from (Frantz; GPL-3.0-or-later; `cloud-ll.c` as a whole derives from Zhu's Fmask, whose parts are not ported). `cloud_parallax` runs only inside `force-l2ps`, after the potential cloud pixels and the variability probability that Fmask's part computes, so the comparison is with a C harness (`benchmarks/vs_originals/force_parallax/`, built by `make_harness.sh` in WSL) made of FORCE's own functions copied verbatim (`cloud_parallax`, `gauss_kernel`, `covar_recurrence`, `variance`, the queue, `buffer_`) behind shims that replace the brick and QAI accessors with plain arrays; the one line added to `cloud_parallax` hands the CDI (which the function does not return) to the harness. The scene made by `force_parallax.py` is **512 x 512 pixels of 10 m**, int16 reflectance times 10000: a land surface whose red edge 3 and NIR vary smoothly and independently; four textured clouds seen at the same place in B07 and B8A and 6 pixels aside in B08; three bright built-up patches (all bands at the same place, ratios changing alike); a bright patch with a 1 pixel offset and a variability probability of 0.93 (the second way into the cloud class); a variability field; 53,252 potential cloud pixels; 4,510 off pixels (a stripe, scattered ones, a block, the top rows); 798 saturated pixels; and a bright-pixel mask that excludes 13% of the scene. Zeit gets the same arrays (float32 with NaN at the off pixels, the masks as boolean arrays, the variability as float).
+
+| Comparison | Identical |
+|:---|---:|
+| Cloud mask (42,709 cloud pixels in FORCE), `parallax_clouds` vs `cloud_parallax` | 100% (0 of 262,144 pixels differ) |
+| CDI on the 20 m grid (14,050 blocks with one; 10,541 at or below -0.5; 659 above 0), bit for bit | 100% (0 of 65,536 blocks) |
+| Four more scenes (other seeds; variability times 0.5 and 1.15), the mask and the CDI | 100% |
+| `buffer_mask(force=True)` vs `buffer_`: FORCE's cloud mask at 30 and 15 pixels (300 m at 10 and 20 m), random masks at radii 1, 2, 3, 7, 12 and 30, blocks at the edges | 100% (0 pixels in 9 cases) |
+
+One thread and four threads of Zeit give the same mask (FORCE's threads do not race either). The scene exercises both ways into the cloud class (CDI of -0.5 or less, and CDI below 0 with a high variability), the erosion, both region-growing passes, the off blocks, the saturated and the non-bright gate; the comparison does not isolate each path.
+
+**What `force=False` changes in the buffer.** FORCE's loop skips the pixels within `r` of the image's borders and then replaces the mask by what it drew, so a True pixel near an edge is lost (and its disc with it); `force=True` reproduces that. By default Zeit keeps every pixel and clips the discs at the edge: it differs from FORCE only where a source within `r` of an edge would have drawn (17,943 of 262,144 pixels at `r = 30` on the cloud mask; 40 pixels for blocks touching the edges at `r = 5`).
+
+**Timings.** A 2048 x 2048 scene of the same kind, milliseconds, best of 3 (FORCE: `cloud_parallax` inside the harness, gcc -O2, OpenMP; Zeit: release build on Windows). **The machine was not quiet**: other builds ran throughout (load near 100%), so these are indicative, and nothing was re-measured later. Zeit's "whole call" includes the conversions of the cube and the masks to FORCE's int16 units and booleans in numpy.
+
+| | FORCE, 1 thread | Zeit, 1 thread | FORCE, 4 threads | Zeit, 4 threads |
+|:---|---:|---:|---:|---:|
+| `cloud_parallax` / `parallax_clouds`, the whole call | 246 | 449 | 85 | 257 |
+| the same, the compiled core alone | 246 | 253 | 85 | 80 |
+| `buffer_` / `buffer_mask`, radius 30, the cloud mask | 4,156 | 661 | 1,344 | 196 |
+
+The parallax test costs the same in Zeit's core as in FORCE's C; Python's conversions of the cube are the rest. The buffer is 6 times faster on one thread and 7 with four: FORCE draws a disc from every True pixel (a time that grows with the cloud's area and the radius squared), Zeit looks up per row the nearest source in the disc's runs.
+
 ### Topographic correction vs RStoolbox, GDAL and terra
 
 [`topographic_correction`](../api/preprocessing.md#topographic_correction) is written from the published formulas (Horn 1981; Teillet et al. 1982; Soenen et al. 2005), so it is compared by outputs only: slope and aspect with `gdaldem slope` / `gdaldem aspect` (GDAL, `-compute_edges`) and `terra::terrain` (R, 8 neighbours = Horn), and the C-correction with **RStoolbox 1.0.2.2**'s `topCor(method = "C")` (the formula `rho (cos sz + c) / (cos i + c)`, `c = b / m` of the line `rho = b + m cos i`). `benchmarks/vs_originals/topocorr.py` (and `topocorr.R`) runs on synthetic terrain (hills of 1-6 km, slopes up to 62 degrees, median 22, 30 m pixels; no DEM ships with the repository) and a six-band scene made of a smooth vegetation/soil mix times `0.7 cos i / cos sz + 0.3` plus noise (sun zenith 38, azimuth 140).
@@ -470,6 +495,8 @@ wsl -e bash -lc 'bash benchmarks/vs_originals/force_improphe_timing.sh ~/force-r
 python benchmarks/vs_originals/force_improphe_timing.py                                    # Zeit's times against FORCE's compute stage
 wsl -e bash -lc 'bash benchmarks/vs_originals/force_resmerge/make_harness.sh'                  # FORCE's resolution merge, verbatim, on GSL 2.7 (static); then:
 python benchmarks/vs_originals/force_resmerge.py --size 500   # zeit.sentinel2_resmerge against it, and the times
+wsl -e bash -lc 'bash benchmarks/vs_originals/force_parallax/make_harness.sh'                  # FORCE's cloud_parallax and buffer_, verbatim; then:
+python benchmarks/vs_originals/force_parallax.py --size 512 --big 2048   # zeit.parallax_clouds and zeit.buffer_mask against it, and the times
 python benchmarks/vs_originals/topocorr.py            # gdaldem (GDAL_BIN) and terra/RStoolbox 1.0.2.2, against zeit.topographic_correction
 python benchmarks/vs_originals/polar.py               # PolarMetrics 0.1.0 (R package from GitHub: R CMD INSTALL), against zeit.polar_metrics
 python benchmarks/vs_originals/ewmacd.py "path/to/EWMACD v1.3.0.r"   # Brooks' script, not distributed

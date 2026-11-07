@@ -2331,7 +2331,8 @@ Frantz, https://github.com/davidfrantz/force, 3.11.00) é GPL-3.0-or-later em to
 `src/modules`: o código do próprio Frantz entra **por port direto** (sem sala limpa), com o
 copyright dele no cabeçalho dos arquivos portados e no `THIRD_PARTY_NOTICES.md`. Não entram
 direto os trechos que o FORCE adotou de terceiros sem licença declarada: Fmask (`cloud-ll.c`,
-Zhu), Ambrals (`brdf-ll.c`, Schaaf), LSReg (`coreg-ll.c`, Yan & Roy), STARFM (`resmerge-ll.c`,
+Zhu; o repositório atual do Fmask, github.com/GERSL/Fmask, é MIT, conferido pela API do GitHub
+em 2026-11-07, e só a paralaxe, que é do próprio Frantz, foi portada), Ambrals (`brdf-ll.c`, Schaaf), LSReg (`coreg-ll.c`, Yan & Roy), STARFM (`resmerge-ll.c`,
 Gao, USDA-ARS), as grades Equi7 e GLANCE, o calculador solar da NOAA (`sun-cl.c`) e o script
 de RBF de Rabe (`interpolate-hl.c`). Esses ou têm a licença verificada, ou são refeitos pelo
 artigo. O BRDF (Roy et al. 2016, 2017) e a RBF (Schwieder et al. 2016) são simples de refazer
@@ -2611,6 +2612,58 @@ validação.
   - Onde fugiu do plano: um cubo dask é lido em memória (a reta precisa de uma data inteira), e a
     SCS+C devolve `rho cos s` num terreno lambertiano de `c` zero, não `rho`, porque é assim que
     ela é definida; só a C leva de volta ao `rho` plano.
+- **23e, a paralaxe e o buffer de nuvem:** `zeit.cloud_displacement_index(cube, potential=None)`,
+  `zeit.parallax_clouds(cube, potential, variability=None, saturated=None, bright=None,
+  return_cdi=False)` e `zeit.buffer_mask(mask, distance, units="m"|"px", resolution=None,
+  force=False)`, no core em `rust/zeit-core/src/parallax.rs` (o Janus liga direto). Port direto,
+  com o copyright do Frantz, do `cloud_parallax` do `cloud-ll.c` do FORCE (o Cloud Displacement
+  Index de Frantz, Haß, Uhl, Stoffels e Hill 2018, RSE 215:471-481), do `gauss_kernel`, do
+  `covar_recurrence`, da `variance`, da fila e do `buffer_` (círculo do ponto médio) do código
+  cruzado.
+  - **A licença:** o `cloud-ll.c` inteiro é derivado do Fmask do Zhu, mas só o passo da paralaxe
+    é do próprio Frantz, e só ele foi portado. Nada do Fmask entrou: o `cloud_parallax` consome
+    as saídas dele, que no Zeit são entradas. O repositório atual do Fmask
+    (github.com/GERSL/Fmask) é MIT (conferido pela API do GitHub em 2026-11-07), mas nenhuma
+    parte dele foi usada; isso fica no `THIRD_PARTY_NOTICES.md`.
+  - **O que o `cloud_parallax` lê e como o Zeit trata cada entrada:** `pcp_` (pixels de nuvem
+    potencial do Fmask) é `potential`, uma máscara dada; `var_` (probabilidade de variabilidade
+    x 10000, `short`) é `variability`, um float em [0, 1] arredondado para esse inteiro, ou, se
+    não vier, `1 - max(|NDVI|, |NDSI|, brancura)` da fórmula publicada de Zhu e Woodcock (2012,
+    RSE 118:83-94), escrita do artigo e não de código, recortada em [0, 1] (NDVI com B8A e
+    vermelho, NDSI com verde e B11; o ajuste de saturação do artigo, NDVI positivo e NDSI
+    negativo viram 0 onde há saturação, usa a máscara `saturated`, já que o Sentinel-2 L1C/L2A
+    traz a saturação nas bandas de qualidade, e não há nada a ajustar sem ela); `brt_` (pixels
+    brilhantes, média de azul, verde e vermelho acima de 1500) é o filtro final, que remove
+    nuvem não brilhante, e vira `bright`, dada ou calculada das três bandas; a saturação do
+    QAI, que adiciona pixels de nuvem antes do filtro, vira `saturated`. `clr_`, `lnd_`,
+    `nclear`, `nland`, `npix`, `ncloud` e `cc` não são lidos pela função (o `cc` e o `ncloud` só
+    são escritos), e não são entradas.
+  - O CDI fica na grade de 20 m em que é calculado, como no FORCE (o FORCE não o devolve; um
+    gancho de uma linha no harness o entrega à comparação). Só os blocos com pixel de nuvem
+    potencial têm CDI, e só se houver mais de dois na janela 7x7; o resto é NaN (o -9999 do
+    FORCE).
+  - **O buffer:** o `buffer_` do FORCE desenha, a partir de cada pixel verdadeiro, o disco do
+    círculo do ponto médio (um pouco mais gordo que o disco: 89 pixels para `r = 5`, o `(5, 1)`
+    entra). O raio em pixels é `int(CLOUD_BUFFER / resolução)` (300 m por padrão; 40 m para
+    sombra e 20 m para neve), truncado, e é isso que `units="m"` faz. O FORCE só bufferiza os
+    pixels a pelo menos `r` das bordas e depois troca a máscara pelo que desenhou: o pixel
+    verdadeiro a menos de `r` da borda **se perde**, e a nuvem encostada na borda fica sem
+    buffer. `force=True` reproduz isso; o padrão mantém todos e recorta o disco na borda.
+    O Zeit não desenha de cada pixel: cada linha de saída procura a fonte mais próxima nas
+    linhas do disco, então o tempo quase não depende da área da nuvem.
+  - Onde fugiu do plano: não há `force=` em `parallax_clouds`, porque não há o que escolher (as
+    unidades `short`, o `float` e o `double`, a ordem das somas, e as threads do FORCE não
+    correm); só `buffer_mask` tem. Há `saturated=` e `bright=` além do que o plano previa. Em
+    tamanho ímpar o FORCE escreve fora dos vetores (anda de dois em dois e indexa a grade de 20 m
+    por `i / 2`); no Zeit a última linha ou coluna ímpar não faz parte de nenhum bloco. Um cubo
+    dask é computado.
+  - Igual ao FORCE em todos os valores: a máscara de nuvem e o CDI bit a bit (cena sintética de
+    512x512 com nuvens deslocadas entre as bandas, manchas urbanas sem deslocamento, sem-dado,
+    saturados e não brilhantes, mais quatro cenas), e `buffer_mask(force=True)` contra o
+    `buffer_` em raios de 1 a 30. Harness em C com as funções do FORCE copiadas literalmente
+    (`benchmarks/vs_originals/force_parallax/`). Tempo (máquina carregada, indicativo): a
+    paralaxe no core do Zeit igual à do FORCE (246 ms com 1 thread numa cena de 2048x2048;
+    449 ms com as conversões do numpy), o buffer de raio 30 em 6x o FORCE.
 - **Janus:** o `zeit-core` foi para o `7c01978` sem mudar nada do que o Janus já chamava. As
   ferramentas pedem duas coisas novas no Janus:
   - saídas cujas bandas a ferramenta decide (a grade nova, os anos, as janelas);
@@ -2638,9 +2691,12 @@ validação.
   (`resolution_merge_1` e `_2` do `resmerge-ll.c`; o STARFM fica de fora). Igual ao FORCE em todos
   os valores com `force=True`, por um harness em C com as funções do FORCE, já que o merge só
   roda dentro do `force-l2ps`. Falta uma ferramenta no Janus, se couber na janela de ARD.
-- **Zeit:** 23e: a correção topográfica está feita (`zeit.topographic_correction`, C e SCS+C;
-  o C-factor do FORCE espera a 23g); faltam a paralaxe e o buffer de nuvem. 23f (coregistro) e
-  23g (correção atmosférica), como nas Etapas acima.
+- ~~**Zeit:** 23e: a correção topográfica, a paralaxe e o buffer de nuvem~~: feito,
+  `zeit.topographic_correction` (C e SCS+C; o C-factor do FORCE espera a 23g),
+  `zeit.parallax_clouds`, `zeit.cloud_displacement_index` e `zeit.buffer_mask` (o passo da
+  paralaxe do Frantz e o buffer, iguais ao FORCE em todos os valores; as entradas do Fmask são
+  entradas). Faltam ferramentas no Janus para elas.
+- **Zeit:** 23f (coregistro) e 23g (correção atmosférica), como nas Etapas acima.
 - **Self-test do Janus:** a Fenologia polar é pulada nos dados de teste, que são irregulares.
   Um dado regular no `tools/make_selftest_data.py` a cobriria.
 - A temporada final cortada do `polar_metrics` (hoje medida; poderia ser NaN): decisão do

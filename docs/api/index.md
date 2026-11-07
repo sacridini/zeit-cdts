@@ -109,6 +109,9 @@
 | [`improphe`](preprocessing.md#improphe) | Sharpens a coarse field or the scenes of a coarser sensor with the finer sensor's seasonal means: FORCE's CF-ImproPhe and L2-ImproPhe (Frantz et al. 2016) |
 | [`sentinel2_resmerge`](preprocessing.md#sentinel2_resmerge) | The 20 m bands of Sentinel-2 at 10 m, by a moving-window regression or an ImproPhe-like weighted mean on the 10 m green, red and NIR: FORCE's resolution merge |
 | [`tmask`](preprocessing.md#tmask) | Time-series cloud and shadow detection of a cube |
+| [`parallax_clouds`](preprocessing.md#parallax_clouds) | Sentinel-2 clouds from the potential cloud pixels by the parallax test (Cloud Displacement Index): FORCE's `cloud_parallax` (Frantz et al. 2018) |
+| [`cloud_displacement_index`](preprocessing.md#cloud_displacement_index) | The Cloud Displacement Index of Sentinel-2 on the 20 m grid |
+| [`buffer_mask`](preprocessing.md#buffer_mask) | Buffers a boolean mask by a distance with FORCE's midpoint circle (its cloud buffer) |
 | [`smooth`](preprocessing.md#smooth) | Whittaker (uneven dates, gaps, weights) or Savitzky-Golay smoothing of a cube or series |
 | [`unmix`](preprocessing.md#unmix) | Fractions of green vegetation, NPV, soil, shade, cloud; the NDFI |
 | [`desawtooth`](preprocessing.md#desawtooth) | LandTrendr spike removal |

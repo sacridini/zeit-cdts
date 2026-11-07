@@ -26,6 +26,7 @@ mod improphe;
 mod knndm;
 mod landtrendr;
 mod mannkendall;
+mod parallax;
 mod parallel;
 mod parts;
 mod phenology;
@@ -97,6 +98,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     add_submodule(m, &brdf::module(m.py())?)?;
     add_submodule(m, &tasseled::module(m.py())?)?;
     add_submodule(m, &improphe::module(m.py())?)?;
+    add_submodule(m, &parallax::module(m.py())?)?;
     add_submodule(m, &resmerge::module(m.py())?)?;
     add_submodule(m, &topocorr::module(m.py())?)?;
     Ok(())

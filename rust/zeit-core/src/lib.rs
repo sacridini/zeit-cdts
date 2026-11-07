@@ -33,6 +33,7 @@ pub mod lasso;
 pub mod mann_kendall;
 pub mod medoid;
 pub mod optimize;
+pub mod parallax;
 pub mod parallel;
 pub mod parts;
 pub mod phenology;

@@ -426,6 +426,88 @@ cube = cube.where(clear)                         # clouds and shadows become NaN
 qa = xr.where(clear, 0, 4)                       # or as CCDC's Fmask codes (0 clear, 4 cloud)
 ```
 
+### `parallax_clouds` { .api }
+
+<!-- sig: zeit.parallax_clouds -->
+```python
+zeit.parallax_clouds(
+    cube, potential, *, variability=None, saturated=None, bright=None,
+    bands=None, scale="auto", nodata="auto", return_cdi=False, n_jobs=-1,
+)
+```
+
+Sentinel-2 clouds from the potential cloud pixels by the parallax test: FORCE's `cloud_parallax` (`cloud-ll.c`, FORCE 3.11, David Frantz, GPL-3.0-or-later; the method is Frantz, Haß, Uhl, Stoffels and Hill 2018, *Remote Sensing of Environment* 215:471-481). The detectors of the 10 m bands look at the ground one after the other, so a high object is seen at slightly different places in B07, B8A and B08, while a surface object (snow, a roof, bare soil) is at the same place in all of them. The ratio of red edge 3 to NIR (B07 / B8A) varies little at a cloud and the ratio of the broad NIR, smoothed by a 5 x 5 Gaussian kernel of sigma 0.5, to NIR (B08 / B8A) a lot; the Cloud Displacement Index is `(var_x - var_y) / (var_x + var_y)` of the two over 7 x 7 blocks of the 20 m grid (each block is 2 x 2 pixels of the 10 m one) and is close to -1 at a cloud. Blocks with a CDI of -0.5 or less, or below 0 where the minimum of the variability probability over the 15 x 15 blocks around is above 0.8, are cloud seeds if every block of their 3 x 3 neighbourhood qualifies (an erosion by one block); the clouds grow into the 8-connected blocks with a CDI in [-1, -0.25); each block goes back to four 10 m pixels; saturated pixels are added and every cloud pixel that is not bright is removed.
+
+This is Frantz's own step. The rest of FORCE's cloud detection is derived from Zhu's Fmask and is not ported (Fmask's current repository, github.com/GERSL/Fmask, is MIT-licensed as of 2026-11-07, and none of its parts is used here): what `cloud_parallax` takes from it are inputs of this function, the potential cloud pixels (`potential`), the variability probability (`variability`), the bright pixels (`bright`) and the saturated ones (`saturated`). FORCE's clear-sky and clear-sky-land pixels and their counts, and the cloud cover, are passed to `cloud_parallax` but never read, and are not inputs.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `cube` | `DataArray` | required | Reflectance `(time, band, y, x)` or `(band, y, x)` on the 10 m grid (20 m bands as four equal pixels, as for `sentinel2_resmerge`) with `rededge3` (B07), `nir` (B08) and `nir08` (B8A), or `B07 B08 B8A`; and `blue green red` unless `bright` is given, and `swir16` (B11) too for the computed variability. In memory. |
+| `potential` | boolean array | required | Broadcastable to `(time, y, x)`: the potential cloud pixels (Fmask's, or from any cloud product). |
+| `variability` | float array | `None` | Broadcastable to `(time, y, x)`: Fmask's variability probability in [0, 1] (FORCE keeps it times 10000 as an int16, and so does Zeit: it is rounded to that). By default `1 - max(abs(NDVI), abs(NDSI), whiteness)` of Zhu and Woodcock (2012, *Remote Sensing of Environment* 118:83-94), clipped to [0, 1]: `NDVI = (B8A - red) / (B8A + red)`, `NDSI = (green - SWIR1) / (green + SWIR1)`, the whiteness the sum over blue, green and red of the distance to their mean relative to the mean; a zero denominator gives an index of 0. Where `saturated`, a positive NDVI and a negative NDSI are set to 0, the paper's adjustment for pixels whose visible bands saturate (the paper gave it for Landsat 7; Sentinel-2's saturation is rare and flagged in its quality bands, which is where `saturated` comes from). |
+| `saturated` | boolean array | `None` | Broadcastable to `(time, y, x)`: saturated pixels, which are cloud if bright. By default none. |
+| `bright` | boolean array | `None` | Broadcastable to `(time, y, x)`. By default the mean of blue, green and red is above 0.15 (FORCE's 1500). |
+| `bands` | `dict` | `None` | The cube's band of each role (`rededge3 nir nir08 blue green red swir16`), when its names are not the usual ones. |
+| `scale` | `"auto"` or `float` | `"auto"` | What the reflectance is multiplied by in the data (10000 for integers or values above 2, else 1). The values are taken to FORCE's units (times 10000, as int16) for the computation. |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | Missing values besides NaN: the raster's NoData (0 for an integer cube without one), a number or `None`. A pixel with a missing value in B07, B08 or B8A is FORCE's "off": never cloud. |
+| `return_cdi` | `bool` | `False` | Also return the CDI. |
+| `n_jobs` | `int` | `-1` | Threads (the processors zeit may use by default). |
+
+</div>
+
+**Returns** a boolean `(time, y, x)` (or `(y, x)`) `DataArray`, True for cloud, with the cube's coordinates; with `return_cdi=True` a tuple of it and the CDI (below).
+
+```python
+pcp = potential_cloud_pixels(s2)        # Fmask's, or the cloud flag of a product
+cloud = zeit.parallax_clouds(s2, pcp, saturated=saturated)
+cloud = zeit.buffer_mask(cloud, 300)    # FORCE's CLOUD_BUFFER
+```
+
+**Where it differs from FORCE.** There is no `force=` switch: the values are FORCE's (`short` units, `float` and `double` where it has them, its order of summation) and its threads do not race, so there is nothing to choose. The one change is for odd sizes. FORCE steps through the image in twos and indexes the 20 m grid by `i / 2`, which writes outside the arrays when a side is odd (Sentinel-2 tiles are even); here the last row or column of an odd image is not part of any block and is never cloud (unless saturated and bright), while the smoothing still reads it. As in FORCE, a block whose first pixel is off is skipped even if the other three have data.
+
+**Agreement with FORCE.** The cloud mask and the CDI (bit for bit) equal those of FORCE's `cloud_parallax` in every pixel and block on synthetic scenes with parallax-displaced clouds, built-up patches, off pixels, saturated and non-bright pixels (a C harness of FORCE's own functions; [Against the Original Implementations](../benchmarks/vs-originals.md#the-parallax-cloud-test-and-the-cloud-buffer-vs-force)).
+
+### `cloud_displacement_index` { .api }
+
+<!-- sig: zeit.cloud_displacement_index -->
+```python
+zeit.cloud_displacement_index(
+    cube, *, potential=None, bands=None, scale="auto", nodata="auto", n_jobs=-1,
+)
+```
+
+The Cloud Displacement Index of `parallax_clouds` on its own, `float32` `(time, y // 2, x // 2)` (or `(y // 2, x // 2)`): on the 20 m half-resolution grid where it is computed (FORCE does not bring it back to 10 m, the clouds are), the coordinates those of the centres of the 2 x 2 blocks. A block has a CDI only if it has a potential cloud pixel and at least three blocks of the 7 x 7 around it have one, since the ratios of the others are left out of the variances; else it is NaN (FORCE's -9999). Near -1 at a cloud, around 0 or above for a bright surface. `potential` (broadcastable to `(time, y, x)`) is every pixel by default, which gives a CDI everywhere; the other parameters are those of `parallax_clouds` (the bands are `rededge3`, `nir` and `nir08`).
+
+### `buffer_mask` { .api }
+
+<!-- sig: zeit.buffer_mask -->
+```python
+zeit.buffer_mask(
+    mask, distance, *, units="m", resolution=None, force=False, n_jobs=-1,
+)
+```
+
+Buffers the True pixels of a boolean mask: FORCE's cloud buffer (`buffer_` of `imagefuns-cl.c`, which its Level 2 processing applies to the cloud, cirrus and shadow masks and the snow layer, `CLOUD_BUFFER = 300` m by default). Every True pixel grows into the disc of the midpoint circle algorithm of integer radius `r`: the axis points at distance `r` are in, and so are `(r, 1)`, a little fatter than the true disc (89 pixels for `r = 5`). With `units="m"`, `r = int(distance / resolution)` as FORCE converts it (truncated; the resolution is the `x` spacing of a DataArray, or `resolution=`); with `units="px"` it is `distance`, a whole number. A radius of 0 changes nothing.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `mask` | boolean `DataArray` or array | required | `(y, x)` or `(time, y, x)`; each date is buffered on its own. |
+| `distance` | `float` | required | The buffer, in `units`. |
+| `units` | `"m"` or `"px"` | `"m"` | |
+| `resolution` | `float` | `None` | The pixel size in metres, for `units="m"` when the mask is not a DataArray with an `x` coordinate. |
+| `force` | `bool` | `False` | FORCE's behaviour at the borders (below). |
+| `n_jobs` | `int` | `-1` | Threads. |
+
+</div>
+
+**Returns** a boolean mask as `mask`.
+
+**Where it differs from FORCE.** FORCE's loop only buffers the pixels at least `r` from the borders and then replaces the mask by what was drawn, so a True pixel within `r` of an edge is lost and a cloud at the edge gets no buffer. `force=True` does that (and equals FORCE in every pixel); the default keeps every True pixel and draws its disc clipped at the edge, the same everywhere else. Zeit does not draw from every True pixel as FORCE does: each output row looks up the nearest source in the rows of the disc's runs, so the time hardly depends on how much is True (FORCE's takes seconds with a large cloud and a radius of 30).
+
 ## Spectral mixture analysis
 
 ### `unmix` { .api }
