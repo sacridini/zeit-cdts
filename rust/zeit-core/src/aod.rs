@@ -836,7 +836,7 @@ pub fn aod_lib_to_target(
                 e0_ * tss * (1.0 - k) * dobj.sky
             };
             // path reflectance
-            let rhop = path_ref(multi, atc.sob, aod, mod_, od, pa, pr, tsd, tvd, ms, mv);
+            let rhop = path_ref(multi, atc.tthg.sob, aod, mod_, od, pa, pr, tsd, tvd, ms, mv);
             // spherical albedo
             let s = sphere_albedo(aod, mod_, od);
 
@@ -1583,7 +1583,7 @@ mod tests {
         atc.e0 = E0.to_vec();
         atc.aod_bands = (0..NB).map(|b| WVL[b] < 0.7 || b == 12).collect();
         atc.dem = DemStats { avg: 0.75, min: 0.0, max: 2.0, step: 0.0078125, cnum: 255 };
-        atc.sob = 0.84375;
+        atc.tthg.sob = 0.84375;
         for g in 0..gn {
             let (gi, gj) = ((g / GNX) as f32, (g % GNX) as f32);
             atc.xy_sun.bands[C_ZEN][g] = 0.625 + 0.015625 * gi + 0.0078125 * gj;
@@ -2154,7 +2154,7 @@ mod tests {
             w(&[*v as u8]);
         }
         let fs = |v: &[f32]| v.iter().flat_map(|x| x.to_le_bytes()).collect::<Vec<u8>>();
-        for v in [&t.atc.wvl[..], &t.atc.lwvl, &t.atc.e0, &[t.atc.dem.avg, t.atc.dem.min, t.atc.dem.max, t.atc.dem.step, t.atc.sob]] {
+        for v in [&t.atc.wvl[..], &t.atc.lwvl, &t.atc.e0, &[t.atc.dem.avg, t.atc.dem.min, t.atc.dem.max, t.atc.dem.step, t.atc.tthg.sob]] {
             w(&fs(v));
         }
         for v in [&t.atc.xy_sun.bands[C_ZEN], &t.atc.xy_sun.bands[AZI], &t.atc.xy_view.bands[C_ZEN], &t.atc.xy_view.bands[AZI]] {

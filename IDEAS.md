@@ -2998,6 +2998,75 @@ validação.
     `atmo-ll.c` (2.126 linhas) lê do `Atc` o `xy_Tsw`, `xy_Tvw` e `xyz_*` (`rho_p`, `tss`, `tsd`, `T`, `s`,
     `F`...), `xy_dem` (via `average_elevation_cell(g, atc->xy_dem, TOP->dem, QAI)`), `dem.{min,step}`, e do
     `Top` o `dem` classificado, `exp`, `ill`, `sky` e o `c` (o `cfactor_topography` devolve o brick do C-factor).
+- **23g, sexta parte (a atmosfera por célula):** o `atc-ll.c` inteiro, o resto do `sunview-ll.c` e, do
+  `atmo-ll.c`, as funções antes da reflectância do FORCE 3.11.00 (David Frantz, GPL-3.0-or-later), em
+  `rust/zeit-core/src/{atc,meta,sunview,atmo}.rs`. `atc.rs`: o `Atc` agora tem todos os campos do `atc_t`
+  (`nx`, `ny`, `nc`, `res`, `nodata`, `view`, `lwvl2`, `cc`, `od`, `mod_`, `Hr`, o `tthg` completo (`g1`, `g2`, `alpha`,
+  `hg[6]`, `sob`), `Fr`, `Fa`, `km`; os bricks `xy_Tvw`, `xy_Tsw`, `xy_psi` e as famílias `xyz_od`, `xyz_mod`,
+  `xyz_aod`, `xyz_Hr`, `xyz_Ha`, `xyz_Ts`, `xyz_Tv`, `xyz_tvd`, `xyz_tvs`, `xyz_F`, `xyz_Tg`, além das que já
+  havia) e `Atc::allocate(&Dn, &Meta)` faz o `allocate_atc`: o `init_atc` com os valores iniciais do C (os
+  parâmetros que os estágios seguintes preenchem valem -9999; o `tthg`, o `km`, `Fr`, `Fa`, `wvl`, `lwvl`, `lwvl2` e
+  `E0` são calculados), o `init_atc_xy` (grade de 5000 m com `ceil(largura/5000)` células, erro se passa de
+  `USHRT_MAX`) e o `init_atc_xyz` (256 bricks por família); os domínios das bandas são copiados como o `copy_brick`
+  copia: banda a banda se os bricks têm o mesmo número de bandas, da banda 0 em todas senão. Os `free_*` são o
+  drop. `Atc::zeros` continua (testes). `sob` virou `tthg.sob` (`aod.rs`, `zeit-py/src/aod.rs`: só o nome).
+  `meta.rs`: só os campos do `meta_t` que esses arquivos leem (`Cal.rsr_band`; `S2Meta`: `nodata`, `vzen`, `vazi`,
+  `nx`, `ny`); a leitura dos arquivos (`meta-ll.c`) vem depois. `sunview.rs`: `sun_target_view`, `viewgeo` e
+  `view_angle` (`localtime2gmt` e `standard_sunzenith` já estavam no `radtran.rs`). `atmo.rs`:
+  `interpolation_weights`, `interpolate_coarse`, `atmo_angledep`, `atmo_elevdep` e `apply_aoi`. O `qai.rs` ganhou
+  `set_lowsun`, `set_aerosol` e os getters. O `topo.rs` ganhou `average_elevation_value` (o valor que a
+  `average_elevation_cell` guarda, sem escrever; ela o chama, mesmo resultado). A ligação mínima é
+  `zeit._core.atmo.scene` (sem API pública); testes em `tests/test_atmo.py` e 11 no Rust.
+  - **Igual ao C, bit a bit, em 81.850.920 valores** (13 cenas sintéticas, `force_atmo.py`, contra o `atc-ll.c` e o
+    `sunview-ll.c` do FORCE como estão e as funções do `atmo-ll.c` copiadas sem mudança; 0 diferenças, 0 a 1 ulp):
+    Landsat a 100 e 30 m (a linha do nadir ajustada à faixa inclinada do QAI), no norte, no sul e a oeste (o modelo de
+    ozônio), com o sol abaixo do horizonte (293.400 pixels com a flag de sol baixo), grades com mais colunas que
+    linhas e com mais linhas que colunas, uma célula só; Sentinel-2 a 10, 20 e 60 m com as grades de ângulos de visada
+    com células sem dado (que ligam o "off" nos pixels), até um tile inteiro (22 x 22 células, 13 bandas), com e sem
+    mapa de AOD (a flag de aerossol 3 sem mapa, 2 acima de 0,6, 1 interpolado), com e sem o peso ambiental e o
+    espalhamento múltiplo. Cada campo do `atc` depois do `allocate_atc` (os escalares, as bandas, os 50 bricks:
+    bandas, tamanho, resolução, nodata e domínio), `xy_sun` e `xy_view` (as oito bandas), `cosszen`, `cosvzen`,
+    `view`, o QAI depois de cada estágio, tudo o que o `atmo_angledep` e o `atmo_elevdep` escrevem (os 256 níveis de
+    elevação de 15 famílias), os pesos de interpolação e o valor interpolado em cerca de 1.500 pixels por cena
+    (bordas, cantos, centros das células, células sem dado) e o `apply_aoi` com e sem AOI. Os `exp`, `log`, `sin`,
+    `cos`, `tan`, `acos` e `atan2` da libm do Windows (UCRT) e da glibc 2.39 deram os mesmos bits em todos. Com 4
+    threads o Zeit dá os mesmos campos que com 1. Os `force_gas.py` (7.076.598 valores), `force_aod.py`
+    (`compile_aod`, 51.690) e `force_topo.py` (11.620.508) foram rodados de novo com o `Atc` novo: as mesmas
+    contagens, 0 diferenças.
+  - **Desvios:** (1) o sol: o `sunpos` é o `radtran::sunpos` (o `solpos.rs`, feito em sala limpa); o `sun-cl.c` não
+    foi aberto. No harness o `sunpos` é uma tabela com os valores que o Zeit dá para cada célula grossa, achados
+    pela latitude e longitude exatas: os dois lados têm o mesmo sol, que não é o do FORCE bit a bit. (2) A
+    geografia: o `get_brick_geo` (GDAL) vira o `SceneGeo` (canto superior esquerdo do mapa, a data da banda 0 e a
+    função mapa -> lon/lat); a coordenada de uma célula é a do seu canto superior esquerdo, como a do FORCE (sem meio
+    pixel). No harness o warp é um mapa afim, o mesmo nos dois lados. (3) O `brdf_factor` (`brdf-ll.c`, não portado)
+    é um argumento do `atmo_angledep` (`BrdfFn`: preenche o fator das bandas de uma célula); sem ele o fator é 1 em
+    todas as bandas, o que o `brdf_factor` do FORCE faz onde não corrige; o harness faz o mesmo. (4) O laço do
+    `atmo_angledep` e do `atmo_elevdep`: o FORCE chama o número de colunas da grade grossa de `ne` e o de linhas de
+    `nf`, percorre `e < ne`, `f < nf` e usa a célula `g = e*nf+f`; cada célula é visitada uma vez, mas em grades com
+    mais colunas que linhas o `atmo_angledep` pega as coordenadas (do ozônio) da célula (coluna `f`, linha `e`) para
+    a `g`, que não é essa. O port faz o mesmo (o harness confere em grades largas e altas). (5) O OpenMP: cada célula
+    escreve só os próprios valores, o resultado não depende do número de threads; os laços do Rust são laços do
+    rayon sobre as células (`n_jobs`). (6) O `get_brick_range` sem célula válida devolve `LONG_MAX` e `LONG_MIN` (64
+    bits) como floats, como o C do Linux. (7) Os blocos `FORCE_DEBUG`, `FORCE_CLOCK` e o ramo `ACIX2` do `viewgeo` (e
+    o `pl2`, que só ele lê) não foram portados; o `Tw_lut` do `atc_t` é o `gas::WvLut` na mão de quem chama (nada do
+    `atmo-ll.c` o lê); o `Atc` guarda `f32` em todos os bricks (o C usa `small` em `xy_interp` e `int` em `xy_dem`).
+    (8) Onde o C imprime e devolve `FAILURE` ou sai, o Rust devolve um `AtmoError`.
+  - **O que a sétima parte precisa** (`surface_reflectance`, `background_reflectance`, `compile_l2_*`,
+    `compile_level2` e `radiometric_correction`): a `surface_reflectance` lê `xyz_T`, `xyz_Ts`, `xyz_tss`, `xyz_tsd`,
+    `xyz_tvs`, `xyz_tvd`, `xyz_s`, `xyz_rho_p` (e `xyz_tss`/`xyz_tsd` da SWIR2), `xy_Tg`, `xy_Tso`, `xy_Tvo`,
+    `xy_brdf`, `xy_view`/`xy_sun` (ZEN, o nodata do `xy_view`) e `Atc.E0` (todos feitos, junto com
+    `interpolation_weights` e `interpolate_coarse`), o `Top` (`dem`, `ill`, `sky`, `c`), o TOA, o `Tg_` do
+    `gas_transmittance` (feito) e o fundo da `background_reflectance`; no `qai.rs` faltam `set_subzero` e
+    `set_saturation` (o `get_cloud` existe) e o parâmetro `erase_cloud`. A `background_reflectance` lê `xyz_rho_p`,
+    `xyz_T`, `xyz_s`, `xyz_F`, `xy_Tg` (feitos) e faz três anéis de média móvel exponencial (0,25, 1 e 4,5 km). O
+    `compile_l2_boa` não chama o BRDF: o BRDF entra no `atmo_angledep`, que chama `brdf_factor(xy_sun, xy_view,
+    xy_brdf, g)` (do `brdf-ll.c`, que não pode ser portado), e na `surface_reflectance`, que interpola o `xy_brdf`
+    (`if (pl2->dobrdf) brdf = interpolate_coarse(weights, xy_brdf)`) e multiplica a reflectância por ele. O Zeit
+    tem o `nbar` refeito pelos artigos de Roy: ele entra pelo `BrdfFn` do `atmo_angledep` (o fator por banda e
+    célula, com o sol padronizado `radtran::standard_sunzenith`), sem tocar o resto. Os `compile_l2_*` (qai, boa,
+    dst, ovv, vzn, hot, aod, wvp) empacotam os bricks de saída (nomes, domínios, reprojeção com
+    `warp_from_brick_to_unknown_brick`, que depende do cubo); só o `compile_l2_boa`, o `compile_l2_aod`, o
+    `compile_l2_vzn` e o `compile_l2_wvp` leem o `Atc`.
 - **Janus:** o `zeit-core` foi para o `7c01978` sem mudar nada do que o Janus já chamava. As
   ferramentas pedem duas coisas novas no Janus:
   - saídas cujas bandas a ferramenta decide (a grade nova, os anos, as janelas);

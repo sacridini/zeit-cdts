@@ -122,7 +122,7 @@ fn load_scene<'py>(d: &Bound<'py, PyDict>) -> PyResult<Loaded> {
         return Err(PyValueError::new_err("per-band arrays need nb values, dem 4 (avg, min, max, step)"));
     }
     atc.dem = zeit_core::atc::DemStats { avg: dem[0], min: dem[1], max: dem[2], step: dem[3], cnum: 255 };
-    atc.sob = vec_of::<f32>(d, "sob")?[0];
+    atc.tthg.sob = vec_of::<f32>(d, "sob")?[0];
     atc.xy_aod.domain = domain.clone();
     let one = |key: &str, dst: &mut Vec<f32>| -> PyResult<()> {
         let v: Vec<f32> = vec_of(d, key)?;

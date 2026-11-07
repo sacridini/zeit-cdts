@@ -4,8 +4,8 @@
 //! `get_shadow`, `get_water`, `set_vaporfill`) and `enum-cl.h` (the bit positions). One QAI value is an `i16`.
 //!
 //! Only the flags the ported stages test are here (`gas-ll.c`: off, shadow, water, vapour fill; `aod-ll.c`: also
-//! cloud); the rest of the field (snow, aerosol, subzero, saturation, sun, illumination, slope) comes with the stages
-//! that use them.
+//! cloud; `sunview-ll.c`: low sun; `atmo-ll.c`: aerosol); the rest of the field (snow, subzero, saturation) comes with
+//! the stages that use them.
 
 /// Bit of the off/on flag (1 = no data, outside the scene).
 pub const BIT_OFF: u32 = 0;
@@ -13,6 +13,10 @@ pub const BIT_OFF: u32 = 0;
 pub const BIT_SHD: u32 = 3;
 /// Bit of the water flag.
 pub const BIT_WTR: u32 = 5;
+/// Bit of the aerosol flag (2 bits: 0 = good, 1 = interpolated, 2 = high AOD, 3 = fill value of the scene).
+pub const BIT_AOD: u32 = 6;
+/// Bit of the low sun angle flag.
+pub const BIT_SUN: u32 = 10;
 /// Bit of the illumination flag (2 bits: 0 = good, 1 = moderate, 2 = poor, 3 = deep shadow).
 pub const BIT_ILL: u32 = 11;
 /// Bit of the slope flag (the slope is above 2 degrees).
@@ -53,6 +57,18 @@ pub fn water(v: i16) -> bool {
     bit(v, BIT_WTR)
 }
 
+/// `get_aerosol`: the two aerosol bits of a QAI value, 0 to 3.
+#[inline]
+pub fn aerosol(v: i16) -> i8 {
+    ((v >> BIT_AOD) & 3) as i8
+}
+
+/// `get_lowsun`: the sun is low (the zenith is above 75 degrees).
+#[inline]
+pub fn lowsun(v: i16) -> bool {
+    bit(v, BIT_SUN)
+}
+
 /// `get_vaporfill`: the water vapour of the pixel was filled with the scene average.
 #[inline]
 pub fn vaporfill(v: i16) -> bool {
@@ -64,6 +80,20 @@ pub fn vaporfill(v: i16) -> bool {
 pub fn set_off(v: &mut i16, val: bool) {
     *v &= !(1i16 << BIT_OFF);
     *v |= (val as i16) << BIT_OFF;
+}
+
+/// `set_aerosol(qai, p, val)`: clear the two aerosol bits, then set them to `val` (0 to 3).
+#[inline]
+pub fn set_aerosol(v: &mut i16, val: i16) {
+    *v &= !(3i16 << BIT_AOD);
+    *v |= val << BIT_AOD;
+}
+
+/// `set_lowsun(qai, p, val)`: clear the low sun flag, then set it to `val`.
+#[inline]
+pub fn set_lowsun(v: &mut i16, val: bool) {
+    *v &= !(1i16 << BIT_SUN);
+    *v |= (val as i16) << BIT_SUN;
 }
 
 /// `set_slope(qai, p, val)`: clear the slope flag, then set it to `val`.
@@ -103,5 +133,13 @@ mod tests {
         assert!(vaporfill(v) && v == 0b101 | (1 << 14));
         set_vaporfill(&mut v, false);
         assert_eq!(v, 0b101);
+        let mut a = 0b101i16 | (1 << 3);
+        set_aerosol(&mut a, 2);
+        set_lowsun(&mut a, true);
+        assert_eq!((aerosol(a), lowsun(a), a & 0b1111), (2, true, 0b1101));
+        set_aerosol(&mut a, 3);
+        set_aerosol(&mut a, 1);
+        set_lowsun(&mut a, false);
+        assert_eq!((aerosol(a), lowsun(a)), (1, false));
     }
 }

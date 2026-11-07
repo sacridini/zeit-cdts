@@ -623,12 +623,20 @@ pub fn cfactor_topography(atc: &Atc, toa: &Toa, qai: &[i16], dem: &[u8], slope: 
 /// metres, the binned DEM) that are on in the cell `g` of the coarse grid `cdem` (the elevation bin of the cell is
 /// stored in its band 0, as an `int`: the bricks of the C hold it as one); 0 if none is.
 pub fn average_elevation_cell(g: usize, cdem: &mut CoarseBrick, fdem: &[u8], fnx: usize, fny: usize, fres: f64, qai: &[i16]) {
+    cdem.bands[0][g] = average_elevation_value(g, cdem.nx, cdem.res, fdem, fnx, fny, fres, qai);
+}
+
+/// The value `average_elevation_cell` stores for the cell `g` of a coarse grid of `cnx` cells a row and `cres` metres:
+/// the C's `set_brick` on the `int` brick (`(int)round(average)`) as a float. It reads the DEM and the QAI only, so the
+/// cells can be computed in any order, or in parallel.
+#[allow(clippy::too_many_arguments)]
+pub fn average_elevation_value(g: usize, cnx: usize, cres: f64, fdem: &[u8], fnx: usize, fny: usize, fres: f64, qai: &[i16]) -> f32 {
     // convert_brick_p2ji(CDEM, FDEM, g, &i, &j): coarse cell to fine position
-    let i_from = g / cdem.nx;
-    let i = (i_from as f64 * cdem.res / fres).floor() as i64;
-    let j = ((g - i_from * cdem.nx) as f64 * cdem.res / fres).floor() as i64;
+    let i_from = g / cnx;
+    let i = (i_from as f64 * cres / fres).floor() as i64;
+    let j = ((g - i_from * cnx) as f64 * cres / fres).floor() as i64;
     // cellsize in fine pixels
-    let cell_size = (cdem.res / fres).floor() as i64;
+    let cell_size = (cres / fres).floor() as i64;
     let (mut sum, mut num) = (0.0f64, 0.0f64);
     for ii in i..(i + cell_size) {
         for jj in j..(j + cell_size) {
@@ -644,7 +652,11 @@ pub fn average_elevation_cell(g: usize, cdem: &mut CoarseBrick, fdem: &[u8], fnx
         }
     }
     // set_brick on an int brick: (int)val
-    cdem.bands[0][g] = if num > 0.0 { ((sum / num).round() as f32) as i32 as f32 } else { 0.0 };
+    if num > 0.0 {
+        ((sum / num).round() as f32) as i32 as f32
+    } else {
+        0.0
+    }
 }
 
 #[cfg(test)]
