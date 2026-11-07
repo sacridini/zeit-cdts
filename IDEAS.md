@@ -2820,6 +2820,50 @@ validação.
     dele; só um `0*inf` mudaria algo, e o `exp` não dá `inf` com vapor e ozônio não negativos).
     `Date` leva só os campos que o `sunpos` lê (ano, mês, dia, dia do ano, hora, minuto, segundo,
     fuso), com o ano de 365 dias do FORCE.
+- **23g, segunda parte (vapor d'água):** o resto do `gas-ll.c` do FORCE 3.11.00, em
+  `rust/zeit-core/src/gas.rs`: `wvp_transmitt_lut` (`WvLut::build`, a tabela de 701 vapores por 101
+  massas de ar, o `_WVLUT_` do C, agora um valor que se passa), `fun_wvp` e `water_vapor` (o vapor
+  de cada bloco de 60 m do Sentinel-2, pela razão das bandas NIR e VAPOR e o simplex de Nelder-Mead),
+  `gas_transmittance` e `water_vapor_from_lut` (as LUTs `WVP_AAAA-MM-DD.txt` e `WVP_0000-MM-00.txt`).
+  Estruturas mínimas para as próximas partes estenderem: `atc.rs` (`Atc` com os campos que estas
+  funções leem, `CoarseBrick` = pilha de bandas numa grade de células grossas, os 256 níveis de
+  elevação do `xyz_*`), `qai.rs` (só os bits que o `gas-ll.c` testa: off, sombra, água e o de
+  vapor preenchido) e `gsl_nmsimplex.rs` (o `nmsimplex2` do GSL 2.7 em uma dimensão, operação por
+  operação; o BLAS de um elemento são as contas simples). Ligação mínima `zeit._core.gas`
+  (`water_vapor_scene`, `water_vapor_from_lut`), sem API pública ainda.
+  - **Igual ao C, bit a bit, em 7.076.598 valores de 6 cenas sintéticas** (36x30 a 300x240
+    pixels, células de 60, 120 e 300 m, sol baixo, uma cena toda de água) mais 300 cenários de LUT
+    de arquivos: a LUT de transmitância (6 x 920.413 floats, 0 ulp), o vapor (103.608 `short`),
+    o QAI depois do preenchimento (103.608) e a transmitância dos gases das 13 bandas
+    (1.346.904), 0 diferenças; `water_vapor_from_lut`, 300 de 300 iguais (99 delas -1: nenhum
+    valor, ou o modo estrito). O harness (`benchmarks/vs_originals/force_gas/`) compila o
+    `gas-ll.c` do FORCE como está (menos o primeiro `#include`), com `radtran-ll.c` e `table-ll.c`,
+    atrás de shims mínimos de `brick_t`, `atc_t`, `meta_t` e `par_ll_t`, contra o GSL 2.7 de verdade
+    ligado estaticamente com o CBLAS de referência dele (o `libgslcblas.so` do conda é OpenBLAS); as
+    funções de `quality-cl.c`, `brick_base-cl.c`, `utils-cl.c`, `dir-cl.c` e `atc-ll.c` de que ele
+    depende entram copiadas literalmente. O script é `benchmarks/vs_originals/force_gas.py`.
+  - **Onde o Zeit fica diferente do C, de propósito:** (1) o laço de 60 m do FORCE é um
+    `omp for schedule(guided)` em que cada thread leva o vapor do último pixel como início do
+    próximo (`w`) e soma `w_sum` e `num` por thread; a saída depende então do número de threads
+    (com 4 threads, o FORCE difere do FORCE com 1 em 8.208 dos 72.000 pixels da cena grande, até
+    2,09 cm e em média 0,010 cm). O Zeit é o FORCE com uma thread: blocos em ordem de linha, um
+    início carregado, uma soma em `f64`; é igual ao FORCE com `OMP_NUM_THREADS=1`, determinístico.
+    (2) A LUT é construída fora do `water_vapor` e passada (o FORCE a reconstrói a cada chamada
+    numa global); `free_wvlut` é o drop. (3) Blocos na borda (imagem que não é múltiplo de 6) são
+    cortados, onde o C lê e escreve além da borda. (4) Onde o C retorna `NULL`/`-1` ou o GSL aborta
+    (o handler de erro está ligado no `water_vapor`), o Zeit devolve `Err` ou pula o pixel; uma
+    linha de LUT com menos de três campos derruba o FORCE (`atof(NULL)`) e aqui é pulada. (5) O
+    centro da cena (longitude e latitude, que o FORCE tira da projeção do brick `xy_sun`) e a data
+    entram como argumentos.
+  - **Próximas partes:** o `aod-ll.c` (1.837 linhas) em duas sub-etapas. (a) Os alvos escuros e
+    a AOD de cada um: `aodfileread`, `extract_dark_target` (lê `top_t`: DEM binado, iluminação e
+    céu visível do `topo-ll.c`, que precisa de um `compile_topography` antes), as bibliotecas de
+    espectros (`water_lib`, `land_lib`, `veg_lib`, com as tabelas `_AERO_WATERLIB_` 26x491 e
+    `_AERO_LANDLIB_` 34x1991 do `table-ll.c`, que o `gen_radtran_tables.py` ainda não gera),
+    `aod_lib_to_target`, `aod_from_target` e `aod_elev_dependency` (o `gsl_min` de Brent). (b) O
+    mapa: `aod_linear_fit`, `aod_polynomial_fit` (o `nmsimplex` original do GSL, não o `nmsimplex2`),
+    `aod_map`, `interpolate_aod_map` (o `GDALGridCreate` de inverso da distância, que pede um IDW
+    igual ao do GDAL) e `compile_aod`. Depois, o `atmo-ll.c` (2.126 linhas), que consome tudo.
 - **Janus:** o `zeit-core` foi para o `7c01978` sem mudar nada do que o Janus já chamava. As
   ferramentas pedem duas coisas novas no Janus:
   - saídas cujas bandas a ferramenta decide (a grade nova, os anos, as janelas);

@@ -474,6 +474,23 @@ The difference is FORCE's: its Julian day is a float32, so it moves in steps of 
 The other values are equal bit for bit: the arithmetic is the C's (`float` in `f32`, `double` where the C promotes, each float variable rounded where the C stores it; the products of two floats stay floats), and Windows' UCRT and glibc 2.39 give the same `sin`, `cos`, `tan`, `exp`, `pow`, `asin` and `acos` on these inputs. The first port of `wavelength` and `E0` summed `RSR*WVL` and `RSR*E0` in double where the C multiplies two floats, and was 1 ulp off in 5 bands: the harness found it. The relative spectral response is stored as the span between the first and last non-zero value of each band (the zeros add nothing to the sums). `python benchmarks/vs_originals/force_radtran.py`.
 
 
+### Water vapour and gas transmittance vs FORCE
+
+The rest of `gas-ll.c` of **FORCE 3.11.00** (David Frantz; GPL-3.0-or-later) is in Zeit's core (`zeit_core::gas`; the public atmospheric correction comes later): `wvp_transmitt_lut` (the transmittance of each band for 701 water vapour amounts and 101 air masses), `water_vapor` (the water vapour of each 60 m block of a Sentinel-2 image, found by a Nelder-Mead simplex so that the surface reflectances of the NIR band and of the water vapour band agree; GSL 2.7's `nmsimplex2` is ported in one dimension), `gas_transmittance` and `water_vapor_from_lut` (FORCE's daily and climatological `WVP_*.txt` files). The C harness (`force_gas/`) compiles FORCE's `gas-ll.c` as it is (but for its first include), with `radtran-ll.c` and `table-ll.c`, behind minimal stand-ins for FORCE's brick, `atc`, metadata and parameter structures, against the real GSL 2.7 linked statically with its own reference CBLAS (conda's `libgslcblas.so` is OpenBLAS, whose `dnrm2` rounds differently); the functions of `quality-cl.c`, `brick_base-cl.c`, `utils-cl.c`, `dir-cl.c` and `atc-ll.c` it uses are copied verbatim. FORCE's retrieval carries the last estimate of each OpenMP thread to its next pixel, so it depends on the number of threads; the harness runs with one thread, and Zeit's is that one-thread order (row-major blocks, one running sum).
+
+| Scene (pixels, coarse cell) | LUT floats | Water vapour (`short`) | QAI after the fill | Gas transmittance, 13 bands | Blocks retrieved |
+| --- | --- | --- | --- | --- | --- |
+| 36 x 30, 120 m | 920,413 | 1,080 | 1,080 | 14,040 | 25 |
+| 120 x 96, 120 m | 920,413 | 11,520 | 11,520 | 149,760 | 279 |
+| 120 x 96, 60 m | 920,413 | 11,520 | 11,520 | 149,760 | 294 |
+| 102 x 72, 300 m, low sun | 920,413 | 7,344 | 7,344 | 95,472 | 165 |
+| 300 x 240, 300 m | 920,413 | 72,000 | 72,000 | 936,000 | 1,751 |
+| 12 x 12, all water | 920,413 | 144 | 144 | 1,872 | 0 |
+
+All 7,076,598 values are equal bit for bit (the LUT in float32, 0 ulp; the others whole numbers, 0 differences), and so are 300 of 300 `water_vapor_from_lut` scenarios on synthetic LUT files (random centres near and far from the sites, dates with and without a daily file, a month without a climatology, nodata 9999 and negative values, comments, doubled blanks and CRLF line ends, strict mode; 99 of them return -1). The scenes have a smooth water vapour field from 0.4 to 5 cm with a patch of 9 cm that cannot be retrieved, a sun and view geometry with cells outside the swath, an elevation for the 256 bins, TOA reflectances from the forward model plus noise, and a QAI with off pixels, shadow, water (some whole 60 m blocks) and other flags.
+
+FORCE with 4 threads against FORCE with 1, on the large scene: 8,208 of 72,000 pixels differ, by 0.010 cm on average and 2.09 cm at most (the start value of the minimizer). Timings of the first run, one thread on both sides and not in a verified quiet window (so indicative only): FORCE 12.7 to 20.6 s per scene, almost all of it the LUT, Zeit 0.57 to 0.89 s for the whole call. `python benchmarks/vs_originals/force_gas.py`.
+
 ### The coregistration vs AROSICS
 
 [`coregister`](../api/preprocessing.md#coregister) is a port of the global `COREG` of **AROSICS 1.14.0** (Scheffler et al. 2017; Apache-2.0), run here as it is in its own conda environment (`arosics-ref`, Python 3.14, GDAL 3.12, from conda-forge) by `benchmarks/vs_originals/arosics_driver.py`, on GeoTIFFs written by `benchmarks/vs_originals/arosics.py`, which then runs Zeit on the same files. AROSICS: `COREG(ref, tgt, ws=(256, 256), max_shift=5, max_iter=5, nodata=(nd, nd), align_grids=True, resamp_alg_deshift="cubic", ignore_errors=True)` and `calculate_spatial_shifts()`, then `correct_shifts()` for the aligned image. There is no satellite scene in the repository (the largest GeoTIFFs of `examples/data` are 25 x 25 pixels), so the pairs are synthetic, plus one of real image content: scikit-image's `camera` (512 x 512, 8 bit) with its copy moved by (2.3, -1.4) pixels (a cubic spline). The synthetic scenes are value noise (five octaves, 2-32 pixel features, 30 m cells) moved by known shifts.
@@ -607,6 +624,8 @@ wsl -e bash -lc 'bash benchmarks/vs_originals/force_parallax/make_harness.sh'   
 python benchmarks/vs_originals/force_parallax.py --size 512 --big 2048   # zeit.parallax_clouds and zeit.buffer_mask against it, and the times
 wsl -e bash -lc 'bash benchmarks/vs_originals/force_radtran/make_harness.sh'                  # FORCE's radiative transfer (radtran-ll.c, table-ll.c, sun-cl.c as they are, for the sun position's reference); then:
 python benchmarks/vs_originals/force_radtran.py   # zeit_core::radtran against it, bit for bit
+wsl -e bash -lc 'bash benchmarks/vs_originals/force_gas/make_harness.sh'                  # FORCE's gas-ll.c as it is, on GSL 2.7 (static); then:
+python benchmarks/vs_originals/force_gas.py   # zeit_core::gas against it, bit for bit, one OpenMP thread
 python benchmarks/vs_originals/topocorr.py            # gdaldem (GDAL_BIN) and terra/RStoolbox 1.0.2.2, against zeit.topographic_correction
 python benchmarks/vs_originals/arosics.py            # AROSICS 1.14.0 (conda env arosics-ref; AROSICS_ENV=...), against zeit.coregister
 python benchmarks/vs_originals/arosics.py local run 1   # COREG_LOCAL with CPUs=1 and with 4 (`local run 4`), then zeit.coregister_local against both:
