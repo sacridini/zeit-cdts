@@ -50,6 +50,7 @@ from ._s2angles import sentinel2_angles
 from ._specadjust import spectral_adjust
 from ._tasseled import tasseled_cap
 from ._improphe import improphe
+from ._resmerge import sentinel2_resmerge
 
 from .regularize import regularize_time_series
 
@@ -127,6 +128,7 @@ __all__ = [
     "spectral_adjust",
     "tasseled_cap",
     "improphe",
+    "sentinel2_resmerge",
     "build_annual_composites",
     "build_spectral_temporal_metrics",
     "compute_indices",

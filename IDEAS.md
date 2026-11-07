@@ -2525,7 +2525,8 @@ validação.
     threads, limitada pela memória.
 - **23d, o ImproPhe:** `zeit.improphe`, o CF-ImproPhe e o L2-ImproPhe do FORCE (Frantz et al.
   2016), port direto do `improphe-hl.c` e do `pca-cl.c`. O STARFM do `resmerge-ll.c` é código do
-  USDA com termos próprios e ficou de fora; o merge de 20 m para 10 m do Sentinel-2 ainda falta.
+  USDA com termos próprios e ficou de fora; o merge de 20 m para 10 m do Sentinel-2 veio depois
+  (o item seguinte).
   - O `pca` do FORCE projeta os dados na transposta da matriz de autovetores, e o resultado
     depende dos sinais que o GSL dá a eles. Por isso o `gsl_eigen_symmv` do GSL 2.7 foi portado
     linha a linha.
@@ -2543,6 +2544,34 @@ validação.
     `pca="force"` fica como opção.
   - Tempo: 1,2× a 2,4× o estágio de cálculo do FORCE, com 1 e 6 threads, nos raios de 10, 20 e
     50 pixels.
+- **23d, o merge de 20 m para 10 m:** `zeit.sentinel2_resmerge(cube, method="regression"|"improphe",
+  clear=None, force=False)`, port direto do `resolution_merge_1` e do `resolution_merge_2`
+  (`improphe_resmerge`) do `resmerge-ll.c` do FORCE (Frantz, GPL-3). O STARFM do mesmo arquivo
+  ficou de fora, como previsto.
+  - Como os 20 m chegam aos 10 m no `force-l2ps`: o `read-ll.c` lê cada banda de 20 m com o
+    `GDALRasterIO` direto no buffer de 10 m, cujo reamostrador padrão é o vizinho mais próximo,
+    isto é, cada pixel vira quatro iguais. A função do Zeit recebe o cubo já nessa grade.
+  - Regressão: o ajuste de mínimos quadrados de 25 pixels (janela 5x5, o pixel na própria janela;
+    "off" fora, nuvem e sombra dentro; linhas `(1,0,0,0)` com `y=0` completam a janela) é o
+    `gsl_multifit_linear` do GSL 2.7 portado à operação: balanceamento de colunas,
+    `gsl_linalg_SV_decomp_mod`, Golub-Reinsch, CBLAS de referência sem FMA, e o `hypot` correto do
+    port do autossolver. A matriz é a mesma nas seis bandas; o Zeit decompõe uma vez por pixel, e
+    o resultado é o das seis decomposições do GSL.
+  - Igual ao FORCE em todos os valores com `force=True`, nos dois métodos (6 bandas x 245.534
+    pixels, numa cena sintética de 500x500 com sem-dado, nuvens, sombras, espectros constantes e
+    zeros). Não há módulo do FORCE que rode isso sobre ARD (só o `force-l2ps`), então a comparação
+    é com um harness em C (`benchmarks/vs_originals/force_resmerge/`) com as funções do FORCE
+    copiadas literalmente, atrás de shims de arrays, ligado estaticamente ao GSL 2.7 real e à
+    CBLAS de referência (a armadilha do OpenBLAS no `libgslcblas.so.0` outra vez).
+  - Onde fugiu do plano: com `force=False` (o padrão) a regressão não lê as predições anteriores
+    como vizinhas. O FORCE escreve a predição de volta no `toa_` durante a varredura, então a
+    ordem decide (com OpenMP é uma corrida). `force=True` faz a varredura em linha, em um thread.
+    A diferença é grande: 11 a 20 números digitais em média na cena sintética, até 490.
+    Conferido contra um `lstsq` do numpy (1e-4 DN). Também, o Zeit não tem DataArray lazy aqui
+    (um cubo dask é computado) e aceita `bands=`, `scale=` e `nodata=` como o `spectral_adjust`.
+  - Tempo (máquina carregada por outros builds, 93-96%, então indicativo): a regressão do Zeit
+    é 5,9x o FORCE com 1 thread e 7x com 4; o ImproPhe é 0,6x o C do FORCE (inclui as conversões
+    do Python).
 - **Janus:** o `zeit-core` foi para o `7c01978` sem mudar nada do que o Janus já chamava. As
   ferramentas pedem duas coisas novas no Janus:
   - saídas cujas bandas a ferramenta decide (a grade nova, os anos, as janelas);
@@ -2566,9 +2595,10 @@ validação.
   `granule_metadata` do Earth Search (sem rede nos testes).
 - ~~A janela de Time series analysis no Janus~~: feita (fase 56 do Janus, 338b683 a 9709d2f),
   menos as capturas e a página no site, que esperam o redesenho do site (branch `site-redesign`).
-- **Zeit:** o merge de 20 m para 10 m do Sentinel-2 (`resolution_merge_1` e `_2` do
-  `resmerge-ll.c`, do Frantz, GPL-3; o STARFM do mesmo arquivo fica de fora). Não roda contra o
-  FORCE com ARD: só dentro do `force-l2ps` (ver a especificação do ImproPhe, seção 4.5).
+- ~~**Zeit:** o merge de 20 m para 10 m do Sentinel-2~~: feito, `zeit.sentinel2_resmerge`
+  (`resolution_merge_1` e `_2` do `resmerge-ll.c`; o STARFM fica de fora). Igual ao FORCE em todos
+  os valores com `force=True`, por um harness em C com as funções do FORCE, já que o merge só
+  roda dentro do `force-l2ps`. Falta uma ferramenta no Janus, se couber na janela de ARD.
 - **Zeit:** 23e (correção topográfica, paralaxe e buffer de nuvem), 23f (coregistro) e 23g
   (correção atmosférica), como nas Etapas acima.
 - **Self-test do Janus:** a Fenologia polar é pulada nos dados de teste, que são irregulares.

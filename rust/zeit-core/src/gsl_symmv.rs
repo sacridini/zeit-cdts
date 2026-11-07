@@ -34,7 +34,7 @@ const EPS: f64 = f64::EPSILON;
 /// algorithm) is correctly rounded in practice, while Rust's `f64::hypot` is the platform's: the Windows C runtime's
 /// differs from it in the last bit in about one call of ten, which a Householder reduction turns into last-bit
 /// differences in every eigenvector. This one gives glibc's values wherever both are correctly rounded.
-fn hypot(x: f64, y: f64) -> f64 {
+pub(crate) fn hypot(x: f64, y: f64) -> f64 {
     let (x, y) = (x.abs(), y.abs());
     if x.is_infinite() || y.is_infinite() {
         return f64::INFINITY;

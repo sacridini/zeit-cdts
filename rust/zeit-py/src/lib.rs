@@ -32,6 +32,7 @@ mod phenology;
 mod postproc;
 mod profile;
 mod recovery;
+mod resmerge;
 mod sccd;
 mod sma;
 mod smooth;
@@ -95,5 +96,6 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     add_submodule(m, &brdf::module(m.py())?)?;
     add_submodule(m, &tasseled::module(m.py())?)?;
     add_submodule(m, &improphe::module(m.py())?)?;
+    add_submodule(m, &resmerge::module(m.py())?)?;
     Ok(())
 }

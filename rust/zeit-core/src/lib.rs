@@ -39,6 +39,7 @@ pub mod phenology;
 pub mod postproc;
 pub mod profile;
 pub mod recovery;
+pub mod resmerge;
 pub mod robustfit;
 pub mod sccd;
 pub mod sma;

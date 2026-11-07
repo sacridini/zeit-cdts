@@ -374,6 +374,30 @@ Where FORCE does not predict (screened by its QAI in the scene, or a NoData coar
 
 The cost is the neighbourhood step, as FORCE's (one year or scene at radius 10 on 1 thread: 34 ms for the means, components, standardization and texture, 120 ms for the neighbourhood step; radius 50: 34 and 1,124 ms). Zeit's gain comes from the two passes of the neighbourhood step (the first finds the threshold, with an early exit of the sum of differences once it exceeds the last threshold, and the weights are computed over the kept neighbours only), the rows of the circle precomputed, and the components laid out by band; the arithmetic and its order are FORCE's, which is why the results are equal. FORCE's step is O(`pi h^2`) per pixel with all its neighbours' distances computed in full.
 
+### The resolution merge vs FORCE
+
+[`sentinel2_resmerge`](../api/preprocessing.md#sentinel2_resmerge) is compared with **FORCE 3.11.00**'s resolution merge (`resmerge-ll.c`: `resolution_merge_1`, the regression, and `resolution_merge_2`, the ImproPhe-like weighted mean; Frantz; GPL-3.0-or-later), the code it is ported from. FORCE runs the merge only inside `force-l2ps`, between the coregistration and the radiometric correction, so there is no program to feed an ARD tile to. The comparison is therefore with a C harness (`benchmarks/vs_originals/force_resmerge/`, built by `make_harness.sh` in WSL) made of FORCE's own functions copied verbatim (`resolution_merge_1` and `_2`, `improphe_resmerge`, `rescale_weight_resmerge`, `distance_kernel`) behind shims that replace the brick and QAI accessors with plain arrays and masks, and linked statically to the real GSL 2.7 (`libgsl.a` and the reference `libgslcblas.a` of the conda env `force-ref`: conda-forge's `libgslcblas.so.0` is OpenBLAS, as for ImproPhe). It runs on one OpenMP thread, where FORCE's regression is deterministic. STARFM, the third option of the file (the USDA's code), is not in the harness nor in Zeit.
+
+In `force-l2ps` the 20 m bands reach the 10 m grid when the digital numbers are read: `GDALRasterIO` into the 10 m buffer, whose default resampling is the nearest neighbour, so each 20 m pixel is four equal pixels. The scene made by `force_resmerge.py` has that structure: **500 x 500 pixels of 10 m**, int16 reflectance times 10000 of six land covers (blocks of 40 pixels, an illumination gradient, 5% noise in every band), the six 20 m bands as 2 x 2 blocks, a patch of constant spectra and a patch of zeros (rank deficient fits), a stripe and 1% scattered pixels of no data (4,466 in all), two clouds (2,946 pixels) and their shadows (1,000). Zeit gets it as float32 with NaN where FORCE has the "off" mask, and `clear` from the cloud and shadow masks. `force=True` is compared with FORCE's int16 output over the 245,534 pixels with data (241,660 of them predicted, the others left as they were).
+
+| Method | Band | Identical | Max \|difference\| |
+|:---|:---|---:|---:|
+| regression | red edge 1, 2, 3, B8A, SWIR1, SWIR2 | 100% (all six) | 0 |
+| ImproPhe | red edge 1, 2, 3, B8A, SWIR1, SWIR2 | 100% (all six) | 0 |
+
+Every value of the six bands is the same, for both methods (the first comparison, on a 300 x 300 scene, was also identical). That needed GSL's `gsl_multifit_linear` ported to the operation (the column balancing, `gsl_linalg_SV_decomp_mod` and the Golub-Reinsch iteration, the reference CBLAS without fused multiply-adds, and the correctly rounded `hypot` of the eigensolver port, since Rust's `hypot` on Windows is not glibc's); the matrix is the same for the six bands, so Zeit decomposes it once per pixel, which gives the bits of GSL's six decompositions.
+
+**What `force=False` changes.** The regression of FORCE writes each prediction into the band before the next pixel's window reads it. With `force=False` every window reads the original values: on this scene the two differ by 11-20 digital numbers on average (up to 490) and only 4-11% of the values are within 1, because the in-place sweep reads smoothed predictions where the other reads the blocks of the 20 m bands; `force=False` agrees with an independent least squares (numpy's `lstsq` on the same windows, 216 pixels) to 1e-4. ImproPhe has no feedback: the two modes differ by the truncation (all values within 1, 0.49 on average).
+
+**Timings.** The same scene, the whole call (FORCE: the merge function inside the harness, gcc -O2, OpenMP; Zeit: `zeit.sentinel2_resmerge`, release build on Windows, with its conversions), the best of 3, milliseconds. **The machine was not quiet**: other builds ran throughout (load 93-96%), so these are indicative, and nothing was re-measured later. FORCE's regression with 4 threads is racy (its output differs from the one-thread run); only its time is of use.
+
+| Method | FORCE, 1 thread | Zeit, 1 thread (`force=False`) | FORCE, 4 threads | Zeit, 4 threads (`force=False`) | Zeit `force=True`, 1 / 4 |
+|:---|---:|---:|---:|---:|---:|
+| regression | 3,691 | 627 | 1,292 | 185 | 630 / 617 (one thread by design) |
+| ImproPhe | 86 | 140 | 39 | 50 | 139 / 50 |
+
+Zeit's regression is 5.9 times as fast as FORCE's on one thread (the SVD is done once per pixel and not six times, in fixed-size arrays) and 7.0 times with four; its ImproPhe is slower than FORCE's C (0.6 times), where the time includes Python's conversions of the cube and the masks, and the kernel itself is small (13 neighbours).
+
 ---
 
 ## Protocol
@@ -392,7 +416,7 @@ The cost is the neighbourhood step, as FORCE's (one year or scene at radius 10 o
 | Processor | `Intel64 Family 6 Model 183 Stepping 1, GenuineIntel` (the Intel Core i5-13600K of the other benchmarks), 20 logical processors |
 | R | 4.4.2, with sfdep 0.2.5, RecoverMetricsR 0.1.0, RStoolbox 1.0.2.2, sits 1.5.4, CAST 1.0.4, Rbeast 1.0.2, remotePARTS 1.0.4, blockCV 4.0.1 (with automap 1.1.20), scam 1.2.23 and survey 4.5 |
 | Python | pyxccd 1.1.0, in a virtual environment of its own |
-| Date | 2026-10-24 (the AR(1) trends and PARTS: 2026-10-28; the spatial cross-validation: 2026-10-29; the transitions: 2026-11-03; ImproPhe: 2026-11-06) |
+| Date | 2026-10-24 (the AR(1) trends and PARTS: 2026-10-28; the spatial cross-validation: 2026-10-29; the transitions: 2026-11-03; ImproPhe: 2026-11-06; the resolution merge: 2026-11-07) |
 
 ---
 
@@ -419,6 +443,8 @@ wsl -e bash -lc 'bash benchmarks/vs_originals/force_improphe.sh ~/force-ref-work
 python benchmarks/vs_originals/force_improphe.py --part cf,l2                              # zeit.improphe against both (--data: another cube)
 wsl -e bash -lc 'bash benchmarks/vs_originals/force_improphe_timing.sh ~/force-ref-work/imp-bench 1'   # and with 6; then:
 python benchmarks/vs_originals/force_improphe_timing.py                                    # Zeit's times against FORCE's compute stage
+wsl -e bash -lc 'bash benchmarks/vs_originals/force_resmerge/make_harness.sh'                  # FORCE's resolution merge, verbatim, on GSL 2.7 (static); then:
+python benchmarks/vs_originals/force_resmerge.py --size 500   # zeit.sentinel2_resmerge against it, and the times
 python benchmarks/vs_originals/polar.py               # PolarMetrics 0.1.0 (R package from GitHub: R CMD INSTALL), against zeit.polar_metrics
 python benchmarks/vs_originals/ewmacd.py "path/to/EWMACD v1.3.0.r"   # Brooks' script, not distributed
 PYXCCD_PYTHON=path/to/pyxccd-env/python python benchmarks/vs_originals/sccd.py CCDC_Stack_Rondonia.tif CCDC_Stack_Rondonia_Dates.csv

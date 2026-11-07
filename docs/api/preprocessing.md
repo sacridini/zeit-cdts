@@ -300,6 +300,47 @@ FORCE writes int16, the result truncated toward zero, and where it does not pred
 
 **Cost and memory.** The work for every year or scene is the circle of radius `kernel_size` around each pixel (`pi h^2` neighbours of a few components each): on 6 threads of a desktop, 8e5 pixels/s of one year or scene at a radius of 10 pixels, 6e4 at 50, and 25 times the cost of 50 at the default 250 (minutes for a 1000 x 1000 tile). Zeit is 1.2 to 2.4 times as fast as FORCE's compute stage on the same data (see the benchmarks). Everything is in memory (the cube, the coarse field and the result), with no chunking: the components' statistics are those of the whole extent and the circle reaches `kernel_size` beyond any block. A dask input is computed first; for a large area the caller works a tile at a time, with a margin of `kernel_size`.
 
+### `sentinel2_resmerge` { .api }
+
+<!-- sig: zeit.sentinel2_resmerge -->
+```python
+zeit.sentinel2_resmerge(
+    cube, *, method="regression", clear=None, force=False, bands=None,
+    scale="auto", nodata="auto", n_jobs=-1,
+)
+```
+
+The 20 m bands of Sentinel-2 (red edge 1-3, B8A, SWIR1, SWIR2) at 10 m, predicted from the 10 m green, red and broad NIR: FORCE's resolution merge of its Level 2 processing (`resmerge-ll.c`, FORCE 3.11, David Frantz, GPL-3.0-or-later). FORCE's third option, STARFM (the USDA's code), is not part of it. The input is a cube already on the 10 m grid, where each 20 m pixel is four equal pixels: that is how FORCE gets them (it reads the 20 m files into the 10 m buffer with GDAL's `RasterIO`, whose resampling is the nearest neighbour), and a nearest-neighbour `reproject_match` of the 20 m bands gives the same.
+
+`method="regression"` fits, for each pixel and each of the six bands, `y = c0 + c1 green + c2 red + c3 NIR` by least squares over the 5 x 5 pixels around it (GSL's `gsl_multifit_linear`: the singular value decomposition of the column-balanced matrix, singular values at or below `epsilon` times the largest dropped) and evaluates it at the pixel. The pixel is in its own window; pixels with no data are left out, and a window with fewer than 25 pixels is filled with rows `(1, 0, 0, 0)` and `y = 0` (FORCE's: it pulls the fit towards zero at the borders and next to gaps); clouds and shadows are kept in the window. `method="improphe"` is ImproPhe's weighted mean with spectral instead of temporal similarity: the pixels of the disc of radius 2 that are not cloud, shadow or no data and whose mean absolute difference of green, red and NIR (reflectance) to the pixel is under 0.0025, 0.005, 0.01, 0.02 or 0.025 are the neighbours; the smallest of those cutoffs that has at least 3 of them is used, and each band is the mean of the neighbours' values weighted by `1 / (1 + exp(25 x - 7.5))`, `x` the difference rescaled over the neighbours of the cutoff. It is faster than the regression.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `cube` | `DataArray` | required | Reflectance `(time, band, y, x)` or `(band, y, x)`, each date on its own, all bands on the 10 m grid, with `green red nir rededge1 rededge2 rededge3 nir08 swir16 swir22` (`nir` is B08, `nir08` B8A) or `B03 B04 B08 B05 B06 B07 B8A B11 B12`. Other bands pass through. In memory (a lazy cube is computed). |
+| `method` | `"regression"` or `"improphe"` | `"regression"` | FORCE's `RES_MERGE = REGRESSION` or `IMPROPHE`. |
+| `clear` | boolean array | `None` | Broadcastable to `(time, y, x)`: True where the pixel is not cloud or shadow. By default every pixel with data is. Pixels that are not clear are not predicted. |
+| `force` | `bool` | `False` | FORCE's arithmetic (below). |
+| `bands` | `dict` | `None` | The cube's band of each of the nine roles, when its names are not the usual ones. |
+| `scale` | `"auto"` or `float` | `"auto"` | What the reflectance is multiplied by in the data (10000 for integers or values above 2, else 1). The thresholds of `"improphe"` are in reflectance and the regression's coefficients are not scale-free, so a cube in 0-1 and one in 0-10000 give the same. |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | Missing values besides NaN: the raster's NoData (0 for an integer cube without one), a number or `None`. A pixel with a missing value in any of the nine bands is FORCE's "off": left out of the windows and not predicted. |
+| `n_jobs` | `int` | `-1` | Threads (the processors zeit may use by default). |
+
+</div>
+
+**Returns** float32, as `cube`, with the six bands predicted at the pixels that are neither off nor cloud or shadow, and every other value as it was. `attrs["sentinel2_resmerge"]` says the method.
+
+```python
+s2 = zeit.build_time_series(collection="sentinel-2-l2a", resolution=10, ...)   # the 20 m bands by nearest neighbour
+sharp = zeit.sentinel2_resmerge(s2, method="regression", clear=cloud_free)
+fast = zeit.sentinel2_resmerge(s2, method="improphe", clear=cloud_free)
+```
+
+**Where it differs from FORCE.** FORCE's regression writes each prediction into the band before the next pixel's window reads it (row-major with one thread; with OpenMP's several it is a race, so its output depends on the thread schedule). With `force=False` every window reads the original values, the pixels run in parallel and the output is float32, not truncated. `force=True` is FORCE's arithmetic: the values are taken as reflectance times 10000 (a cube in another `scale` is converted and rounded), predictions are truncated to integers (`(short)(v * 10000)`) held in float32, and for `"regression"` the sweep is FORCE's, in place, row-major, on one thread. The feedback is not a detail: on the synthetic scene of the benchmark the two differ by 11-20 digital numbers on average and up to 490 (the windows of `force=True` read smoothed predictions where those of `force=False` read the blocks of the 20 m bands), and `force=False` matches an independent least squares (numpy's `lstsq`, 216 pixels) to 1e-4 digital numbers. For `"improphe"` there is no feedback: the two modes differ by the truncation.
+
+**Agreement with FORCE.** `force=True` equals the code of FORCE 3.11.00 in every value, for both methods, on a synthetic 500 x 500 scene with no-data pixels, clouds, shadows, constant spectra (a rank deficient fit) and zeros (6 bands x 245,534 pixels per method): the C harness is FORCE's own functions on plain arrays, linked to the real GSL 2.7 and its reference CBLAS, run on one thread (see [Against the Original Implementations](../benchmarks/vs-originals.md#the-resolution-merge-vs-force)). FORCE has no module that runs this on an ARD tile; it runs only inside `force-l2ps`.
+
 ## Cloud masking
 
 ### `tmask` { .api }
