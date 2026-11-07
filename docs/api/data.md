@@ -450,7 +450,7 @@ Without dates, the band axis keeps the name `band` and the algorithms ask for `y
 | `res` | number or `(x, y)` | `None` | Without a reference raster: the cell size, in the units of `crs` (or of the data's CRS), as `gdalwarp -tr`. |
 | `resampling` | `str` | `"auto"` | With `like`, `crs` or `res`: `"auto"` takes the nearest cell for integer rasters and interpolates floats bilinearly (QA bands always take the nearest cell); or a GDAL method: `"nearest"`, `"bilinear"`, `"cubic"`, `"cubic_spline"`, `"lanczos"`, `"average"`, `"mode"`, `"min"`, `"max"`, `"med"`, `"q1"`, `"q3"`, `"rms"`. |
 | `validate` | `str` | `None` | `"landtrendr"`, `"ccdc"` or `"cold"`: warn when the series looks unfit for that algorithm (too few dates, values that do not look scaled). |
-| `scale` | `bool` | `False` | Apply the `scale_factor` and `add_offset` each band stores (`value * scale + offset`, after NoData became NaN). Bands without them stay as they are (an Int16 file with no scale keeps its type); the files of a folder each use their own. Not for NetCDF/Zarr stores or `DataArray` sources, already decoded. Needs `masked` `"auto"` or `True`. |
+| `scale` | `bool` | `False` | Apply the `scale_factor` and `add_offset` each band stores (`value * scale + offset`, after NoData became NaN). Bands without them stay as they are (an Int16 file with no scale keeps its type); the files of a folder each use their own. Not for NetCDF/Zarr stores or `DataArray` sources, already decoded. Needs `masked` `"auto"` or `True`. Landsat files with a quality band (scales that differ by band) load without rioxarray's "Scales differ across bands" warning, which does not apply when Zeit reads the scales itself (`scale=True`) or only one `band` is read. |
 | `qa` | band, path, glob, list or `DataArray` | `None` | A quality band: the cube comes back with NaN where the observation is not usable by `qa_rule`. A band number reads it from the same files, like `band=` (`qa=7`: the Fmask of Landsat files of a date); anything else is another source with the same dates and grid, read with the same `clip`, `window`/`pixel`, `like`... (nearest cell). Integer data becomes float. |
 | `qa_rule` | `str` | `None` | With `qa`: `"fmask"`, `"landsat_c2"`, `"nonzero"`, `"scl"` or `"hls_fmask"`, see [`qa_mask`](#qa_mask). |
 | `bands` | `dict` | `None` | Bands by role, `{"blue": 1, "red": 3, "nir": 4}`: name to band (as `band=`). Gives a `(time, band, y, x)` cube whose `band` coordinate holds the names, in the order of the dict. Not with `band`. |
@@ -679,6 +679,31 @@ The observations a quality band keeps, as a boolean "usable" mask (the rules Jan
 ```python
 usable = zeit.qa_mask(cube.sel(band="fmask"), "fmask")
 clear = cube.sel(band="nir").where(usable)
+```
+
+### `qa_to_fmask` { .api }
+
+<!-- sig: zeit.qc.qa_to_fmask -->
+```python
+zeit.qc.qa_to_fmask(qa, rule)
+```
+
+The Fmask codes of a quality band: `0` clear, `1` water, `2` shadow, `3` snow, `4` cloud, `255` no data, the codes the `qa=` of [`ccdc`](change-detection.md#ccdc) and [`sccd`](change-detection.md#sccd) read. Same rule names as [`qa_mask`](#qa_mask) (and `fmask <= 1` is exactly its mask). A code counts when it is a number of 0 or more (fractions are cut); NaN, negative values and the raster's NoData are `255`. Exported as `zeit.qa_to_fmask`.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `qa` | array, `DataArray` or path | required | The quality band (lazy if the `DataArray` is). |
+| `rule` | `str` | required | `"fmask"`: the codes as they are (anything but 0-4 and 255 becomes 255). `"landsat_c2"`: QA_PIXEL bit 0 (fill) 255; bits 1 and 3 (dilated cloud, cloud) 4; bit 4 (shadow) 2; bit 5 (snow) 3; bit 7 (water) 1; else 0 (the first that applies, in this order). `"scl"`: Sentinel-2 SCL 4 and 5 are 0, 6 (water) 1, 2 and 3 (shadows) 2, 11 (snow or ice) 3, 7 to 10 (unclassified, clouds, cirrus) 4, the rest 255. `"hls_fmask"`: 255 is 255; bits 1 and 2 (cloud, adjacent) 4; bit 3 (shadow) 2; bit 4 (snow or ice) 3; bit 5 (water) 1; else 0. `"nonzero"`: 0 is 4, any other code 0. |
+
+</div>
+
+**Returns** a `uint8` array or `DataArray` (named `fmask`) with the input's dims and coordinates.
+
+```python
+qa = zeit.load_raster("landsat/", band=7, masked=True, pixel=(896, 186))   # QA_PIXEL
+segments = zeit.ccdc(bands_cube, qa=zeit.qa_to_fmask(qa, "landsat_c2"), scale="auto")
 ```
 
 ### `qc_sentinel2_scl` { .api }

@@ -12,9 +12,12 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
+from ._pixel import accepts_pixel
+
 _MIN_OBSERVATIONS = 5  # pixels with this many valid dates or fewer are left as they are
 
 
+@accepts_pixel
 def tmask(
     data: Any,
     *,

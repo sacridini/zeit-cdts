@@ -522,7 +522,7 @@ Flags clouds and cloud shadows the QA band missed, from each pixel's time series
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `data` | `DataArray` or path | required | A `(time, band, y, x)` cube with green and SWIR bands. |
+| `data` | `DataArray` or path | required | A `(time, band, y, x)` cube with green and SWIR bands, or one pixel: a `(time, band)` series (the result is `(time)`). |
 | `green` | `str` or `int` | `"green"` | The green band, by name or position. |
 | `swir` | `str` or `int` | `"swir1"` | The SWIR band (SWIR1, ~1.6 µm), by name or position. |
 | `scale` | `float` | `10000.0` | Reflectance scale of the data (`1.0` for reflectance in 0-1); the thresholds are in reflectance. |

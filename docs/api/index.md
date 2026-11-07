@@ -97,6 +97,7 @@
 | [`build_vrt`](data.md#build_vrt) | A VRT of tiles mosaicked and bands stacked, without GDAL's Python bindings |
 | [`nd`](data.md#nd) / [`normalized_difference`](data.md#nd) | The normalized difference of two bands, NaN where their sum is 0 |
 | [`qa_mask`](data.md#qa_mask) | The observations a quality band keeps (Fmask, Landsat C2, SCL, HLS) as a boolean mask |
+| [`qa_to_fmask`](data.md#qa_to_fmask) | The Fmask codes of a quality band (Landsat C2, SCL, HLS), for the `qa=` of CCDC and S-CCD |
 | [`get_georef`](data.md#get_georef) | CRS and transform of a raster or cube |
 | [`qc_sentinel2_scl`](data.md#qc_sentinel2_scl), [`qc_modis_summary`](data.md#qc_modis_summary), [`qc_modis_state`](data.md#qc_modis_state) | QA bands to observation weights |
 | **Embeddings** | |

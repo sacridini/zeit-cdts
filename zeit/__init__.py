@@ -39,7 +39,7 @@ from ._texture_api import texture
 from ._som_api import som, clean_samples
 from ._smooth import smooth
 from .masks import extract_water_mask
-from .qc import qc_modis_summary, qc_modis_state, qc_sentinel2_scl, qa_mask
+from .qc import qc_modis_summary, qc_modis_state, qc_sentinel2_scl, qa_mask, qa_to_fmask
 
 from ._tmask_api import tmask
 from ._sma import unmix
@@ -125,7 +125,7 @@ __all__ = [
     "emerging_hotspots",
     "snic_grid", "snic_to_polygons",
     "extract_water_mask",
-    "qc_modis_summary", "qc_modis_state", "qc_sentinel2_scl", "qa_mask",
+    "qc_modis_summary", "qc_modis_state", "qc_sentinel2_scl", "qa_mask", "qa_to_fmask",
     "build_time_series",
     "nbar",
     "sentinel2_angles",

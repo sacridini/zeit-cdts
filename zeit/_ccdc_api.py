@@ -35,6 +35,7 @@ def ccdc(
     valid_range: tuple = (0.0, 10000.0),
     thermal_range: tuple = (-9320.0, 7070.0),
     nodata: Union[float, str, None] = "auto",
+    scale: Union[float, str, None] = None,
     chunks: Any = None,
     n_jobs: int = -1,
 ) -> xr.Dataset:
@@ -61,9 +62,10 @@ def ccdc(
         SWIR2 [, brightness temperature] unless ``bands`` orders them.
     qa
         Fmask codes per date (0 clear land, 1 water, 2 cloud shadow, 3 snow, 4 cloud,
-        255 no observation): the name of a band of the cube (it is then left out of the
-        spectral bands), a ``(time, y, x)`` cube or array, or ``None`` (every date clear;
-        dates with NaN are no observation).
+        255 no observation; ``zeit.qa_to_fmask`` makes them from a quality band): the name of a
+        band of the cube (it is then left out of the spectral bands), a ``(time, y, x)`` cube or
+        array (``(time,)`` for one pixel), or ``None`` (every date clear). A date with any band
+        NaN (or equal to ``nodata``) is no observation, a cloud (4), whatever ``qa`` says.
     dates
         Date of each time step, for numpy input and cubes without dates.
     bands
@@ -82,6 +84,13 @@ def ccdc(
     nodata
         Value marking a missing observation besides NaN: ``"auto"`` (default) the raster's
         NoData, or ``0`` for integer data without one; a number; or ``None``.
+    scale
+        The units of the spectral bands: the value that means reflectance 1. ``None`` (default)
+        and ``10000``: reflectance x 10000, used as they are. ``1``: reflectance 0-1, multiplied
+        by 10000. ``"auto"``: 1 if the 99th percentile of the values is 2 or less (or the data
+        are floats of 0-1), else 10000, as ``zeit.unmix`` tells. Digital numbers with an offset
+        (Landsat Collection 2 before its scale and offset) cannot be told from reflectance
+        x 10000: read them with ``load_raster(..., scale=True)``. The thermal band is not scaled.
     chunks
         Inputs read from disk: ``None`` reads the raster into memory; ``"auto"`` or a dict
         keeps it lazy, computed block by block.
@@ -128,6 +137,7 @@ def ccdc(
     days = ordinal_days(cube.time.values)
     sentinels = _missing_values(cube, nodata)
     n_bands = len(names)
+    factor = _to_10000(cube, scale, thermal=params["thermal_band"])
     per_segment = 3 + n_bands * 9
     max_segments = int(max_segments)
 
@@ -139,8 +149,11 @@ def ccdc(
         values = values.astype(np.float64, copy=True)
         for value in sentinels:
             values[values == value] = np.nan
+        if factor is not None:
+            values *= factor
         qa_values = np.asarray(qa_block, dtype=np.float64).reshape(t, rows, cols)
         qa_values = np.where(np.isnan(qa_values), 255, qa_values).astype(np.int32)
+        values, qa_values = _drop_incomplete(values, qa_values, 4)
         segs, counts = run_ccdc_batch(
             days, np.ascontiguousarray(values.transpose(2, 3, 1, 0)),
             np.ascontiguousarray(qa_values.transpose(1, 2, 0)), max_segments=max_segments,
@@ -168,6 +181,36 @@ def ccdc(
         out = _block(np.asarray(cube.values), qa_values)
 
     return _to_dataset(out, cube, names, max_segments, per_segment, pixel, params)
+
+
+def _drop_incomplete(values: np.ndarray, qa_values: np.ndarray, code: int) -> tuple:
+    """A date with any band missing (NaN) is no observation: its Fmask code becomes ``code`` and its values 0
+    (out of every valid range), whatever its quality band says. ``values`` is (time, band, y, x), ``qa_values``
+    (time, y, x)."""
+    complete = np.isfinite(values).all(axis=1)
+    if complete.all():
+        return values, qa_values
+    return np.where(complete[:, None], values, 0.0), np.where(complete, qa_values, np.int32(code))
+
+
+def _to_10000(cube: xr.DataArray, scale: Any, thermal: Optional[int] = None) -> Optional[np.ndarray]:
+    """The factor (per band, shaped to broadcast on (time, band, y, x)) that takes the spectral bands to
+    reflectance x 10000, or None when they are already there."""
+    if scale is None:
+        return None
+    if isinstance(scale, str) and scale != "auto":
+        raise ValueError(f"scale must be 'auto', a number or None, got {scale!r}")
+    from ._sma import _scale_of
+
+    unit = _scale_of(cube, scale)
+    if unit <= 0:
+        raise ValueError(f"scale must be positive, got {scale!r}")
+    if unit == 10000.0:
+        return None
+    factor = np.full((1, cube.sizes["band"], 1, 1), 10000.0 / unit)
+    if thermal is not None:
+        factor[:, thermal] = 1.0
+    return factor
 
 
 def _missing_values(cube: xr.DataArray, nodata: Any) -> list:

@@ -310,7 +310,7 @@ zeit.ccdc(
     conseq_anom=6, chi2_prob_threshold=0.99,
     tmax_cg_prob_threshold=0.999999, detection_bands=None, num_c=8,
     tmask_bands=None, thermal_band=None, valid_range=(0.0, 10000.0),
-    thermal_range=(-9320.0, 7070.0), nodata="auto", chunks=None,
+    thermal_range=(-9320.0, 7070.0), nodata="auto", scale=None, chunks=None,
     n_jobs=-1,
 )
 ```
@@ -334,7 +334,7 @@ Values are **surface reflectance × 10,000** (the original's thresholds, range t
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `data` | path, `DataArray`, `ndarray` or `pd.DataFrame` | required | What to run on (see the table above). |
-| `qa` | `str`, `DataArray` or `ndarray` | `None` | Fmask codes per date: `0` clear land, `1` water, `2` cloud shadow, `3` snow, `4` cloud, `255` no observation. The name of a band of the cube (it is then left out of the spectral bands), a `(time, y, x)` cube or array (`(time,)` for one pixel), or `None`: every date is clear, and dates with NaN are no observation. |
+| `qa` | `str`, `DataArray` or `ndarray` | `None` | Fmask codes per date: `0` clear land, `1` water, `2` cloud shadow, `3` snow, `4` cloud, `255` no observation. The name of a band of the cube (it is then left out of the spectral bands), a `(time, y, x)` cube or array (`(time,)` for one pixel), or `None`: every date is clear. [`qa_to_fmask`](data.md#qa_to_fmask) makes the codes from a quality band (QA_PIXEL, SCL, HLS). A date with any band NaN (or equal to `nodata`) is no observation, a cloud (`4`), whatever `qa` says: the cube can go in with its gaps. |
 | `dates` | list | `None` | Date of each time step (strings, datetimes, `datetime64`). Only for numpy input and cubes or rasters without dates; otherwise taken from the `time` coordinate. |
 | `bands` | list of `str` or `int` | `None` | Spectral bands to use, by name or 0-based position, in the order above. For a raster interleaved by date without band names: the names of the bands of each date (including the QA band, if any). |
 | `max_segments` | `int` | `6` | Maximum segments returned per pixel. |
@@ -348,6 +348,7 @@ Values are **surface reflectance × 10,000** (the original's thresholds, range t
 | `valid_range` | `tuple` | `(0.0, 10000.0)` | Valid range of the optical bands. |
 | `thermal_range` | `tuple` | `(-9320.0, 7070.0)` | Valid range of the thermal band. |
 | `nodata` | `"auto"`, `float` or `None` | `"auto"` | Value marking a missing observation besides NaN. `"auto"`: the raster's NoData value; for integer data without one, `0`. A number: that value. `None`: only NaN. |
+| `scale` | `float`, `"auto"` or `None` | `None` | The units of the spectral bands: the value that means reflectance 1. `None` or `10000`: reflectance × 10,000, as they are. `1`: reflectance 0-1, multiplied by 10,000. `"auto"`: 1 if the 99th percentile of the values is 2 or less, else 10,000, as [`unmix`](preprocessing.md#unmix). Landsat Collection 2 digital numbers cannot be told from reflectance × 10,000: read them with `load_raster(..., scale=True)`. The thermal band is not scaled. |
 | `chunks` | `"auto"`, `dict` | `None` | Inputs read from disk: `None` reads the raster into memory; `"auto"` or a dict of chunk sizes keeps it lazy, so the result is computed block by block, for rasters larger than memory. |
 | `n_jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job ([how they are counted](parallel.md#threads-n_jobs)). |
 
@@ -393,7 +394,8 @@ zeit.sccd(
     data, *, qa=None, dates=None, bands=None, max_segments=6, conse=6,
     prob_threshold=0.99, outlier_prob=0.99999, max_angle=30.0,
     detection_bands=None, tmask_bands=None,
-    valid_range=(0.0, 10000.0), nodata="auto", chunks=None, n_jobs=-1,
+    valid_range=(0.0, 10000.0), nodata="auto", scale=None, chunks=None,
+    n_jobs=-1,
 )
 ```
 
@@ -417,7 +419,8 @@ A change is `conse` consecutive observations whose departures from the model, st
 | `detection_bands` | list of `str` or `int` | `None` | Bands of the change test. Default: Green to SWIR2 (with 6 bands or more; else all). |
 | `tmask_bands` | list of `str` or `int` | `None` | Bands of the Tmask cloud screen. Default: Green and SWIR1. |
 | `valid_range` | `tuple` | `(0.0, 10000.0)` | Valid range of the values. |
-| `nodata` | `"auto"`, `float` or `None` | `"auto"` | Value marking a missing observation besides NaN, as [`ccdc`](#ccdc). |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | Value marking a missing observation besides NaN, as [`ccdc`](#ccdc). A date with any band NaN is no observation. |
+| `scale` | `float`, `"auto"` or `None` | `None` | The units of the bands, as [`ccdc`](#ccdc): `None`/`10000` reflectance × 10,000; `1` reflectance 0-1; `"auto"` tells them. |
 | `chunks` | `"auto"`, `dict` | `None` | Inputs read from disk: `None` reads into memory; `"auto"` or a dict keeps them lazy. |
 | `n_jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job ([how they are counted](parallel.md#threads-n_jobs)). |
 
@@ -519,7 +522,7 @@ Continuous Degradation Detection (CODED; Bullock, Woodcock & Olofsson 2020): for
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `data` | `DataArray`, `Dataset` or path | required | Landsat-like reflectance `(time, band, y, x)` with blue, green, red, NIR, SWIR1 and SWIR2 (every observation, not composites), or the result of `unmix`. |
+| `data` | `DataArray`, `Dataset` or path | required | Landsat-like reflectance `(time, band, y, x)` with blue, green, red, NIR, SWIR1 and SWIR2 (every observation, not composites), or the result of `unmix`. One pixel, a `(time, band)` series as `load_raster(pixel=)` gives, is read as a 1 × 1 cube and the result has no `y` and `x`. Mask the unusable dates first (`cube.where(zeit.qa_to_fmask(qa, "landsat_c2") <= 1)`): NaN is no observation. |
 | `start` | year or date | `None` | Start of the monitoring; the training period is the `train_years` before it. Default: the training period starts with the series. |
 | `train_years` | `float` | `3.0` | Years of the training period. |
 | `consec` | `int` | `3` | Consecutive observations beyond the threshold that make a change. |

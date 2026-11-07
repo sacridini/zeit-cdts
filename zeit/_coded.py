@@ -25,6 +25,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
+from ._pixel import accepts_pixel
 from ._threads import resolve
 from ._time import fractional_years, to_datetime_index
 
@@ -39,6 +40,7 @@ def _layout(n_features: int, max_events: int):
     return header, per_event
 
 
+@accepts_pixel
 def coded(
     data: Any,
     *,
@@ -72,7 +74,9 @@ def coded(
         A Landsat-like reflectance cube ``(time, band, y, x)`` with blue, green, red, NIR,
         SWIR1 and SWIR2 (found by name, or ``bands=``), or the result of ``zeit.unmix`` (with
         ``ndfi``, ``gv``, ``npv``, ``soil``, ``shade``), or anything ``zeit.load_raster``
-        reads. Every observation counts: no compositing.
+        reads. Every observation counts: no compositing. One pixel (a ``(time, band)`` series,
+        as ``load_raster(pixel=)`` gives) is read as a 1 x 1 cube and the result comes back
+        without ``y`` and ``x``.
     start
         Start of the monitoring (a date or year); the training period is the ``train_years``
         before it. Default: the training period starts with the series.

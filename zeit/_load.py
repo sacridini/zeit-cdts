@@ -574,6 +574,15 @@ def _is_xarray_file(path: str) -> bool:
     return _is_store(lower) or lower.endswith((".nc", ".nc4", ".netcdf"))
 
 
+def _open_rio(path: str, chunks: Any, *, quiet: bool) -> xr.DataArray:
+    """``rioxarray.open_rasterio`` of the raw values; ``quiet`` drops rioxarray's "Scales differ across bands"
+    and "Offsets differ across bands" warnings (its ``scale_factor`` attribute is not used), and only them."""
+    with warnings.catch_warnings():
+        if quiet:
+            warnings.filterwarnings("ignore", message=r"(Scales|Offsets) differ across bands")
+        return rioxarray.open_rasterio(path, masked=False, chunks=chunks)
+
+
 def _open_one(path: str, *, band: Any, chunks: Any, date_format: Optional[str], scale: bool = False,
               window: Optional[Tuple[int, int, int, int]] = None) -> xr.DataArray:
     lower = path.rstrip("/\\").lower()
@@ -588,7 +597,9 @@ def _open_one(path: str, *, band: Any, chunks: Any, date_format: Optional[str], 
         tags = src.tags()
         scales, offsets = _scale_offsets(src) if scale else (None, None)
     tag = tags.get(TIME_TAG)
-    da = rioxarray.open_rasterio(path, masked=False, chunks=_file_chunks(chunks))
+    # With scale= the scales are applied per band here; with one band picked the other bands' scales are
+    # of no interest: rioxarray's "Scales differ across bands" does not apply to either.
+    da = _open_rio(path, _file_chunks(chunks), quiet=bool(scale) or band is not None)
     if window is not None:  # lazily indexed: only the window is read from the file
         da = _cut(da, window)
     da.attrs.pop("long_name", None)
@@ -744,7 +755,7 @@ def _open_many(files: List[str], *, band: Any, chunks: Any, pattern: Optional[st
     layers = []
     reference = None
     for path, when, spectral in records:
-        layer = rioxarray.open_rasterio(path, masked=False, chunks=_file_chunks(chunks, single=True))
+        layer = _open_rio(path, _file_chunks(chunks, single=True), quiet=True)  # one band is picked from the file
         if window is not None:
             layer = _cut(layer, window)
         if layer.sizes["band"] > 1:

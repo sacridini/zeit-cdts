@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from ._ccdc_api import _as_ccdc_cube, _band_indices, _missing_values, _where
+from ._ccdc_api import _as_ccdc_cube, _band_indices, _drop_incomplete, _missing_values, _to_10000, _where
 from ._threads import resolve
 from ._time import ordinal_days
 
@@ -40,6 +40,7 @@ def sccd(
     tmask_bands: Optional[Sequence[Union[str, int]]] = None,
     valid_range: tuple = (0.0, 10000.0),
     nodata: Union[float, str, None] = "auto",
+    scale: Union[float, str, None] = None,
     chunks: Any = None,
     n_jobs: int = -1,
 ) -> xr.Dataset:
@@ -55,13 +56,14 @@ def sccd(
 
     Parameters
     ----------
-    data, qa, dates, bands, nodata, chunks
+    data, qa, dates, bands, nodata, scale, chunks
         As ``zeit.ccdc``: a ``(time, band, y, x)`` cube (in memory or dask), a raster or
         anything ``load_raster`` reads, a numpy array with ``dates``, or one pixel (a
         ``(time, band)`` DataArray or a ``pandas.DataFrame`` indexed by date). Surface
         reflectance x 10000, bands ordered Blue, Green, Red, NIR, SWIR1, SWIR2; ``qa`` the Fmask
-        codes (0 clear, 1 water, 2 shadow, 3 snow, 4 cloud, 255 none), a band name, an array, or
-        ``None`` (every date clear; NaN is no observation).
+        codes (0 clear, 1 water, 2 shadow, 3 snow, 4 cloud, 255 none; ``zeit.qa_to_fmask`` makes
+        them from a quality band), a band name, an array, or ``None`` (every date clear). A date
+        with any band NaN is no observation.
     max_segments
         Maximum number of segments returned per pixel.
     conse
@@ -141,6 +143,7 @@ def sccd(
     days = ordinal_days(cube.time.values).astype(np.int32)
     sentinels = _missing_values(cube, nodata)
     n_bands = len(names)
+    factor = _to_10000(cube, scale)
     max_segments = int(max_segments)
     per_segment = 5 + n_bands * (2 + len(COEFS))
     width = max_segments * per_segment + 1 + _N_MONITOR + n_bands
@@ -149,8 +152,14 @@ def sccd(
         values = values.astype(np.float64, copy=True)
         for value in sentinels:
             values[values == value] = np.nan
+        if factor is not None:
+            values *= factor.reshape((1, -1) + (1,) * (values.ndim - 2))
         qa_values = np.asarray(qa_block, dtype=np.float64).reshape(shape)
-        return values, np.where(np.isnan(qa_values), 255, qa_values).astype(np.int32)
+        qa_values = np.where(np.isnan(qa_values), 255, qa_values).astype(np.int32)
+        if values.ndim == 2:  # one pixel, (time, band): _drop_incomplete wants (time, band, y, x)
+            values, qa_values = _drop_incomplete(values[:, :, None, None], qa_values.reshape(-1, 1, 1), 255)
+            return values[:, :, 0, 0], qa_values.reshape(-1)
+        return _drop_incomplete(values, qa_values, 255)
 
     def _block(values: np.ndarray, qa_block: np.ndarray) -> np.ndarray:
         t, b, rows, cols = values.shape
