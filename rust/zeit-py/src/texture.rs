@@ -26,9 +26,18 @@ fn texture_features<'py>(
     }
     let (rows, cols) = (a.shape()[0], a.shape()[1]);
     let values: Vec<f64> = a.iter().copied().collect();
-    let feats: Vec<Feature> =
-        features.iter().map(|f| Feature::parse(f)).collect::<Result<_, _>>().map_err(PyValueError::new_err)?;
-    let opts = Options { window, levels, distance, lo, hi };
+    let feats: Vec<Feature> = features
+        .iter()
+        .map(|f| Feature::parse(f))
+        .collect::<Result<_, _>>()
+        .map_err(PyValueError::new_err)?;
+    let opts = Options {
+        window,
+        levels,
+        distance,
+        lo,
+        hi,
+    };
     let out = py
         .detach(|| texture::texture(&values, rows, cols, &feats, &opts, n_jobs))
         .map_err(PyValueError::new_err)?;
