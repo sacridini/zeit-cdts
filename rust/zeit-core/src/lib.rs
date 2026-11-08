@@ -46,6 +46,7 @@ pub mod medoid;
 pub mod meta;
 pub mod optimize;
 pub mod parallax;
+pub mod pansharpen;
 pub mod parallel;
 pub mod parts;
 pub mod phenology;

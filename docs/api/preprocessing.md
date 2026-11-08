@@ -392,6 +392,53 @@ fast = zeit.sentinel2_resmerge(s2, method="improphe", clear=cloud_free)
 
 ## Co-registration
 
+
+### `pansharpen` { .api }
+
+<!-- sig: zeit.pansharpen -->
+```python
+zeit.pansharpen(
+    ms, pan, method="gsa", *, ratio=None, weights=None, intensity_bands=None,
+    kernel=None, gain="regression", nodata="auto", n_jobs=-1,
+)
+```
+
+Multispectral bands on the grid of a finer panchromatic band, for any sensor: any number of bands with any names, any pair of resolutions with a ratio above 1 (whole or not: Landsat 8's 15 m band 8 and 30 m bands give 2, 2.5 m and 10 m give 4, 1.5 m and 6.5 m give 4.33), taken from the grids' georeferencing. The CBERS-4A WPM (a 2 m pan; blue, green, red and NIR at 8 m) is one example; Landsat 8/9 (band 8), Sentinel-2 (10 m with 20 m or 60 m bands) and any other pair of rasters are others. The bands are resampled to the pan's grid with the cubic kernel of the warp of `load_raster(like=)` and the pan's detail is injected by one of four methods, written from their papers (the equations, the references and the choices the papers leave open are in `rust/zeit-core/src/pansharpen.rs`). No unit is converted: the output has those of `ms` (digital numbers, radiance or reflectance).
+
+`"gsa"` (default) is the Gram-Schmidt adaptive of Aiazzi, Baronti and Selva (2007, IEEE TGRS 45(10):3230-3239): `F_k = MS_k + g_k (P' - I)`, `g_k = cov(MS_k, I) / var(I)`, `P'` the pan matched to the mean and deviation of `I`, and `I` the intensity, the regression (with an intercept) of the pan reduced to the bands' resolution on the bands. `"brovey"` is the ratio transform, `F_k = MS_k P / I`: with `weights`, `I` is their mean (the pan in the units of the bands); without them the pan's response is unknown and `I` is fitted by the regression through the origin with weights not negative, which absorbs a gain between pan and bands and gives bands outside the pan's range a weight near 0. `"hpf"` is the high-pass filter of Schowengerdt (1980) with the kernel and modulation of Gangkofner, Pradhan and Holcomb (2008, PE&RS 74(9):1107-1118): `F_k = MS_k + gain sd(MS_k) / sd(LP) (P - LP)`, `LP` the box mean of the pan (side `2 floor(ratio / 2) + 1`, the box that matches the bands' cell: 3 for ratio 2, 5 for 4), computed in O(1) per pixel; by default (`gain="regression"`, zeit's choice) each band gets its least squares slope on `LP` instead of the paper's modulation `sd(MS_k) / sd(LP)` (`gain=1.0`), which over-sharpens bands that the pan does not explain and did not beat the cubic resampling in ERGAS on the benchmark scenes. `"pca"` replaces the first principal component by the pan matched to it (to compare with products made so, such as the INPE's `CB4A-WPM-PCA-FUSED-1`).
+
+**Bands outside the pan's range** (the NIR or the SWIR for a visible pan; the pan's spectral response is not an input). GSA and the fitted Brovey estimate the intensity by regression, so such a band gets a weight near 0 in `I`, and in GSA a gain `g_k` that follows its covariance with `I`: little detail goes in. The Brovey ratio multiplies every band by `P / I` whatever the band (a known weakness of the ratio form: prefer GSA). HPF has no intensity and gives every band detail in proportion to its spread (the default `gain="regression"` damps the bands that the pan does not explain; the paper's modulation, `gain=1.0`, does not). PCA takes the first component of all the bands, which a band the pan does not see can dominate. `intensity_bands` chooses the bands that enter the estimate of the intensity (GSA, PCA, fitted Brovey), by label of the band coordinate or by position, with no names assumed; the others are still sharpened. All four methods work from 1 band except `"pca"`, which needs 2 (and at least 2 in `intensity_bands`).
+
+**Sources.** No third-party code was used, and the formulas were written from the literature as recalled, without the papers at hand; they were checked by their properties, by Wald's protocol on synthetic scenes and on a CBERS-4A WPM and a Landsat 8 window and, for the Brovey, against GDAL's output. The defaults of `"hpf"` are zeit's and not Gangkofner et al.'s: the kernel and the regression gain were chosen on those two real windows, so treat them as a starting point.
+
+**Grids.** The CRS must be the same (nothing is reprojected), the grids north-up, the pan's cells finer and the footprints overlapping; the ratio comes from the cell sizes (the geometric mean over x and y; `ratio=` overrides it). The corners need not coincide: the warp puts the bands on the pan's cells at any offset. What that does to the statistics: the pan reduced to the bands' resolution for the regression (a box filter of side `2 floor(ratio / 2) + 1` sampled every `round(ratio)` pixels) is then taken at the pan pixel nearest each cell's centre, off by up to half a pixel, which the filter's width hides; with whole blocks the reduction would be the cell's exact mean. A ratio that is not whole rounds the filter and the HPF kernel. Pan cells outside the bands' footprint are NaN. The registration of the pan to the bands (geolocation) is not checked or corrected: use [`coregister`](#coregister) first.
+
+**Missing data.** A pixel that is NaN (or `nodata`) in the pan or in any band is NaN in the output and out of every statistic (the regression, means, variances and principal components; per date, over the whole scene); a missing cell of a band makes the pan cells it covers NaN.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `ms` | `DataArray` | required | `(time, band, y, x)` or `(band, y, x)` with a CRS. In memory (a lazy cube is computed). |
+| `pan` | `DataArray` | required | `(y, x)` (or one `band`) on the finer grid, or `(time, y, x)` matching `ms`'s dates. |
+| `method` | `str` | `"gsa"` | `"gsa"`, `"brovey"`, `"hpf"` or `"pca"`. |
+| `ratio` | `float` | `None` | Pan cells per band cell, when it must differ from the ratio of the cell sizes. |
+| `weights` | sequence or `dict` | `None` | `"brovey"`: the weights of the intensity (in the bands' order, or by label; normalised to sum 1). Default: fitted. |
+| `intensity_bands` | list | `None` | `"gsa"`, `"pca"`, fitted `"brovey"`: the bands (labels or positions) that enter the estimate of the intensity. Default: all. |
+| `kernel` | `int` | `None` | `"hpf"`: the odd side of the box filter in pan pixels; `2 floor(ratio / 2) + 1` by default. |
+| `gain` | `float` or `"regression"` | `"regression"` | `"hpf"`: each band's regression slope on the low-passed pan, or a number: the weight of the paper's modulation (1.0 is Gangkofner's). |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | Missing values besides NaN, in both inputs: the raster's NoData (0 for integer data without one), a number or `None`. |
+| `n_jobs` | `int` | `-1` | Threads (the processors zeit may use by default). The output does not depend on it. |
+
+</div>
+
+**Returns** float32, the bands of `ms` on the pan's grid, with the coordinates, CRS and attributes of `ms` (`attrs["pansharpen"]` says the method and the ratio). Everything is in memory: a 10,000 x 10,000 pan with four bands is 1.6 GB of output plus the resampled bands. A whole scene larger than that (a WPM scene is about 46,000 pixels across) needs tiles with a margin for the cubic resampling and the HPF's kernel, and the statistics of the whole scene computed beforehand and handed to the tiles.
+
+```python
+fused = zeit.pansharpen(wpm_ms, wpm_pan, method="gsa")                       # CBERS-4A WPM, ratio 4
+fused = zeit.pansharpen(l8_ms, l8_b8, "gsa", intensity_bands=["B3", "B4"])   # Landsat 8: the pan sees green and red
+```
+
 ### `coregister` { .api }
 
 <!-- sig: zeit.coregister -->

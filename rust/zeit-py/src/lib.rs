@@ -25,6 +25,7 @@ mod ewmacd;
 mod aod;
 mod atmo;
 mod fmask;
+mod pansharpen;
 mod fmask_run;
 mod fmask_shadow;
 mod s2l1c;
@@ -114,6 +115,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     add_submodule(m, &aod::module(m.py())?)?;
     add_submodule(m, &atmo::module(m.py())?)?;
     add_submodule(m, &fmask::module(m.py())?)?;
+    add_submodule(m, &pansharpen::module(m.py())?)?;
     add_submodule(m, &fmask_run::module(m.py())?)?;
     add_submodule(m, &fmask_shadow::module(m.py())?)?;
     add_submodule(m, &s2l1c::module(m.py())?)?;

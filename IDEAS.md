@@ -3193,6 +3193,16 @@ validação.
     que o FORCE adaptou (Zhu & Woodcock 2012; Zhu et al. 2015). Junto, a QAI completa do FORCE
     e os produtos auxiliares que saem quase de graça: a distância à nuvem (DST, que o BAP usa),
     o HOT e os mapas de AOD e de vapor.
+
+    **Feito em 2026-11-08, por outro caminho.** O `cloud-ll.c` não foi portado nem aberto: o cabeçalho dele o declara
+    um Fmask 2012-2015 modificado, e o arquivo do Google Code marca esse projeto como `gpl2`, sem "ou posterior"; o
+    MIT do GERSL só cobre o Fmask 4 e o 5. No lugar, `rust/zeit-core/src/fmask/` é um port direto do Fmask 4.7
+    (GERSL/Fmask4, e32f5bd), rota Sentinel-2 a 20 m: igual aos `.m` originais rodando no GNU Octave 11.3 em 313
+    comparações e 87.558.333 valores, em cenas sintéticas (`benchmarks/vs_originals/fmask4_run.py`). Não há MATLAB
+    aqui: `strel('disk',10)` e `single(0.1)==0.1` seguem sem confirmação nele. `compat=false` (padrão) corrige três
+    estranhezas do original e `compat=true` as reproduz. No QAI o buffer de nuvem é de 300 m, como no FORCE, e cirrus
+    nunca é marcado. Por enquanto só no núcleo (`zeit._core.fmask*`), sem função pública nem validação em cena real.
+
   - **23i, a cadeia L1C → ARD do Sentinel-2:** uma função (`zeit.level2`, nome a decidir) que
     faça o que o `force-l2ps` faz, nesta ordem:
     - ler o L1C pelo Earth Search e os metadados (`MTD_MSIL1C.xml`, o offset radiométrico da
@@ -3204,6 +3214,11 @@ validação.
 
     A comparação é contra o `force-l2ps` nas mesmas cenas e contra o L2A da ESA como
     referência independente. No Janus: a ferramenta que leva uma pasta de L1 a ARD.
+
+    **Começou em 2026-11-08.** O leitor do L1C (`rust/zeit-core/src/s2l1c.rs`, a oitava parte da 23g) é igual ao FORCE
+    em 295.724.368 valores (`benchmarks/vs_originals/force_l1.py`). A correção em cena real (`l2scene`, `zeit/_level2.py`,
+    `force_l2ps_real.py`) ficou pela metade e **sem validação** no branch local `wip/level2-cena-real`, fora de `main`.
+
   - **Depois, só se houver demanda: o Landsat L1.** Faltam:
     - o leitor do MTL;
     - as bandas térmicas, que o Fmask usa;
@@ -3283,6 +3298,57 @@ Time series analysis
   diagnóstico), o que ainda não se leu: até aqui só o `tools.json` e a captura do site;
 - escrever o plano no `IDEIAS.md` do Janus;
 - prever o `--selftest-ui`, as capturas e a página no site de cada janela.
+
+## CBERS-4A WPM: fusão e correção atmosférica (pedido de 2026-11-08)
+
+A pergunta veio de um amigo do usuário: dá para fazer a fusão do WPM e a correção atmosférica do
+WPM com o que o Zeit tem e está implementando? O WPM tem a pancromática de 2 m (450-900 nm) e quatro
+bandas de 8 m (azul, verde, vermelho, NIR), sem SWIR, sem cirrus e sem banda de vapor.
+
+**O que o catálogo tem** (STAC do BDC/INPE, conferido em 2026-11-08): `CB4A-WPM-L2-DN-1` e
+`CB4A-WPM-L4-DN-1`, em DN, e `CB4A-WPM-PCA-FUSED-1`, a fusão por PCA do INPE em 2 m, RGB com valores
+de 1 a 255 e 0 como sem dado, desde 2023-03. Esse produto serve para olhar, não para índices nem para
+nenhuma conta radiométrica. Não há WPM em reflectância de superfície.
+
+### A fusão: `zeit.pansharpen`
+
+O Zeit não tinha fusão pan + multiespectral: o ImproPhe e o `sentinel2_resmerge` resolvem outros
+problemas. Feito em 2026-11-08 (Zeit 3.3.0):
+
+- métodos conhecidos, escritos de memória, sem os artigos à mão (Brovey, Gram-Schmidt adaptativo, HPF, PCA para comparar
+  com o produto do INPE), no core em Rust, porque o Janus liga o `zeit-core` direto;
+- validação pelo protocolo de Wald (degradar, fusionar, comparar com o original);
+- genérico (pedido do usuário): qualquer sensor, número de bandas e razão de resolução, inclusive não
+  inteira, sem nada embutido sobre o WPM, que é só um caso de teste;
+- atenção ao tamanho: 92 km de faixa a 2 m são cerca de 46 mil pixels de largura.
+- resultado no protocolo de Wald, ERGAS: janela real do WPM (razão 4): cúbico 1,376, `hpf` 1,142, `gsa` 1,207,
+  Brovey ajustado 1,232, `pca` 1,532; Landsat 8 (razão 2): cúbico 1,705, `hpf` 1,559, `gsa` 1,605, Brovey 1,796,
+  `pca` 4,136. `gsa` e `hpf` superam o cúbico em todos os casos. O `pca` é fraco em cena vegetada: o PC1 é quase só o
+  NIR (peso 0,998 no WPM), que a pan não enxerga. O kernel e o ganho padrão do `hpf` são escolhas do Zeit, calibradas
+  nessas duas janelas;
+- falta: as equações contra os artigos; modo fora da memória para a cena inteira (as estatísticas dadas de fora).
+
+### A correção atmosférica
+
+Não dá para fazer como o FORCE, por falta de SWIR. A cadeia portada na 23g só conhece Landsat e
+Sentinel-2 (`Mission`, e as tabelas de RSR de `radtran_tables.rs`).
+
+| Peça | Situação para o WPM |
+| --- | --- |
+| Transferência radiativa, ozônio, topografia | reaproveitáveis: o motor não depende do sensor |
+| RSR das 5 bandas | faltam; precisam vir do INPE/CRESDA (não se achou tabela publicada numa busca rápida) |
+| Calibração DN → radiância → TOA | falta, com coeficientes válidos para a data |
+| Leitor dos metadados do WPM | falta |
+| Máscara de nuvem | o Fmask não serve, porque depende de SWIR: outro método, próprio ou do INPE |
+| Aerossol (AOD) | ponto crítico: os alvos escuros do FORCE foram pensados para sensores com SWIR (a confirmar o que sobra sem ele); o caminho realista é AOD externo (CAMS ou MERRA-2) |
+| Vapor d'água | sem banda própria: fonte externa, como o FORCE já faz no Landsat |
+
+O caminho viável é o motor radiativo que já existe, com AOD e vapor externos e uma máscara de nuvem à
+parte. O resultado é uma reflectância razoável, de qualidade inferior à de um sensor que estima o
+próprio aerossol; a validação seria contra Sentinel-2 ou Landsat do mesmo dia. Para quem precisa das
+duas coisas, a ordem é corrigir as bandas de 8 m e só depois fusionar.
+
+**O que destrava:** as RSR e os coeficientes de calibração do WPM. Sem eles, não vale começar.
 
 ## Para depois
 

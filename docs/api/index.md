@@ -114,6 +114,7 @@
 | [`tasseled_cap`](preprocessing.md#tasseled_cap) | Tasseled Cap brightness, greenness, wetness (and FORCE's disturbance): Crist 1985 as FORCE, or each sensor's matrix |
 | [`improphe`](preprocessing.md#improphe) | Sharpens a coarse field or the scenes of a coarser sensor with the finer sensor's seasonal means: FORCE's CF-ImproPhe and L2-ImproPhe (Frantz et al. 2016) |
 | [`sentinel2_resmerge`](preprocessing.md#sentinel2_resmerge) | The 20 m bands of Sentinel-2 at 10 m, by a moving-window regression or an ImproPhe-like weighted mean on the 10 m green, red and NIR: FORCE's resolution merge |
+| [`pansharpen`](preprocessing.md#pansharpen) | Multispectral bands on the grid of a finer panchromatic band, for any sensor and any ratio above 1 (CBERS-4A WPM, Landsat 8 band 8, ...): Brovey, Gram-Schmidt adaptive (GSA), high-pass filter and principal components, written from the papers |
 | [`tmask`](preprocessing.md#tmask) | Time-series cloud and shadow detection of a cube |
 | [`parallax_clouds`](preprocessing.md#parallax_clouds) | Sentinel-2 clouds from the potential cloud pixels by the parallax test (Cloud Displacement Index): FORCE's `cloud_parallax` (Frantz et al. 2018) |
 | [`cloud_displacement_index`](preprocessing.md#cloud_displacement_index) | The Cloud Displacement Index of Sentinel-2 on the 20 m grid |
