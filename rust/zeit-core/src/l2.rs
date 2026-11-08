@@ -191,7 +191,7 @@ pub struct SurfaceInput<'a> {
 /// homogeneous target is assumed; with `par.dotopo` the illumination factor `A` is applied; with `par.dobrdf` the
 /// interpolated BRDF factor. Without `doatmo` the result is the TOA reflectance. Pixels that are off give the no-data
 /// value; a reflectance below 0 sets the subzero flag of `qai`, one above 1 the saturation flag, one below -1 the off
-/// flag (and the no-data value); with `par.erase_cloud` the pixels with the cloud flag 2 (unsure) give the no-data value.
+/// flag (and the no-data value); with `par.erase_cloud` the pixels with the cloud flag 2 (confident, opaque) give the no-data value.
 pub fn surface_reflectance(
     par: &L2Params,
     atc: &Atc,

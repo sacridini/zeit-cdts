@@ -30,7 +30,7 @@ pub const BIT_SLP: u32 = 13;
 /// Bit of the water vapour fill flag (the water vapour of the pixel is the scene average).
 pub const BIT_WVP: u32 = 14;
 
-/// Bit of the first cloud flag bit (2 bits: 0 = none, 1 = opaque, 2 = unsure, 3 = cirrus).
+/// Bit of the first cloud flag bit (2 bits: 0 = none, 1 = less confident (buffered), 2 = confident and opaque, 3 = cirrus).
 pub const BIT_CLD: u32 = 1;
 
 /// `get_qai(qai, index, p, 1)`: one flag bit of a QAI value.
