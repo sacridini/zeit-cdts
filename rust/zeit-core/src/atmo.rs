@@ -9,7 +9,8 @@
 //! and the high aerosol flag of the QAI) and `apply_aoi` (the area of interest). The radiative transfer formulas are in
 //! [`crate::radtran`], the geometry in [`crate::sunview`], the structure they fill in [`crate::atc`].
 //!
-//! `surface_reflectance`, `background_reflectance` and `compile_l2_*` of the same file come later.
+//! `surface_reflectance`, `background_reflectance`, `compile_l2_*` and the orchestration of the same file are in
+//! [`crate::l2`].
 //!
 //! The arithmetic is the C's, as in [`crate::radtran`]: C `float` is `f32`, rounded where it is assigned; where C
 //! promotes to `double` (`floor`, `0.5` literals, the elevation of the first bin) the value is computed in `f64`. Where
@@ -48,11 +49,25 @@ use crate::topo::average_elevation_value;
 use rayon::prelude::*;
 
 /// The parameters of the level 2 processing that the atmospheric functions read (`par_ll_t`): the multiple scattering
-/// approximation of the path reflectance (`domulti`) and the environmental (adjacency) weighting (`doenv`).
-#[derive(Clone, Copy, Debug)]
+/// approximation of the path reflectance (`domulti`) and the environmental (adjacency) weighting (`doenv`); and, for
+/// the surface reflectance and the products of [`crate::l2`], the atmospheric correction (`doatmo`), the topographic
+/// correction (`dotopo`), the BRDF factor (`dobrdf`), the erasing of the clouds the cloud flag of the QAI marks as
+/// unsure (`erase_cloud`), the AOD estimation (`doaod`) and which optional products are made (`odst`, `ovzn`, `ohot`,
+/// `oaod`, `owvp`; the overview `oovv` is not ported). `Default` is all off.
+#[derive(Clone, Copy, Debug, Default)]
 pub struct L2Params {
     pub domulti: bool,
     pub doenv: bool,
+    pub doatmo: bool,
+    pub dotopo: bool,
+    pub dobrdf: bool,
+    pub erase_cloud: bool,
+    pub doaod: bool,
+    pub odst: bool,
+    pub ovzn: bool,
+    pub ohot: bool,
+    pub oaod: bool,
+    pub owvp: bool,
 }
 
 /// The weights of the interpolation of a coarse grid at a pixel (`iweights_t`): the four cells around the pixel (upper
@@ -681,7 +696,7 @@ mod tests {
             let geo = SceneGeo { ulx: 500000.0, uly: 5400000.0, date: Date { hh: 10, mm: 30, ..Date::from_year_doy(2021, 172) }, to_geo: &warp };
             atmo_angledep(&mut s.atc, &s.meta, &geo, &s.grid, &s.qai, &s.dem, None, 1).unwrap();
             s.atc.xy_interp.bands[0][1] = 1.0;
-            let l2 = L2Params { domulti: true, doenv: true };
+            let l2 = L2Params { domulti: true, doenv: true, ..Default::default() };
             atmo_elevdep(&mut s.atc, &l2, &s.grid, &mut s.qai, &s.dem, 2).unwrap();
             let atc = &s.atc;
             let g = 8;
@@ -721,7 +736,7 @@ mod tests {
         // a sensor without a green band
         let mut s = scene(300, 250, 100.0, true);
         s.atc.xy_mod.domain = vec!["BLUE".into(); 4];
-        let l2 = L2Params { domulti: false, doenv: false };
+        let l2 = L2Params::default();
         assert_eq!(atmo_elevdep(&mut s.atc, &l2, &s.grid, &mut s.qai, &s.dem, 1), Err(AtmoError::Domain("GREEN")));
     }
 

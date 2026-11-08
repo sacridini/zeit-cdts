@@ -320,3 +320,152 @@ def test_interpolation_weights_and_the_area_of_interest():
     aoi = sc["aoi"].astype(bool)
     assert (off[~aoi]).all() and (off[aoi] == (sc["qai"][aoi] & 1).astype(bool)).all()
     assert run(scene())["aoi_ret"] == 10  # no AOI: CANCEL, the QAI is as it came
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# the surface reflectance and the Level 2 products (zeit_core::l2, FORCE's radiometric_correction); the comparison with
+# FORCE is benchmarks/vs_originals/force_l2.py
+# ---------------------------------------------------------------------------------------------------------------
+
+L_DOMAIN = ["BLUE", "GREEN", "RED", "NIR", "SWIR1", "SWIR2"]
+L_RSR = np.array([22, 23, 24, 25, 27, 28], np.int32)
+L_FLAGS = ("domulti", "doenv", "doatmo", "dotopo", "dobrdf", "erase_cloud", "doaod", "odst", "ovzn", "ohot", "oaod", "owvp")
+OFF, SUBZERO, SATURATION = 1, 1 << 8, 1 << 9
+
+
+def l2_scene(**flags):
+    """A Landsat-like scene of 300 x 250 pixels of 100 m (a tilted swath), 6 bands, a TOA reflectance of soil with a
+    cloud, a cloud shadow and a few pixels that are negative or above 1."""
+    rng = np.random.default_rng(11)
+    wvl = rt("wavelength", L_RSR)[0]
+    ii, jj = np.mgrid[0:NY, 0:NX]
+    qai = np.zeros((NY, NX), np.int16)
+    shift = (ii * 0.2126).astype(int)
+    qai[~((jj >= shift) & (jj < shift + int(NX * 0.7)))] |= OFF
+    qai[100:110, 120:130] |= 1 << 1  # opaque cloud
+    qai[120:126, 150:156] |= 2 << 1  # unsure cloud
+    qai[100:110, 135:140] |= 1 << 3  # shadow
+    spectrum = np.array([0.06, 0.09, 0.11, 0.3, 0.25, 0.12])
+    toa = np.round(10000 * spectrum[:, None, None] * (1 + 0.1 * rng.random((1, NY, NX)))).astype(np.int16)
+    toa[:, 100:110, 120:130] = 5000
+    toa[2, 20, 100] = -300  # a little below 0
+    toa[3, 30, 100] = -12000  # reflectance below -1: the pixel is set off
+    toa[1, 40, 100] = 15000  # above 1: saturated
+    toa[:, qai & OFF != 0] = -9999
+    sc = dict(mission=0, nx=NX, ny=NY, res=RES, ulx=500000.0, uly=48.0 / 9.0e-6, domain=L_DOMAIN, wavelength=wvl,
+              rsr_band=L_RSR, year=2021, doy=172, hh=10, mm=30, ss=0, tz=0, lon0=10.0, x0=500000.0, kgeo=9.0e-6, wvp=F32(2.0),
+              dem_nodata=-32767, dem=np.zeros(0, F32), gn=GN, qai=qai.ravel(), toa=toa.ravel(), s2nx=0, s2ny=0,
+              s2nodata=-9999.0, vzen=np.zeros(0, F32), vazi=np.zeros(0, F32), aoi=np.zeros(0, np.uint8))
+    sc.update({k: 0 for k in L_FLAGS})
+    sc.update(flags)
+    return sc
+
+
+def l2_run(sc, n_jobs=1):
+    """The dump of zeit._core.atmo.level2: (status, products as [(domains, data)])."""
+    raw, _ = _core.atmo.level2(dict(sc, n_jobs=n_jobs))
+    raw = bytes(raw)
+    if np.frombuffer(raw, "<i4", 1)[0] != 0:
+        return 1, []
+    nb, npix = len(sc["domain"]), sc["nx"] * sc["ny"]
+    # the status and the time, the scalars of the atc, the per band values
+    pos = 4 + 8 + 4 * 4 + 4 + 4 * 4 + 4 + 4 * 4 + nb * 16
+
+    def take(dtype, n):
+        nonlocal pos
+        a = np.frombuffer(raw, dtype, n, pos)
+        pos += a.nbytes
+        return a
+
+    for n_bands in [nb, nb, 1, 1, 1, 1, nb, nb, nb, nb, nb, nb, 1, 1, 1, 8, 8, 1]:  # the 18 coarse bricks
+        assert int(take("<i4", 1)[0]) == n_bands
+        take("<f4", n_bands * sc["gn"])
+    for n_bands in [nb] * 13 + [1, 1]:  # the 15 families of 256 bricks
+        assert int(take("<i4", 1)[0]) == n_bands
+        take("<f4", 256 * n_bands * sc["gn"])
+    prods = []
+    for _ in range(int(take("<i4", 1)[0])):
+        n = int(take("<i4", 1)[0])
+        dom = []
+        for _ in range(n):
+            dom.append(bytes(take("u1", 16)).rstrip(b"\0").decode())
+            take("<f4", 1)
+        prods.append((dom, take("<i2", n * npix).reshape(n, npix)))
+    take("<i4", 1)  # the gaseous transmittance maps (Sentinel-2)
+    assert pos == len(raw)
+    return 0, prods
+
+
+def test_level2_without_atmosphere_gives_the_toa_and_the_flags():
+    sc = l2_scene(odst=1, ovzn=1, ohot=1, oaod=1, owvp=1)
+    status, prods = l2_run(sc)
+    assert status == 0 and len(prods) == 7
+    (_, qai), (dom, boa), (_, dst), (_, vzn), (_, hot), (_, aod), (_, wvp) = prods
+    assert dom == L_DOMAIN
+    qai = qai[0]
+    toa = sc["toa"].reshape(6, -1)
+    q0 = sc["qai"]
+    off0 = (q0 & OFF) != 0
+    p_neg, p_big, p_off = 20 * NX + 100, 40 * NX + 100, 30 * NX + 100
+    # a reflectance below -1 sets the pixel off (and the QAI of the off pixels is 1, the BOA the no-data value)
+    off = qai == 1
+    assert (qai[off0] == 1).all() and off[p_off] and not off0[p_off] and off.sum() == off0.sum() + 1
+    assert (boa[:, off] == -9999).all()
+    # the TOA reflectance is kept (to the truncation of the reflectance times 10000), the flags come from the value
+    ok = ~off & (toa[1] < 32000)
+    assert (np.abs(boa[:, ok].astype(int) - toa[:, ok]) <= 1).all()
+    assert abs(int(boa[2, p_neg]) + 300) <= 1 and (qai[p_neg] & SUBZERO) and not (qai[p_neg] & SATURATION)
+    assert boa[1, p_big] == 15000 and (qai[p_big] & SATURATION)
+    # without the atmospheric correction there is no AOD and no water vapour; HOT is blue - red / 2 - 800
+    assert (aod == -9999).all() and (wvp == -9999).all()
+    h = toa[0] - 0.5 * toa[2] - 800
+    live = ~off0 & (np.abs(h) < 30000)
+    assert (hot[0, live] == np.trunc(h[live]).astype(np.int16)).all() and (hot[0, off0] == -9999).all()
+    # the distance to the next cloud, shadow or snow pixel in metres: 0 on them, 100 next to them, no data where off
+    cloud = ((q0 >> 1) & 3 > 0) | ((q0 >> 3) & 1 == 1)
+    assert (dst[0, cloud & ~off] == 0).all() and (dst[0, off] == -9999).all()
+    assert dst[0, 99 * NX + 125] == 100 and dst[0, 98 * NX + 125] == 200
+    # the view zenith: no no-data pixel is left on the pixels that are not off
+    assert (vzn[0, ~off] >= 0).all() and (vzn[0, ~off] < 1000).all() and (vzn[0, off] == -9999).all()
+
+
+def test_level2_erase_cloud_and_the_missing_bands():
+    sc = l2_scene(erase_cloud=1)
+    status, prods = l2_run(sc)
+    qai, boa = prods[0][1][0], prods[1][1]
+    p_unsure, p_cloud = 122 * NX + 152, 105 * NX + 125
+    assert (boa[:, p_unsure] == -9999).all() and qai[p_unsure] & OFF == 0  # erased, but not off
+    assert (boa[:, p_cloud] != -9999).all()  # only the unsure clouds (the flag 2) are erased
+    # a sensor without the NIR band cannot give the BOA (FORCE returns NULL)
+    sc = l2_scene()
+    keep = [0, 1, 2, 4, 5]
+    sc.update(domain=[L_DOMAIN[b] for b in keep], wavelength=sc["wavelength"][keep], rsr_band=L_RSR[keep],
+              toa=sc["toa"].reshape(6, -1)[keep].ravel())
+    assert l2_run(sc)[0] == 1
+
+
+def test_level2_atmospheric_correction_and_its_products():
+    sc = l2_scene(doatmo=1, doenv=1, domulti=1, doaod=1, odst=1, ovzn=1, ohot=1, oaod=1, owvp=1)
+    status, prods = l2_run(sc)
+    assert status == 0 and len(prods) == 7
+    (_, qai), (dom, boa), (_, dst), (_, vzn), (_, hot), (_, aod), (_, wvp) = prods
+    qai = qai[0]
+    off = qai == 1
+    live = ~off
+    assert dom == L_DOMAIN and live.sum() > 20000
+    # the correction removes the path reflectance: the BOA of soil is below its TOA in the blue
+    toa = sc["toa"].reshape(6, -1)
+    assert np.median(boa[0, live] - toa[0, live]) < 0
+    # (the AOD is made before the BOA, which sets one more pixel off: it is the no-data value where the input is off; the
+    # Landsat WVP comes after the BOA)
+    off_in = (sc["qai"] & OFF) != 0
+    assert (boa[:, off] == -9999).all() and (aod[0, off_in] == -9999).all() and (wvp[0, off] == -9999).all()
+    assert (aod[0, ~off_in] > 0).all() and (wvp[0, live] == 2000).all()  # the constant of the parameter file: 2 cm
+    # the threads do not matter
+    status3, prods3 = l2_run(sc, n_jobs=3)
+    assert status3 == 0 and all(np.array_equal(a[1], b[1]) for a, b in zip(prods, prods3))
+    # the topographic correction with a flat DEM, and without the environmental weighting
+    status, prods_t = l2_run(dict(sc, dem=np.full(NX * NY, 300.0, F32), dotopo=1))
+    assert status == 0 and np.median(np.abs(prods_t[1][1][3, live].astype(int) - boa[3, live])) < 800
+    boa_e = l2_run(dict(sc, doenv=0))[1][1][1]
+    assert 0 < np.abs(boa_e[:, live].astype(int) - boa[:, live]).max() < 12000

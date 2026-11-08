@@ -4,13 +4,19 @@
 //! `get_shadow`, `get_water`, `set_vaporfill`) and `enum-cl.h` (the bit positions). One QAI value is an `i16`.
 //!
 //! Only the flags the ported stages test are here (`gas-ll.c`: off, shadow, water, vapour fill; `aod-ll.c`: also
-//! cloud; `sunview-ll.c`: low sun; `atmo-ll.c`: aerosol); the rest of the field (snow, subzero, saturation) comes with
-//! the stages that use them.
+//! cloud; `sunview-ll.c`: low sun; `atmo-ll.c`: aerosol and, in the surface reflectance, subzero and saturation; the
+//! cloud distance of `cloud-ll.c` reads snow).
 
 /// Bit of the off/on flag (1 = no data, outside the scene).
 pub const BIT_OFF: u32 = 0;
 /// Bit of the cloud shadow flag.
 pub const BIT_SHD: u32 = 3;
+/// Bit of the snow flag.
+pub const BIT_SNW: u32 = 4;
+/// Bit of the subzero reflectance flag.
+pub const BIT_SUB: u32 = 8;
+/// Bit of the saturated reflectance flag.
+pub const BIT_SAT: u32 = 9;
 /// Bit of the water flag.
 pub const BIT_WTR: u32 = 5;
 /// Bit of the aerosol flag (2 bits: 0 = good, 1 = interpolated, 2 = high AOD, 3 = fill value of the scene).
@@ -49,6 +55,24 @@ pub fn cloud(v: i16) -> i8 {
 #[inline]
 pub fn shadow(v: i16) -> bool {
     bit(v, BIT_SHD)
+}
+
+/// `get_snow`: the pixel is snow.
+#[inline]
+pub fn snow(v: i16) -> bool {
+    bit(v, BIT_SNW)
+}
+
+/// `get_subzero`: the surface reflectance of the pixel was below 0 in a band.
+#[inline]
+pub fn subzero(v: i16) -> bool {
+    bit(v, BIT_SUB)
+}
+
+/// `get_saturation`: the surface reflectance of the pixel was above 1 in a band.
+#[inline]
+pub fn saturation(v: i16) -> bool {
+    bit(v, BIT_SAT)
 }
 
 /// `get_water`: the pixel is water.
@@ -96,6 +120,20 @@ pub fn set_lowsun(v: &mut i16, val: bool) {
     *v |= (val as i16) << BIT_SUN;
 }
 
+/// `set_subzero(qai, p, val)`: clear the subzero flag, then set it to `val`.
+#[inline]
+pub fn set_subzero(v: &mut i16, val: bool) {
+    *v &= !(1i16 << BIT_SUB);
+    *v |= (val as i16) << BIT_SUB;
+}
+
+/// `set_saturation(qai, p, val)`: clear the saturation flag, then set it to `val`.
+#[inline]
+pub fn set_saturation(v: &mut i16, val: bool) {
+    *v &= !(1i16 << BIT_SAT);
+    *v |= (val as i16) << BIT_SAT;
+}
+
 /// `set_slope(qai, p, val)`: clear the slope flag, then set it to `val`.
 #[inline]
 pub fn set_slope(v: &mut i16, val: bool) {
@@ -141,5 +179,12 @@ mod tests {
         set_aerosol(&mut a, 1);
         set_lowsun(&mut a, false);
         assert_eq!((aerosol(a), lowsun(a)), (1, false));
+        let mut s = 0b1i16 | (1 << 4);
+        assert!(snow(s) && !subzero(s) && !saturation(s));
+        set_subzero(&mut s, true);
+        set_saturation(&mut s, true);
+        assert_eq!((s, subzero(s), saturation(s)), (1 | (1 << 4) | (1 << 8) | (1 << 9), true, true));
+        set_subzero(&mut s, false);
+        assert!(!subzero(s) && saturation(s) && snow(s));
     }
 }

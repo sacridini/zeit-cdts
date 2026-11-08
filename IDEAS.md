@@ -3067,6 +3067,81 @@ validação.
     dst, ovv, vzn, hot, aod, wvp) empacotam os bricks de saída (nomes, domínios, reprojeção com
     `warp_from_brick_to_unknown_brick`, que depende do cubo); só o `compile_l2_boa`, o `compile_l2_aod`, o
     `compile_l2_vzn` e o `compile_l2_wvp` leem o `Atc`.
+- **23g, sétima parte (reflectância de superfície e produtos):** o resto do `atmo-ll.c` do FORCE 3.11.00 (David
+  Frantz, GPL-3.0-or-later) em `rust/zeit-core/src/l2.rs`: `surface_reflectance`, `background_reflectance`,
+  `compile_l2_boa`, `compile_l2_qai`, `compile_l2_dst` (com o `cloud_distance` do `cloud-ll.c`, que usa o
+  `dist_transform` já portado), `compile_l2_vzn` (as células sem dado preenchidas pelo IDW do GDAL de
+  `gdal_grid.rs`), `compile_l2_hot`, `compile_l2_aod`, `compile_l2_wvp`, `compile_level2` e
+  `radiometric_correction`. O `qai.rs` ganhou `snow`, `subzero`, `saturation`, `set_subzero` e `set_saturation`; o
+  `L2Params` (em `atmo.rs`, agora com `Default`) ganhou `doatmo`, `dotopo`, `dobrdf`, `erase_cloud`, `doaod`, `odst`,
+  `ovzn`, `ohot`, `oaod` e `owvp`; `L2Options` leva o diretório de AOD e a origem do vapor d'água. A ligação mínima
+  é `zeit._core.atmo.level2` (sem API pública; `zeit.atmospheric_correction` é a oitava parte); testes em
+  `tests/test_atmo.py` (3) e 6 no Rust (`l2`, `qai`, `radtran`).
+  - **A ordem do `radiometric_correction`** (a do FORCE; o `force-l2ps.c` já fez `allocate_atc`, `sun_target_view`,
+    a conversão para TOA, `compile_topography` e a detecção de nuvem): com `doatmo`, `atc->mod[b]` pelo comprimento de
+    onda e `atc->Hr`; o vapor d'água (Landsat: `water_vapor_from_lut`, um valor negativo é erro; Sentinel-2: 0 até o
+    `water_vapor`); `atmo_angledep`; `compile_aod`; `atmo_elevdep`; no Sentinel-2 a LUT de transmitância e o
+    `water_vapor`; com `dotopo` o `cfactor_topography`. Depois o `apply_aoi` e o `compile_level2`: HOT e AOD (leem o
+    TOA e o QAI como estão), o BOA (por banda, na ordem BLUE, GREEN, RED, REDEDGE1-3, BROADNIR, NIR, SWIR1, SWIR2: a
+    transmitância de gás (Sentinel-2), a reflectância de fundo (`doenv`), a de superfície; o QAI ganha subzero,
+    saturação e `off` pelo caminho, então um pixel que a banda verde põe `off` é `off` nas seguintes), o WVP (depois do
+    BOA), o QAI (os `off` viram 1) e com ele o DST e o VZN. O AOD sai antes do BOA e o WVP de Landsat depois: o pixel
+    que o BOA põe `off` fica com AOD e sem WVP.
+  - **Igual ao C, bit a bit, em 139.889.050 valores** (13 cenas sintéticas, `force_l2.py`; 0 diferenças, nenhuma a 1
+    ulp): o `atc` depois da correção (696 escalares e valores por banda, os 18 bricks da grade grossa, 15 famílias de
+    256 bricks), o QAI final (6.785.608 pixels), o BOA de cada banda (55.636.080 valores), o DST, VZN, HOT, AOD e WVP
+    (5.345.608 pixels cada), os mapas de transmitância de gás (25.893.504) e as listas de produtos com domínios e
+    comprimentos de onda. Landsat a 30 e 100 m e Sentinel-2 a 10, 20 e 60 m até um tile de 1200 x 1200 com 13 bandas,
+    TOA do transfer radiativo para solo, lagos (a biblioteca de água do FORCE), vegetação escura, nuvem (opaca, incerta,
+    cirrus), sombra e neve, DEM com relevo e oceano, com `doatmo`, `dotopo`, `doenv`, `domulti`, `dobrdf`,
+    `erase_cloud` e `doaod` ligados e desligados, AOI, com e sem mapa de AOD (a flag de aerossol 1, 2 e 3 aparece),
+    sol baixo. O lado C é o `radiometric_correction` do FORCE como está: o `main.c` do `force_l2/` é compilado contra
+    os cabeçalhos do FORCE e ligado aos objetos que o `make` do FORCE gerou para o `force-l2ps`, com o GSL 2.7 estático
+    (CBLAS de referência) e o GDAL 3.9.3, uma thread OpenMP. Com 4 threads o Zeit dá os mesmos produtos que com 1. Os
+    `force_atmo.py` (81.850.920), `force_topo.py` (11.620.508), `force_aod.py` (`compile_aod`, 51.690) e `force_gas.py`
+    (7.076.598) foram rodados de novo: as mesmas contagens, 0 diferenças.
+  - **Desvios:** (1) o sol, a projeção, a leitura do DEM e o `brdf_factor` são os da sexta parte e valem nos dois
+    lados (o `brdf_factor` do harness é uma função do zênite de visada e da banda, em float, que o Zeit reproduz pelo
+    `BrdfFn`; com `dobrdf` a reflectância de superfície multiplica pelo fator interpolado). A detecção de nuvem não é
+    do FORCE nem do Zeit: o QAI de entrada traz as flags. (2) O `compile_l2_ovv` (o quicklook) não foi portado. (3)
+    **O que o FORCE faz com o datacube** e aqui não está: com `doreproj`, `warp_from_brick_to_unknown_brick(dotile,
+    resample, nthread, brick, cube)` leva cada produto para a grade do cubo (o BOA, DST, VZN, HOT, AOD e WVP com o
+    `resample` do parâmetro; o QAI com vizinho mais próximo, antes de normalizar o `off`), e no VZN a grade grossa de
+    ângulos de visada também é reprojetada (a resolução do cubo é trocada pela da grade grossa durante a chamada) antes
+    do IDW e da interpolação para os pixels do QAI já reprojetado. Aqui os produtos ficam na grade da cena e o VZN é
+    interpolado nela; a grade de saída é decisão da API pública. Os nomes, o formato e os metadados que os `compile_l2_*`
+    põem nos bricks também não vêm: as escalas são `SCALE_BOA` (10000), `SCALE_VZN` (100), `SCALE_AOD` e `SCALE_WVP`
+    (1000), o `nodata` é -9999 (1 no QAI) e o AOD é o da banda verde (o comprimento de onda dela). (4) A `surface_reflectance`
+    interpola `tss_sw2` e `tsd_sw2` de `xyz_tss[z]` e `xyz_tsd[z]` da própria banda, não da SWIR2 (os arrays que o C
+    prepara para a SWIR2 não são usados): `f0 = f`. O port faz o mesmo. (5) Os `short` dos produtos são convertidos como
+    o gcc faz no x86-64 (`cvttsd2si` e os 16 bits baixos: `c_short`), inclusive fora do intervalo e NaN. (6) A passada
+    vertical da reflectância de fundo é sequencial em linhas (as colunas são independentes: a mesma aritmética, na mesma
+    ordem); o resto são laços do rayon sobre linhas e o resultado não depende de `n_jobs`. (7) Duas coisas que a
+    comparação achou: com o sol abaixo do horizonte (cosseno do zênite negativo) o `wvp_transmitt` do C dá NaN (soma a
+    tabela inteira de 1.991 comprimentos de onda e o `pow` de base negativa fora da janela da banda envenena a soma);
+    o port somava só a janela e dava um número finito; agora soma a tabela inteira onde a massa de ar não é positiva e
+    finita (o mesmo NaN; o `ozone_transmitt` igual). E o `gas_transmittance` e o `water_vapor` do FORCE, numa imagem
+    Sentinel-2 cuja largura não é múltiplo de 6, escrevem e leem 6 pixels além do fim de cada linha, nas duas primeiras
+    colunas da linha seguinte (e além do array nas últimas linhas, o que derrubou o harness): uma imagem Sentinel-2 real
+    tem múltiplo de 6 pixels (1830, 5490, 10980), o port continua cortando os blocos na borda e as cenas são múltiplos
+    de 6. (8) Como o `parse_param_lower`, sem `doatmo` ficam desligados `doaod`, `dobrdf`, `dotopo` e `doenv` (com
+    `dotopo` e sem atmosfera o FORCE desreferencia o C-factor que nunca calculou). Com `doaod` falso o FORCE exige
+    `DIR_AOD`; a cena de fallback do harness usa `NULL` (o fallback global), que a função aceita.
+  - **O que a oitava parte precisa** (leitura do L1C e metadados do `meta-ll.c`, a API `zeit.atmospheric_correction`,
+    o BRDF pelo `nbar` e a grade de saída): (a) o `parse_metadata` (MTL do Landsat, XML do Sentinel-2: as grades de
+    ângulo `vzen`/`vazi`, a banda da tabela RSR de cada banda, `cal`, o `nodata`, a data e o fuso) e o `read_level1`,
+    `convert_level1` (DN para TOA, o `short` do TOA) e `bounds_level1` (o QAI inicial: nodata e saturação), que
+    alimentam o `Toa`, o `Meta` e o QAI; o `Atc::allocate` já recebe o `Dn`. (b) A projeção: o `SceneGeo::to_geo` deve
+    ser a função mapa -> lon/lat do GDAL da projeção da cena (o harness usa um mapa afim). (c) O DEM: o
+    `compile_topography` recebe o DEM já na grade da cena (o FORCE o reprojeta com `GDALWarpOperation`, bilinear por
+    padrão, `DEM_NODATA` nos dois lados); com `dotopo` o FORCE exige um arquivo de DEM. (d) A detecção de nuvem
+    (`cloud-ll.c`, não portada; as flags de nuvem, sombra, neve e água entram no QAI antes do `radiometric_correction`,
+    e o AOD usa água, sombra e nuvem). (e) O BRDF: o `BrdfFn` do `atmo_angledep` recebe o `Atc` e a célula e preenche o
+    fator por banda; o `nbar` do Zeit entra aí, com o sol padronizado de `radtran::standard_sunzenith` e o QAI/zênite
+    da célula. (f) A grade de saída: o cubo (`cube_t`, tiles, `resample`, vizinho mais próximo para o QAI) e a
+    reprojeção do VZN descrita acima; a unidade de cada produto e os metadados. (g) A API: `n_jobs`, as unidades (`L2Params`
+    com os defaults do FORCE), as imagens Sentinel-2 que não são múltiplo de 6, o `Dn` do `allocate_atc` e a mensagem
+    que o `compile_aod` imprime ("AOD: ... # of targets: ..."), que o port não imprime.
 - **Janus:** o `zeit-core` foi para o `7c01978` sem mudar nada do que o Janus já chamava. As
   ferramentas pedem duas coisas novas no Janus:
   - saídas cujas bandas a ferramenta decide (a grade nova, os anos, as janelas);

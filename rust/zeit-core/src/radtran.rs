@@ -194,28 +194,54 @@ fn rsr_row(b_rsr: usize) -> (usize, &'static [f32]) {
 
 /// One-way water vapour transmittance of band `b_rsr` (an index into the RSR rows); `w` the path water vapour in
 /// cm, `m` the air mass of the path.
+///
+/// The C sums over every wavelength of the table, with the response 0 outside the band; this sums over the band's
+/// window, which is the same sum (the terms outside add `0 * finite`), except where an air mass that is not positive (a
+/// sun below the horizon) or not finite makes the term outside the window NaN or infinite (`pow` of a negative base,
+/// `exp` of a huge value): there the C's result is NaN, and this runs the whole table to give the same.
 pub fn wvp_transmitt(w: f32, m: f32, b_rsr: usize) -> f32 {
     let tmp = w / m;
     let (start, vals) = rsr_row(b_rsr);
+    let term = |k: usize| -> f64 {
+        let tmp2 = (tab::AW[k] * tmp) as f64;
+        ((-1.2110662 * tmp2) / (1.0 + 24.1229127 * tmp2).powf(0.3669996)).exp()
+    };
     let (mut a, mut s) = (0.0f64, 0.0f64);
-    for (k, &r) in vals.iter().enumerate() {
-        let tmp2 = (tab::AW[start + k] * tmp) as f64;
-        let r = r as f64;
-        a += r * ((-1.2110662 * tmp2) / (1.0 + 24.1229127 * tmp2).powf(0.3669996)).exp();
-        s += r;
+    if tmp >= 0.0 && tmp.is_finite() {
+        for (k, &r) in vals.iter().enumerate() {
+            let r = r as f64;
+            a += r * term(start + k);
+            s += r;
+        }
+    } else {
+        for k in 0..WVL_DIM {
+            let r = if k >= start && k < start + vals.len() { vals[k - start] as f64 } else { 0.0 };
+            a += r * term(k);
+            s += r;
+        }
     }
     (a / s) as f32
 }
 
-/// One-way ozone transmittance of band `b_rsr`; `o` the total ozone, `m` the air mass of the path.
+/// One-way ozone transmittance of band `b_rsr`; `o` the total ozone, `m` the air mass of the path. As
+/// [`wvp_transmitt`]: the sum is over the band's window unless the C's terms outside it are not finite.
 pub fn ozone_transmitt(o: f32, m: f32, b_rsr: usize) -> f32 {
     let tmp = -o / m;
     let (start, vals) = rsr_row(b_rsr);
+    let term = |k: usize| -> f64 { ((tab::AO[k] * tmp) as f64).exp() };
     let (mut a, mut s) = (0.0f64, 0.0f64);
-    for (k, &r) in vals.iter().enumerate() {
-        let r = r as f64;
-        a += r * ((tab::AO[start + k] * tmp) as f64).exp();
-        s += r;
+    if tmp <= 0.0 && tmp.is_finite() {
+        for (k, &r) in vals.iter().enumerate() {
+            let r = r as f64;
+            a += r * term(start + k);
+            s += r;
+        }
+    } else {
+        for k in 0..WVL_DIM {
+            let r = if k >= start && k < start + vals.len() { vals[k - start] as f64 } else { 0.0 };
+            a += r * term(k);
+            s += r;
+        }
     }
     (a / s) as f32
 }
@@ -789,5 +815,16 @@ mod tests {
         assert!(w > z + 30.0, "{w}");
         // the southern hemisphere has the opposite season
         assert!(standard_sunzenith(&d, -45.0, 10.0) > z + 30.0);
+    }
+
+    #[test]
+    fn a_sun_below_the_horizon_gives_the_c_nan_for_the_water_vapour() {
+        // the C sums the whole table: for a negative air mass the terms outside the band's window are NaN
+        // (pow of a negative base) and 0 * NaN poisons the sum; the band's window alone would give a finite value
+        for band in [21, 22, 30, 42] {
+            assert!(wvp_transmitt(2.0, -0.0592, band).is_nan(), "band {band}");
+            assert!(wvp_transmitt(2.0, 0.6, band).is_finite());
+            assert!(ozone_transmitt(0.3, -0.0592, band).is_finite());
+        }
     }
 }

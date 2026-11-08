@@ -18,8 +18,12 @@
 //! * **The LUT** is built by [`WvLut::build`], not inside `water_vapor` (FORCE keeps it in a global, `_WVLUT_`, and
 //!   rebuilds it on each `water_vapor` call); the caller builds it once and passes it to [`water_vapor`] and
 //!   [`gas_transmittance`], and `free_wvlut` is the drop of the [`WvLut`].
-//! * **Blocks at the edge.** FORCE reads and writes six pixels past the border when the image is not a multiple of 6
-//!   (undefined behaviour); here the blocks are cut at the border, which is the same wherever the C is defined.
+//! * **Blocks at the edge.** FORCE reads and writes six pixels past the border when the image is not a multiple of 6:
+//!   for a width that is not, the pixels past the end of a row are the first columns of the next one (`gas_transmittance`
+//!   gives those the transmittance of the last block of the row above, `water_vapor` averages them into that block), and
+//!   past the end of the array for a height that is not (undefined behaviour). Here the blocks are cut at the border. A
+//!   Sentinel-2 image is a multiple of 6 pixels (1830, 5490, 10980), where the two are the same; the comparison with
+//!   FORCE uses sizes that are multiples of 6 (`force_l2.py` found the wrap-around).
 //! * **Errors.** Where the C returns `NULL` or `-1` after a message, or GSL aborts, this returns a [`GasError`] (or
 //!   skips the pixel, for a non-finite value of the minimized function, which only an inconsistent `atc` produces).
 //! * **Scene centre.** `water_vapor_from_lut` takes the scene centre's longitude and latitude and the date as

@@ -7,9 +7,11 @@ use numpy::PyReadonlyArray1;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict};
-use zeit_core::atc::{Atc, AtmoError, CoarseBrick, DemStats, Dn};
+use zeit_core::atc::{Atc, AtmoError, CoarseBrick, DemStats, Dn, ZEN};
 use zeit_core::atmo::{self, L2Params};
-use zeit_core::gas::SceneGrid;
+use zeit_core::gas::{SceneGrid, Toa, WvpSource};
+use zeit_core::l2::{radiometric_correction, L2Options};
+use zeit_core::topo;
 use zeit_core::meta::{Meta, S2Meta};
 use zeit_core::radtran::Date;
 use zeit_core::sunview::{self, Mission, SceneGeo};
@@ -69,6 +71,16 @@ impl Out {
         for b in z {
             self.bands(b);
         }
+    }
+    /// A brick of the dump of `level2`: the number of bands, then the bands.
+    fn bands_n(&mut self, b: &CoarseBrick) {
+        self.i(b.nb() as i32);
+        self.bands(b);
+    }
+    /// A family of bricks of the dump of `level2`: the number of bands, then z-major.
+    fn xyz_n(&mut self, z: &[CoarseBrick]) {
+        self.i(z[0].nb() as i32);
+        self.xyz(z);
     }
     fn scalars(&mut self, atc: &Atc) {
         self.fs(&atc.cosszen);
@@ -141,7 +153,7 @@ fn scene<'py>(py: Python<'py>, d: &Bound<'py, PyDict>) -> PyResult<(Bound<'py, P
     let mut date = Date::from_year_doy(i("year")?, i("doy")?);
     (date.hh, date.mm, date.ss, date.tz) = (i("hh")?, i("mm")?, i("ss")?, i("tz")?);
     let (lon0, x0, kgeo): (f64, f64, f64) = (get(d, "lon0")?.extract()?, get(d, "x0")?.extract()?, get(d, "kgeo")?.extract()?);
-    let l2 = L2Params { domulti: i("domulti")? != 0, doenv: i("doenv")? != 0 };
+    let l2 = L2Params { domulti: i("domulti")? != 0, doenv: i("doenv")? != 0, ..Default::default() };
     let aodmap = i("aodmap")? != 0;
     let dem4: Vec<f32> = vec_of(d, "dem4")?;
     let cnum = i("cnum")?;
@@ -272,9 +284,192 @@ fn scene<'py>(py: Python<'py>, d: &Bound<'py, PyDict>) -> PyResult<(Bound<'py, P
     Ok((PyBytes::new(py, &bytes), t_sun, t_angle, t_elev))
 }
 
+/// The product of the dump of `l2`: its bands (domain, wavelength) and data.
+fn product(o: &mut Out, domain: &[String], wavelength: &[f32], bands: &[&[i16]]) {
+    o.i(bands.len() as i32);
+    for (dom, w) in domain.iter().zip(wavelength) {
+        let mut buf = [0u8; 16];
+        buf[..dom.len().min(15)].copy_from_slice(&dom.as_bytes()[..dom.len().min(15)]);
+        o.0.extend_from_slice(&buf);
+        o.f(*w);
+    }
+    for b in bands {
+        o.i16s(b);
+    }
+}
+
+/// The whole Level 2 radiometric correction of FORCE (`allocate_atc`, `sun_target_view`, `compile_topography` and
+/// `radiometric_correction`: the surface reflectance and the products) on a scene whose TOA reflectance and QAI are given
+/// (see `benchmarks/vs_originals/force_l2/main.c` for the layout of the dict, which is the layout of the file the C harness
+/// reads). Returns the dump (the layout of the C harness' output: the status, the time, the atc, the products) and the time
+/// of `radiometric_correction` in ms. The BRDF factor is the one the harness computes (a function of the view zenith and the
+/// band), as `brdf-ll.c` is not ported.
+#[pyfunction]
+fn level2<'py>(py: Python<'py>, d: &Bound<'py, PyDict>) -> PyResult<(Bound<'py, PyBytes>, f64)> {
+    let mission = match get(d, "mission")?.extract::<i32>()? {
+        0 => Mission::Landsat,
+        1 => Mission::Sentinel2,
+        m => return Err(PyValueError::new_err(format!("mission {m}: 0 is Landsat, 1 Sentinel-2"))),
+    };
+    let (nx, ny): (usize, usize) = (get(d, "nx")?.extract()?, get(d, "ny")?.extract()?);
+    let res: f64 = get(d, "res")?.extract()?;
+    let (ulx, uly): (f64, f64) = (get(d, "ulx")?.extract()?, get(d, "uly")?.extract()?);
+    let domain: Vec<String> = get(d, "domain")?.extract()?;
+    let wavelength: Vec<f32> = vec_of(d, "wavelength")?;
+    let rsr: Vec<usize> = vec_of::<i32>(d, "rsr_band")?.into_iter().map(|b| b as usize).collect();
+    let nb = domain.len();
+    if wavelength.len() != nb || rsr.len() != nb || rsr.iter().any(|&b| b >= 56) {
+        return Err(PyValueError::new_err("domain, wavelength and rsr_band need nb entries, rsr_band in 0..56"));
+    }
+    let i = |k: &str| -> PyResult<i32> { get(d, k)?.extract() };
+    let mut date = Date::from_year_doy(i("year")?, i("doy")?);
+    (date.hh, date.mm, date.ss, date.tz) = (i("hh")?, i("mm")?, i("ss")?, i("tz")?);
+    let (lon0, x0, kgeo): (f64, f64, f64) = (get(d, "lon0")?.extract()?, get(d, "x0")?.extract()?, get(d, "kgeo")?.extract()?);
+    let par = L2Params {
+        domulti: i("domulti")? != 0,
+        doenv: i("doenv")? != 0,
+        doatmo: i("doatmo")? != 0,
+        dotopo: i("dotopo")? != 0,
+        dobrdf: i("dobrdf")? != 0,
+        erase_cloud: i("erase_cloud")? != 0,
+        doaod: i("doaod")? != 0,
+        odst: i("odst")? != 0,
+        ovzn: i("ovzn")? != 0,
+        ohot: i("ohot")? != 0,
+        oaod: i("oaod")? != 0,
+        owvp: i("owvp")? != 0,
+    };
+    let wvp_const: f32 = get(d, "wvp")?.extract()?;
+    let dem_nodata = i("dem_nodata")?;
+    let dem: Vec<f32> = vec_of(d, "dem")?;
+    let gn = i("gn")? as usize;
+    let qai: Vec<i16> = vec_of(d, "qai")?;
+    let toa_flat: Vec<i16> = vec_of(d, "toa")?;
+    let npix = nx * ny;
+    if qai.len() != npix || toa_flat.len() != nb * npix || !(dem.is_empty() || dem.len() == npix) {
+        return Err(PyValueError::new_err("array sizes: qai nx x ny, toa nb x nx x ny, dem empty or nx x ny"));
+    }
+    let mut meta = Meta::from_rsr_bands(&rsr);
+    if mission == Mission::Sentinel2 {
+        meta.s2 = S2Meta {
+            nodata: get(d, "s2nodata")?.extract()?,
+            vzen: vec_of(d, "vzen")?,
+            vazi: vec_of(d, "vazi")?,
+            nx: get(d, "s2nx")?.extract()?,
+            ny: get(d, "s2ny")?.extract()?,
+        };
+    }
+    let aoi: Vec<u8> = vec_of(d, "aoi")?;
+    let n_jobs = d.get_item("n_jobs")?.map(|v| v.extract::<i32>()).transpose()?.unwrap_or(1);
+
+    let run = || -> Result<(Vec<u8>, f64), String> {
+        let e = |x: &dyn std::fmt::Display| x.to_string();
+        let dn = Dn { nx, ny, res, wavelength, domain: domain.clone() };
+        let mut atc = Atc::allocate(&dn, &meta).map_err(|x| e(&x))?;
+        if atc.nc as usize != gn {
+            return Err(format!("the grid has {} cells, the input {gn}", atc.nc));
+        }
+        let warp = move |x: f64, y: f64| (lon0 + (x - x0) * kgeo, y * kgeo);
+        let geo = SceneGeo { ulx, uly, date, to_geo: &warp };
+        let grid = SceneGrid { nx, ny, res };
+        let mut qai = qai;
+        sunview::sun_target_view(&mut atc, &meta, mission, &geo, &grid, &mut qai).map_err(|x| e(&x))?;
+        let mut top = topo::compile_topography(if dem.is_empty() { None } else { Some(&dem) }, dem_nodata, nx, ny, res, &mut atc, &mut qai)
+            .map_err(|x| e(&x))?;
+
+        let toa = Toa { grid, bands: toa_flat.chunks(npix).map(|c| c.to_vec()).collect(), domain: domain.clone() };
+        let opts = L2Options { aod_dir: None, wvp: WvpSource { dir: None, wvp: wvp_const, strict: false } };
+        let brdf = |atc: &Atc, g: usize, out: &mut [f32]| {
+            let zen = atc.xy_view.bands[ZEN][g];
+            for (b, o) in out.iter_mut().enumerate() {
+                *o = 1.0f32 + 0.5f32 * zen * (1.0f32 + 0.1f32 * b as f32);
+            }
+        };
+        let t0 = std::time::Instant::now();
+        let res_l2 = radiometric_correction(
+            &par,
+            &opts,
+            &meta,
+            mission,
+            &geo,
+            &mut atc,
+            &toa,
+            &mut qai,
+            if aoi.is_empty() { None } else { Some(&aoi) },
+            &mut top,
+            Some(&brdf),
+            n_jobs,
+        );
+        let ms = t0.elapsed().as_secs_f64() * 1e3;
+        let mut o = Out(Vec::new());
+        let lv = match res_l2 {
+            Ok(lv) => lv,
+            Err(err) => {
+                o.i(1);
+                o.d(ms);
+                let _ = err;
+                return Ok((o.0, ms));
+            }
+        };
+        o.i(0);
+        o.d(ms);
+        // the atc
+        o.fs(&[atc.wvp, atc.hr, atc.ha, atc.hp]);
+        o.i(atc.aodmap as i32);
+        o.fs(&[atc.dem.avg, atc.dem.min, atc.dem.max, atc.dem.step]);
+        o.i(atc.dem.cnum);
+        o.scalars(&atc);
+        for b in 0..nb {
+            o.fs(&[atc.mod_[b], atc.aod[b], atc.od[b]]);
+            o.i(atc.aod_bands[b] as i32);
+        }
+        for b in [
+            &atc.xy_mod, &atc.xy_aod, &atc.xy_pr, &atc.xy_pa, &atc.xy_hr, &atc.xy_ha, &atc.xy_tvw, &atc.xy_tsw, &atc.xy_tvo,
+            &atc.xy_tso, &atc.xy_tg, &atc.xy_brdf, &atc.xy_fresnel, &atc.xy_dem, &atc.xy_interp, &atc.xy_view, &atc.xy_sun,
+            &atc.xy_psi,
+        ] {
+            o.bands_n(b);
+        }
+        for z in [
+            &atc.xyz_od, &atc.xyz_mod, &atc.xyz_aod, &atc.xyz_rho_p, &atc.xyz_ts, &atc.xyz_tsd, &atc.xyz_tss, &atc.xyz_tv,
+            &atc.xyz_tvd, &atc.xyz_tvs, &atc.xyz_t, &atc.xyz_s, &atc.xyz_f, &atc.xyz_hr, &atc.xyz_ha,
+        ] {
+            o.xyz_n(z);
+        }
+        // the products: QAI, BOA, then the optional ones in the order of compile_level2
+        let nprod = 2 + [&lv.dst, &lv.vzn, &lv.hot, &lv.aod, &lv.wvp].iter().filter(|p| p.is_some()).count();
+        o.i(nprod as i32);
+        product(&mut o, &["QAI".to_string()], &[1.0], &[&lv.qai]);
+        let bands: Vec<&[i16]> = lv.boa.bands.iter().map(|b| b.as_slice()).collect();
+        product(&mut o, &lv.boa.domain, &lv.boa.wavelength, &bands);
+        let green = atc.xy_aod.find_domain("GREEN").map_or(1.0, |g| atc.wvl[g]);
+        for (name, wl, p) in [("DST", 1.0, &lv.dst), ("VZN", 1.0, &lv.vzn), ("HOT", 1.0, &lv.hot), ("AOD", green, &lv.aod), ("WVP", 1.0, &lv.wvp)] {
+            if let Some(p) = p {
+                product(&mut o, &[name.to_string()], &[wl], &[p]);
+            }
+        }
+        // the gaseous transmittance map of every band (Sentinel-2, with the WVP product), from the final QAI
+        match (&lv.wvp, mission == Mission::Sentinel2 && par.doatmo) {
+            (Some(wvp), true) => {
+                let lut = zeit_core::gas::WvLut::build(&rsr, &atc, n_jobs).map_err(|x| e(&x))?;
+                o.i(nb as i32);
+                for b in 0..nb {
+                    let tg = zeit_core::gas::gas_transmittance(&atc, b, wvp, &grid, &lv.qai, &lut).map_err(|x| e(&x))?;
+                    o.i16s(&tg);
+                }
+            }
+            _ => o.i(0),
+        }
+        Ok((o.0, ms))
+    };
+    let (bytes, ms) = py.detach(run).map_err(PyValueError::new_err)?;
+    Ok((PyBytes::new(py, &bytes), ms))
+}
+
 pub fn module(py: Python<'_>) -> PyResult<Bound<'_, PyModule>> {
     let m = PyModule::new(py, "atmo")?;
-    m.add("__doc__", "The atmosphere of the coarse grid of FORCE's atmospheric correction (pieces, for the comparison with FORCE)")?;
+    m.add("__doc__", "The atmosphere of the coarse grid of FORCE's atmospheric correction, and the Level 2 correction (pieces, for the comparison with FORCE)")?;
     m.add_function(wrap_pyfunction!(scene, &m)?)?;
+    m.add_function(wrap_pyfunction!(level2, &m)?)?;
     Ok(m)
 }

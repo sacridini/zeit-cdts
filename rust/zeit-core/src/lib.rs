@@ -37,6 +37,7 @@ pub mod gsl_symmv;
 pub mod hotspots;
 pub mod improphe;
 pub mod knndm;
+pub mod l2;
 pub mod landtrendr;
 pub mod lasso;
 pub mod mann_kendall;
