@@ -231,8 +231,12 @@ def fake_arrays(monkeypatch, calls, fmask_info=None):
         out["wvp"][0, 0] = -9999
         if fmask_info is not None:
             out["fmask"] = fmask_info
+        if kw.get("reference") is not None:
+            out["coreg"] = coreg_result
+        if kw.get("merge") is not None:
+            out["merge"] = kw["merge"]
         return out
-
+    coreg_result = dict(x_shift_px=2.5, y_shift_px=-1.5, reliability=87.0, success=True, reason=None)
     monkeypatch.setattr(_level2, "_level2_arrays", arrays)
     # "scene.SAFE" is not a directory: level2 would download it; the name goes through as it is
     monkeypatch.setattr(_s2fetch, "download_l1c", lambda product, *a, **k: product)
@@ -257,7 +261,8 @@ def test_level2_maps_the_public_parameters_to_the_engine(monkeypatch):
     safe, kw = calls[0]
     assert safe == "scene.SAFE"
     assert kw == dict(dem="dem.tif", flags=flags, dobrdf=False, dotopo=False, doaod=False, doenv=False, domulti=False,
-                      erase_cloud=True, dem_resampling="nearest", n_jobs=3, fmask=False, gswo="g.tif", fmask_compat=True)
+                      erase_cloud=True, dem_resampling="nearest", n_jobs=3, fmask=False, gswo="g.tif", fmask_compat=True,
+                      merge=None, reference=None, coreg_band="BROADNIR", coreg_ref_band=None)
     calls.clear()
     _level2.level2("scene.SAFE", "dem.tif")
     kw = calls[0][1]
@@ -302,3 +307,190 @@ def test_level2_a_local_path_that_does_not_exist_is_not_downloaded(monkeypatch):
     with pytest.raises(ValueError, match="not a Sentinel-2 L1C"):
         _level2.level2(os.path.join("no", "such", "folder", "S2B_MSIL1C_x.SAFE"), topography=False)
     assert not called
+
+
+# --- the merge and the coregistration, on the TOA between the cloud flags and the correction -------------------------
+
+SCENE_DESC = dict(res=10.0, ulx=199980.0, uly=8300020.0, epsg=32723)
+MERGE_ROLES = ["green", "red", "nir", "rededge1", "rededge2", "rededge3", "nir08", "swir16", "swir22"]
+
+
+def smooth(n, seed=3, sigma=1.5):
+    ndimage = pytest.importorskip("scipy.ndimage")
+    a = ndimage.gaussian_filter(np.random.default_rng(seed).standard_normal((n, n)), sigma)
+    return (a - a.min()) / (a.max() - a.min())
+
+
+def toa_of(img):
+    """13 TOA bands (int16, x 10000) of one texture."""
+    return np.stack([(1000 + 3000 * img * (1 + 0.1 * b)).astype(np.int16) for b in range(13)])
+
+
+def test_level2_maps_merge_and_coregistration_to_the_engine_and_the_attrs(monkeypatch):
+    calls = []
+    fake_arrays(monkeypatch, calls)
+    ds = _level2.level2("scene.SAFE", topography=False)
+    assert "merge" not in ds.attrs and not [k for k in ds.attrs if k.startswith("coreg")]
+    ds = _level2.level2("scene.SAFE", topography=False, merge="improphe", reference="ref.tif", coreg_band="RED", coreg_ref_band=2)
+    kw = calls[-1][1]
+    assert (kw["merge"], kw["reference"], kw["coreg_band"], kw["coreg_ref_band"]) == ("improphe", "ref.tif", "RED", 2)
+    a = ds.attrs
+    assert a["merge"] == "improphe" and a["coreg_x_shift_px"] == 2.5 and a["coreg_y_shift_px"] == -1.5
+    assert a["coreg_reliability"] == 87.0 and a["coreg_success"] is True and a["coreg_reason"] == ""
+    ds = _level2.level2("scene.SAFE", topography=False, merge="regression")
+    assert ds.attrs["merge"] == "regression" and "coreg_success" not in ds.attrs
+
+
+def test_level2_refuses_a_merge_or_a_coreg_band_that_does_not_exist_before_anything_runs(monkeypatch):
+    calls = []
+    fake_arrays(monkeypatch, calls)
+    with pytest.raises(ValueError, match="merge must be"):
+        _level2.level2("scene.SAFE", topography=False, merge="starfm")
+    with pytest.raises(ValueError, match="coreg_band"):
+        _level2.level2("scene.SAFE", topography=False, reference="ref.tif", coreg_band="B04")
+    assert not calls
+
+
+def test_the_merge_takes_the_bands_by_domain_the_clear_from_the_qai_and_writes_back_int16_with_no_data():
+    n = 8
+    toa = np.stack([np.full((n, n), 100 * (b + 1), np.int16) for b in range(13)])
+    qai = np.zeros((n, n), np.int16)
+    toa[:, 0, 0] = -9999
+    qai[0, 0] = 1                  # off
+    qai[1, 1] = 1 << 1             # cloud
+    qai[2, 2] = 1 << 3             # shadow
+    qai[3, 3] = 1 << 4             # snow: predicted
+    qai[4, 4] = 1 << 5             # water: predicted
+    seen = {}
+    import zeit._resmerge as rm
+
+    def spy(cube, **kw):
+        seen.update(cube=cube, kw=kw)
+        out = cube.copy()
+        for k, role in enumerate(MERGE_ROLES[3:]):
+            out.loc[{"band": role}] = 7000.0 + k
+        return out
+
+    orig = rm.sentinel2_resmerge
+    rm.sentinel2_resmerge = spy
+    try:
+        out = _level2._toa_merge(toa, qai, "improphe", 2)
+    finally:
+        rm.sentinel2_resmerge = orig
+    cube = seen["cube"]
+    assert list(cube.band.values) == MERGE_ROLES and cube.dtype == np.float32
+    # green B03 (index 2), red B04 (3), nir = broad NIR B08 (7), then B05, B06, B07 (4, 5, 6), nir08 = narrow NIR B8A (8), B11, B12
+    for role, idx in zip(MERGE_ROLES, (2, 3, 7, 4, 5, 6, 8, 11, 12)):
+        assert cube.sel(band=role).values[5, 5] == 100 * (idx + 1), role
+        assert np.isnan(cube.sel(band=role).values[0, 0])
+    kw = seen["kw"]
+    assert kw["method"] == "improphe" and kw["force"] is True and kw["n_jobs"] == 2
+    clear = np.asarray(kw["clear"])
+    assert not clear[0, 0] and not clear[1, 1] and not clear[2, 2] and clear[3, 3] and clear[4, 4] and clear[5, 5]
+    assert out.dtype == np.int16 and out.shape == toa.shape
+    for k, idx in enumerate((4, 5, 6, 8, 11, 12)):
+        assert out[idx][5, 5] == 7000 + k and out[idx][0, 0] == -9999
+    for idx in (0, 1, 2, 3, 7, 9, 10):
+        assert np.array_equal(out[idx], toa[idx]), idx
+    assert toa[4][5, 5] == 500                       # the input is not changed
+
+
+@pytest.mark.parametrize("method", ["regression", "improphe"])
+def test_the_merge_predicts_clear_pixels_and_leaves_the_off_and_the_cloud_alone(method):
+    n = 40
+    rng = np.random.default_rng(5)
+    toa = toa_of(smooth(n)).astype(np.int32) + rng.integers(-30, 30, size=(13, n, n))
+    for b in (4, 5, 6, 8, 11, 12):             # the 20 m bands are blocks of 2 x 2
+        toa[b] = np.kron(toa[b][::2, ::2], np.ones((2, 2), int))
+    toa = toa.astype(np.int16)
+    qai = np.zeros((n, n), np.int16)
+    qai[10, 10] = 1
+    toa[:, 10, 10] = -9999
+    qai[20:23, 20:23] = 1 << 1
+    out = _level2._toa_merge(toa, qai, method, 2)
+    assert out.dtype == np.int16
+    assert np.array_equal(out[:, 10, 10], np.full(13, -9999))
+    assert np.array_equal(out[:, 20:23, 20:23], toa[:, 20:23, 20:23])
+    for idx in (0, 1, 2, 3, 7, 9, 10):
+        assert np.array_equal(out[idx], toa[idx])
+    for idx in (4, 5, 6, 8, 11, 12):
+        assert (out[idx] != toa[idx]).any(), idx
+
+
+def test_the_hook_is_given_to_the_core_only_with_a_merge_or_a_reference_and_returns_flat_int16(monkeypatch):
+    seen = []
+    stub = types.SimpleNamespace(l2scene=types.SimpleNamespace(run=lambda *a, **k: seen.append(k) or {"boa": np.zeros(10 * NR * NC, np.int16)}))
+    monkeypatch.setattr(_level2, "_core", stub)
+    safe = object.__new__(_level2.Safe)
+    safe.product = types.SimpleNamespace(read_bytes=lambda: b"")
+    safe.tile = types.SimpleNamespace(read_bytes=lambda: b"")
+    safe.granule = types.SimpleNamespace(name="g")
+    safe.describe = lambda: dict(nrows=NR, ncols=NC)
+    kw = dict(bands=np.zeros((13, NR, NC), np.uint16), geography=(np.zeros(1), np.zeros(1)), fmask=False)
+    _level2._level2_arrays(safe, **kw)
+    assert "toa_hook" not in seen[-1]
+    out = _level2._level2_arrays(safe, **kw, merge="regression")
+    assert out["merge"] == "regression" and "coreg" not in out
+    toa = (1000 + np.arange(13 * NR * NC) % 977).astype(np.int16)
+    qai = np.zeros(NR * NC, np.int16)
+    t, q = seen[-1]["toa_hook"](toa.copy(), qai.copy())
+    assert t.dtype == np.int16 and q.dtype == np.int16 and t.shape == (13 * NR * NC,) and q.shape == (NR * NC,)
+    with pytest.raises(ValueError, match="merge must be"):
+        _level2._level2_arrays(safe, **kw, merge="x")
+
+
+def coreg_scene(n=400, dx=3, dy=-2):
+    """A scene, the reference (band 3 with its content moved right dx and down dy cells; NaN where nothing came from) and a QAI with a cloud."""
+    toa = toa_of(smooth(n))
+    ref = np.full((n, n), np.nan, np.float32)
+    ref[max(dy, 0):n + min(dy, 0), max(dx, 0):n + min(dx, 0)] = toa[3][max(-dy, 0):n + min(-dy, 0), max(-dx, 0):n + min(-dx, 0)]
+    qai = np.zeros((n, n), np.int16)
+    qai[100:140, 150:200] = 1 << 1
+    return toa, qai, ref
+
+
+def test_the_coregistration_finds_the_shift_and_moves_every_band_and_the_qai():
+    n, dx, dy = 400, 3, -2
+    toa, qai, ref = coreg_scene(n, dx, dy)
+    out, q, info = _level2._toa_coregister(toa, qai, SCENE_DESC, _level2._scene_template(SCENE_DESC, ref), 3, None, 2)
+    assert info["success"] and info["reason"] is None and info["reliability"] > 50
+    assert (info["x_shift_px"], info["y_shift_px"]) == pytest.approx((dx, dy), abs=0.05)
+    assert out.dtype == np.int16 and q.dtype == np.int16 and out.shape == toa.shape
+    # every band moved by the shift of band 3: out[y, x] = toa[y - dy, x - dx]
+    for b in range(13):
+        a = out[b][8:-8, 8:-8].astype(int)
+        e = toa[b][8 - dy:n - 8 - dy, 8 - dx:n - 8 - dx].astype(int)
+        assert np.abs(a - e).max() <= 1, b
+    # the QAI by the nearest neighbour: the cloud moved by the same cells, nothing blurred
+    cloud = np.zeros((n, n), bool)
+    cloud[100 + dy:140 + dy, 150 + dx:200 + dx] = True
+    assert np.array_equal((q & 2) > 0, cloud) and set(np.unique(q & ~1)) <= {0, 2}
+    # what the shift uncovers is off: -9999 in every band and bit 0 of the QAI, and nothing else is
+    off = (q & 1) > 0
+    assert off[:, :dx].all() and off[n + dy:, :].all()
+    assert np.array_equal(out == -9999, np.broadcast_to(off, out.shape))
+    assert not off[:n + dy - 3, dx + 3:].any()
+
+
+def test_the_coregistration_recovers_a_subpixel_shift_with_its_sign():
+    ndimage = pytest.importorskip("scipy.ndimage")
+    n = 400
+    toa = toa_of(smooth(n))
+    qai = np.zeros((n, n), np.int16)
+    # the reference is the scene's BROADNIR (index 7) with its content moved 2.5 cells right and 1.5 up
+    ref = ndimage.shift(toa[7].astype(np.float64), (-1.5, 2.5), order=3, mode="nearest").astype(np.float32)
+    out, q, info = _level2._toa_coregister(toa, qai, SCENE_DESC, _level2._scene_template(SCENE_DESC, ref), 7, None, 2)
+    assert info["success"]
+    # AROSICS' part of a pixel is coarse on a texture like this one (it reads it from the side maxima of the correlation): the
+    # sign and the whole cells are right and the misfit drops to a third
+    assert info["x_shift_px"] == pytest.approx(2.5, abs=0.8) and info["y_shift_px"] == pytest.approx(-1.5, abs=0.8)
+    d = np.abs(out[7][20:-20, 20:-20].astype(np.float64) - ref[20:-20, 20:-20]).mean()
+    d0 = np.abs(toa[7][20:-20, 20:-20].astype(np.float64) - ref[20:-20, 20:-20]).mean()
+    assert d < 0.5 * d0
+
+
+def test_a_coregistration_that_fails_leaves_the_scene_as_it_is_and_says_why():
+    toa, qai, ref = coreg_scene(400, 12, 0)       # a shift above max_shift (5)
+    out, q, info = _level2._toa_coregister(toa, qai, SCENE_DESC, _level2._scene_template(SCENE_DESC, ref), 3, None, 2)
+    assert info["success"] is False and info["reason"]
+    assert out is toa and q is qai

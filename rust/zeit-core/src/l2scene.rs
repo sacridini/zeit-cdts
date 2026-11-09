@@ -169,6 +169,11 @@ pub fn brdf_fn<'a>(domains: &'a [String], geo: &'a SceneGeo<'a>, date: &'a Date)
     }
 }
 
+/// A step on the TOA reflectance between the cloud detection and the radiometric correction, where `force-l2ps` coregisters
+/// and merges the resolutions: it gets the TOA (13 bands, `-9999` where the pixel is off) and the QAI as they are at that
+/// point (initial QAI, sun, topography and cloud flags) and may change both.
+pub type ToaHook<'a> = &'a mut dyn FnMut(&mut Toa, &mut [i16]) -> Result<(), L2Error>;
+
 /// `force-l2ps` for one Sentinel-2 L1C scene, from the digital numbers.
 ///
 /// * `l1`: the metadata ([`s2l1c::parse_metadata`] with `subset` false, the image being the whole tile), whose size is
@@ -181,6 +186,8 @@ pub fn brdf_fn<'a>(domains: &'a [String], geo: &'a SceneGeo<'a>, date: &'a Date)
 /// * `sun`: the sun angles of the coarse cells (degrees) to use instead of the core's.
 /// * `brdf`: the BRDF factor of every band and coarse cell (`brdf[b][g]`) to use instead of [`brdf_fn`]'s (FORCE's own
 ///   factors, for the comparison with FORCE).
+/// * `toa_hook`: called once, after the flags are in the QAI and before the correction, with the TOA and the QAI; what it
+///   writes there is what the correction reads (and `SceneOut::qai_in` has). `None`: nothing happens, as before.
 #[allow(clippy::too_many_arguments)]
 pub fn level2_scene(
     l1: &L1c,
@@ -191,6 +198,7 @@ pub fn level2_scene(
     sun: Option<&SunTable>,
     brdf: Option<&[Vec<f32>]>,
     sp: &SceneParams,
+    toa_hook: Option<ToaHook>,
 ) -> Result<SceneOut, L2Error> {
     let (nx, ny) = (l1.tile.ncols as usize, l1.tile.nrows as usize);
     let nc = nx * ny;
@@ -235,7 +243,7 @@ pub fn level2_scene(
     // TOA reflectance
     let radd: Vec<f32> = l1.meta.cal.iter().map(|c| c.radd).collect();
     let bands = s2l1c::convert_level1(dn, &qai_v, &radd, l1.product.dn_scale, sp.n_jobs).map_err(other)?;
-    let toa = Toa { grid, bands, domain: dnb.domain.clone() };
+    let mut toa = Toa { grid, bands, domain: dnb.domain.clone() };
 
     tick(&mut t, "convert_level1");
 
@@ -251,6 +259,13 @@ pub fn level2_scene(
                 *q |= v & FLAG_MASK;
             }
         }
+    }
+
+    // the steps between the cloud detection and the radiometric correction that work on the TOA reflectance (FORCE's
+    // `coregister` and `resolution_merge`), given by the caller
+    if let Some(h) = toa_hook {
+        h(&mut toa, &mut qai_v)?;
+        tick(&mut t, "toa_hook");
     }
 
     let qai_in = qai_v.clone();
@@ -373,7 +388,7 @@ mod tests {
         let mut sp = SceneParams::force_defaults();
         sp.l2.dobrdf = brdf;
         sp.n_jobs = jobs;
-        level2_scene(&l, &refs, None, Some(&e), &table(&l), sun, None, &sp).unwrap()
+        level2_scene(&l, &refs, None, Some(&e), &table(&l), sun, None, &sp, None).unwrap()
     }
 
     #[test]
@@ -439,12 +454,57 @@ mod tests {
         flags[6] = 1 << 3;
         flags[7] = 1 << 4 | 1 << 10; // snow; the other bits are not read
         let sp = SceneParams::force_defaults();
-        let out = level2_scene(&l, &refs, Some(&flags), Some(&e), &table(&l), None, None, &sp).unwrap();
+        let out = level2_scene(&l, &refs, Some(&flags), Some(&e), &table(&l), None, None, &sp, None).unwrap();
         let q = &out.level2.qai;
         assert_eq!(q[5], 1);
         assert!(qai::shadow(q[6]) && !qai::snow(q[6]));
         assert!(qai::snow(q[7]) && !qai::lowsun(q[7]));
         assert!(!qai::shadow(q[8]));
+    }
+
+    #[test]
+    fn the_toa_hook_runs_once_after_the_flags_and_the_topography_and_its_writes_reach_the_correction() {
+        let n = 120;
+        let l = l1(n);
+        let d = dn(n);
+        let refs: Vec<&[u16]> = d.iter().map(|b| b.as_slice()).collect();
+        let e = dem(n);
+        let mut flags = vec![0i16; n * n];
+        flags[6] = 1 << 3; // shadow
+        let sp = SceneParams::force_defaults();
+        let plain = level2_scene(&l, &refs, Some(&flags), Some(&e), &table(&l), None, None, &sp, None).unwrap();
+        let red = plain.level2.boa.domain.iter().position(|s| s == "RED").unwrap();
+
+        let mut calls = 0;
+        let mut seen: Vec<i16> = vec![];
+        let mut hook = |toa: &mut Toa, q: &mut [i16]| -> Result<(), L2Error> {
+            calls += 1;
+            seen = q.to_vec();
+            assert_eq!(toa.bands.len(), NB);
+            let r = toa.find_domain("RED").unwrap();
+            for v in toa.bands[r].iter_mut() {
+                *v = 3000;
+            }
+            qai::set_off(&mut q[10], true);
+            Ok(())
+        };
+        let hooked = level2_scene(&l, &refs, Some(&flags), Some(&e), &table(&l), None, None, &sp, Some(&mut hook)).unwrap();
+        assert_eq!(calls, 1);
+        // the QAI the hook saw has the flags and the slope of the topography, and equals the plain run's qai_in
+        assert!(qai::shadow(seen[6]));
+        assert!(seen.iter().any(|&q| (q >> 13) & 1 != 0), "no slope bit of the topography in the QAI");
+        assert_eq!(seen, plain.qai_in);
+        // what the hook writes is in qai_in and in the correction
+        assert!(qai::off(hooked.qai_in[10]));
+        assert_ne!(hooked.level2.boa.bands[red], plain.level2.boa.bands[red]);
+        // a hook that does nothing changes nothing
+        let mut noop = |_: &mut Toa, _: &mut [i16]| -> Result<(), L2Error> { Ok(()) };
+        let same = level2_scene(&l, &refs, Some(&flags), Some(&e), &table(&l), None, None, &sp, Some(&mut noop)).unwrap();
+        assert_eq!(same.level2.boa.bands, plain.level2.boa.bands);
+        assert_eq!(same.level2.qai, plain.level2.qai);
+        // an error of the hook is the error of the scene
+        let mut fail = |_: &mut Toa, _: &mut [i16]| -> Result<(), L2Error> { Err(L2Error::Other("hook".into())) };
+        assert!(level2_scene(&l, &refs, Some(&flags), Some(&e), &table(&l), None, None, &sp, Some(&mut fail)).is_err());
     }
 
     #[test]

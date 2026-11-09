@@ -31,6 +31,8 @@ aligned, points = zeit.coregister_local(cube, reference, grid_res=100, window_si
 
 A date that fails (no overlap of valid data, no clear match, a shift above `max_shift`, 5 pixels by default) stays as it was, with `success=False` and the `reason` in the table. Check `ssim_before` and `ssim_after` to see that the date agrees better afterwards, and `min_reliability` refuses the weak shifts.
 
+For a single Level 1C scene, [`level2`](sentinel2-level2.md) takes `reference=` and coregisters the TOA reflectance with the global `coregister` before the atmospheric correction, as FORCE does with its own method.
+
 ## NBAR
 
 **When.** The reflectance of a pixel depends on the angles of the sun and the sensor. [`nbar`](../api/preprocessing.md#nbar) normalises it to a nadir view and a chosen sun zenith with the c-factor method of Roy et al. (2016, 2017), the view-angle step of HLS. It needs the per-pixel `SZA`, `SAA`, `VZA` and `VAA`; for Sentinel-2, [`sentinel2_angles`](../api/preprocessing.md#sentinel2_angles) makes them from each tile's `MTD_TL.xml`. Written from the papers and the HLS User Guide, not from FORCE's code.
@@ -68,7 +70,7 @@ Only Crist's matrix was derived for surface reflectance; the others were derived
 
 ## The 20 m bands at 10 m
 
-**When.** The six 20 m bands of Sentinel-2 (red edge 1-3, B8A, SWIR1, SWIR2) on the 10 m grid, predicted from the 10 m green, red and broad NIR. [`sentinel2_resmerge`](../api/preprocessing.md#sentinel2_resmerge) is FORCE's resolution merge. The input is a cube on the 10 m grid where each 20 m pixel is four equal pixels. It is not part of [`level2`](sentinel2-level2.md).
+**When.** The six 20 m bands of Sentinel-2 (red edge 1-3, B8A, SWIR1, SWIR2) on the 10 m grid, predicted from the 10 m green, red and broad NIR. [`sentinel2_resmerge`](../api/preprocessing.md#sentinel2_resmerge) is FORCE's resolution merge. The input is a cube on the 10 m grid where each 20 m pixel is four equal pixels. For a single Level 1C scene, [`level2`](sentinel2-level2.md) does it itself with `merge=`, on the TOA reflectance before the atmospheric correction as FORCE does; use `sentinel2_resmerge` for cubes that are already corrected or for time series.
 
 ```python
 sharp = zeit.sentinel2_resmerge(s2, method="regression", clear=cloud_free)

@@ -3239,8 +3239,15 @@ validação.
     download e fica a viés de 0,54 e |d| médio de 0,93 do `force-l2ps` no azul (x 10000, céu limpo), a mesma distância já medida.
 
     **O que falta na 23i:**
-    - pôr na cadeia o merge de 20 m (`sentinel2_resmerge`, com o `clear` tirado do QAI) e, se pedido, o coregistro (`coregister`, com
-      uma referência na grade da cena);
+    - ~~pôr na cadeia o merge de 20 m e o coregistro~~: feito em 2026-11-09, `level2(merge=, reference=)`, sobre o TOA, por um gancho
+      em `level2_scene`, depois das bandeiras e antes da correção, como no `force-l2ps` (primeiro o coregistro, depois o merge). Ainda
+      sem release. Na 23LKC de 2023, com as entradas do FORCE, o ImproPhe difere em 9 a 70 pixels do `boa` por banda (de 1 a 3) e a
+      regressão, contra o FORCE com 1 thread, em 196 a 271 pixels das 6 bandas mescladas (de 2 a 12); a causa desses resíduos não foi
+      investigada. A regressão do FORCE com várias threads não é determinística. Deslocamento imposto de +2,5 e -1,5 px, recuperado
+      como +2,47 e -1,47. Esses números são de uma única rodada: a repetição de conferência foi interrompida por falta de memória na
+      máquina, antes de dar resultado. Antes do release: repetir a comparação (`force_l2ps_real.py --modes dump --merge ...`), medir o
+      pico de memória do merge na cena inteira (relatado como dezenas de GB, nunca medido) e pô-lo na documentação, e rodar a suíte
+      completa;
     - no Janus, a ferramenta que leva uma pasta de L1 a ARD. O `zeit-core` fixado lá é o f20ff43 (Zeit 3.1.0), sem `l2scene`, `s2l1c`,
       `fmask`, `cloud_dist`, `solpos`, `l2`, `atmo`, `aod`, `gas`, `radtran`, `topo`, `qai` e `parallax`: o primeiro passo é subir esse
       rev. O Janus já tem o leitor por janela (GDAL), o PROJ, os ângulos (`s2angles.rs`, pedir `B8A`) e um warp, mas falta o objeto de

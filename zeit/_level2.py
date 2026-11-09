@@ -291,6 +291,125 @@ def fmask_flags(
     return flags, info
 
 
+#: The 13 bands of the TOA brick in the order of the L1C bands (``BAND_NAMES``), by the domain FORCE gives them.
+TOA_DOMAINS = ("ULTRABLUE", "BLUE", "GREEN", "RED", "REDEDGE1", "REDEDGE2", "REDEDGE3", "BROADNIR", "NIR", "VAPOR", "CIRRUS",
+               "SWIR1", "SWIR2")
+#: The roles of ``zeit.sentinel2_resmerge`` and the domain each is: ``nir`` is the broad NIR (B08), ``nir08`` the narrow one (B8A).
+_MERGE_ROLES = (("green", "GREEN"), ("red", "RED"), ("nir", "BROADNIR"), ("rededge1", "REDEDGE1"), ("rededge2", "REDEDGE2"),
+                ("rededge3", "REDEDGE3"), ("nir08", "NIR"), ("swir16", "SWIR1"), ("swir22", "SWIR2"))
+MERGE_METHODS = ("regression", "improphe")
+TOA_NODATA = -9999
+_QAI_FILL = -1
+
+
+def _scene_template(desc: Dict[str, Any], plane: np.ndarray):
+    """``plane`` ``(nrows, ncols)`` as a georeferenced DataArray on the grid of the scene."""
+    import xarray as xr
+    import rioxarray  # noqa: F401  (the .rio accessor)
+    from affine import Affine
+
+    res = float(desc["res"])
+    nr, nc = plane.shape
+    da = xr.DataArray(plane, dims=("y", "x"), coords={"y": desc["uly"] - res * (np.arange(nr) + 0.5),
+                                                      "x": desc["ulx"] + res * (np.arange(nc) + 0.5)})
+    da = da.rio.write_crs(f"EPSG:{int(desc['epsg'])}")
+    return da.rio.write_transform(Affine(res, 0.0, desc["ulx"], 0.0, -res, desc["uly"]))
+
+
+def _toa_coregister(toa: np.ndarray, qai: np.ndarray, desc: Dict[str, Any], reference: Any, band: int, ref_band: Any,
+                    n_jobs: int) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
+    """The TOA ``(13, nrows, ncols)`` and the QAI moved to fit ``reference`` by the global shift ``zeit.coregister`` finds on
+    the band ``band`` of the TOA (the same shift for every band): the bands by the cubic convolution, back to ``int16`` rounded
+    with -9999 where the pixel is off or has no data, the QAI by the nearest neighbour. What the shift uncovers at the border,
+    and every pixel with no data in a band after the cubic, is off (-9999 in the bands, bit 0 of the QAI). A shift that is not
+    found leaves both as they are. Returns the arrays and the shift's row (``x_shift_px``, ``y_shift_px``, ``reliability``,
+    ``success``, ``reason``)."""
+    from affine import Affine
+    from rasterio.crs import CRS
+
+    from ._coreg import coregister
+    from ._load import load_raster
+    from ._warp import _grid, to_grid
+
+    nr, nc = qai.shape
+    off = (qai & 1) != 0
+    match = np.where(off, np.nan, toa[band]).astype(np.float32)
+    cube = _scene_template(desc, match)
+    ref = load_raster(reference, like=cube)
+    aligned, shifts = coregister(cube, ref, ref_band=ref_band, n_jobs=1)
+    row = shifts.iloc[0]
+    info = dict(x_shift_px=float(row["x_shift_px"]), y_shift_px=float(row["y_shift_px"]), reliability=float(row["reliability"]),
+                success=bool(row["success"]), reason=None if row["reason"] is None else str(row["reason"]))
+    if not info["success"]:
+        return toa, qai, info
+    dx, dy = info["x_shift_px"], info["y_shift_px"]
+    res = float(desc["res"])
+    t = Affine(res, 0.0, desc["ulx"], 0.0, -res, desc["uly"])
+    grid = _grid(t, (nr, nc), CRS.from_user_input(cube.rio.crs))
+
+    def move(plane: np.ndarray, how: str, nodata: Any = None, dtype: Any = None) -> np.ndarray:
+        da = _scene_template(desc, plane)
+        if nodata is not None:
+            da = da.rio.write_nodata(nodata)
+        da = da.assign_coords(x=da["x"].values + dx * t.a, y=da["y"].values + dy * t.e)
+        da = da.rio.write_transform(t @ Affine.translation(dx, dy))
+        out = to_grid(da, grid, how, n_threads=n_jobs, nodata=nodata, dtype=dtype)
+        return np.asarray(out.values).reshape(nr, nc)
+
+    q = move(np.ascontiguousarray(qai, dtype=np.int16), "nearest", nodata=_QAI_FILL, dtype="int16")
+    uncovered = q == _QAI_FILL
+    q = np.where(uncovered, 1, q).astype(np.int16)
+    new_off = (q & 1) != 0
+    out = np.empty_like(toa)
+    for b in range(toa.shape[0]):
+        if b == band:
+            moved = np.asarray(aligned.values, dtype=np.float32).reshape(nr, nc)
+        else:
+            plane = np.where(off, np.nan, toa[b]).astype(np.float32)
+            moved = move(plane, "cubic")
+        bad = np.isnan(moved)
+        new_off |= bad
+        out[b] = np.clip(np.rint(np.where(bad, 0.0, moved)), TOA_NODATA + 1, 32767).astype(np.int16)
+    q = np.where(new_off, q | 1, q).astype(np.int16)
+    out[:, new_off] = TOA_NODATA
+    return out, q, info
+
+
+def _toa_merge(toa: np.ndarray, qai: np.ndarray, method: str, n_jobs: int) -> np.ndarray:
+    """The TOA with the six 20 m bands predicted at 10 m (FORCE's ``resolution_merge``, ``zeit.sentinel2_resmerge`` with
+    ``force=True``, its arithmetic): the pixels that are off are -9999 and left out; the ones with a cloud, a shadow or
+    off are not predicted (``clear`` is ``!off && cloud == 0 && !shadow`` of the QAI)."""
+    import xarray as xr
+
+    from ._resmerge import sentinel2_resmerge
+
+    nr, nc = qai.shape
+    off = (qai & 1) != 0
+    cloud = ((qai >> 1) & 3) > 0
+    shadow = ((qai >> 3) & 1) != 0
+    names = [r for r, _ in _MERGE_ROLES]
+    cube = np.empty((len(names), nr, nc), dtype=np.float32)
+    for k, (_, dom) in enumerate(_MERGE_ROLES):
+        cube[k] = toa[TOA_DOMAINS.index(dom)]
+        cube[k][off] = np.nan
+    da = xr.DataArray(cube, dims=("band", "y", "x"), coords={"band": names, "y": np.arange(nr), "x": np.arange(nc)})
+    del cube
+    merged = sentinel2_resmerge(da, method=method, clear=~(off | cloud | shadow), force=True, scale=10000.0, nodata=None,
+                                n_jobs=n_jobs)
+    out = toa.copy()
+    for role, dom in _MERGE_ROLES[3:]:
+        v = np.asarray(merged.sel(band=role).values)
+        out[TOA_DOMAINS.index(dom)] = np.where(off, TOA_NODATA, np.clip(np.nan_to_num(v, nan=TOA_NODATA), -32768, 32767)).astype(np.int16)
+    return out
+
+
+def _check_merge_coreg(merge: Any, reference: Any, coreg_band: Any) -> None:
+    if merge is not None and merge not in MERGE_METHODS:
+        raise ValueError(f"merge must be None, 'regression' or 'improphe', got {merge!r}")
+    if reference is not None and str(coreg_band).upper() not in TOA_DOMAINS:
+        raise ValueError(f"coreg_band must be one of {list(TOA_DOMAINS)}, got {coreg_band!r}")
+
+
 def _level2_arrays(
     safe: Any,
     *,
@@ -312,6 +431,10 @@ def _level2_arrays(
     fmask: bool = True,
     gswo: Any = None,
     fmask_compat: bool = False,
+    merge: Optional[str] = None,
+    reference: Any = None,
+    coreg_band: str = "BROADNIR",
+    coreg_ref_band: Any = None,
 ) -> Dict[str, Any]:
     """The Level 2 products of the scene: ``boa`` ``(10, nrows, ncols)`` ``int16`` (reflectance x 10000, ``-9999`` no data),
     ``qai``, ``dst``, ``vzn``, ``hot``, ``aod``, ``wvp`` ``(nrows, ncols)`` ``int16``, the scene's water vapour and AOD, the
@@ -322,7 +445,13 @@ def _level2_arrays(
     the ``compat`` of the port) and ``out["fmask"]`` says what it did; ``fmask=False`` runs no cloud detection, as before. With
     ``flags`` the Fmask does not run. ``geography`` replaces the longitude and latitude of the corners, ``sun`` the sun zenith and azimuth (degrees) of the
     coarse cells, ``brdf_table`` the BRDF factor ``(13, cells)`` of every band and coarse cell; ``bands`` and ``dem_array`` replace the reading of the files (a scene read before).
+
+    ``reference`` (coregistration, then ``coreg_band`` of the TOA against ``coreg_ref_band`` of the reference) and ``merge``
+    (``"regression"`` or ``"improphe"``) run on the TOA reflectance in this order, after the cloud flags and before the
+    correction, as ``force-l2ps`` does (``coregister`` and ``resolution_merge``); ``out["coreg"]`` says what the coregistration
+    found and ``out["merge"]`` the method.
     """
+    _check_merge_coreg(merge, reference, coreg_band)
     s = safe if isinstance(safe, Safe) else Safe(safe)
     desc = s.describe()
     nr, nc = desc["nrows"], desc["ncols"]
@@ -347,7 +476,26 @@ def _level2_arrays(
         kw.update(sun_zen=np.ascontiguousarray(sun[0], dtype=np.float32), sun_azi=np.ascontiguousarray(sun[1], dtype=np.float32))
     if brdf_table is not None:
         kw.update(brdf=np.ascontiguousarray(brdf_table, dtype=np.float32).ravel())
+    coreg_info: Dict[str, Any] = {}
+    if merge is not None or reference is not None:
+        shape3 = (len(BAND_NAMES), nr, nc)
+
+        def hook(toa: np.ndarray, qai: np.ndarray):
+            toa, qai = toa.reshape(shape3), qai.reshape(nr, nc)
+            if reference is not None:
+                toa, qai, info = _toa_coregister(toa, qai, desc, reference, TOA_DOMAINS.index(str(coreg_band).upper()),
+                                                 coreg_ref_band, n_jobs)
+                coreg_info.update(info)
+            if merge is not None:
+                toa = _toa_merge(toa, qai, merge, n_jobs)
+            return np.ascontiguousarray(toa, dtype=np.int16).ravel(), np.ascontiguousarray(qai, dtype=np.int16).ravel()
+
+        kw.update(toa_hook=hook)
     out = _core.l2scene.run(*args, **kw)
+    if reference is not None:
+        out["coreg"] = coreg_info
+    if merge is not None:
+        out["merge"] = merge
     shape = (nr, nc)
     for k in ("qai", "dst", "vzn", "hot", "aod", "wvp"):
         if k in out:
@@ -399,6 +547,10 @@ def level2(
     fmask_compat: bool = False,
     dem_resampling: str = "bilinear",
     n_jobs: int = 8,
+    merge: Optional[str] = None,
+    reference: Any = None,
+    coreg_band: str = "BROADNIR",
+    coreg_ref_band: Any = None,
 ):
     """The atmospheric correction of a Sentinel-2 Level 1C scene to surface reflectance: FORCE's ``force-l2ps``.
 
@@ -408,8 +560,9 @@ def level2(
     dark targets, the adjacency effect, the topographic and the BRDF corrections, and the products on the grid of the scene
     (10 m). The cloud, shadow, snow and water flags come from Zeit's Fmask 4.7 (Qiu, Zhu and Woodcock 2019, *Remote Sensing
     of Environment* 231:111205), run at 20 m with the DEM, unless ``flags`` gives them or ``fmask=False``. It reads the 13 band
-    files (JPEG 2000 or GeoTIFF) and the two XML files; it does not merge the 20 m bands nor coregister, and it is only for
-    Sentinel-2.
+    files (JPEG 2000 or GeoTIFF) and the two XML files. With ``reference`` it coregisters the image to a reference and with
+    ``merge`` it merges the 20 m bands to 10 m, both on the TOA reflectance before the correction, as ``force-l2ps`` does;
+    it is only for Sentinel-2.
 
     Parameters
     ----------
@@ -449,6 +602,27 @@ def level2(
         The resampling of the DEM onto the grid of the scene: ``"bilinear"`` (FORCE's default), ``"nearest"``, ``"cubic"``...
     n_jobs
         Threads of the correction, the Fmask and the JPEG 2000 decoder.
+    merge
+        ``None`` (default, no merge), ``"regression"`` or ``"improphe"``: FORCE's resolution merge (``RES_MERGE``), the
+        methods of ``zeit.sentinel2_resmerge``, with its ``force=True`` arithmetic (truncated integers; the regression sweeps
+        the image in order on one thread, as FORCE does). It runs on the TOA reflectance, before the atmospheric
+        correction, as ``force-l2ps`` does: the red edge 1 to 3, narrow NIR (B8A), SWIR1 and SWIR2 are predicted at 10 m from
+        green, red and the broad NIR (B08). A pixel is predicted if it is not off, has no cloud and no shadow in the QAI
+        (snow and water are predicted); the others keep their 20 m values. The aerosol, vapour and all the products then
+        see the merged bands.
+    reference
+        ``None`` (default, no coregistration) or the reference image: a raster path or a DataArray, of any grid (it is put on
+        the grid of the scene by ``zeit.load_raster(reference, like=...)``). The shift of ``coreg_band`` of the TOA to the
+        reference's ``coreg_ref_band`` is found by ``zeit.coregister`` (AROSICS' global co-registration, a different method
+        from FORCE's, so the shifts are not FORCE's) and applied to every band of the TOA (cubic) and to the QAI (nearest
+        neighbour) before the merge and the correction, so every product comes out aligned. The topography, the geography
+        and the sun do not move, as in FORCE. Pixels the shift uncovers, and pixels with no data in a band after the cubic,
+        are off (-9999 in ``boa``, bit 0 of the ``qai``). If no shift is found the scene is left as it is (see ``attrs``).
+    coreg_band
+        The band of the scene that is matched: one of ``ULTRABLUE BLUE GREEN RED REDEDGE1 REDEDGE2 REDEDGE3 BROADNIR NIR
+        VAPOR CIRRUS SWIR1 SWIR2`` (``BROADNIR`` is B08, ``NIR`` B8A); a 10 m band is best.
+    coreg_ref_band
+        The band of ``reference`` to match, by label or position (the first by default).
 
     Returns
     -------
@@ -466,10 +640,13 @@ def level2(
     Raises
     ------
     ValueError
-        ``topography=True`` without ``dem``.
+        ``topography=True`` without ``dem``; a ``merge`` that is not ``"regression"`` or ``"improphe"``; a ``coreg_band`` that is not a band.
 
     Notes
     -----
+    The merge is compared with ``force-l2ps`` (``RES_MERGE = REGRESSION`` and ``IMPROPHE``) by
+    ``benchmarks/vs_originals/force_l2ps_real.py --merge``. The coregistration cannot be compared: FORCE's is another method.
+
     Equal to FORCE 3.11.00 in every pixel of ``boa``, ``qai``, ``aod``, ``wvp``, ``hot``, ``dst`` and ``vzn`` when the cloud
     flags, the sun, the geography and the BRDF factor are FORCE's (see the benchmark). Zeit computes them itself (its own sun,
     Fmask and NBAR c-factor as BRDF factor), and then it differs a little (see
@@ -489,6 +666,7 @@ def level2(
     import rioxarray  # noqa: F401  (the .rio accessor)
     from affine import Affine
 
+    _check_merge_coreg(merge, reference, coreg_band)
     if topography and dem is None:
         raise ValueError("zeit.level2: topography=True needs the DEM: pass dem= (a raster in metres), dem=\"glo30\" or topography=False")
     # a bare name only: a local path that does not exist is a mistake to report (by Safe), not an 800 MB download
@@ -502,7 +680,8 @@ def level2(
         dem = download_dem(safe.path if isinstance(safe, Safe) else safe)
     out = _level2_arrays(safe, dem=dem, flags=flags, dobrdf=brdf, dotopo=topography, doaod=aod, doenv=adjacency,
                          domulti=multiple_scattering, erase_cloud=erase_cloud, dem_resampling=dem_resampling,
-                         n_jobs=n_jobs, fmask=fmask, gswo=gswo, fmask_compat=fmask_compat)
+                         n_jobs=n_jobs, fmask=fmask, gswo=gswo, fmask_compat=fmask_compat, merge=merge, reference=reference,
+                         coreg_band=coreg_band, coreg_ref_band=coreg_ref_band)
     desc = out["desc"]
     nr, nc = desc["nrows"], desc["ncols"]
     res = float(desc["res"])
@@ -533,6 +712,12 @@ def level2(
         water_vapor_cm=float(wvp.mean()) / 1000.0 if wvp.size else float("nan"),
         n_targets=[int(v) for v in out["n_targets"]], core_seconds=float(out["ms"]) / 1e3,
     )
+    if merge is not None:
+        attrs["merge"] = merge
+    if reference is not None:
+        c = out["coreg"]
+        attrs.update(coreg_x_shift_px=c["x_shift_px"], coreg_y_shift_px=c["y_shift_px"], coreg_reliability=c["reliability"],
+                     coreg_success=c["success"], coreg_reason="" if c["reason"] is None else c["reason"])
     for k, v in (out.get("fmask") or {}).items():
         v = _plain(v)
         if v is not None:

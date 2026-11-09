@@ -10,7 +10,7 @@
 </div>
 
 !!! warning "What is, and what is not, equal to FORCE"
-    With FORCE's cloud flags, sun, geography and BRDF factor as inputs, every product of `level2` equals that of `force-l2ps` in 100 % of the pixels. The public function does not take those from FORCE: it computes the cloud mask with Zeit's Fmask, the sun with Zeit's own implementation and the BRDF factor with [`nbar`](../api/preprocessing.md#nbar)'s c-factor. With them it differs a little from FORCE, as the [validation](#validation) shows. It is for Sentinel-2 only, keeps the products on the scene's 10 m grid, and does not merge the 20 m bands or coregister.
+    With FORCE's cloud flags, sun, geography and BRDF factor as inputs, every product of `level2` equals that of `force-l2ps` in 100 % of the pixels. The public function does not take those from FORCE: it computes the cloud mask with Zeit's Fmask, the sun with Zeit's own implementation and the BRDF factor with [`nbar`](../api/preprocessing.md#nbar)'s c-factor. With them it differs a little from FORCE, as the [validation](#validation) shows. It is for Sentinel-2 only and keeps the products on the scene's 10 m grid. The merge of the 20 m bands (`merge=`) and the coregistration to a reference (`reference=`) are optional, off by default, and done on the TOA reflectance before the correction, as FORCE does; the merge is compared with FORCE, the coregistration is not (it is AROSICS', FORCE's is another method).
 
 ## What you need
 
@@ -128,6 +128,24 @@ ndvi = (nir - red) / (nir + red)
 | `fmask_compat` | `False` | `True` reproduces three oddities of the original Fmask 4.7 code; the default corrects them |
 | `dem_resampling` | `"bilinear"` | The resampling of the DEM onto the grid of the scene (FORCE's default) |
 | `n_jobs` | `8` | Threads of the correction, the Fmask and the JPEG 2000 decoder |
+| `merge` | `None` | `"regression"` or `"improphe"`: FORCE's resolution merge (`RES_MERGE`), the red edge 1-3, B8A, SWIR1 and SWIR2 predicted at 10 m from green, red and the broad NIR, on the TOA reflectance before the correction (see [below](#merge-the-20-m-bands-and-coregister)) |
+| `reference` | `None` | A raster path or `DataArray` to coregister the scene to (AROSICS' global shift, [`coregister`](../api/preprocessing.md#coregister)), on the TOA before the merge and the correction |
+| `coreg_band` | `"BROADNIR"` | The band of the scene that is matched to the reference |
+| `coreg_ref_band` | `None` | The band of `reference` to match (the first by default) |
+
+### Merge the 20 m bands and coregister
+
+FORCE does both before the atmospheric correction, on the TOA reflectance, and so does `level2` (the coregistration first): the aerosol, the vapour and the correction then see the merged and shifted bands, and every product comes out aligned.
+
+```python
+l2 = zeit.level2(safe, dem="dem.tif", merge="improphe")                         # 10 m red edge, B8A, SWIR
+l2 = zeit.level2(safe, dem="dem.tif", reference="base_nir.tif", coreg_band="BROADNIR", coreg_ref_band=1)
+print(l2.attrs["coreg_x_shift_px"], l2.attrs["coreg_y_shift_px"], l2.attrs["coreg_success"])
+```
+
+The merge predicts a pixel only if it is not off and has no cloud and no shadow in the QAI (snow and water are predicted), as FORCE does, and uses the arithmetic of FORCE (`force=True` of [`sentinel2_resmerge`](../api/preprocessing.md#sentinel2_resmerge)). The coregistration finds one shift on `coreg_band` (a 10 m band is best) and moves the 13 bands (cubic) and the QAI (nearest neighbour) by it; the reference may be on another grid, it is put on the scene's. If no shift is found the scene is processed as it is and `attrs` say it (`coreg_success`, `coreg_reason`). The pixels the shift uncovers are off. The shift is AROSICS', not FORCE's: FORCE's `coregister` is another method, so it is not compared with FORCE.
+
+On tile 23LKC (2023), with FORCE's cloud flags, sun, geography and BRDF factor, the merge gives the same `qai`, `dst`, `hot`, `aod`, `vzn` and `wvp` as `force-l2ps` with `RES_MERGE` in every pixel of the 120,560,400, and `boa` differs in 9 to 70 pixels per band with ImproPhe (by 1 to 3) and in 196 to 271 pixels of each of the six merged bands with the regression (by 2 to 12; compared with a FORCE run on one thread: FORCE's regression is not deterministic with several). The merge alone takes 11.4 s with ImproPhe and 182 s with the regression on this scene (8 threads; the regression of FORCE's arithmetic runs on one). A reference made from the scene's own BROADNIR moved by +2.5 pixels in `x` and -1.5 in `y` was found as +2.47 and -1.47 (reliability 95.6).
 
 ### Your own cloud mask
 
@@ -191,7 +209,7 @@ Zeit and FORCE are at nearly the same distance from the L2A in every band. The L
 
 - It is for Sentinel-2 only.
 - It keeps the products on the 10 m grid of the scene. FORCE's reprojection to its datacube is not done.
-- It does not merge the 20 m bands into a 10 m grid (see [`sentinel2_resmerge`](../api/preprocessing.md#sentinel2_resmerge)) and does not coregister (see [`coregister`](../api/preprocessing.md#coregister)). Both are steps of their own: [Preparing images](preparing-images.md).
+- It merges the 20 m bands and coregisters only when asked (`merge=`, `reference=`), and only the global shift of [`coregister`](../api/preprocessing.md#coregister); the local warp of `coregister_local`, the merge of a time series and the other uses of [`sentinel2_resmerge`](../api/preprocessing.md#sentinel2_resmerge) are steps of their own: [Preparing images](preparing-images.md).
 
 ## Credits
 

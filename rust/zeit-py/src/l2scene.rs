@@ -8,6 +8,8 @@ use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict};
 use zeit_core::atc::{AZI, ZEN};
 use zeit_core::atmo::L2Params;
+use zeit_core::gas::Toa;
+use zeit_core::l2::L2Error;
 use zeit_core::l2scene::{self, SceneParams, SunTable};
 use zeit_core::s2l1c::{self, NB};
 use zeit_core::sunview::GeoTable;
@@ -88,10 +90,12 @@ fn prepare<'py>(
 
 /// `force-l2ps` for the scene: the digital numbers (`13 * ncols * nrows` values band by band), the flags (the cloud, shadow,
 /// snow and water bits per pixel, or empty), the DEM in metres on the grid of the scene (or empty: flat), the longitude and
-/// latitude of the `geo_grid` corners (row by row) and, optionally, the sun angles of the coarse cells in degrees. `params`
+/// latitude of the `geo_grid` corners (row by row) and, optionally, the sun angles of the coarse cells in degrees.
+/// `toa_hook(toa, qai) -> (toa, qai)` is called once between the cloud flags and the correction (FORCE's coregistration and
+/// resolution merge) with the TOA (`13 * cells` int16, band by band, -9999 where off) and the QAI (`cells` int16). `params`
 /// holds the switches of `L2Params`, `dem_nodata`, `buffer_nodata` and `n_jobs`.
 #[pyfunction]
-#[pyo3(signature = (product_xml, tile_xml, granule_name, dn, flags, dem, lon, lat, params, sun_zen=None, sun_azi=None, brdf=None))]
+#[pyo3(signature = (product_xml, tile_xml, granule_name, dn, flags, dem, lon, lat, params, sun_zen=None, sun_azi=None, brdf=None, toa_hook=None))]
 #[allow(clippy::too_many_arguments)]
 fn run<'py>(
     py: Python<'py>,
@@ -107,6 +111,7 @@ fn run<'py>(
     sun_zen: Option<PyReadonlyArray1<'py, f32>>,
     sun_azi: Option<PyReadonlyArray1<'py, f32>>,
     brdf: Option<PyReadonlyArray1<'py, f32>>,
+    toa_hook: Option<Bound<'py, PyAny>>,
 ) -> PyResult<Bound<'py, PyDict>> {
     let l1 = s2l1c::parse_metadata(product_xml.as_bytes(), tile_xml.as_bytes(), granule_name, false).map_err(err)?;
     let nc = l1.tile.ncols as usize * l1.tile.nrows as usize;
@@ -159,20 +164,55 @@ fn run<'py>(
     };
     let bands: Vec<&[u16]> = dn.chunks(nc.max(1)).collect();
     let t0 = std::time::Instant::now();
-    let out = py
-        .detach(|| {
-            l2scene::level2_scene(
-                &l1,
-                &bands,
-                if flags.is_empty() { None } else { Some(flags) },
-                if dem.is_empty() { None } else { Some(dem) },
-                &table,
-                sun.as_ref(),
-                brdf_t.as_deref(),
-                &sp,
-            )
-        })
-        .map_err(err)?;
+    // the hook: the callable gets the TOA (`13 * cells` int16, band by band) and the QAI (`cells` int16) as numpy arrays and
+    // returns both; an exception it raises is kept and raised once the scene returns
+    let hook_obj: Option<Py<PyAny>> = toa_hook.filter(|h| !h.is_none()).map(|h| h.unbind());
+    let hook_err: std::sync::Mutex<Option<PyErr>> = std::sync::Mutex::new(None);
+    let result = py.detach(|| {
+        let mut hook = |toa: &mut Toa, q: &mut [i16]| -> Result<(), L2Error> {
+            let h = hook_obj.as_ref().unwrap();
+            let fail = |e: PyErr| {
+                *hook_err.lock().unwrap() = Some(e);
+                L2Error::Other("toa_hook raised an exception".into())
+            };
+            Python::attach(|py| -> PyResult<()> {
+                let a = PyArray1::from_vec(py, toa.bands.concat());
+                let b = PyArray1::from_vec(py, q.to_vec());
+                let r = h.call1(py, (a, b))?;
+                let (ra, rb): (PyReadonlyArray1<i16>, PyReadonlyArray1<i16>) = r.extract(py)?;
+                let (ra, rb) = (slice(&ra, "toa_hook's toa")?, slice(&rb, "toa_hook's qai")?);
+                if ra.len() != NB * nc || rb.len() != nc {
+                    return Err(PyValueError::new_err(format!(
+                        "toa_hook must return the TOA ({} values) and the QAI ({nc} values), got {} and {}",
+                        NB * nc,
+                        ra.len(),
+                        rb.len()
+                    )));
+                }
+                for (band, src) in toa.bands.iter_mut().zip(ra.chunks(nc.max(1))) {
+                    band.copy_from_slice(src);
+                }
+                q.copy_from_slice(rb);
+                Ok(())
+            })
+            .map_err(fail)
+        };
+        l2scene::level2_scene(
+            &l1,
+            &bands,
+            if flags.is_empty() { None } else { Some(flags) },
+            if dem.is_empty() { None } else { Some(dem) },
+            &table,
+            sun.as_ref(),
+            brdf_t.as_deref(),
+            &sp,
+            if hook_obj.is_some() { Some(&mut hook) } else { None },
+        )
+    });
+    if let Some(e) = hook_err.into_inner().unwrap() {
+        return Err(e);
+    }
+    let out = result.map_err(err)?;
     let ms = t0.elapsed().as_secs_f64() * 1e3;
     let (l2, atc, top, qai_in) = (out.level2, out.atc, out.top, out.qai_in);
 

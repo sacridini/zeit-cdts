@@ -206,15 +206,15 @@ def stats(name, a, b, nodata=-9999):
     return {
         "name": name, "n": int(both.sum()), "equal": float((d == 0).mean()) if d.size else float("nan"),
         "max": int(d.max()) if d.size else 0, "mean": float(d.mean()) if d.size else 0.0,
-        "gt1": int((d > 1).sum()), "only_force": int((va & ~vb).sum()), "only_zeit": int((vb & ~va).sum()),
+        "differ": int((d > 0).sum()), "gt1": int((d > 1).sum()), "only_force": int((va & ~vb).sum()), "only_zeit": int((vb & ~va).sum()),
     }
 
 
 def show(rows, title):
     print(f"\n{title}")
-    print(f"{'':14}{'valid both':>12}{'equal':>10}{'max':>7}{'mean':>9}{'>1':>10}{'only FORCE':>12}{'only Zeit':>11}")
+    print(f"{'':14}{'valid both':>12}{'equal':>10}{'differ':>10}{'max':>7}{'mean':>9}{'>1':>10}{'only FORCE':>12}{'only Zeit':>11}")
     for r in rows:
-        print(f"{r['name']:14}{r['n']:12d}{r['equal'] * 100:9.4f}%{r['max']:7d}{r['mean']:9.4f}{r['gt1']:10d}{r['only_force']:12d}{r['only_zeit']:11d}")
+        print(f"{r['name']:14}{r['n']:12d}{r['equal'] * 100:9.4f}%{r['differ']:10d}{r['max']:7d}{r['mean']:9.4f}{r['gt1']:10d}{r['only_force']:12d}{r['only_zeit']:11d}")
 
 
 def load_ref(force):
@@ -292,6 +292,13 @@ def main():
     ap.add_argument("--scene", choices=sorted(SCENES), default="2023")
     ap.add_argument("--brdf", action="store_true")
     ap.add_argument("--modes", default="zeit,geo,force")
+    ap.add_argument("--merge", choices=["regression", "improphe"],
+                    help="compare level2(merge=...) with force-l2ps RES_MERGE = REGRESSION or IMPROPHE (force_out_<scene>_merge_<method>, "
+                         "made by run_force.sh with the fifth argument); the inputs of the dump run, FORCE's cloud detection precedes the merge")
+    ap.add_argument("--force-dir", help="with --merge: the folder (in the data folder) of FORCE's output to compare with, instead of force_out_<scene>_merge_<method>")
+    ap.add_argument("--flags-from-force", action="store_true",
+                    help="dump mode: the cloud flags are those of FORCE's final QAI (of --force-dir) and not the dump's; FORCE's cloud detection "
+                         "gives other flags with 1 thread than with 8, and a run made with 1 thread (deterministic regression) needs its own")
     ap.add_argument("--n-jobs", type=int, default=8)
     ap.add_argument("--save", action="store_true", help="keep Zeit's products (the QAI, AOD, WVP, HOT, DST, VZN and four BOA bands) in the FORCE output folder")
     a = ap.parse_args()
@@ -304,7 +311,7 @@ def main():
     print("zeit._core:", _core.__file__)
     name = SCENES[a.scene]
     tag = "brdf" if a.brdf else "nobrdf"
-    force_dir = DATA / f"force_out_{a.scene}_{tag}"
+    force_dir = DATA / (a.force_dir or (f"force_out_{a.scene}_merge_{a.merge}" if a.merge else f"force_out_{a.scene}_{tag}"))
     force = force_files(force_dir)
     ref = load_ref(force)
     safe = _level2.Safe(DATA / "tif" / f"{name}.SAFE")
@@ -355,9 +362,15 @@ def main():
                 diff_line(f"TOA band {b_} ({DOMAINS[b_]})", dmp["toa"][b_], toa[b_])
             fl = (np.asarray(dmp["qai_cloud"]) & FLAG_MASK).astype(np.int16)
             print("  cloud flags of the dump against the final QAI of FORCE:", int((fl != (qf & FLAG_MASK)).sum()), "pixels differ")
+            if a.flags_from_force:
+                fl = flags
+                print("  cloud flags of FORCE's final QAI in", force_dir.name)
             sun_zen_c = np.degrees(dmp["sun_zen"]).astype(np.float32)
+            t0 = time.perf_counter()
             out = _level2._level2_arrays(safe, flags=fl, dobrdf=a.brdf, n_jobs=a.n_jobs, bands=dn, dem_array=dem,
-                                 geography=(lon_f, lat_f), sun=(zen_f, azi_f), brdf_table=np.asarray(dmp["brdf"]))
+                                 geography=(lon_f, lat_f), sun=(zen_f, azi_f), brdf_table=np.asarray(dmp["brdf"]), merge=a.merge)
+            if a.merge:
+                print(f"  level2 with merge={a.merge}: core and hook {out['ms'] / 1e3:.1f} s (call {time.perf_counter() - t0:.1f} s)")
             print(f"  valid targets (water, shadow, vegetation): {list(out['n_targets'])}  (the dump run's log: see l2ps log)")
             diff_line("QAI after the topography and the flags", dmp["qai_cloud"], out["qai_in"].reshape(dmp["qai_cloud"].shape),
                       " (the dump's QAI is after the cloud detection; the core's has the dump's flags)")
@@ -374,7 +387,7 @@ def main():
             print("  DEM statistics FORCE:", np.asarray(dmp["dem_stats"]), " core:", np.array(out["dem_stats"]))
             print("  sun zenith (rad) max |FORCE - core|:", float(np.abs(dmp["sun_zen"] - np.radians(out["sun_zen"])).max()))
             print("  view zenith (rad) max |FORCE - core|:", float(np.abs(np.asarray(dmp["view_zen"]) - out["view_zen"]).max()))
-            r = compare(ref, out, f"{a.scene}_{tag}_dump", force_dir / "maps")
+            r = compare(ref, out, f"{a.scene}_{tag}_dump{'_' + a.merge if a.merge else ''}", force_dir / "maps")
             r.update(mode=mode, n_targets=list(out["n_targets"]))
             results.append(r)
             continue
@@ -437,7 +450,7 @@ def main():
         r.update(mode=mode, core_s=out["ms"] / 1e3, aod_green=float(out["aod_scene"][2]),
                  n_targets=list(out["n_targets"]))
         results.append(r)
-    (force_dir / f"result_{a.scene}_{tag}.json").write_text(json.dumps(results, indent=1))
+    (force_dir / f"result_{a.scene}_{tag}{'_merge_' + a.merge if a.merge else ''}.json").write_text(json.dumps(results, indent=1))
     print(f"\nread {t_read:.1f} s, DEM {t_dem:.1f} s")
 
 
