@@ -9,7 +9,9 @@ elsewhere. In it, one folder per cache:
   read before it);
 - ``embeddings``: the downloads of ``zeit.load_embeddings`` (``cache_dir=`` names another);
 - ``tiles``: the tiles a tile run built or received (``zeit worker --cache-dir`` names another);
-- ``map-tiles``: the basemap tiles of ``zeit.plot``.
+- ``map-tiles``: the basemap tiles of ``zeit.plot``;
+- ``l1c``: the Sentinel-2 ``.SAFE`` directories of ``zeit.download_l1c``;
+- ``dem``: the Copernicus GLO-30 mosaics of ``zeit.download_dem``.
 """
 
 import os
@@ -17,7 +19,7 @@ import sys
 from pathlib import Path
 from typing import Dict, Optional
 
-CACHES = ("weights", "embeddings", "tiles", "map-tiles")
+CACHES = ("weights", "embeddings", "tiles", "map-tiles", "l1c", "dem")
 
 
 def cache_root() -> Path:

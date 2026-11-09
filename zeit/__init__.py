@@ -54,6 +54,7 @@ from ._resmerge import sentinel2_resmerge
 from ._pansharpen import pansharpen
 from ._parallax import buffer_mask, cloud_displacement_index, parallax_clouds
 from ._level2 import level2
+from ._s2fetch import find_l1c, download_l1c, download_dem
 from ._topocorr import topographic_correction
 from ._coreg import coregister, coregister_local
 
@@ -141,6 +142,9 @@ __all__ = [
     "parallax_clouds",
     "buffer_mask",
     "level2",
+    "find_l1c",
+    "download_l1c",
+    "download_dem",
     "topographic_correction",
     "coregister",
     "coregister_local",

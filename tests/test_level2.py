@@ -2,6 +2,7 @@
 10 m grid by nearest neighbour as FORCE's read_level1 does, the geography of the coarse corners and the DEM on the grid of the
 scene. The correction itself (zeit_core::l2scene) is tested in Rust and compared with FORCE's force-l2ps on real scenes by
 benchmarks/vs_originals/force_l2ps_real.py."""
+import os
 import types
 
 import numpy as np
@@ -9,7 +10,7 @@ import pytest
 import rasterio
 from rasterio.transform import from_origin
 
-from zeit import _level2
+from zeit import _level2, _s2fetch
 
 CRS = "EPSG:32723"
 
@@ -233,6 +234,8 @@ def fake_arrays(monkeypatch, calls, fmask_info=None):
         return out
 
     monkeypatch.setattr(_level2, "_level2_arrays", arrays)
+    # "scene.SAFE" is not a directory: level2 would download it; the name goes through as it is
+    monkeypatch.setattr(_s2fetch, "download_l1c", lambda product, *a, **k: product)
 
 
 def test_level2_without_a_dem_for_the_topography_says_what_to_do(monkeypatch):
@@ -291,3 +294,11 @@ def test_level2_without_the_fmask_has_no_fmask_attrs(monkeypatch):
     fake_arrays(monkeypatch, calls)
     ds = _level2.level2("scene.SAFE", topography=False, fmask=False)
     assert not [k for k in ds.attrs if k.startswith("fmask")]
+
+
+def test_level2_a_local_path_that_does_not_exist_is_not_downloaded(monkeypatch):
+    called = []
+    monkeypatch.setattr(_s2fetch, "download_l1c", lambda *a, **k: called.append(a))
+    with pytest.raises(ValueError, match="not a Sentinel-2 L1C"):
+        _level2.level2(os.path.join("no", "such", "folder", "S2B_MSIL1C_x.SAFE"), topography=False)
+    assert not called

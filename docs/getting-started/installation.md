@@ -50,7 +50,7 @@ pip install zeit-cdts[dev]
 
 ## Caches
 
-What zeit downloads is kept in one folder, with a subfolder per kind: `weights` (the pretrained weights of `zeit.ai`), `embeddings` (TESSERA and AlphaEarth downloads), `tiles` (the tiles a tile run built or received) and `map-tiles` (the basemaps of `zeit.plot`). The folder is, from the first that is set:
+What zeit downloads is kept in one folder, with a subfolder per kind: `weights` (the pretrained weights of `zeit.ai`), `embeddings` (TESSERA and AlphaEarth downloads), `tiles` (the tiles a tile run built or received), `map-tiles` (the basemaps of `zeit.plot`), `l1c` (the Sentinel-2 `.SAFE` directories of `zeit.download_l1c`) and `dem` (the DEM mosaics of `zeit.download_dem`). The folder is, from the first that is set:
 
 | | Folder |
 | :--- | :--- |

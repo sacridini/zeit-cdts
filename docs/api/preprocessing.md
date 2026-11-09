@@ -153,7 +153,7 @@ It is multiplicative, so the units of the reflectance do not matter (scaled inte
 
 **Guards.** A band of a date is **copied unchanged**, with a warning that names it and why, when it has fewer than `min_sample` sample pixels, `cos i` has no variance, or the line's slope `m` is zero or negative (the reflectance does not rise with illumination: the topography does not drive it, or the sample is wrong). A pixel is **left as it is** when its `cos i + c` is below 0.01 (a deep shadow under a poorly fitted `c`), when `cos sz + c` (or `cos s · cos sz + c`) is not positive, when its sun angle is missing, or when its slope is NaN. The cells on the DEM's edge replicate the nearest cell and take the one-sided difference over one cell, so they have a slope; a flat cell has aspect 0.
 
-**Against R.** RStoolbox's `topCor(method = "C")`, given Zeit's slope and aspect, gives the same corrected values to 4e-7 relative when the line is fitted on the same pixels (a 100 × 100 image, which RStoolbox samples whole); on a 1000 × 1000 image RStoolbox fits on a random sample of 10000 pixels (and so a slightly different `c`, a different one in each run) and the two differ by 0.3-4.5% at most, 1-2e-4 on average in reflectance (see the [benchmarks](../benchmarks/vs-originals.md#topographic-correction)). Slope and aspect agree with `gdaldem` (inside: 2.5e-4° in slope, the float32 of GDAL's output) and `terra::terrain` (8e-6°).
+**Against R.** RStoolbox's `topCor(method = "C")`, given Zeit's slope and aspect, gives the same corrected values to 4e-7 relative when the line is fitted on the same pixels (a 100 × 100 image, which RStoolbox samples whole); on a 1000 × 1000 image RStoolbox fits on a random sample of 10000 pixels (and so a slightly different `c`, a different one in each run) and the two differ by 0.3-4.5% at most, 1-2e-4 on average in reflectance (see the [benchmarks](../benchmarks/vs-originals.md#topographic-correction-vs-rstoolbox-gdal-and-terra)). Slope and aspect agree with `gdaldem` (inside: 2.5e-4° in slope, the float32 of GDAL's output) and `terra::terrain` (8e-6°).
 
 ```python
 dem = rioxarray.open_rasterio("dem.tif").squeeze(drop=True).rio.reproject_match(cube)
@@ -564,14 +564,14 @@ zeit.level2(
 )
 ```
 
-The atmospheric correction of a Sentinel-2 Level 1C scene to surface reflectance, on a local `.SAFE` directory: what FORCE 3.11.00's `force-l2ps` does for one image (Frantz 2019, *Remote Sensing* 11:1124; David Frantz, GPL-3.0-or-later), in the Zeit core. The water vapour and the gases, the aerosol optical depth estimated from dark targets, the adjacency effect, the topographic and the BRDF corrections, and the products on the 10 m grid of the scene. The cloud, shadow, snow and water flags come from Zeit's own port of Fmask 4.7 (Qiu, Zhu and Woodcock 2019, *Remote Sensing of Environment* 231:111205; run at 20 m, with the DEM and optionally the GSWO), unless `flags` gives them or `fmask=False`. The 13 band files are read by GDAL (the product's JPEG 2000 or GeoTIFFs of the same names).
+The atmospheric correction of a Sentinel-2 Level 1C scene to surface reflectance, on a local `.SAFE` directory, or on the name of a product that it downloads first ([`download_l1c`](#download_l1c)): what FORCE 3.11.00's `force-l2ps` does for one image (Frantz 2019, *Remote Sensing* 11:1124; David Frantz, GPL-3.0-or-later), in the Zeit core. The water vapour and the gases, the aerosol optical depth estimated from dark targets, the adjacency effect, the topographic and the BRDF corrections, and the products on the 10 m grid of the scene. The cloud, shadow, snow and water flags come from Zeit's own port of Fmask 4.7 (Qiu, Zhu and Woodcock 2019, *Remote Sensing of Environment* 231:111205; run at 20 m, with the DEM and optionally the GSWO), unless `flags` gives them or `fmask=False`. The 13 band files are read by GDAL (the product's JPEG 2000 or GeoTIFFs of the same names).
 
 <div class="params" markdown>
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `safe` | path | required | The `.SAFE` directory of a Level 1C product (`MTD_MSIL1C.xml` and one `GRANULE/<name>/` with its `IMG_DATA`). |
-| `dem` | path or `DataArray` | `None` | The DEM in metres, any grid and CRS: it is put on the 10 m grid of the scene (`dem_resampling`). Needed for `topography=True`, and used by the atmosphere (elevation) and by the Fmask when given. |
+| `safe` | path or `str` | required | The `.SAFE` directory of a Level 1C product (`MTD_MSIL1C.xml` and one `GRANULE/<name>/` with its `IMG_DATA`), or the name of a product (a string that is not an existing directory and ends with `.SAFE` or starts with `S2`, such as the `product` column of [`find_l1c`](#find_l1c)): it is downloaded to the `l1c` cache by [`download_l1c`](#download_l1c). |
+| `dem` | path, `DataArray` or `"glo30"` | `None` | The DEM in metres, any grid and CRS: it is put on the 10 m grid of the scene (`dem_resampling`). `"glo30"` makes the Copernicus GLO-30 DEM of the scene with [`download_dem`](#download_dem). Needed for `topography=True`, and used by the atmosphere (elevation) and by the Fmask when given. |
 | `brdf` | `bool` | `True` | Normalise the BRDF to nadir view and the sun at the zenith of the scene (FORCE's `DO_BRDF`). |
 | `topography` | `bool` | `True` | The topographic correction of the illumination (`DO_TOPO`). Without `dem` it is a `ValueError` that says to pass the DEM or use `topography=False`. |
 | `aod` | `bool` | `True` | Estimate the aerosol optical depth from the dark targets of the scene (`DO_AOD`); `False` uses the fallback spectrum. |
@@ -591,7 +591,7 @@ The atmospheric correction of a Sentinel-2 Level 1C scene to surface reflectance
 
 **What it is and what it is not, against FORCE.** With FORCE's cloud flags, sun, geography and BRDF factor, `boa` (the 10 bands), `qai`, `aod`, `wvp`, `hot`, `dst` and `vzn` equal those of `force-l2ps` in 100 % of the pixels, on three runs of tile 23LKC (2023-07-28 without BRDF and with it, 2021-07-28 without BRDF; 120,560,400 pixels per band in 2023). With Zeit's own sun (a clean-room implementation) and FORCE's flags, 2023 without BRDF, 75 to 92 % of the pixels are equal band by band and the mean difference is 0.08 to 0.56 (reflectance times 10000). With Zeit's Fmask, its cloud or shadow mask agrees with FORCE's in 98.1 % of the pixels. The numbers are in [the benchmark](../benchmarks/vs-originals.md#sentinel-2-l1c-to-level-2-zeitlevel2).
 
-**What it does not do.** It does not read from STAC (it takes a `.SAFE` on disk), does not merge the 20 m products into one grid, does not coregister, does not reproject to a datacube as FORCE does (the products stay on the 10 m grid of the scene), and is for Sentinel-2 only (Landsat is not in the public function). The scene without any cloud target gives `dst` 32767 in every pixel; that case was not compared with FORCE. The runs equal to FORCE used FORCE's cloud flags, sun, geography and BRDF factor as inputs; the public function computes them itself: Zeit's Fmask, Zeit's clean-room sun, the projection through GDAL/PROJ, and, for the BRDF, [`nbar`](#nbar)'s c-factor (Roy et al. 2016, 2017) in place of FORCE's `brdf_factor` (`brdf-ll.c` is not ported). The factor enters the AOD retrieval even with `brdf=False`. See the benchmark for what the differences cost.
+**What it does not do.** It does not search STAC itself (that is [`find_l1c`](#find_l1c)), does not merge the 20 m products into one grid, does not coregister, does not reproject to a datacube as FORCE does (the products stay on the 10 m grid of the scene), and is for Sentinel-2 only (Landsat is not in the public function). The scene without any cloud target gives `dst` 32767 in every pixel; that case was not compared with FORCE. The runs equal to FORCE used FORCE's cloud flags, sun, geography and BRDF factor as inputs; the public function computes them itself: Zeit's Fmask, Zeit's clean-room sun, the projection through GDAL/PROJ, and, for the BRDF, [`nbar`](#nbar)'s c-factor (Roy et al. 2016, 2017) in place of FORCE's `brdf_factor` (`brdf-ll.c` is not ported). The factor enters the AOD retrieval even with `brdf=False`. See the benchmark for what the differences cost.
 
 ```python
 l2 = zeit.level2("S2B_MSIL1C_20230728T132239_N0509_R038_T23LKC_20230728T150149.SAFE",
@@ -599,7 +599,81 @@ l2 = zeit.level2("S2B_MSIL1C_20230728T132239_N0509_R038_T23LKC_20230728T150149.S
 red = l2.boa.sel(band="RED").where(l2.boa.sel(band="RED") != -9999) / 10000   # reflectance
 l2.zeit.save("l2_20230728")                      # boa.tif, qai.tif, dst.tif, ... in a folder
 l2 = zeit.level2(safe, brdf=False, topography=False)   # no DEM
+l2 = zeit.level2("S2B_MSIL1C_20230728T132239_N0509_R038_T23LKC_20230728T150149.SAFE", dem="glo30")   # product and DEM downloaded
 ```
+
+### `find_l1c` { .api }
+
+<!-- sig: zeit.find_l1c -->
+```python
+zeit.find_l1c(
+    tile=None, bbox=None, start=None, end=None, max_cloud=100.0,
+    limit=None,
+)
+```
+
+Searches the Sentinel-2 Level 1C products in the `sentinel-2-l1c` collection of Earth Search (STAC, with `pystac-client`), by MGRS tile or by box. Gives a table sorted by date whose `product` column is what [`download_l1c`](#download_l1c) and [`level2`](#level2) take.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `tile` | `str` | `None` | MGRS tile, `"23LKC"` or `"T23LKC"` (the `grid:code` of the items). Exactly one of `tile` and `bbox`. |
+| `bbox` | 4 numbers | `None` | `(lon_min, lat_min, lon_max, lat_max)` in degrees. |
+| `start`, `end` | date | `None` | The interval, as `"2023-07-28"`, a `date` or a `datetime`; a bare `end` date includes its whole day. Either one may be omitted. |
+| `max_cloud` | `float` | `100.0` | Largest cloud cover, in percent (`eo:cloud_cover`). |
+| `limit` | `int` | `None` | Largest number of products; when there are more, the most recent ones. |
+
+</div>
+
+**Returns** a `pandas.DataFrame` sorted by `datetime` with the columns `product` (the name of the `.SAFE`), `datetime` (UTC), `tile`, `cloud_cover` (percent), `baseline` (processing baseline, `"05.09"`) and `platform`. Earth Search has the Level 1C products from 2017 on.
+
+```python
+df = zeit.find_l1c(tile="23LKC", start="2023-07-01", end="2023-07-31", max_cloud=30)
+safe = zeit.download_l1c(df.iloc[0])
+```
+
+### `download_l1c` { .api }
+
+<!-- sig: zeit.download_l1c -->
+```python
+zeit.download_l1c(product, dest=None, n_jobs=4)
+```
+
+Downloads a Sentinel-2 Level 1C product to a local `.SAFE` directory that [`level2`](#level2) reads. The files come from the public bucket `gcp-public-data-sentinel-2` of Google Cloud Storage (no credential; the assets of Earth Search point to another bucket, without `MTD_MSIL1C.xml`): only what `level2` reads, the two XML files and the 13 band files (not the true-colour image), in the layout of the product. Each file goes to `<name>.part` and is renamed once its size and MD5 match the listing of the bucket; a file already there with the right MD5 is not downloaded again, so an interrupted download resumes. Transient errors are retried with a growing wait.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `product` | `str`, row or `DataFrame` | required | The name of the `.SAFE`, or a row or a table of [`find_l1c`](#find_l1c) (a table downloads all of them and gives the list). |
+| `dest` | path | `None` | The folder that gets the `.SAFE`; by default the `l1c` cache (`ZEIT_CACHE_DIR/l1c`). |
+| `n_jobs` | `int` | `4` | Simultaneous downloads; at most 8. |
+
+</div>
+
+**Returns** the `pathlib.Path` of the `.SAFE` directory. **Raises** `ValueError` for a product the bucket does not have (the message names it) and `RuntimeError` for a file whose MD5 is not the listed one.
+
+### `download_dem` { .api }
+
+<!-- sig: zeit.download_dem -->
+```python
+zeit.download_dem(area, dest=None, n_jobs=4)
+```
+
+A Copernicus GLO-30 DEM (30 m) covering a scene or a box, as one GeoTIFF in EPSG:4326: what `level2(dem=)` takes. The tiles come from the `cop-dem-glo-30` collection of Earth Search (public COGs, read anonymously and only the windows that are needed) and are mosaicked in the geometry of the source, never resampled one by one onto the grid of the scene, so there is no seam. The area is the footprint of the scene (its UTM edges densified) plus 6 arc-seconds, because the bilinear warp reads neighbours. Where tiles of different resolution meet (the GLO-30 widens its cells in longitude beyond 50 degrees of latitude) the mosaic has the finest cell. Where there is no tile (the sea) the value is `-32767`, the no-data of `level2`.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `area` | path or 4 numbers | required | A local `.SAFE` directory (the footprint of the scene) or `(lon_min, lat_min, lon_max, lat_max)` in degrees. |
+| `dest` | path | `None` | A folder, or a `.tif` path; by default the `dem` cache (`ZEIT_CACHE_DIR/dem`). A file already there is reused. |
+| `n_jobs` | `int` | `4` | Simultaneous reads of tiles; at most 8. |
+
+</div>
+
+**Returns** the `pathlib.Path` of the GeoTIFF (`float32`). **Raises** `ValueError` for a scene that crosses the antimeridian (not handled) and for an area without any tile (all sea: use `topography=False` in `level2`).
 
 ## Cloud masking
 

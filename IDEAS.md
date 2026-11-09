@@ -3218,7 +3218,7 @@ validação.
     **Começou em 2026-11-08.** O leitor do L1C (`rust/zeit-core/src/s2l1c.rs`, a oitava parte da 23g) é igual ao FORCE
     em 295.724.368 valores (`benchmarks/vs_originals/force_l1.py`).
 
-    **Validada em cena real em 2026-11-09 (branch `feat/level2`).** Em 23LKC, com as bandeiras de nuvem, o sol, a geografia e o
+    **Validada em cena real em 2026-11-09.** Em 23LKC, com as bandeiras de nuvem, o sol, a geografia e o
     fator BRDF do FORCE (`force_l2ps_real.py --modes dump`), todos os produtos são iguais ao `force-l2ps` em todos os pixels
     (2023 sem e com BRDF, baseline 05.09; 2021 sem BRDF, baseline 03.01). O que muda para o usuário é o sol (`solpos.rs`, em sala
     limpa, 0,0105°) e o fator BRDF (`brdf.rs`, a até 1e-4 do de FORCE; o `brdf-ll.c` segue fechado). O Fmask do Zeit concorda
@@ -3226,6 +3226,44 @@ validação.
     distância; o SWIR do L2A fica 165 a 242 unidades (x 10000) acima dos dois, o que não foi conferido na literatura. O
     `cloud_distance` foi reescrito em sala limpa (`cloud_dist.rs`), igual ao FORCE nas cenas reais e sintéticas; a imagem sem
     nenhum alvo dá 32767 e não foi comparada.
+
+    **Saiu no Zeit 3.4.0 (2026-11-09):** `zeit.level2(safe, dem=...)`, numa pasta `.SAFE` local, com o Fmask do Zeit por padrão;
+    devolve um `xr.Dataset` com `boa`, `qai`, `dst`, `vzn`, `hot`, `aod` e `wvp`. O motor é `_level2_arrays`, em `zeit/_level2.py`.
+    A cadeia completa levou cerca de 145 s, contra 197 s do `force-l2ps`, com 8 threads e a máquina não dedicada.
+
+    **Busca e download (2026-11-09):** `zeit.find_l1c` (Earth Search), `zeit.download_l1c` e `zeit.download_dem` (GLO-30), em
+    `zeit/_s2fetch.py`; `zeit.level2` aceita o nome do produto e `dem="glo30"`. O L1C é achado no Earth Search e baixado do bucket
+    público `gcp-public-data-sentinel-2`, porque os assets do Earth Search apontam para um S3 sem o `MTD_MSIL1C.xml` e sem o nome do
+    granule. Na cena de 2023 de 23LKC: os 15 arquivos (672 MB) batem em tamanho e MD5 com os da `.SAFE` local; o mosaico é igual ao
+    `cop_glo30_23LKC.tif` nos 120.560.400 pixels da grade do `dem_on_grid`; e `zeit.level2(nome, dem="glo30")` levou 278 s com o
+    download e fica a viés de 0,54 e |d| médio de 0,93 do `force-l2ps` no azul (x 10000, céu limpo), a mesma distância já medida.
+
+    **O que falta na 23i:**
+    - pôr na cadeia o merge de 20 m (`sentinel2_resmerge`, com o `clear` tirado do QAI) e, se pedido, o coregistro (`coregister`, com
+      uma referência na grade da cena);
+    - no Janus, a ferramenta que leva uma pasta de L1 a ARD. O `zeit-core` fixado lá é o f20ff43 (Zeit 3.1.0), sem `l2scene`, `s2l1c`,
+      `fmask`, `cloud_dist`, `solpos`, `l2`, `atmo`, `aod`, `gas`, `radtran`, `topo`, `qai` e `parallax`: o primeiro passo é subir esse
+      rev. O Janus já tem o leitor por janela (GDAL), o PROJ, os ângulos (`s2angles.rs`, pedir `B8A`) e um warp, mas falta o objeto de
+      cena L1C e o `Mean_Sun_Angle`.
+
+    **A verificar:**
+    - o viés do SWIR contra o L2A (165 a 242 unidades, x 10000, nos dois lados) não foi conferido na literatura;
+    - o DST de uma imagem sem nenhum alvo (32767) nunca foi comparado com o FORCE;
+    - na água, em 2023, o Zeit fica 0,5 a 1,1 unidade mais negativo que o FORCE contra o L2A; a hipótese é o Fmask
+      diferente, que escolhe outros alvos de AOD, e não foi testada;
+    - em 2021, com o sol do Zeit, há máximos de até 988 (SWIR1) com média de 0,13; a hipótese é a iluminação rasante, muito
+      sensível a 0,01° de sol, e não foi confirmada;
+    - contra o SCL da ESA, em 2023, o Fmask do Zeit e o QAI do FORCE dão 91,28 % de concordância e IoU de 0,58 em nuvem ou
+      sombra, e marcam cerca de 20 % contra 13 % do SCL, com o anel de 300 m incluído.
+
+    **Decisões de licença do usuário (2026-11-09):** o `cloud_distance` foi reescrito em sala limpa; o `parallax.rs` fica como
+    está (o passo é do próprio Frantz); as versões v3.2.2 e v3.3.0, que têm o trecho antigo, seguem publicadas sem nota. O
+    `brdf-ll.c` e o `cloud-ll.c` continuam fechados, e o resíduo do fator BRDF (até 1e-4) fica aceito.
+
+    **Para repetir a validação:** um `force-l2ps` custa cerca de 3 min 20 s com 8 threads, e um `l2ps_dump` cerca de 3 min. As
+    saídas ficam em `data_force_l2_real` (`force_out_*`, `l2ps_dump_*.bin`, `tif\`, `l2a\`), fora do repositório. O GDAL do FORCE
+    não lê JPEG 2000, daí as cópias do `safe_to_tiff.py`. O modo `c` do `force_l2ps_real.py` não serve de referência: o harness acha
+    978 alvos e o `force-l2ps` real, 1013.
 
   - **Depois, só se houver demanda: o Landsat L1.** Faltam:
     - o leitor do MTL;

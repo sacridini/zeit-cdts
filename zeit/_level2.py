@@ -402,21 +402,25 @@ def level2(
 ):
     """The atmospheric correction of a Sentinel-2 Level 1C scene to surface reflectance: FORCE's ``force-l2ps``.
 
-    Runs on a local ``.SAFE`` directory the correction FORCE 3.11.00 (Frantz 2019, *Remote Sensing* 11:1124; David Frantz,
+    Runs on a local ``.SAFE`` directory (or on the name of a product, which ``zeit.download_l1c`` fetches first; ``zeit.find_l1c``
+    lists them) the correction FORCE 3.11.00 (Frantz 2019, *Remote Sensing* 11:1124; David Frantz,
     GPL-3.0-or-later) does for one image, in the Zeit core: the water vapour and gases, the aerosol optical depth estimated from
     dark targets, the adjacency effect, the topographic and the BRDF corrections, and the products on the grid of the scene
     (10 m). The cloud, shadow, snow and water flags come from Zeit's Fmask 4.7 (Qiu, Zhu and Woodcock 2019, *Remote Sensing
     of Environment* 231:111205), run at 20 m with the DEM, unless ``flags`` gives them or ``fmask=False``. It reads the 13 band
-    files (JPEG 2000 or GeoTIFF) and the two XML files; it does not read from STAC, merge the 20 m bands nor coregister, and it
-    is only for Sentinel-2.
+    files (JPEG 2000 or GeoTIFF) and the two XML files; it does not merge the 20 m bands nor coregister, and it is only for
+    Sentinel-2.
 
     Parameters
     ----------
     safe
-        The ``.SAFE`` directory of a Level 1C product (``MTD_MSIL1C.xml`` and one ``GRANULE/<name>/`` with the ``IMG_DATA``).
+        The ``.SAFE`` directory of a Level 1C product (``MTD_MSIL1C.xml`` and one ``GRANULE/<name>/`` with the ``IMG_DATA``), or
+        the name of a product (a string that is not an existing directory and ends with ``.SAFE`` or starts with ``S2``, such as
+        the ``product`` column of ``zeit.find_l1c``): it is downloaded to the ``l1c`` cache by ``zeit.download_l1c``.
     dem
         The digital elevation model, in metres: a raster path, or a DataArray, of any grid and CRS (it is put on the 10 m
-        grid of the scene, with ``dem_resampling``). Needed for ``topography=True``; also used by the atmosphere (elevation) and
+        grid of the scene, with ``dem_resampling``), or ``"glo30"``: the Copernicus GLO-30 DEM of the scene, made by
+        ``zeit.download_dem``. Needed for ``topography=True``; also used by the atmosphere (elevation) and
         the Fmask when given.
     brdf
         Normalise the BRDF to nadir view and the sun at the zenith of the scene (FORCE's ``DO_BRDF``).
@@ -478,13 +482,24 @@ def level2(
     >>> l2.boa.sel(band="RED")                      # reflectance x 10000
     >>> l2.zeit.save("l2_20230728")                 # one GeoTIFF per variable
     >>> l2 = zeit.level2(safe, brdf=False, topography=False)   # no DEM, no BRDF
+    >>> product = zeit.find_l1c(tile="23LKC", start="2023-07-28", end="2023-07-28")["product"][0]
+    >>> l2 = zeit.level2(product, dem="glo30")      # downloads the product and the DEM first
     """
     import xarray as xr
     import rioxarray  # noqa: F401  (the .rio accessor)
     from affine import Affine
 
     if topography and dem is None:
-        raise ValueError("zeit.level2: topography=True needs the DEM: pass dem= (a raster in metres) or topography=False")
+        raise ValueError("zeit.level2: topography=True needs the DEM: pass dem= (a raster in metres), dem=\"glo30\" or topography=False")
+    # a bare name only: a local path that does not exist is a mistake to report (by Safe), not an 800 MB download
+    if isinstance(safe, str) and not os.path.isdir(safe) and os.path.basename(safe) == safe and (safe.endswith(".SAFE") or safe.startswith("S2")):
+        from ._s2fetch import download_l1c
+
+        safe = download_l1c(safe)
+    if isinstance(dem, str) and dem.lower() == "glo30":
+        from ._s2fetch import download_dem
+
+        dem = download_dem(safe.path if isinstance(safe, Safe) else safe)
     out = _level2_arrays(safe, dem=dem, flags=flags, dobrdf=brdf, dotopo=topography, doaod=aod, doenv=adjacency,
                          domulti=multiple_scattering, erase_cloud=erase_cloud, dem_resampling=dem_resampling,
                          n_jobs=n_jobs, fmask=fmask, gswo=gswo, fmask_compat=fmask_compat)
