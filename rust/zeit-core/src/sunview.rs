@@ -61,6 +61,35 @@ impl SceneGeo<'_> {
     }
 }
 
+/// The geographic coordinates of the corners of the cells of a coarse grid, computed by the caller: `SceneGeo::to_geo`
+/// for a scene whose projection the core cannot compute (it depends on neither PROJ nor GDAL). The corner of the column
+/// `j`, row `i` is the map point `(ulx + j * res, uly - i * res)`, which is what [`SceneGeo::lonlat`] asks for on a grid of
+/// `res` metres; `lon` and `lat` hold `ny` rows of `nx` corners (degrees). A point that is not one of the corners
+/// gives NaN.
+#[derive(Clone, Debug)]
+pub struct GeoTable {
+    pub ulx: f64,
+    pub uly: f64,
+    pub res: f64,
+    pub nx: usize,
+    pub ny: usize,
+    pub lon: Vec<f64>,
+    pub lat: Vec<f64>,
+}
+
+impl GeoTable {
+    /// The longitude and latitude of the map point `(x, y)`: the corner it is, else NaN.
+    pub fn lookup(&self, x: f64, y: f64) -> (f64, f64) {
+        let (fj, fi) = ((x - self.ulx) / self.res, (self.uly - y) / self.res);
+        let (j, i) = (fj.round(), fi.round());
+        if (fj - j).abs() > 1e-6 || (fi - i).abs() > 1e-6 || j < 0.0 || i < 0.0 || j >= self.nx as f64 || i >= self.ny as f64 {
+            return (f64::NAN, f64::NAN);
+        }
+        let k = i as usize * self.nx + j as usize;
+        (self.lon[k], self.lat[k])
+    }
+}
+
 /// `sun_target_view`: the sun position of every cell of `atc.xy_sun`, the view angles of every cell of `atc.xy_view`
 /// (and the nadir line, for Landsat), the range of both cosines, and the low sun flag of the QAI (`qai` on `grid`).
 /// For Sentinel-2 the pixels under a cell without view angles are set off in the QAI.
@@ -71,6 +100,21 @@ pub fn sun_target_view(
     geo: &SceneGeo,
     grid: &SceneGrid,
     qai: &mut [i16],
+) -> Result<(), AtmoError> {
+    sun_target_view_with(atc, meta, mission, geo, grid, qai, &|_, lat, lon, date| sunpos(lat, lon, date))
+}
+
+/// [`sun_target_view`] with the sun position given by `sun(g, lat, lon, date)` (the cell, its latitude and longitude as
+/// `sunpos` takes them, the date; zenith and azimuth in degrees) instead of [`sunpos`]: to run the correction with the sun
+/// angles of another implementation (the comparison with FORCE, whose `sun-cl.c` is not ported).
+pub fn sun_target_view_with(
+    atc: &mut Atc,
+    meta: &Meta,
+    mission: Mission,
+    geo: &SceneGeo,
+    grid: &SceneGrid,
+    qai: &mut [i16],
+    sun: &(dyn Fn(usize, f32, f32, &Date) -> (f32, f32) + Sync),
 ) -> Result<(), AtmoError> {
     let nf = atc.xy_sun.nx;
     let ne = atc.xy_sun.ny;
@@ -107,7 +151,7 @@ pub fn sun_target_view(
             let (lon, lat) = geo.lonlat(f as i32, e as i32, res);
 
             // calculate sun angles
-            let (zen, azi) = sunpos(lat as f32, lon as f32, &geo.date);
+            let (zen, azi) = sun(g, lat as f32, lon as f32, &geo.date);
 
             // degree to radians
             let zen = (zen as f64 * D2R) as f32;

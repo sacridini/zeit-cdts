@@ -14,7 +14,7 @@ use zeit_core::l2::{radiometric_correction, L2Options};
 use zeit_core::topo;
 use zeit_core::meta::{Meta, S2Meta};
 use zeit_core::radtran::Date;
-use zeit_core::sunview::{self, Mission, SceneGeo};
+use zeit_core::sunview::{self, GeoTable, Mission, SceneGeo};
 
 fn err(e: AtmoError) -> PyErr {
     PyValueError::new_err(e.to_string())
@@ -360,6 +360,16 @@ fn level2<'py>(py: Python<'py>, d: &Bound<'py, PyDict>) -> PyResult<(Bound<'py, 
         };
     }
     let aoi: Vec<u8> = vec_of(d, "aoi")?;
+    // a real scene: the longitude and latitude of the corners of the coarse cells by table (`geo_n` x `geo_n` corners of
+    // `geo_res` metres) and, if given, the sun angles of the coarse cells in degrees, instead of the affine map and the sun
+    // of the core
+    let geo_n: usize = d.get_item("geo_n")?.map(|v| v.extract()).transpose()?.unwrap_or(0);
+    let table = if geo_n > 0 {
+        Some(GeoTable { ulx, uly, res: get(d, "geo_res")?.extract()?, nx: geo_n, ny: geo_n, lon: vec_of(d, "geo_lon")?, lat: vec_of(d, "geo_lat")? })
+    } else {
+        None
+    };
+    let sun_tab: Option<(Vec<f32>, Vec<f32>)> = if d.contains("sun_zen")? { Some((vec_of(d, "sun_zen")?, vec_of(d, "sun_azi")?)) } else { None };
     let n_jobs = d.get_item("n_jobs")?.map(|v| v.extract::<i32>()).transpose()?.unwrap_or(1);
 
     let run = || -> Result<(Vec<u8>, f64), String> {
@@ -369,11 +379,20 @@ fn level2<'py>(py: Python<'py>, d: &Bound<'py, PyDict>) -> PyResult<(Bound<'py, 
         if atc.nc as usize != gn {
             return Err(format!("the grid has {} cells, the input {gn}", atc.nc));
         }
-        let warp = move |x: f64, y: f64| (lon0 + (x - x0) * kgeo, y * kgeo);
+        let warp = |x: f64, y: f64| match &table {
+            Some(t) => t.lookup(x, y),
+            None => (lon0 + (x - x0) * kgeo, y * kgeo),
+        };
         let geo = SceneGeo { ulx, uly, date, to_geo: &warp };
         let grid = SceneGrid { nx, ny, res };
         let mut qai = qai;
-        sunview::sun_target_view(&mut atc, &meta, mission, &geo, &grid, &mut qai).map_err(|x| e(&x))?;
+        match &sun_tab {
+            None => sunview::sun_target_view(&mut atc, &meta, mission, &geo, &grid, &mut qai),
+            Some((zen, azi)) => {
+                sunview::sun_target_view_with(&mut atc, &meta, mission, &geo, &grid, &mut qai, &|g, _, _, _| (zen[g], azi[g]))
+            }
+        }
+        .map_err(|x| e(&x))?;
         let mut top = topo::compile_topography(if dem.is_empty() { None } else { Some(&dem) }, dem_nodata, nx, ny, res, &mut atc, &mut qai)
             .map_err(|x| e(&x))?;
 

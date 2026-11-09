@@ -452,6 +452,20 @@ pub fn compile_topography(
 /// times 10000 (`ushort`). `toa` needs the domains `SWIR1` and `SWIR2`, whose band index selects the band of the
 /// `xyz_*` bricks of the `atc`; `dem` is the binned elevation, `slope` and `ill` as [`Top`] has them.
 pub fn cfactor_topography(atc: &Atc, toa: &Toa, qai: &[i16], dem: &[u8], slope: &[u16], ill: &[i16]) -> Result<Vec<u16>, TopoError> {
+    cfactor_topography_jobs(atc, toa, qai, dem, slope, ill, 1)
+}
+
+/// [`cfactor_topography`] on the threads of `n_jobs` (see [`crate::parallel`]): the C of each pixel is independent of the
+/// others', so the result does not depend on the number.
+pub fn cfactor_topography_jobs(
+    atc: &Atc,
+    toa: &Toa,
+    qai: &[i16],
+    dem: &[u8],
+    slope: &[u16],
+    ill: &[i16],
+    n_jobs: i32,
+) -> Result<Vec<u16>, TopoError> {
     let (nx, ny, res) = (toa.grid.nx, toa.grid.ny, toa.grid.res);
     let nc = nx * ny;
     if !(res > 0.0 && res.is_finite()) {
@@ -502,9 +516,10 @@ pub fn cfactor_topography(atc: &Atc, toa: &Toa, qai: &[i16], dem: &[u8], slope: 
         swir[p] = if tmp == 0.0 { 0.0 } else { ((sw1[p] as f64 / 10000.0 - sw2[p] as f64 / 10000.0) / tmp as f64) as f32 };
     }
 
-    // estimate C for every pixel
+    // estimate C for every pixel (a pixel writes only its own value and reads what this loop does not write: the rows
+    // run on the threads of `n_jobs`, with the same result for any number)
     let mut cor = vec![0.0f32; nc];
-    for i in 0..ny {
+    crate::parallel::for_each_row(&mut cor, nx, n_jobs, || (), |_, i, row| {
         for j in 0..nx {
             let p = i * nx + j;
             // only do for illuminated pixels
@@ -571,19 +586,19 @@ pub fn cfactor_topography(atc: &Atc, toa: &Toa, qai: &[i16], dem: &[u8], slope: 
                         gain = (my - offset) / mx;
                     }
                     // shield against extreme C-values
-                    cor[p] = if offset < 10.0 * gain { c_factor_emp(offset, gain) } else { 10.0 };
+                    row[j] = if offset < 10.0 * gain { c_factor_emp(offset, gain) } else { 10.0 };
                 }
             }
 
             // use computed C if estimated C < 0
-            if cor[p] < 0.0 || cor[p] < c_ {
-                cor[p] = c_;
+            if row[j] < 0.0 || row[j] < c_ {
+                row[j] = c_;
             }
-            if cor[p] as f64 > u16::MAX as f64 / 10000.0 {
-                cor[p] = (u16::MAX as f64 / 10000.0) as f32;
+            if row[j] as f64 > u16::MAX as f64 / 10000.0 {
+                row[j] = (u16::MAX as f64 / 10000.0) as f32;
             }
         }
-    }
+    });
 
     // smooth C-factor with lowpass
     let mut cf = vec![0u16; nc];

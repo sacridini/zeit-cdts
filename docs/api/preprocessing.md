@@ -551,6 +551,56 @@ points.attrs["dates"]
 
 **Agreement with AROSICS 1.14.0.** On 7 pairs (6 synthetic and the `camera` image warped by a field; 19 to 165 points each), the points of the grid that are placed are the same, and so are the successes; the shifts differ from AROSICS' by 2e-6 pixels at most (2e-3 at one point of the natural image), the windows are equal, the reliability agrees to 8e-5 and the similarity before to 4e-8 and after to 2e-5 (3e-4 in the 8-bit image); the flags of the three filters are identical with `arosics_compat=True`; and the warped image, from the same control points, differs by 0.001 at most in float32 (by 1 in uint16), the 8-bit image by up to 6 in 0.01% of the cells (see [Against the Original Implementations](../benchmarks/vs-originals.md#the-local-coregistration-vs-arosics)).
 
+## Atmospheric correction
+
+### `level2` { .api }
+
+<!-- sig: zeit.level2 -->
+```python
+zeit.level2(
+    safe, dem=None, *, brdf=True, topography=True, aod=True, adjacency=True,
+    multiple_scattering=True, erase_cloud=False, flags=None, fmask=True, gswo=None,
+    fmask_compat=False, dem_resampling="bilinear", n_jobs=8,
+)
+```
+
+The atmospheric correction of a Sentinel-2 Level 1C scene to surface reflectance, on a local `.SAFE` directory: what FORCE 3.11.00's `force-l2ps` does for one image (Frantz 2019, *Remote Sensing* 11:1124; David Frantz, GPL-3.0-or-later), in the Zeit core. The water vapour and the gases, the aerosol optical depth estimated from dark targets, the adjacency effect, the topographic and the BRDF corrections, and the products on the 10 m grid of the scene. The cloud, shadow, snow and water flags come from Zeit's own port of Fmask 4.7 (Qiu, Zhu and Woodcock 2019, *Remote Sensing of Environment* 231:111205; run at 20 m, with the DEM and optionally the GSWO), unless `flags` gives them or `fmask=False`. The 13 band files are read by GDAL (the product's JPEG 2000 or GeoTIFFs of the same names).
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `safe` | path | required | The `.SAFE` directory of a Level 1C product (`MTD_MSIL1C.xml` and one `GRANULE/<name>/` with its `IMG_DATA`). |
+| `dem` | path or `DataArray` | `None` | The DEM in metres, any grid and CRS: it is put on the 10 m grid of the scene (`dem_resampling`). Needed for `topography=True`, and used by the atmosphere (elevation) and by the Fmask when given. |
+| `brdf` | `bool` | `True` | Normalise the BRDF to nadir view and the sun at the zenith of the scene (FORCE's `DO_BRDF`). |
+| `topography` | `bool` | `True` | The topographic correction of the illumination (`DO_TOPO`). Without `dem` it is a `ValueError` that says to pass the DEM or use `topography=False`. |
+| `aod` | `bool` | `True` | Estimate the aerosol optical depth from the dark targets of the scene (`DO_AOD`); `False` uses the fallback spectrum. |
+| `adjacency` | `bool` | `True` | The environmental weighting of the adjacency effect (`ADJACENCY_EFFECT`). |
+| `multiple_scattering` | `bool` | `True` | Multiple scattering (`MULTI_SCATTERING`); `False` is single scattering. |
+| `erase_cloud` | `bool` | `False` | Set the cloud pixels to no data (`ERASE_CLOUD`). |
+| `flags` | `ndarray` or `None` | `None` | The cloud, shadow, snow and water bits of the QAI, `int16` `(nrows, ncols)` on the 10 m grid. With them the Fmask does not run. |
+| `fmask` | `bool` | `True` | Run Zeit's Fmask when `flags` is `None`. `False` runs no cloud detection: there is no cloud flag, and `dst` is 32767 in the whole image. |
+| `gswo` | path or `DataArray` | `None` | Global Surface Water Occurrence (percent) for the Fmask, put on the 20 m grid by nearest neighbour. |
+| `fmask_compat` | `bool` | `False` | `True` reproduces three oddities of the original Fmask 4.7 code; the default corrects them. |
+| `dem_resampling` | `str` | `"bilinear"` | The resampling of the DEM onto the grid of the scene (FORCE's default). |
+| `n_jobs` | `int` | `8` | Threads of the correction, the Fmask and the JPEG 2000 decoder. |
+
+</div>
+
+**Returns** an `xarray.Dataset` on the grid of the scene (10 m, the CRS and the transform of the bands; `x` and `y` are the pixel centres): `boa` `(band, y, x)` `int16`, the reflectance times 10000 with `_FillValue` -9999 (`band` is BLUE, GREEN, RED, REDEDGE1, REDEDGE2, REDEDGE3, BROADNIR, NIR, SWIR1, SWIR2), and `qai`, `dst`, `vzn`, `hot`, `aod`, `wvp` `(y, x)` `int16` in FORCE's units. `attrs` has `datetime` (UTC), `sensor`, `baseline`, `aod_green` (the optical depth of the scene in B03), `aod_map` (`False` when the fallback spectrum was used), `water_vapor_cm` (the mean of the `wvp` product), `n_targets` (valid water, shadow and vegetation dark targets), the summary of the Fmask as `fmask_*` keys (plain numbers, booleans and strings, so that it can be written to NetCDF), `core_seconds` and `provenance`. `.zeit.save(path)` writes one GeoTIFF per variable (a path with `.tif`, one multi-band file) and `.zeit.plot()` shows it.
+
+**What it is and what it is not, against FORCE.** With FORCE's cloud flags, sun, geography and BRDF factor, `boa` (the 10 bands), `qai`, `aod`, `wvp`, `hot`, `dst` and `vzn` equal those of `force-l2ps` in 100 % of the pixels, on three runs of tile 23LKC (2023-07-28 without BRDF and with it, 2021-07-28 without BRDF; 120,560,400 pixels per band in 2023). With Zeit's own sun (a clean-room implementation) and FORCE's flags, 2023 without BRDF, 75 to 92 % of the pixels are equal band by band and the mean difference is 0.08 to 0.56 (reflectance times 10000). With Zeit's Fmask, its cloud or shadow mask agrees with FORCE's in 98.1 % of the pixels. The numbers are in [the benchmark](../benchmarks/vs-originals.md#sentinel-2-l1c-to-level-2-zeitlevel2).
+
+**What it does not do.** It does not read from STAC (it takes a `.SAFE` on disk), does not merge the 20 m products into one grid, does not coregister, does not reproject to a datacube as FORCE does (the products stay on the 10 m grid of the scene), and is for Sentinel-2 only (Landsat is not in the public function). The scene without any cloud target gives `dst` 32767 in every pixel; that case was not compared with FORCE. The runs equal to FORCE used FORCE's cloud flags, sun, geography and BRDF factor as inputs; the public function computes them itself: Zeit's Fmask, Zeit's clean-room sun, the projection through GDAL/PROJ, and, for the BRDF, [`nbar`](#nbar)'s c-factor (Roy et al. 2016, 2017) in place of FORCE's `brdf_factor` (`brdf-ll.c` is not ported). The factor enters the AOD retrieval even with `brdf=False`. See the benchmark for what the differences cost.
+
+```python
+l2 = zeit.level2("S2B_MSIL1C_20230728T132239_N0509_R038_T23LKC_20230728T150149.SAFE",
+                 dem="cop_glo30_23LKC.tif", brdf=False)
+red = l2.boa.sel(band="RED").where(l2.boa.sel(band="RED") != -9999) / 10000   # reflectance
+l2.zeit.save("l2_20230728")                      # boa.tif, qai.tif, dst.tif, ... in a folder
+l2 = zeit.level2(safe, brdf=False, topography=False)   # no DEM
+```
+
 ## Cloud masking
 
 ### `tmask` { .api }

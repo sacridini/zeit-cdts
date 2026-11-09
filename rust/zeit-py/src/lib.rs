@@ -28,6 +28,7 @@ mod fmask;
 mod pansharpen;
 mod fmask_run;
 mod fmask_shadow;
+mod l2scene;
 mod s2l1c;
 mod gas;
 mod hotspots;
@@ -118,6 +119,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     add_submodule(m, &pansharpen::module(m.py())?)?;
     add_submodule(m, &fmask_run::module(m.py())?)?;
     add_submodule(m, &fmask_shadow::module(m.py())?)?;
+    add_submodule(m, &l2scene::module(m.py())?)?;
     add_submodule(m, &s2l1c::module(m.py())?)?;
     add_submodule(m, &gas::module(m.py())?)?;
     add_submodule(m, &topo::module(m.py())?)?;

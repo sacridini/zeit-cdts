@@ -3216,8 +3216,16 @@ validação.
     referência independente. No Janus: a ferramenta que leva uma pasta de L1 a ARD.
 
     **Começou em 2026-11-08.** O leitor do L1C (`rust/zeit-core/src/s2l1c.rs`, a oitava parte da 23g) é igual ao FORCE
-    em 295.724.368 valores (`benchmarks/vs_originals/force_l1.py`). A correção em cena real (`l2scene`, `zeit/_level2.py`,
-    `force_l2ps_real.py`) ficou pela metade e **sem validação** no branch local `wip/level2-cena-real`, fora de `main`.
+    em 295.724.368 valores (`benchmarks/vs_originals/force_l1.py`).
+
+    **Validada em cena real em 2026-11-09 (branch `feat/level2`).** Em 23LKC, com as bandeiras de nuvem, o sol, a geografia e o
+    fator BRDF do FORCE (`force_l2ps_real.py --modes dump`), todos os produtos são iguais ao `force-l2ps` em todos os pixels
+    (2023 sem e com BRDF, baseline 05.09; 2021 sem BRDF, baseline 03.01). O que muda para o usuário é o sol (`solpos.rs`, em sala
+    limpa, 0,0105°) e o fator BRDF (`brdf.rs`, a até 1e-4 do de FORCE; o `brdf-ll.c` segue fechado). O Fmask do Zeit concorda
+    com o FORCE em 98,1 % em nuvem ou sombra (IoU 0,91). Contra o L2A da ESA (`level2_esa.py`), Zeit e FORCE ficam à mesma
+    distância; o SWIR do L2A fica 165 a 242 unidades (x 10000) acima dos dois, o que não foi conferido na literatura. O
+    `cloud_distance` foi reescrito em sala limpa (`cloud_dist.rs`), igual ao FORCE nas cenas reais e sintéticas; a imagem sem
+    nenhum alvo dá 32767 e não foi comparada.
 
   - **Depois, só se houver demanda: o Landsat L1.** Faltam:
     - o leitor do MTL;

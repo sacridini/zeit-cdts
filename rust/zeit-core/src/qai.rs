@@ -5,7 +5,7 @@
 //!
 //! Only the flags the ported stages test are here (`gas-ll.c`: off, shadow, water, vapour fill; `aod-ll.c`: also
 //! cloud; `sunview-ll.c`: low sun; `atmo-ll.c`: aerosol and, in the surface reflectance, subzero and saturation; the
-//! cloud distance of `cloud-ll.c` reads snow).
+//! cloud distance reads snow).
 
 /// Bit of the off/on flag (1 = no data, outside the scene).
 pub const BIT_OFF: u32 = 0;

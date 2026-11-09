@@ -22,7 +22,8 @@
  *       int32 gn (the coarse cells the grid must have);
  *       int16 qai[nx*ny]; int16 toa[nb][nx*ny];
  *       int32 nsun; { float64 lat, lon; float32 zen, azi } [nsun];
- *       int32 naoi; if naoi: uint8 aoi[nx*ny].
+ *       int32 naoi; if naoi: uint8 aoi[nx*ny];
+ *       optional: int32 ngeo; { float64 x, y, lon, lat } [ngeo] (the warp to longitude and latitude by table, for a real scene).
  *     out.bin: int32 status (0 ok, 1 radiometric_correction failed); float64 ms; the dump of the atc (every brick: int32
  *       bands, then the bands; the families of 256 bricks: int32 bands, then z-major), then the products (see dump_* below;
  *       zeit's binding writes the same layout); then int32 nb and nb maps of the gaseous transmittance (int16, from the
@@ -56,8 +57,20 @@ void sunpos(float latitude, float longitude, date_t date, float *zen, float *azi
 }
 
 static double g_lon0 = 0, g_x0 = 0, g_kgeo = 1;
+/* the optional table at the end of the input (a real scene): the longitude and latitude of the map points the correction asks
+ * for (the corners of the coarse cells), computed by the caller; else the affine map above */
+typedef struct { double x, y, lon, lat; } geo_entry_t;
+static geo_entry_t *g_geo = NULL;
+static int g_ngeo = 0;
 int warp_any_to_geo(double srs_x, double srs_y, double *dst_x, double *dst_y, char *src_wkt){
   (void)src_wkt;
+  if (g_ngeo > 0){
+    for (int k = 0; k < g_ngeo; k++){
+      if (g_geo[k].x == srs_x && g_geo[k].y == srs_y){ *dst_x = g_geo[k].lon; *dst_y = g_geo[k].lat; return SUCCESS; }
+    }
+    fprintf(stderr, "warp_any_to_geo: no entry for x %.17g y %.17g\n", srs_x, srs_y);
+    exit(3);
+  }
   *dst_x = g_lon0 + (srs_x - g_x0) * g_kgeo;
   *dst_y = srs_y * g_kgeo;
   return SUCCESS;
@@ -208,6 +221,11 @@ static int scene(const char *fin, const char *fout){
   int naoi; rd(&naoi, 4, 1, f);
   brick_t *AOI = NULL;
   if (naoi){ AOI = copy_brick(DN, 1, _DT_SMALL_); rd(get_band_small(AOI, 0), 1, npix, f); }
+  int ngeo = 0;
+  if (fread(&ngeo, 4, 1, f) == 1 && ngeo > 0){
+    g_ngeo = ngeo; g_geo = calloc(ngeo, sizeof(geo_entry_t));
+    rd(g_geo, sizeof(geo_entry_t), ngeo, f);
+  }
   fclose(f);
 
   FILE *o = fopen(fout, "wb");

@@ -3,7 +3,7 @@
 //! https://github.com/davidfrantz/force), `src/modules/lower-level/atmo-ll.c` from `surface_reflectance` on:
 //! `surface_reflectance` (the BOA reflectance of one band, with the topographic, BRDF and environmental terms),
 //! `background_reflectance` (the three rings of exponential moving averages of the adjacency correction),
-//! `compile_l2_boa`, `compile_l2_qai`, `compile_l2_dst` (with `cloud_distance` of `cloud-ll.c`), `compile_l2_vzn`,
+//! `compile_l2_boa`, `compile_l2_qai`, `compile_l2_dst` (with [`crate::cloud_dist`], written in a clean room), `compile_l2_vzn`,
 //! `compile_l2_hot`, `compile_l2_aod`, `compile_l2_wvp`, `compile_level2` and `radiometric_correction`. The pieces
 //! before them are in [`crate::atmo`] (the atmosphere of every coarse cell, the interpolation of the coarse grid), the
 //! stages that `radiometric_correction` calls in [`crate::aod`], [`crate::gas`] and [`crate::topo`].
@@ -47,7 +47,8 @@
 //!   columns are independent: the same arithmetic per column, in the same order) on one thread.
 //! * **Errors.** Where the C prints a message and returns `FAILURE`/`NULL`, this returns an [`L2Error`].
 
-use crate::aod::{compile_aod, dist_transform, AodError, AodParams};
+use crate::aod::{compile_aod, AodError, AodParams};
+use crate::cloud_dist::cloud_distance;
 use crate::atc::{Atc, AtmoError, FORCE_NO_DATA, ZEN};
 use crate::atmo::{apply_aoi, atmo_angledep, atmo_elevdep, interpolate_coarse, interpolation_weights, BrdfFn, L2Params};
 use crate::gas::{self, ji2p, GasError, SceneGrid, Toa, WvLut, WvpSource};
@@ -56,7 +57,7 @@ use crate::parallel::{pool, threads};
 use crate::qai;
 use crate::radtran::{env_weight, env_weight_aerosol, env_weight_molecular, mod_elev_factor, mod_elev_scale, molecular_optical_depth};
 use crate::sunview::{Mission, SceneGeo};
-use crate::topo::{cfactor_topography, Top, TopoError};
+use crate::topo::{cfactor_topography_jobs, Top, TopoError};
 use rayon::prelude::*;
 use std::fmt;
 
@@ -118,6 +119,15 @@ impl From<TopoError> for L2Error {
     fn from(e: TopoError) -> Self {
         L2Error::Topo(e)
     }
+}
+
+/// `ZEIT_L2_TRACE=1` prints the seconds each stage of the correction takes to stderr (a diagnostic, no effect on the
+/// results).
+pub(crate) fn tick(t: &mut std::time::Instant, label: &str) {
+    if std::env::var_os("ZEIT_L2_TRACE").is_some() {
+        eprintln!("l2 {label}: {:.2} s", t.elapsed().as_secs_f64());
+    }
+    *t = std::time::Instant::now();
 }
 
 /// A `double` to a `short` as gcc compiles `(short)x` on x86-64: `cvttsd2si` (truncated to a 32 bit integer, the
@@ -622,37 +632,6 @@ pub fn compile_l2_qai(qai: &mut [i16]) {
     }
 }
 
-/// `cloud_distance` of `cloud-ll.c`: the distance in metres to the next pixel that is cloud (any cloud flag), cloud
-/// shadow or snow, capped at 32767 (`SHRT_MAX`); the pixels that are off give `nodata`; with no such pixel in the image
-/// the distance is `nx + ny` pixels.
-pub fn cloud_distance(qai: &[i16], grid: &SceneGrid, nodata: i16) -> Vec<i16> {
-    let (nx, ny, res) = (grid.nx, grid.ny, grid.res);
-    let nc = nx * ny;
-    let mut to_dist = vec![0u8; nc];
-    let mut k = 0;
-    for p in 0..nc {
-        if qai::cloud(qai[p]) > 0 || qai::shadow(qai[p]) || qai::snow(qai[p]) {
-            to_dist[p] = 1;
-            k += 1;
-        }
-    }
-    let dist_pix: Vec<u16> = if k > 0 { dist_transform(&to_dist, nx, ny) } else { vec![(ny + nx) as u16; nc] };
-    (0..nc)
-        .map(|p| {
-            if qai::off(qai[p]) {
-                nodata
-            } else {
-                let dist = dist_pix[p] as f64 * res;
-                if dist < i16::MAX as f64 {
-                    c_short(dist)
-                } else {
-                    i16::MAX
-                }
-            }
-        })
-        .collect()
-}
-
 /// `compile_l2_dst`: the distance to the next cloud, cloud shadow or snow pixel in metres ([`cloud_distance`]), from the
 /// final QAI.
 pub fn compile_l2_dst(qai: &[i16], grid: &SceneGrid) -> Vec<i16> {
@@ -787,6 +766,9 @@ pub struct Level2 {
     pub hot: Option<Vec<i16>>,
     pub aod: Option<Vec<i16>>,
     pub wvp: Option<Vec<i16>>,
+    /// The valid dark targets of the AOD estimation (water, shadow, vegetation; `radiometric_correction` sets them, the
+    /// numbers FORCE prints as `# of targets`; 0 from `compile_level2`).
+    pub n_targets: [i32; 3],
 }
 
 /// `compile_level2`: the products, in FORCE's order (see the module notes). `wvp` is the water vapour of
@@ -805,11 +787,15 @@ pub fn compile_level2(
     n_jobs: i32,
 ) -> Result<Level2, L2Error> {
     let grid = toa.grid;
+    let mut t = std::time::Instant::now();
     let hot = if par.ohot { Some(compile_l2_hot(toa, qai)?) } else { None };
+    tick(&mut t, "hot");
     let aod = if par.oaod { Some(compile_l2_aod(par, atc, &grid, qai, &top.dem, n_jobs)?) } else { None };
+    tick(&mut t, "aod product");
 
     // do BOA near the end (TOA is altered within)
     let boa = compile_l2_boa(par, mission, atc, toa, qai, wvp.as_deref(), lut, top, n_jobs)?;
+    tick(&mut t, "boa");
 
     // do WVP after BOA
     let wvp = if par.owvp { Some(compile_l2_wvp(par, atc, qai, wvp)) } else { None };
@@ -818,8 +804,10 @@ pub fn compile_level2(
     compile_l2_qai(qai);
 
     let dst = if par.odst { Some(compile_l2_dst(qai, &grid)) } else { None };
+    tick(&mut t, "wvp, qai, dst");
     let vzn = if par.ovzn { Some(compile_l2_vzn(atc, &grid, qai, n_jobs)?) } else { None };
-    Ok(Level2 { qai: qai.to_vec(), boa, dst, vzn, hot, aod, wvp })
+    tick(&mut t, "vzn");
+    Ok(Level2 { qai: qai.to_vec(), boa, dst, vzn, hot, aod, wvp, n_targets: [0; 3] })
 }
 
 /// What `radiometric_correction` reads from the parameter file besides [`L2Params`]: the directory of the AOD files
@@ -860,6 +848,8 @@ pub fn radiometric_correction(
     }
     let mut wvp = None;
     let mut lut = None;
+    let mut n_targets = [0i32; 3];
+    let mut t = std::time::Instant::now();
 
     if par.doatmo {
         // elevation stats (mean, max/min, # of 100m classes), rayleigh scattering @ sea level, elevation correction
@@ -871,6 +861,7 @@ pub fn radiometric_correction(
             atc.mod_[b] = molecular_optical_depth(atc.wvl[b]);
         }
         atc.hr = mod_elev_factor(atc.dem.avg);
+        tick(&mut t, "setup");
 
         // precipitable water vapor
         if mission == Mission::Landsat {
@@ -885,6 +876,7 @@ pub fn radiometric_correction(
 
         // angle-dependent coarse-grid atmospheric modelling
         atmo_angledep(atc, meta, geo, &grid, qai, &top.dem, brdf, n_jobs)?;
+        tick(&mut t, "atmo_angledep");
 
         // compile AOD, use image-based water/shadow targets, refine by DODB, use external values
         let (lon, lat) = geo.lonlat((atc.xy_aod.nx / 2) as i32, (atc.xy_aod.ny / 2) as i32, atc.xy_aod.res);
@@ -898,22 +890,28 @@ pub fn radiometric_correction(
             rsr_band: &rsr_band,
             multi: par.domulti,
         };
-        let _dark = compile_aod(atc, &ap, toa, qai, top)?;
+        let dark = compile_aod(atc, &ap, toa, qai, top)?;
+        n_targets = [dark.nwat, dark.nshd, dark.nveg];
+        tick(&mut t, "compile_aod");
 
         // elevation-dependent coarse-grid atmospheric modelling
         atmo_elevdep(atc, par, &grid, qai, &top.dem, n_jobs)?;
+        tick(&mut t, "atmo_elevdep");
 
         // water vapor and gaseous transmittance estimation
         if mission == Mission::Sentinel2 {
             let l = WvLut::build(&rsr_band, atc, n_jobs)?;
+            tick(&mut t, "wvlut");
             let w = gas::water_vapor(&rsr_band, atc, &l, toa, qai, &top.dem)?;
             wvp = Some(w.wvp);
+            tick(&mut t, "water_vapor");
             lut = Some(l);
         }
 
         // estimate topographic correction factor
         if par.dotopo {
-            top.c = cfactor_topography(atc, toa, qai, &top.dem, &top.slope, &top.ill)?;
+            top.c = cfactor_topography_jobs(atc, toa, qai, &top.dem, &top.slope, &top.ill, n_jobs)?;
+            tick(&mut t, "cfactor");
         }
     }
 
@@ -921,7 +919,9 @@ pub fn radiometric_correction(
     apply_aoi(qai, aoi)?;
 
     // Level 2 datasets
-    compile_level2(par, mission, atc, toa, qai, wvp, lut.as_ref(), top, n_jobs)
+    let mut level2 = compile_level2(par, mission, atc, toa, qai, wvp, lut.as_ref(), top, n_jobs)?;
+    level2.n_targets = n_targets;
+    Ok(level2)
 }
 
 #[cfg(test)]
@@ -938,34 +938,6 @@ mod tests {
         // out of range: the low 16 bits of the 32 bit integer; NaN and the range of the integer: INT_MIN, whose low bits are 0
         assert_eq!(c_short(40000.7), 40000u16 as i16);
         assert_eq!((c_short(f64::NAN), c_short(f64::INFINITY), c_short(-3.0e10)), (0, 0, 0));
-    }
-
-    #[test]
-    fn the_cloud_distance_is_the_truncated_euclidean_distance_in_metres() {
-        let (nx, ny) = (12, 9);
-        let mut qai = vec![0i16; nx * ny];
-        qai[2 * nx + 3] = 1 << 1; // cloud
-        qai[6 * nx + 9] = 1 << 3; // shadow
-        qai[8 * nx + 0] = 1 << 4; // snow
-        qai[4 * nx + 4] = 1; // off
-        let flagged: Vec<(i64, i64)> = vec![(2, 3), (6, 9), (8, 0)];
-        let d = cloud_distance(&qai, &grid(nx, ny, 30.0), -9999);
-        for i in 0..ny {
-            for j in 0..nx {
-                let p = i * nx + j;
-                if p == 4 * nx + 4 {
-                    assert_eq!(d[p], -9999);
-                    continue;
-                }
-                let best = flagged.iter().map(|&(a, b)| ((a - i as i64).pow(2) + (b - j as i64).pow(2)) as f64).fold(f64::MAX, f64::min);
-                assert_eq!(d[p], (best.sqrt().floor() * 30.0) as i16, "pixel ({i}, {j})");
-            }
-        }
-        // nothing flagged: nx + ny pixels; the distance is capped at 32767
-        let d = cloud_distance(&vec![0i16; nx * ny], &grid(nx, ny, 30.0), -9999);
-        assert!(d.iter().all(|&v| v == ((nx + ny) * 30) as i16));
-        let d = cloud_distance(&vec![0i16; nx * ny], &grid(nx, ny, 3000.0), -9999);
-        assert!(d.iter().all(|&v| v == i16::MAX));
     }
 
     #[test]

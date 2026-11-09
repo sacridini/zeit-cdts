@@ -577,6 +577,61 @@ Two things the comparison found. (1) With the sun below the horizon (the cosine 
 
 Timings (one thread, not in a verified quiet window, so indicative only): `radiometric_correction` takes FORCE 1.1 s and Zeit 0.9 s on the Landsat 30 m scene (800 x 700), 6.0 s and 2.2 s on the Sentinel-2 20 m one (1000 x 900), 7.9 s and 3.7 s on the 1200 x 1200 tile. `python benchmarks/vs_originals/force_l2.py`.
 
+### Sentinel-2 L1C to Level 2 (`zeit.level2`)
+
+[`zeit.level2`](../api/preprocessing.md#level2) runs the whole chain on a `.SAFE` directory: the bands, the geography, the DEM on the grid of the scene, Zeit's Fmask and the correction of the core. It was compared with `force-l2ps` of **FORCE 3.11.00** (8 threads) on tile 23LKC (Brazil, UTM 23S, 10980 x 10980 pixels at 10 m), reflectance times 10000. The scenes and the FORCE outputs are not in the repository (`ZEIT_L2_REAL_DATA`).
+
+**With FORCE's cloud flags, sun, geography and BRDF factor** (the inputs that Zeit computes in its own way, which the public function does by itself, are FORCE's here, dumped from `force-l2ps`: the flags, the sun, the geography and the BRDF factor, which `zeit.level2` takes from the NBAR c-factor instead; `python benchmarks/vs_originals/force_l2ps_real.py --modes dump`), BOA (10 bands), QAI, AOD, WVP, HOT, DST and VZN are equal in 100 % of the pixels in three runs: 2023-07-28 without BRDF, 2023-07-28 with BRDF (baseline 05.09) and 2021-07-28 without BRDF (baseline 03.01). In 2023 that is 120,560,400 pixels per band.
+
+**With only the sun from Zeit's clean-room implementation** (FORCE's cloud flags), 2023 without BRDF; the sun differs from FORCE's by up to 0.0105 degrees:
+
+| Band | Equal pixels | Mean difference |
+|---|---:|---:|
+| Blue | 75.04 % | 0.56 |
+| Green | 80.91 % | 0.40 |
+| Red | 82.99 % | 0.31 |
+| NIR | 82.72 % | 0.24 |
+| SWIR1 | 87.63 % | 0.12 |
+| SWIR2 | 92.45 % | 0.08 |
+
+**The whole chain with Zeit's Fmask**: 141 to 147 s in total (113 to 119 s in the core) against 197 s of `force-l2ps`, both with 8 threads, on a machine that was not dedicated: these times are not a clean benchmark. The mask of cloud or shadow against FORCE's: 19.93 % of the pixels against 19.70 %, agreement 98.12 %, IoU 0.910. Only the shadow diverges, by construction: FORCE marks shadow also inside the confident cloud and uses another version of the Fmask.
+
+**Against ESA's Sen2Cor L2A** of the same tile and date (`python benchmarks/vs_originals/level2_esa.py --scene 2023`; the L2A product with the baseline of the L1C: 05.09 and 03.01), both without BRDF (Sen2Cor does not normalise it). It is another chain (another atmosphere model, another aerosol and vapour retrieval), so no equality is expected; FORCE against the L2A is the control. On the 20 m grid (10 m bands averaged in 2 x 2 blocks), on the pixels valid in the three products, clear in both masks and classified by the SCL as vegetation or bare soil (23,405,935 pixels in 2023, 29,833,692 in 2021). Bias is Zeit (or FORCE) minus L2A, in reflectance times 10000:
+
+2023-07-28 (baseline 05.09):
+
+| Band | Zeit-L2A bias | MAE | RMSE | FORCE-L2A bias | MAE | RMSE |
+|---|---:|---:|---:|---:|---:|---:|
+| BLUE | -24.58 | 30.46 | 37.22 | -25.13 | 30.69 | 37.59 |
+| GREEN | -5.44 | 20.16 | 28.19 | -5.71 | 20.16 | 28.20 |
+| RED | 6.16 | 23.23 | 35.20 | 6.05 | 23.21 | 35.15 |
+| REDEDGE1 | -64.61 | 71.03 | 82.84 | -64.68 | 71.06 | 82.87 |
+| REDEDGE2 | -9.31 | 44.48 | 67.31 | -9.35 | 44.47 | 67.27 |
+| REDEDGE3 | -30.11 | 60.25 | 82.21 | -30.14 | 60.25 | 82.18 |
+| BROADNIR | 61.31 | 72.32 | 100.68 | 61.30 | 72.30 | 100.64 |
+| NIR | 34.94 | 57.41 | 92.32 | 34.92 | 57.38 | 92.27 |
+| SWIR1 | -174.71 | 183.08 | 203.02 | -174.70 | 183.08 | 203.02 |
+| SWIR2 | -242.22 | 243.48 | 266.27 | -242.22 | 243.47 | 266.27 |
+
+2021-07-28 (baseline 03.01):
+
+| Band | Zeit-L2A bias | MAE | RMSE | FORCE-L2A bias | MAE | RMSE |
+|---|---:|---:|---:|---:|---:|---:|
+| BLUE | -25.63 | 31.02 | 38.51 | -25.78 | 31.15 | 38.65 |
+| GREEN | -26.52 | 31.77 | 38.46 | -26.61 | 31.84 | 38.52 |
+| RED | -8.80 | 24.12 | 34.17 | -8.85 | 24.15 | 34.20 |
+| REDEDGE1 | -64.06 | 70.99 | 82.56 | -64.07 | 70.99 | 82.54 |
+| REDEDGE2 | -15.93 | 47.69 | 69.31 | -15.91 | 47.67 | 69.29 |
+| REDEDGE3 | -26.01 | 57.82 | 80.77 | -25.97 | 57.80 | 80.76 |
+| BROADNIR | 17.22 | 48.54 | 80.87 | 17.28 | 48.55 | 80.89 |
+| NIR | 31.26 | 55.89 | 91.09 | 31.31 | 55.92 | 91.11 |
+| SWIR1 | -165.83 | 176.38 | 196.73 | -165.81 | 176.36 | 196.70 |
+| SWIR2 | -229.49 | 231.33 | 253.40 | -229.48 | 231.32 | 253.38 |
+
+Zeit and FORCE are at nearly the same distance from the L2A in every band (the two groups of columns coincide to a few units, and the difference between Zeit and FORCE themselves is much smaller than either distance to the L2A). The L2A is 165 to 242 above both in the two SWIR bands; that bias was not checked against the literature, so it is not known which chain is closer to the truth. What the comparison says is that Zeit and FORCE agree, and that the L2A is another product.
+
+**What was not done.** `zeit.level2` does not read from STAC, does not merge the 20 m products into one grid and does not coregister; it is for Sentinel-2 only. The image without any cloud target gives DST 32767 in every pixel, and that case was not compared with FORCE. The timings above are not a benchmark in a verified quiet window.
+
 ### The coregistration vs AROSICS
 
 [`coregister`](../api/preprocessing.md#coregister) is a port of the global `COREG` of **AROSICS 1.14.0** (Scheffler et al. 2017; Apache-2.0), run here as it is in its own conda environment (`arosics-ref`, Python 3.14, GDAL 3.12, from conda-forge) by `benchmarks/vs_originals/arosics_driver.py`, on GeoTIFFs written by `benchmarks/vs_originals/arosics.py`, which then runs Zeit on the same files. AROSICS: `COREG(ref, tgt, ws=(256, 256), max_shift=5, max_iter=5, nodata=(nd, nd), align_grids=True, resamp_alg_deshift="cubic", ignore_errors=True)` and `calculate_spatial_shifts()`, then `correct_shifts()` for the aligned image. There is no satellite scene in the repository (the largest GeoTIFFs of `examples/data` are 25 x 25 pixels), so the pairs are synthetic, plus one of real image content: scikit-image's `camera` (512 x 512, 8 bit) with its copy moved by (2.3, -1.4) pixels (a cubic spline). The synthetic scenes are value noise (five octaves, 2-32 pixel features, 30 m cells) moved by known shifts.

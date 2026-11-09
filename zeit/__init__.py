@@ -53,6 +53,7 @@ from ._improphe import improphe
 from ._resmerge import sentinel2_resmerge
 from ._pansharpen import pansharpen
 from ._parallax import buffer_mask, cloud_displacement_index, parallax_clouds
+from ._level2 import level2
 from ._topocorr import topographic_correction
 from ._coreg import coregister, coregister_local
 
@@ -139,6 +140,7 @@ __all__ = [
     "cloud_displacement_index",
     "parallax_clouds",
     "buffer_mask",
+    "level2",
     "topographic_correction",
     "coregister",
     "coregister_local",
