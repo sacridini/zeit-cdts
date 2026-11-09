@@ -155,6 +155,40 @@ Every image below was produced by Zeit itself. Click one to open its tutorial.
 
 </div>
 
+<span class="kicker">From FORCE</span>
+
+## From a Sentinel-2 scene to a ready series
+
+Several of FORCE's steps (Frantz 2019, *Remote Sensing* 11:1124; FORCE 3.11.00, David Frantz, GPL-3.0-or-later) are Zeit functions that take and return the same arrays as the rest of the library, with Zeit's own Fmask 4.7 (Qiu, Zhu and Woodcock 2019) inside the atmospheric correction.
+
+<div class="grid cards two" markdown>
+
+-   :material-satellite-variant:{ .lg .middle } **Level 1C to surface reflectance**
+
+    ---
+
+    `level2` corrects a Sentinel-2 Level 1C scene, on disk or downloaded by name (`find_l1c`, `download_l1c`, `download_dem`): water vapour, aerosols from the scene's dark targets, adjacency, topography, BRDF, and a cloud, shadow, snow and water mask. Given FORCE's cloud flags, sun, geography and BRDF factor it equals `force-l2ps` in every pixel; with Zeit's own, its Fmask agrees with FORCE's in 98.1 % of the pixels in cloud or shadow. Sentinel-2 only, on the scene's 10 m grid.
+
+    [:octicons-arrow-right-24: Tutorial](tutorials/sentinel2-level2.md) · [API](api/preprocessing.md#level2)
+
+-   :material-layers-triple-outline:{ .lg .middle } **Prepare the images**
+
+    ---
+
+    Co-register dates to a reference (`coregister`, `coregister_local`), normalise the view angles (`nbar`, `sentinel2_angles`), take Landsat and MODIS to Sentinel-2's bands (`spectral_adjust`), compute the Tasseled Cap, bring the 20 m bands to 10 m (`sentinel2_resmerge`), sharpen coarse data (`improphe`) and pansharpen (`pansharpen`).
+
+    [:octicons-arrow-right-24: Tutorial](tutorials/preparing-images.md) · [API](api/preprocessing.md)
+
+-   :material-chart-timeline-variant:{ .lg .middle } **FORCE's time series chain**
+
+    ---
+
+    Interpolate a cloudy series, summarise it by year or season with `temporal_metrics`, and read the dates, values and rates of each growing season with `polar_metrics`.
+
+    [:octicons-arrow-right-24: Tutorial](tutorials/force_tsa.md) · [API](api/time-series.md#temporal_metrics)
+
+</div>
+
 <span class="kicker">Workflow</span>
 
 ## How a Zeit analysis fits together
@@ -172,9 +206,9 @@ Stream a cube from a STAC catalog, Earth Engine or local GeoTIFFs.
 <div markdown>
 **Clean it**
 
-Mask clouds, composite to a regular time step, smooth noise.
+Correct a Sentinel-2 scene, align the dates, mask clouds, composite to a regular time step, smooth noise.
 
-`tmask` · `regularize_time_series` · `smooth`
+`level2` · `coregister` · `tmask` · `regularize_time_series` · `smooth`
 </div>
 
 <div markdown>
@@ -278,7 +312,7 @@ The same analysis in three styles. Pick the one that fits your data:
 
     ---
 
-    Data access, cloud masking, smoothing, unmixing, change detection, monitoring, recovery, trends, hot spots, phenology, segmentation, deep learning, post-processing and plotting all use the same array conventions.
+    Data access, Sentinel-2 atmospheric correction, cloud masking, smoothing, unmixing, change detection, monitoring, recovery, trends, hot spots, phenology, segmentation, deep learning, post-processing and plotting all use the same array conventions.
 
     [:octicons-arrow-right-24: API reference](api/index.md)
 

@@ -151,6 +151,9 @@ PyTorch models for classification and change detection, checked against their re
 
 </div>
 
+- **[Sentinel-2 Level 1C to Surface Reflectance](sentinel2-level2.md)**: `zeit.level2` on a scene on disk or downloaded by name: the atmospheric correction with Zeit's own Fmask, the products (`boa`, `qai`, `dst`, ...), how to read the QAI flags, and how it compares with FORCE and ESA's L2A.
+- **[Preparing Images](preparing-images.md)**: co-registration, NBAR, the spectral adjustment of Landsat and MODIS to Sentinel-2, the Tasseled Cap, the 20 m bands at 10 m, ImproPhe and pansharpening, each with when to use it.
+- **[FORCE's Time Series Analysis Chain](force_tsa.md)**: interpolation, spectral-temporal metrics (`temporal_metrics`), land surface phenology (`polar_metrics`), trends and change.
 - **[Plotting & Exploring Results](plotting.md)**: `zeit.plot` for maps, dense time series and pixel fits, in a notebook or a window.
 - **[Google Earth Engine](gee-downloads.md)**: harmonised Landsat composites prepared on Google's servers.
 - **[Embeddings (TESSERA, AlphaEarth)](embeddings.md)**: the yearly embeddings of foundation models as a cube: classify from few samples, find similar places, follow change year to year.

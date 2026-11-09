@@ -135,6 +135,8 @@ nav:
           - STAC Data Cubes: tutorials/stac-downloads.md
           - Google Earth Engine: tutorials/gee-downloads.md
           - Cloud Masking (Tmask): tutorials/tmask.md
+          - Sentinel-2 Level 1C to Surface Reflectance: tutorials/sentinel2-level2.md
+          - Preparing Images: tutorials/preparing-images.md
           - Embeddings (TESSERA, AlphaEarth): tutorials/embeddings.md
       - Visualisation:
           - Plotting & Exploring Results: tutorials/plotting.md
