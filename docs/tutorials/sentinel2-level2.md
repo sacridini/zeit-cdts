@@ -147,6 +147,8 @@ The merge predicts a pixel only if it is not off and has no cloud and no shadow 
 
 On tile 23LKC (2023), with FORCE's cloud flags, sun, geography and BRDF factor, the merge gives the same `qai`, `dst`, `hot`, `aod`, `vzn` and `wvp` as `force-l2ps` with `RES_MERGE` in every pixel of the 120,560,400, and `boa` differs in 9 to 70 pixels per band with ImproPhe (by 1 to 3) and in 196 to 271 pixels of each of the six merged bands with the regression (by 2 to 12; compared with a FORCE run on one thread: FORCE's regression is not deterministic with several). The merge alone takes 11.4 s with ImproPhe and 182 s with the regression on this scene (8 threads; the regression of FORCE's arithmetic runs on one). A reference made from the scene's own BROADNIR moved by +2.5 pixels in `x` and -1.5 in `y` was found as +2.47 and -1.47 (reliability 95.6).
 
+The merge costs memory: the whole call peaked at 21.6 GiB of RAM without it and at 28.7 GiB with either method (the full 10980 x 10980 tile, 8 threads), and took 146 s without it, 158 s with ImproPhe and 332 s with the regression.
+
 ### Your own cloud mask
 
 Zeit's Fmask runs at 20 m. If you have a mask you trust more, give it as `flags`: the Fmask does not run, and the QAI carries your bits.

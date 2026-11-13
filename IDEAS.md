@@ -3244,10 +3244,11 @@ validação.
       sem release. Na 23LKC de 2023, com as entradas do FORCE, o ImproPhe difere em 9 a 70 pixels do `boa` por banda (de 1 a 3) e a
       regressão, contra o FORCE com 1 thread, em 196 a 271 pixels das 6 bandas mescladas (de 2 a 12); a causa desses resíduos não foi
       investigada. A regressão do FORCE com várias threads não é determinística. Deslocamento imposto de +2,5 e -1,5 px, recuperado
-      como +2,47 e -1,47. Esses números são de uma única rodada: a repetição de conferência foi interrompida por falta de memória na
-      máquina, antes de dar resultado. Antes do release: repetir a comparação (`force_l2ps_real.py --modes dump --merge ...`), medir o
-      pico de memória do merge na cena inteira (relatado como dezenas de GB, nunca medido) e pô-lo na documentação, e rodar a suíte
-      completa;
+      como +2,47 e -1,47. **Conferido em 2026-11-14:** a comparação repetida (`force_l2ps_real.py --modes dump --merge improphe` e
+      `--merge regression --force-dir force_out_2023_merge_regression_1t --flags-from-force`) deu os mesmos números, pixel a pixel. O
+      pico de memória de `zeit.level2` na cena inteira (23LKC, 8 threads, Fmask do Zeit, DEM local), medido pelo `peak_wset` do
+      processo: 21,6 GiB sem merge, 28,7 GiB com ImproPhe ou regressão (146, 158 e 332 s); o script de comparação, que guarda também
+      as saídas do FORCE, chega a 40 GiB. Está na documentação;
     - no Janus, a ferramenta que leva uma pasta de L1 a ARD. O `zeit-core` fixado lá é o f20ff43 (Zeit 3.1.0), sem `l2scene`, `s2l1c`,
       `fmask`, `cloud_dist`, `solpos`, `l2`, `atmo`, `aod`, `gas`, `radtran`, `topo`, `qai` e `parallax`: o primeiro passo é subir esse
       rev. O Janus já tem o leitor por janela (GDAL), o PROJ, os ângulos (`s2angles.rs`, pedir `B8A`) e um warp, mas falta o objeto de
@@ -3402,6 +3403,169 @@ próprio aerossol; a validação seria contra Sentinel-2 ou Landsat do mesmo dia
 duas coisas, a ordem é corrigir as bandas de 8 m e só depois fusionar.
 
 **O que destrava:** as RSR e os coeficientes de calibração do WPM. Sem eles, não vale começar.
+
+## Fase 24: limites de talhão pelo stochastic watershed (pedido de 2026-11-13)
+
+O ponto de partida é o notebook `MappingDemo` de um amigo do usuário (Baumann, agosto de 2020;
+inspirado no tutorial de Emmanuelle Gouillart), que pediu a implementação: **o código pode ser
+lido e portado direto** (o autor autorizou; não é caso de sala limpa). Ele segmenta os medoides
+da banda B5 (SWIR1) do Landsat de 2000 e de 2019 assim:
+
+1. estica o histograma entre os percentis 2 e 98;
+2. gradiente: `black_tophat(img, 3) - 0,5 * img`, depois uma dilatação;
+3. 500 watersheds, cada um com 1000 marcadores uniformes, desbastados para ficarem a 20 px ou mais
+   uns dos outros (k-d tree, guloso), coloridos por `vertex_coloring` (pyamg) e dilatados por um
+   disco de raio 3; máscara `B5 > 2000`;
+4. a frequência com que cada pixel cai numa fronteira (`find_boundaries`, 4-conexo);
+5. histerese em 0,3 e 0,6 × 500, rótulos do complemento, objetos com menos de 50 px fora;
+6. um watershed final sobre a imagem original, com essas regiões como marcadores, e a floresta
+   (B5 ≤ 2000) zerada.
+
+O método é o stochastic watershed (Angulo & Jeulin 2007, ISMM). O objetivo do usuário é rodar no
+**Gran Chaco inteiro** (cerca de 1,1 milhão de km², 1,2 bilhão de pixels a 30 m), **validar antes
+em áreas conhecidas** (Brasil, CAR) e **melhorar a precisão** com análise de sensibilidade e
+outras técnicas. Os arquivos do amigo (`tileID_305_B5-medoid_*.tif`) e a saída dele não estão
+disponíveis por enquanto; a paridade é contra o código do notebook rodado por nós (precisa de
+scikit-image, pyamg e scikit-learn, só no ambiente de teste).
+
+### O que o Zeit já tem
+
+- Sobel (`texture.rs`), `sieve` (objetos pequenos, `postproc.rs`), morfologia binária e
+  `Strel` (`fmask/mlab.rs`), rótulos de componentes (Fmask), k-d tree (AOA), o percentil.
+- Mosaicos: `medoid.rs`, `bap.rs`, `build_annual_composites`, `gee_tiles`/`stac_tiles`.
+- Escala: `run_tiles` (tiles, journal, Slurm), threads presas pelo `_threads`.
+- Polígonos: `snic_to_polygons` (transform, CRS, colunas). Avaliação: `zeit.accuracy`,
+  `spatial_folds`, `sampling_design`.
+- Embeddings anuais (AlphaEarth, TESSERA), que só servem dos anos recentes.
+
+Falta: morfologia em tons de cinza (black top-hat, dilatação), o watershed por marcadores,
+histerese, `find_boundaries` e as medidas de acurácia de segmentação.
+
+### A API proposta
+
+- **`zeit.fields(cube, ...)`** devolve um `Dataset` com `labels (y, x)` (int32, 0 fora da máscara),
+  `boundary (y, x)` (a probabilidade de fronteira, de 0 a 1) e `gradient (y, x)`, os parâmetros nos
+  `attrs`; `.to_polygons()` dá um `GeoDataFrame` com área (ha), perímetro e compacidade. Parâmetros:
+  - `gradient=`: `"tophat"` (o do notebook), `"sobel"`, `"multitemporal"` (o Sobel de cada data e
+    banda padronizadas, combinado por máximo ou soma), ou um `DataArray` pronto (um mapa de bordas
+    aprendido, por exemplo);
+  - `method="exact"` (padrão, ver abaixo) ou `"montecarlo"` (o do notebook), com `realizations=`,
+    `markers=` (quantos, ou a densidade por km²), `min_distance=` (px), `marker_radius=`,
+    `noise=` (Bernander et al. 2013) e `random_state=`;
+  - `low=`, `high=` (a histerese, em fração), `min_size=` (px), `final="image"` (como no notebook)
+    ou `"gradient"`;
+  - `mask=` (um `DataArray` booleano, por exemplo a floresta de uma classificação) ou
+    `mask_threshold=` (o `B5 > 2000` do notebook, na escala de quem chama);
+  - `preset="notebook"`: todos os valores do notebook, para reproduzi-lo de ponta a ponta;
+  - `n_jobs=`.
+- Peças soltas, para quem quiser montar outro caminho: `zeit.watershed(elevation, markers,
+  mask=)`, `zeit.stochastic_watershed(gradient, ...)` (só a probabilidade) e
+  `zeit.edge_gradient(cube, ...)`.
+- **`zeit.segmentation_accuracy(pred, reference, tolerance=1)`**:
+  - fronteiras: precisão, revocação e F, com tolerância em px (transformada de distância);
+  - objetos: sobre- e sub-segmentação (Clinton et al. 2010), fração dos talhões de referência com
+    IoU ≥ 0,5;
+  - distribuição de tamanhos: quantis, Wasserstein e KS entre as áreas, por classe de tamanho;
+  - com `kind="property"` (o CAR): só a revocação das divisas e a fração de talhões que
+    **atravessam** uma divisa de imóvel (erro de sub-segmentação). O CAR delimita imóveis, não
+    talhões, então a precisão contra ele não vale.
+- CLI: `zeit fields` (e `--polygons`), como `zeit snic`.
+
+### A probabilidade exata (o que torna o Chaco barato)
+
+No Monte Carlo, cada realização custa um watershed: 500 por tile. A versão exata (Meyer &
+Stawiaski 2010; Malmberg & Luengo Hendriks 2014, Pattern Recognition Letters 47:80) sai de uma
+passada de Kruskal sobre as arestas entre pixels vizinhos, ordenadas pelo gradiente. Quando a aresta
+e junta as componentes A e B (tamanhos a e b em n pixels), ela é fronteira se A e B têm marcador
+cada uma; com N marcadores uniformes:
+
+    P(e) = 1 - (1 - a/n)^N - (1 - b/n)^N + (1 - (a + b)/n)^N
+
+A probabilidade de cada pixel é a máxima das arestas que tocam nele. O custo é O(E log E) por
+tile, ou O(E) com o gradiente quantizado e ordenação por contagem. **O modelo de marcadores é
+outro:** uniformes e de um pixel, sem distância mínima nem disco. Os limiares da histerese não se
+transferem do notebook; eles são calibrados na validação (24e). A conferência da versão exata é
+estatística: numa imagem pequena, o Monte Carlo com marcadores do mesmo modelo e muitas realizações
+converge para ela.
+
+### Validação: onde e contra o quê
+
+- **Brasil**, com CAR (SICAR, por município; o download pode pedir captcha, e aí é manual) e os
+  pivôs centrais da ANA/Embrapa (a conferir a versão):
+  - Porto Murtinho (MS), no Chaco brasileiro, quase só pastagem;
+  - Sorriso (MT), lavoura mecanizada, talhões grandes;
+  - (talvez) um município do MATOPIBA, fronteira agrícola recente.
+- **Chaco**: uma amostra de talhões digitalizados sobre imagem de alta resolução (Planet NICFI
+  onde cobrir, a conferir). **É trabalho humano** (o usuário ou o amigo, no QGIS); o Zeit sorteia os
+  pontos (`sampling_design`, estratificado por país e uso) e prepara os recortes.
+- Conjuntos públicos (Fields of The World): a conferir se cobrem o Brasil ou o Chaco.
+- Mosaicos de entrada: Landsat C2 L2, um medoide anual (como o notebook) e mosaicos sazonais
+  (para o gradiente multitemporal), de 2000 e de 2019; Sentinel-2 de 2019 para comparar
+  resoluções.
+
+### Etapas
+
+- **24a: as peças no `zeit-core`.**
+  - watershed por marcadores igual ao `skimage.segmentation.watershed`: fila de prioridade por
+    (valor, idade), conectividade 1 ou 2, máscara;
+  - morfologia em tons de cinza (dilatação, erosão, black/white top-hat; quadrado e disco), o
+    `rescale_intensity` por percentis;
+  - histerese (`apply_hysteresis_threshold`), `find_boundaries`, rótulos, `relabel_sequential`;
+  - o desbaste de marcadores do notebook (`trim_close_points`).
+
+  Teste: igual ao scikit-image **pixel a pixel** com os mesmos marcadores, em imagens sintéticas e
+  num recorte Landsat; empates de propósito para conferir a ordem por idade.
+- **24b: o stochastic watershed.** Monte Carlo com as realizações em paralelo (`n_jobs`, com as
+  probabilidades somadas sem guardar as 500 segmentações, que o notebook guarda) e a versão exata
+  (union-find). Testes:
+  - o Monte Carlo do Zeit e o laço do notebook com os mesmos marcadores (exportados de uma
+    execução do notebook) dão a mesma contagem;
+  - a versão exata contra um Monte Carlo longo, com o mesmo modelo de marcadores (convergência).
+- **24c: `zeit.fields`, `.to_polygons()` e o CLI.** Com `preset="notebook"`, o caminho inteiro
+  (passos 1 a 6) igual ao notebook rodado por nós, dados os marcadores. `zeit.edge_gradient` com
+  `"tophat"`, `"sobel"` e `"multitemporal"`.
+- **24d: dados de validação e `zeit.segmentation_accuracy`.** Os scripts de download (CAR, pivôs),
+  os mosaicos das áreas de teste, a amostra a digitalizar no Chaco. As métricas, testadas em casos
+  feitos à mão (talhão partido em dois, dois juntos, borda deslocada 1 px).
+- **24e: análise de sensibilidade**, em `benchmarks/fields/`, nas áreas de teste:
+  - convergência: quantas realizações bastam (a diferença para a versão exata ou para 2000
+    realizações);
+  - um fator por vez em torno do padrão, e depois Morris (efeitos elementares) com uns 8
+    parâmetros (marcadores ou densidade, distância mínima, raio, realizações, `low`, `high`,
+    `min_size`, gradiente, `final`), cerca de 200 rodadas;
+  - grade fina só nos 2 ou 3 que importarem;
+  - as respostas: F de fronteira, sobre- e sub-segmentação, a distância entre as distribuições de
+    tamanho, a estabilidade entre sementes;
+  - os limiares escolhidos por validação cruzada espacial (`spatial_folds`), nunca na área em que
+    se mede.
+- **24f: as melhorias**, cada uma medida contra a base da 24e (fica só o que ganha):
+  - gradiente multitemporal e multibanda, em vez do medoide de uma banda;
+  - exata contra Monte Carlo; Monte Carlo com ruído (Bernander et al. 2013);
+  - densidade de marcadores ligada ao tamanho esperado dos talhões;
+  - o watershed final sobre o gradiente em vez da imagem;
+  - um corte da hierarquia (a versão exata dá uma árvore de graça) no lugar da histerese;
+  - gradiente de embeddings (AlphaEarth, TESSERA), só nos anos recentes;
+  - comparação com um modelo pré-treinado (Fields of The World, em Sentinel-2) em 2019, nas
+    mesmas áreas: quanto se perde ou se ganha a 30 m.
+- **24g: escala.** Tiles com borda sobreposta (o dobro do maior talhão esperado), a probabilidade
+  só no miolo, a costura dos rótulos entre tiles (union-find nas bordas) e dos polígonos. O tempo é
+  medido em 10 tiles e extrapolado antes de rodar tudo. **O download decide o custo:** o Landsat
+  cru de dois anos do Chaco chega a terabytes. O caminho provável são os mosaicos feitos no GEE
+  (`gee_tiles`) e baixados prontos. Isso vai ser decidido com o usuário antes de baixar.
+- **24h: tutorial e API.** A comparação 2000 × 2019 da distribuição de tamanhos de talhão como
+  exemplo; as referências conferidas nos artigos antes de citar.
+
+### Riscos
+
+- Talhões vizinhos sem contraste (a mesma cultura dos dois lados de uma cerca) se fundem: a 30 m,
+  uma estrada ou cerca estreita não aparece. O gradiente multitemporal ajuda, mas não resolve
+  tudo.
+- O CAR é autodeclarado: imóveis sobrepostos e divisas erradas. Filtrar pela situação do
+  cadastro e tratar os resultados como indicativos.
+- A paridade com o scikit-image pode falhar em empates (a ordem por idade) e em valores de ponto
+  flutuante iguais; a 24a testa isso de propósito.
+- O limiar de floresta do notebook (2000) está na escala de reflectância dele (× 10000); no Zeit
+  vira um parâmetro na escala do cubo.
 
 ## Para depois
 
