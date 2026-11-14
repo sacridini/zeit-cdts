@@ -646,8 +646,8 @@ def level2(
     Notes
     -----
     The merge is compared with ``force-l2ps`` (``RES_MERGE = REGRESSION`` and ``IMPROPHE``) by
-    ``benchmarks/vs_originals/force_l2ps_real.py --merge``; ``STARFM`` so far only with FORCE's functions in a C harness
-    (``benchmarks/vs_originals/force_resmerge.py``), equal in every value. The coregistration cannot be compared: FORCE's is another method.
+    ``benchmarks/vs_originals/force_l2ps_real.py --merge``. ``STARFM`` is equal to FORCE in every pixel of ``boa`` and of the other
+    products (scene 23LKC, 2023, no BRDF; also, per function, in a C harness, ``benchmarks/vs_originals/force_resmerge.py``). The coregistration cannot be compared: FORCE's is another method.
 
     Equal to FORCE 3.11.00 in every pixel of ``boa``, ``qai``, ``aod``, ``wvp``, ``hot``, ``dst`` and ``vzn`` when the cloud
     flags, the sun, the geography and the BRDF factor are FORCE's (see the benchmark). Zeit computes them itself (its own sun,

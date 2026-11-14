@@ -3297,8 +3297,10 @@ validação.
       olham nuvem e sombra nesse método.
     - Limites do `zeit.starfm`: um `off` só por alvo e banda (um NaN em qualquer par tira o pixel de todos os pares); tudo
       em memória (um cubo dask é computado; áreas grandes por tiles, com margem de `radius`).
-    - Falta: o `force-l2ps` com `RES_MERGE = STARFM` numa cena real (`force_l2ps_real.py --merge starfm`, que já aceita a
-      opção).
+    - **Conferido numa cena real em 2026-11-14:** `force-l2ps` com `RES_MERGE = STARFM` (NTHREAD 8, 318 s) contra
+      `zeit.level2(merge="starfm")` (`force_l2ps_real.py --modes dump --merge starfm`, 152 s no núcleo), 23LKC 2023 sem BRDF:
+      `boa` das dez bandas, `aod`, `wvp`, `hot`, `dst`, `vzn` e `qai` iguais nos 120.560.400 pixels (0 diferenças), alvos 218/0/1086
+      como o FORCE. Não sobrou nada em aberto no STARFM.
   - **Lacunas menores, sem data:** ~~o STARFM~~ (feito, acima; antes: fora pela licença; provavelmente é obra do governo
     dos EUA, o que reabriria o caso) e o BAP paramétrico do FORCE (Frantz 2017, só como
     comparação ao de Griffiths 2013). O datacube em tiles, o Equi7 e o GLANCE não fazem falta,
