@@ -613,6 +613,81 @@ l2 = zeit.level2(safe, brdf=False, topography=False)   # no DEM
 l2 = zeit.level2("S2B_MSIL1C_20230728T132239_N0509_R038_T23LKC_20230728T150149.SAFE", dem="glo30")   # product and DEM downloaded
 ```
 
+### `level2_series` { .api }
+
+<!-- sig: zeit.level2_series -->
+```python
+zeit.level2_series(
+    tile=None, start=None, end=None, out_dir=None, *, max_cloud=100.0,
+    products=None, dem="glo30", level2_kw=None, mask="force", like=None,
+    resampling="auto", chunks="auto", keep_safe=False, safe_dir=None,
+    n_jobs=8, verbose=True,
+)
+```
+
+Sentinel-2 L1C scenes of a tile to surface reflectance, one scene at a time, and the series as one lazy cube: [`find_l1c`](#find_l1c) (or the `products` given), [`download_l1c`](#download_l1c), [`download_dem`](#download_dem) once, [`level2`](#level2) and `.zeit.save` for each scene, then [`load_level2_series`](#load_level2_series) over the scenes of the run. A scene's folder, named as the product without `.SAFE`, holds exactly what `level2(...).zeit.save(folder)` writes (`boa.tif`, `qai.tif`, `dst.tif`...) plus the marker `.zeit-level2.json` that makes it done.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `tile`, `start`, `end` | `str`, dates | `None` | The MGRS tile (`"23LKC"`) and the dates searched with `find_l1c`; not needed with `products`. |
+| `out_dir` | path | required | One folder per scene, the DEM in `dem/` and the journal `level2_series.json`. |
+| `max_cloud` | `float` | `100.0` | Maximum cloud cover (percent) of the search. |
+| `products` | names, local `.SAFE` paths or a table | `None` | Instead of searching: product names, local `.SAFE` folders or a table with a `product` column. |
+| `dem` | `"glo30"`, path or `None` | `"glo30"` | The DEM of the tile (downloaded once), a raster, or `None` with `level2_kw={"topography": False}`. |
+| `level2_kw` | `dict` or `None` | `None` | Options of `level2` (`brdf`, `aod`, `fmask`, `merge`...), not `safe`, `dem` or `n_jobs`. A folder written with other options is an error. |
+| `mask`, `like`, `resampling`, `chunks` | | | As in [`load_level2_series`](#load_level2_series). |
+| `keep_safe` | `bool` | `False` | Keep the downloaded `.SAFE` (deleted once the scene is done otherwise). |
+| `safe_dir` | path or `None` | `None` | Where the `.SAFE` are downloaded (`out_dir/.safe`). |
+| `n_jobs` | `int` | `8` | Threads of each correction (the downloads use at most 4). |
+| `verbose` | `bool` | `True` | One line per scene. |
+
+</div>
+
+**Returns** the cube of `load_level2_series` for the scenes done (in this run or an earlier one). The scenes that failed and the duplicates (an older processing of the same acquisition) are not in it; `attrs["failed"]` lists the failed products and `attrs["journal"]` is the path of the journal. **Raises** `RuntimeError` if no scene succeeded (the message points to the journal).
+
+**Memory, disk and resume.** A scene at a time, 22 to 29 GiB of RAM each at 10 m for a full tile (see [`level2`](#level2)); disk for the `boa.tif` and `qai.tif` of every scene (a warning tells when the free space looks short after the first scene). The call can be interrupted and repeated: a scene with its marker is skipped, an interrupted one is redone from scratch, a failed one is tried again.
+
+```python
+cube = zeit.level2_series("23LKC", "2022-01-01", "2023-12-31", "l2_23LKC", max_cloud=60)
+cube.attrs["failed"]                          # [] when every scene worked
+metrics = zeit.temporal_metrics(cube.sel(band=["RED", "NIR"]), ...)
+```
+
+### `load_level2_series` { .api }
+
+<!-- sig: zeit.load_level2_series -->
+```python
+zeit.load_level2_series(
+    out_dir, *, mask="force", like=None, resampling="auto", chunks="auto",
+    products=None,
+)
+```
+
+The scenes in the folder of `level2_series` as one lazy `(time, band, y, x)` reflectance cube: `float32`, the reflectance times 10000, NaN where `boa` is the fill (-9999) and, with `mask="force"`, where [`qa_mask(qai, "force")`](data.md#qa_mask) is `False`. Nothing is read until the cube is used. It goes as it is into [`temporal_metrics`](time-series.md#temporal_metrics), [`regularize_time_series`](data.md#regularize_time_series) and [`ccdc`](change-detection.md#ccdc).
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `out_dir` | path | required | The folder of `level2_series`: every sub-folder with a `.zeit-level2.json` marker is a scene (dot-folders, `dem` and folders without a marker are ignored). |
+| `mask` | `"force"` or `None` | `"force"` | `"force"`: FORCE's default `SCREEN_QAI` (no data, cloud buffer, opaque and cirrus, shadow, snow, sub-zero, saturation; water and the illumination flags do not mask). `None`: only the fill is NaN. Another value is a `ValueError`. |
+| `like` | path or `DataArray` | `None` | Put every scene on this grid with `load_raster(like=)`: `boa` with `resampling`, `qai` always the nearest cell, the mask applied after the warp. Without it all the scenes must share one grid (CRS, transform, shape) or it is a `ValueError` listing the odd ones. |
+| `resampling` | `str` | `"auto"` | With `like`: nearest for `"auto"` (`boa` is an integer product), or a GDAL method. |
+| `chunks` | `"auto"` or `dict` | `"auto"` | Dask chunks (`y`, `x`); one scene is one chunk in time. |
+| `products` | names | `None` | Only these scenes (with or without `.SAFE`); one that is not in `out_dir` is a `KeyError`. |
+
+</div>
+
+**Returns** `boa`, `(time, band, y, x)` `float32` (dask), `time` the sensing time (`datetime64[ns]`, naive UTC, sorted), `band` BLUE, GREEN, RED, REDEDGE1, REDEDGE2, REDEDGE3, BROADNIR, NIR, SWIR1, SWIR2, with the CRS and transform of the scenes. Along `time` it has the coordinates `product`, `platform`, `baseline`, `sensor` and the numbers `aod_green`, `water_vapor_cm` and `fmask_*` of the markers (NaN where a scene has none). `attrs` has `tile` and `source` (`"zeit.level2"`). **Raises** `ValueError` for a folder with no scene.
+
+```python
+cube = zeit.load_level2_series("l2_23LKC")
+clear = zeit.load_level2_series("l2_23LKC", mask=None)        # only the fill is NaN
+small = zeit.load_level2_series("l2_23LKC", like="roi.tif")   # on the grid of a small raster
+```
+
 ### `find_l1c` { .api }
 
 <!-- sig: zeit.find_l1c -->

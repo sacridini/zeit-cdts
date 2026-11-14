@@ -452,7 +452,7 @@ Without dates, the band axis keeps the name `band` and the algorithms ask for `y
 | `validate` | `str` | `None` | `"landtrendr"`, `"ccdc"` or `"cold"`: warn when the series looks unfit for that algorithm (too few dates, values that do not look scaled). |
 | `scale` | `bool` | `False` | Apply the `scale_factor` and `add_offset` each band stores (`value * scale + offset`, after NoData became NaN). Bands without them stay as they are (an Int16 file with no scale keeps its type); the files of a folder each use their own. Not for NetCDF/Zarr stores or `DataArray` sources, already decoded. Needs `masked` `"auto"` or `True`. Landsat files with a quality band (scales that differ by band) load without rioxarray's "Scales differ across bands" warning, which does not apply when Zeit reads the scales itself (`scale=True`) or only one `band` is read. |
 | `qa` | band, path, glob, list or `DataArray` | `None` | A quality band: the cube comes back with NaN where the observation is not usable by `qa_rule`. A band number reads it from the same files, like `band=` (`qa=7`: the Fmask of Landsat files of a date); anything else is another source with the same dates and grid, read with the same `clip`, `window`/`pixel`, `like`... (nearest cell). Integer data becomes float. |
-| `qa_rule` | `str` | `None` | With `qa`: `"fmask"`, `"landsat_c2"`, `"nonzero"`, `"scl"` or `"hls_fmask"`, see [`qa_mask`](#qa_mask). |
+| `qa_rule` | `str` | `None` | With `qa`: `"fmask"`, `"landsat_c2"`, `"nonzero"`, `"scl"`, `"hls_fmask"` or `"force"`, see [`qa_mask`](#qa_mask). |
 | `bands` | `dict` | `None` | Bands by role, `{"blue": 1, "red": 3, "nir": 4}`: name to band (as `band=`). Gives a `(time, band, y, x)` cube whose `band` coordinate holds the names, in the order of the dict. Not with `band`. |
 | `window` | `(col0, row0, col1, row1)` | `None` | Read only a window of the raster's own pixels (the end is exclusive), no CRS needed. The cells keep their coordinates and transform. A file is read in the window only. Not with `clip`, `like`, `crs` or `res`. |
 | `pixel` | `(col, row)` | `None` | Read one pixel, as a `(time,)` series (`(time, band)` with several bands) with scalar `x` and `y` coordinates. Only that pixel is read from each file, so it takes a fraction of a second in a stack of many gigabytes. Same restrictions as `window`. |
@@ -670,7 +670,7 @@ The observations a quality band keeps, as a boolean "usable" mask (the rules Jan
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `qa` | array, `DataArray` or path | required | The quality band (lazy if the `DataArray` is). |
-| `rule` | `str` | required | `"fmask"`: 0 clear land and 1 water usable (2 shadow, 3 snow, 4 cloud, 255 fill masked). `"landsat_c2"`: QA_PIXEL bits 0 fill, 1 dilated cloud, 3 cloud, 4 shadow and 5 snow clear (`code & 0x3B == 0`). `"nonzero"`: any code but 0. `"scl"`: Sentinel-2 SCL 4 vegetation, 5 bare soil, 6 water. `"hls_fmask"`: HLS v2.0 Fmask bits 1 to 4 (cloud, adjacent, shadow, snow or ice) clear, and not 255. |
+| `rule` | `str` | required | `"fmask"`: 0 clear land and 1 water usable (2 shadow, 3 snow, 4 cloud, 255 fill masked). `"landsat_c2"`: QA_PIXEL bits 0 fill, 1 dilated cloud, 3 cloud, 4 shadow and 5 snow clear (`code & 0x3B == 0`). `"nonzero"`: any code but 0. `"scl"`: Sentinel-2 SCL 4 vegetation, 5 bare soil, 6 water. `"hls_fmask"`: HLS v2.0 Fmask bits 1 to 4 (cloud, adjacent, shadow, snow or ice) clear, and not 255. `"force"`: FORCE's QAI under FORCE's default `SCREEN_QAI`: bit 0 (no data), bits 1-2 (cloud state 1 to 3), 3 (shadow), 4 (snow), 8 (sub-zero) and 9 (saturation) clear; water, aerosol, low sun, illumination, slope and water vapour flags do not mask. |
 
 </div>
 
@@ -688,7 +688,7 @@ clear = cube.sel(band="nir").where(usable)
 zeit.qc.qa_to_fmask(qa, rule)
 ```
 
-The Fmask codes of a quality band: `0` clear, `1` water, `2` shadow, `3` snow, `4` cloud, `255` no data, the codes the `qa=` of [`ccdc`](change-detection.md#ccdc) and [`sccd`](change-detection.md#sccd) read. Same rule names as [`qa_mask`](#qa_mask) (and `fmask <= 1` is exactly its mask). A code counts when it is a number of 0 or more (fractions are cut); NaN, negative values and the raster's NoData are `255`. Exported as `zeit.qa_to_fmask`.
+The Fmask codes of a quality band: `0` clear, `1` water, `2` shadow, `3` snow, `4` cloud, `255` no data, the codes the `qa=` of [`ccdc`](change-detection.md#ccdc) and [`sccd`](change-detection.md#sccd) read. Same rule names as [`qa_mask`](#qa_mask) (and `fmask <= 1` is exactly its mask, except with `"force"`, where the sub-zero and saturation bits have no Fmask code: a `0` or `1` is not always usable). A code counts when it is a number of 0 or more (fractions are cut); NaN, negative values and the raster's NoData are `255`. Exported as `zeit.qa_to_fmask`.
 
 <div class="params" markdown>
 

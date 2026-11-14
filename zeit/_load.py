@@ -160,7 +160,7 @@ def load_raster(
         The quality band is read with the nearest cell. Integer data becomes float.
     qa_rule
         With ``qa``: how the quality band marks usable observations, one of ``"fmask"``,
-        ``"landsat_c2"``, ``"nonzero"``, ``"scl"`` or ``"hls_fmask"`` (see `zeit.qa_mask`).
+        ``"landsat_c2"``, ``"nonzero"``, ``"scl"``, ``"hls_fmask"`` or ``"force"`` (see `zeit.qa_mask`).
     bands
         Bands by role, ``{"blue": 1, "green": 2, "red": 3, "nir": 4}``: name -> band (the
         number of the band in each file, as ``band=``). Returns a ``(time, band, y, x)``

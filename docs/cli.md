@@ -644,6 +644,33 @@ zeit config threads auto      # back to what zeit decides
 
 Keeps settings for the user in `config.toml` of the config folder (`ZEIT_CONFIG_DIR`, or `%APPDATA%\zeit` on Windows, `~/.config/zeit` elsewhere), for those who would rather not set an environment variable: on a shared Windows server, a variable for the whole system needs an administrator. `threads` comes after `ZEIT_NUM_THREADS` and before `OMP_NUM_THREADS`, and is not used in a batch job, whose processors are the job's (see [Threads](api/parallel.md#threads-n_jobs)). Processes already running see a change within 30 seconds.
 
+### 25. Sentinel-2 Level 1C to surface reflectance (`zeit level2`)
+
+```bash
+# one scene: a .SAFE folder or the name of a product (downloaded first)
+zeit level2 S2B_MSIL1C_20230728T132239_N0509_R038_T23LKC_20230728T150149.SAFE --out l2_20230728
+
+# every scene of a tile and dates, one at a time, resumable
+zeit level2 --tile 23LKC --start 2023-07-01 --end 2023-07-31 --out l2_23LKC --max-cloud 80
+```
+
+[`zeit.level2`](api/preprocessing.md#level2) for one scene, written as `.zeit.save` does (`boa.tif`, `qai.tif`, `dst.tif`...), or the series of [`zeit.level2_series`](api/preprocessing.md#level2_series): one folder per scene, the DEM in `dem/` and the journal `level2_series.json` in `--out`. The input and `--tile` exclude each other, and `--start` and `--end` go with `--tile`. Run again after an interruption or a failure: finished scenes are skipped. The command prints how many scenes are done, skipped, failed and duplicates (an older processing of the same acquisition) and names the failed ones; the exit code is 1 if any failed or none succeeded. Reopen the series in Python with [`zeit.load_level2_series`](api/preprocessing.md#load_level2_series).
+
+| Option | Type | Default | Description |
+| :--- | :---: | :---: | :--- |
+| `--out` | path | required | Output folder. |
+| `--tile` | `str` | | A series: the MGRS tile to search (`23LKC`). |
+| `--start`, `--end` | date | | With `--tile`: the dates of the search, `--end` included. |
+| `--max-cloud` | `float` | `100` | With `--tile`: largest cloud cover, in percent. |
+| `--dem` | `str` | `glo30` | `glo30` (Copernicus GLO-30, downloaded once per tile), a DEM raster in metres, or `none` (then `--no-topography`). |
+| `--merge` | `str` | none | `improphe` or `regression`: merge the 20 m bands to 10 m before the correction. |
+| `--no-brdf` | `flag` | `False` | Do not normalise the BRDF. |
+| `--no-topography` | `flag` | `False` | Do not correct the terrain's illumination (no DEM needed). |
+| `--keep-safe` | `flag` | `False` | With `--tile`: keep the downloaded `.SAFE` folders (default: deleted once the scene is done). |
+| `--threads` | `int` | `8` | Threads of each scene. |
+
+One scene takes about 146 s and needs about 22 GiB of RAM (29 GiB with `--merge`) for a full 10 m tile with 8 threads; a series runs one scene at a time. The other options of `zeit.level2` (`aod`, `gswo`, `flags`, `reference`...) are for the Python function. See the [tutorial](tutorials/sentinel2-level2.md#a-whole-series).
+
 ---
 
 ## Note on AI Tools (Deep Learning)

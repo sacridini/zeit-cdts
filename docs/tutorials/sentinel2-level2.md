@@ -112,6 +112,15 @@ nir = l2.boa.sel(band="BROADNIR").where(clear) / 10000
 ndvi = (nir - red) / (nir + red)
 ```
 
+The same decoding is built in, for the `qai` of Zeit's level 2 and for the QAI of FORCE's own ARD:
+
+```python
+usable = zeit.qa_mask(l2.qai, "force")        # True where FORCE would keep the pixel
+fmask = zeit.qa_to_fmask(l2.qai, "force")     # 0 clear, 1 water, 2 shadow, 3 snow, 4 cloud, 255 no data
+```
+
+`qa_mask` follows FORCE's default screening of the higher-level modules (`SCREEN_QAI = NODATA CLOUD_OPAQUE CLOUD_BUFFER CLOUD_CIRRUS CLOUD_SHADOW SNOW SUBZERO SATURATION`): it removes no data, every cloud state (buffer, opaque, cirrus), shadow, snow, sub-zero and saturated pixels, and keeps water, aerosol, low sun, illumination, slope and water vapour flags. `qa_to_fmask` has no code for sub-zero and saturation, so a `0` or `1` there is not always usable in `qa_mask`.
+
 ## Options
 
 | Option | Default | What it does |
@@ -180,6 +189,78 @@ l2.zeit.plot()                       # a selector of the variables
 ```
 
 See [`.zeit.save` and `.zeit.plot`](../api/xarray.md) for the options.
+
+## A whole series
+
+A time series needs every scene of a tile over some dates, not one. [`zeit.level2_series`](../api/preprocessing.md#level2_series) does the whole chain, one scene at a time, and returns the series as one lazy cube:
+
+```python
+cube = zeit.level2_series("23LKC", "2023-01-01", "2023-12-31", "l2_23LKC", max_cloud=60)
+print(cube.dims, cube.dtype)                  # ('time', 'band', 'y', 'x') float32
+print(cube.attrs["failed"])                   # [] when every scene worked
+```
+
+It searches with [`find_l1c`](../api/preprocessing.md#find_l1c) (or takes the `products=` you give: names, local `.SAFE` folders or a table with a `product` column), downloads each product, downloads the DEM once for the tile (`dem="glo30"`; a DEM path, or `dem=None` with `level2_kw={"topography": False}`, also work), runs `level2` and saves the scene. The options of `level2` go in `level2_kw`, for example `level2_kw={"merge": "improphe", "brdf": False}`; `safe`, `dem` and `n_jobs` are set by the series itself (`n_jobs=8` is the threads of each scene).
+
+**What it writes** in `out_dir`:
+
+```text
+l2_23LKC/
+  S2B_MSIL1C_20230115T131239_N0509_R138_T23LKC_20230115T145717/   one folder per scene
+    boa.tif  qai.tif  dst.tif  vzn.tif  hot.tif  aod.tif  wvp.tif  what .zeit.save writes
+    .zeit-level2.json                                             the marker: the scene is done
+  ...
+  dem/                       the GLO-30 DEM of the tile, downloaded once
+  level2_series.json         the journal: what was done and failed, with the errors
+```
+
+**Resume, failures and duplicates.** The call can be interrupted and repeated: a scene with its marker is skipped, one that was interrupted is redone from scratch and one that failed is tried again. A scene that fails (a download error, a product that the bucket lacks) is recorded in the journal and the others go on; `cube.attrs["failed"]` and a warning name it, and the call raises a `RuntimeError` only if no scene succeeded. Writing into a folder that has scenes made with other options (`level2_kw` or DEM) is an error: choose another `out_dir`. Two processings of the same acquisition (different baseline or processing time) are duplicates: the newest is kept and the older one is not processed. `cube.attrs["journal"]` is the path of the journal, with the status of every product (`done`, `skipped`, `failed` or `duplicate`) and the errors.
+
+**RAM, time and disk.** A scene is processed at a time: on tile 23LKC (10980 x 10980 pixels, 8 threads) one took about 146 s and peaked at 21.6 GiB of RAM, and 28.7 GiB with `level2_kw={"merge": ...}`. Plan the RAM for that, not for the series. The downloaded `.SAFE` of a scene (about 670 MB) is deleted once the scene is done, unless `keep_safe=True` (`safe_dir` says where they go, `out_dir/.safe` by default). The disk is the `boa.tif` and `qai.tif` of every scene (and the other products); a warning says when the free space looks short after the first scene.
+
+**The cube.** `load_level2_series(out_dir)` reopens the scenes later, without computing a pixel, and `level2_series` returns the same cube for the scenes of the run. It is `float32`, reflectance times 10000, `(time, band, y, x)` with the bands of `boa` (`BLUE` ... `SWIR2`), and it is NaN where the scene has no data and where FORCE's default screening of the QAI removes the observation (`mask="force"`: no data, cloud states 1 to 3, shadow, snow, sub-zero and saturation; water is kept). `mask=None` leaves only the fill value as NaN. All the scenes must share one grid, or `like=` puts them on one.
+
+```python
+cube = zeit.load_level2_series("l2_23LKC")                      # later, in another session
+
+nir = zeit.temporal_metrics(cube, ["p10", "median", "p90", "count"], band="NIR")     # (metric, y, x)
+by_year = zeit.temporal_metrics(cube, ["mean"], band="NIR", by="year")
+segments = zeit.ccdc(cube.sel(band=["GREEN", "RED", "NIR", "SWIR1", "SWIR2"]))
+```
+
+### The same in N calls
+
+`level2_series` only calls public functions. If you want to swap a step (another source for the scenes, your own DEM, your own cloud mask), this is the loop it runs:
+
+```python
+from pathlib import Path
+
+out = Path("l2_23LKC")
+scenes = zeit.find_l1c(tile="23LKC", start="2023-01-01", end="2023-12-31", max_cloud=60)
+
+dem = None
+for product in scenes["product"]:
+    safe = zeit.download_l1c(product)
+    if dem is None:
+        dem = zeit.download_dem(safe, dest=out / "dem")         # once for the tile
+    zeit.level2(safe, dem=dem).zeit.save(out / product.removesuffix(".SAFE"))
+
+for folder in sorted(p for p in out.iterdir() if (p / "boa.tif").exists()):
+    boa = zeit.load_raster(folder / "boa.tif", masked="auto")
+    qai = zeit.load_raster(folder / "qai.tif", masked="auto").squeeze(drop=True)
+    usable = zeit.qa_mask(qai, "force")
+    clear = boa.where(usable)                                   # NaN where FORCE would screen it out
+```
+
+What the series adds to this loop is the resume (the marker and the journal), the duplicates, the failures that do not stop the run, the deletion of the `.SAFE`, one grid check, and the cube with its dates. `zeit.load_level2_series` builds the cube from the folders that have a marker, so a loop of your own has to stack the scenes itself.
+
+### The same from the command line
+
+```bash
+zeit level2 --tile 23LKC --start 2023-01-01 --end 2023-12-31 --max-cloud 60 --out l2_23LKC
+```
+
+It runs the series and prints how many scenes are done, skipped, failed and duplicates, the names of the failed ones and the journal; the exit code is 1 if any failed. See [`zeit level2`](../cli.md#25-sentinel-2-level-1c-to-surface-reflectance-zeit-level2).
 
 ## Validation
 

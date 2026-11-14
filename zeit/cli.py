@@ -361,6 +361,50 @@ def run_embeddings_cli(args: argparse.Namespace) -> None:
           f"({emb.sizes['y']} x {emb.sizes['x']} cells) to {path}")
 
 
+def run_level2_cli(args: argparse.Namespace) -> None:
+    """One Sentinel-2 scene (``zeit.level2``) or a series of a tile (``run_series``), written to ``--out``."""
+    import os
+
+    if (args.input is None) == (args.tile is None):
+        raise SystemExit("give one scene (a .SAFE folder or a product name) or a series with --tile TILE --start DATE --end DATE")
+    if args.tile is not None and (args.start is None or args.end is None):
+        raise SystemExit("--tile needs --start and --end (the dates of the search)")
+    if args.input is not None and (args.start or args.end or args.keep_safe or args.max_cloud is not None):
+        raise SystemExit("--start, --end, --max-cloud and --keep-safe are for a series (--tile); a scene has none")
+    dem = None if str(args.dem).lower() == "none" else args.dem
+    options = {"brdf": not args.no_brdf, "topography": not args.no_topography}
+    if args.merge is not None:
+        options["merge"] = args.merge
+    try:
+        if args.tile is not None:
+            from ._level2_series import run_series
+
+            table = run_series(args.tile, args.start, args.end, args.out,
+                               max_cloud=100.0 if args.max_cloud is None else args.max_cloud, dem=dem,
+                               level2_kw=options, keep_safe=args.keep_safe, n_jobs=args.threads)
+        else:
+            import zeit
+
+            zeit.level2(args.input, dem=dem, n_jobs=args.threads, **options).zeit.save(args.out)
+            print(f"Saved the surface reflectance of {args.input} to {args.out}")
+            return
+    except KeyboardInterrupt:
+        sys.exit(130)
+    except (ValueError, TypeError, OSError, RuntimeError) as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+    from ._level2_series import JOURNAL
+
+    counts = table["status"].value_counts() if len(table) else {}
+    print(", ".join(f"{counts.get(s, 0)} {s}" for s in ("done", "skipped", "failed", "duplicate")) + f" ({len(table)} products)")
+    failed = table.loc[table["status"] == "failed", "product"].tolist() if len(table) else []
+    for name in failed:
+        print(f"  failed: {name}")
+    print(f"Journal: {os.path.join(args.out, JOURNAL)}")
+    if failed or not (counts.get("done", 0) + counts.get("skipped", 0)):
+        sys.exit(1)
+
+
 def _add_tile_args(p: argparse.ArgumentParser) -> None:
     """Many tiles, on this computer and on helpers (see `zeit worker`)."""
     g = p.add_argument_group("many tiles, here and on other computers")
@@ -852,6 +896,30 @@ def build_parser() -> argparse.ArgumentParser:
                                                      "zeit.load_raster reads (the same as zeit embeddings)")
     _add_embeddings_args(fm_parser)
 
+    l2_parser = subparsers.add_parser("level2", help="Sentinel-2 Level 1C to surface reflectance (FORCE's force-l2ps): "
+                                                     "one scene, or every scene of a tile and dates; one scene needs "
+                                                     "about 22 GiB of RAM (29 with --merge)")
+    l2_parser.add_argument("input", nargs="?", default=None, help="One scene: a .SAFE folder or the name of a product "
+                           "(downloaded first). Not with --tile")
+    l2_parser.add_argument("--out", required=True, help="Output folder: the scene's products (boa.tif, qai.tif, ...), "
+                           "or with --tile one folder per scene, dem/ and the journal level2_series.json")
+    l2_parser.add_argument("--tile", default=None, help="A series: the MGRS tile to search (e.g. 23LKC); finished "
+                           "scenes are skipped when run again")
+    l2_parser.add_argument("--start", default=None, help="With --tile: first date of the search (e.g. 2023-07-01)")
+    l2_parser.add_argument("--end", default=None, help="With --tile: last date of the search, included")
+    l2_parser.add_argument("--max-cloud", type=float, default=None, help="With --tile: largest cloud cover, in percent "
+                           "(default: 100)")
+    l2_parser.add_argument("--dem", default="glo30", help="glo30 (Copernicus GLO-30, downloaded), a DEM raster in "
+                           "metres, or none (needs --no-topography) (default: glo30)")
+    l2_parser.add_argument("--merge", choices=["improphe", "regression"], default=None, help="Merge the 20 m bands to "
+                           "10 m before the correction (default: no merge)")
+    l2_parser.add_argument("--no-brdf", action="store_true", help="Do not normalise the BRDF")
+    l2_parser.add_argument("--no-topography", action="store_true", help="Do not correct the illumination of the terrain "
+                           "(no DEM needed)")
+    l2_parser.add_argument("--keep-safe", action="store_true", help="With --tile: keep the downloaded .SAFE folders "
+                           "(default: deleted once the scene is done)")
+    l2_parser.add_argument("--threads", type=int, default=8, help="Threads of each scene (default: 8)")
+
     dr_parser = subparsers.add_parser("doctor", help="What zeit finds here: threads and where their number comes "
                                                      "from, the job, the caches, the network, the versions")
     dr_parser.add_argument("--no-network", action="store_true", help="Do not check the services zeit downloads from")
@@ -921,6 +989,8 @@ def main(argv: Optional[List[str]] = None) -> None:
         run_bandpass_cli(args)
     elif args.command == "embeddings":
         run_embeddings_cli(args)
+    elif args.command == "level2":
+        run_level2_cli(args)
     elif args.command == "fetch":
         run_fetch_cli(args, parser)
     elif args.command == "doctor":

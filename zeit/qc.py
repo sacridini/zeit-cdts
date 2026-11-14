@@ -300,7 +300,15 @@ QA_RULES = {
     "scl": "Sentinel-2 scene classification (SCL): 4 vegetation, 5 bare soil and 6 water are usable",
     "hls_fmask": "HLS v2.0 Fmask bits: cloud (1), adjacent to cloud or shadow (2), cloud shadow (3) and snow or "
                  "ice (4) are not usable, nor 255 (fill)",
+    "force": "FORCE QAI bits, FORCE's default SCREEN_QAI: no data (0), cloud state 1 to 3 (1-2), cloud shadow (3), "
+             "snow (4), sub-zero (8) and saturation (9) are not usable; water, aerosol, sun and illumination flags are",
 }
+
+# FORCE v3.11.00 default screening of the QAI, src/modules/aux-level/param-aux.c:1011:
+#   SCREEN_QAI = NODATA CLOUD_OPAQUE CLOUD_BUFFER CLOUD_CIRRUS CLOUD_SHADOW SNOW SUBZERO SATURATION
+# applied per pixel as in src/modules/higher-level/quality-hl.c:42-66 (use_this_pixel): NODATA is bit 0,
+# CLOUD_BUFFER, CLOUD_OPAQUE and CLOUD_CIRRUS are the cloud state (bits 1-2) 1, 2 and 3. WATER is not in the list.
+_FORCE_SCREEN_MASK = 0x1 | 0x6 | 0x8 | 0x10 | 0x100 | 0x200
 
 
 def _usable(c: Any, rule: str) -> Any:
@@ -313,6 +321,8 @@ def _usable(c: Any, rule: str) -> Any:
         return c != 0
     if rule == "scl":
         return (c >= 4) & (c <= 6)
+    if rule == "force":
+        return (c & _FORCE_SCREEN_MASK) == 0
     return (c != 255) & ((c & 0x1E) == 0)  # hls_fmask
 
 
@@ -334,6 +344,11 @@ def qa_mask(qa: Any, rule: str) -> Any:
     ``"scl"``               Sentinel-2 SCL 4 (vegetation), 5 (bare soil) and 6 (water)
     ``"hls_fmask"``         HLS v2.0 Fmask with the bits 1 to 4 (cloud, adjacent, shadow, snow
                             or ice) clear, and not 255 (fill)
+    ``"force"``             FORCE's QAI (the ``qai`` of ``zeit.level2``) under FORCE's default
+                            ``SCREEN_QAI``: bit 0 (no data), bits 1-2 (cloud state 1 buffer, 2
+                            opaque, 3 cirrus), 3 (shadow), 4 (snow), 8 (sub-zero) and 9
+                            (saturation) clear. Water, aerosol, low sun, illumination, slope and
+                            water vapour flags do not mask
     ======================  ================================================================
 
     Parameters
@@ -397,6 +412,8 @@ def _fmask_codes(values: np.ndarray, rule: str) -> np.ndarray:
                         [0, 1, 2, 3, 4], 255)
     elif rule == "nonzero":
         out = np.where(c != 0, 0, 4)
+    elif rule == "force":
+        out = np.select([(c & 1) > 0, (c & 6) > 0, (c & 8) > 0, (c & 16) > 0, (c & 32) > 0], [255, 4, 2, 3, 1], 0)
     else:  # hls_fmask
         out = np.select([c == 255, (c & 6) > 0, (c & 8) > 0, (c & 16) > 0, (c & 32) > 0], [255, 4, 2, 3, 1], 0)
     return np.where(valid, out, 255).astype(np.uint8)
@@ -422,7 +439,13 @@ def qa_to_fmask(qa: Any, rule: str) -> Any:
     ``"hls_fmask"``       HLS v2.0 Fmask: 255 255; bits 1 and 2 (cloud, adjacent to cloud) 4; bit 3
                           (shadow) 2; bit 4 (snow or ice) 3; bit 5 (water) 1; else 0
     ``"nonzero"``         any code but 0 is 0 (clear); 0 is 4 (cloud)
+    ``"force"``           FORCE's QAI: bit 0 (no data) 255; bits 1-2 (cloud state 1 to 3) 4; bit 3
+                          (shadow) 2; bit 4 (snow) 3; bit 5 (water) 1; else 0. The first that
+                          applies, in this order
     ====================  ======================================================================
+
+    With ``"force"`` a clear (0) or water (1) code is not always usable in ``qa_mask``: the
+    sub-zero and saturation bits have no Fmask code, so they stay 0 or 1 here and are masked there.
 
     Parameters
     ----------

@@ -3578,7 +3578,7 @@ acima (até 0,5 numa aresta), e o mapa de pixels exato tem correlação 0,97 a 0
 - O limiar de floresta do notebook (2000) está na escala de reflectância dele (× 10000); no Zeit
   vira um parâmetro na escala do cubo.
 
-## Fase 25: o Level 2 em lote até um cubo (o `force-level2` no Zeit) (proposta de 2026-11-14)
+## Fase 25: o Level 2 em lote até um cubo (o `force-level2` no Zeit) (proposta de 2026-11-14) — **Feito** (25a–25d, sem o aceite em cena real)
 
 A pergunta do usuário foi se valem funções que juntem várias outras num processamento inteiro.
 A resposta: só onde a cola entre as etapas é difícil (memória, disco, retomada, máscaras, grade),
@@ -3652,6 +3652,32 @@ produtos ficam na grade do tile MGRS, e outra grade vem do `like=`.
 - **A rede:** o Earth Search e o bucket público do Google podem falhar ou limitar no meio do lote.
   Cada arquivo vai por `.part` (como no `download_l1c`), e a cena é tentada de novo na retomada.
 - **Cenas na borda da órbita** cobrem só parte do tile: entram no cubo, com sem dado no resto.
+
+### O que foi feito, e onde fugiu do plano
+
+- **25a:** `qa_mask(qai, "force")` e `qa_to_fmask(qai, "force")`. A triagem é a padrão do FORCE, tirada do fonte e não
+  suposta: `SCREEN_QAI = NODATA CLOUD_OPAQUE CLOUD_BUFFER CLOUD_CIRRUS CLOUD_SHADOW SNOW SUBZERO SATURATION`
+  (`param-aux.c:1011`), aplicada como no `use_this_pixel` (`quality-hl.c:42-66`): os bits 0, 1-2, 3, 4, 8 e 9 zerados
+  (máscara 0x31F). A água fica. No `qa_to_fmask`, a precedência do `landsat_c2` (sem dado, nuvem, sombra, neve, água);
+  sub-zero e saturação não têm código Fmask, então um 0 ali não implica usável no `qa_mask`. A lista não é configurável.
+- **25b:** `run_series` em `zeit/_level2_series.py`. Uma cena por vez, a pasta escrita como `.part-<nome>` e o marcador
+  `.zeit-level2.json` gravado dentro dela antes do `os.replace` (não há pasta final sem marcador); a retomada vem dos
+  marcadores (como no `run_tiles`), o diário `level2_series.json` é só informativo; marcador de outras opções dá
+  `FileExistsError` antes de qualquer cena. O MDE do GLO-30 é baixado uma vez, da primeira `.SAFE`. O `.SAFE` de uma cena
+  que falhou fica, para o download retomar; um `.SAFE` local dado pelo usuário nunca é apagado. De versões do mesmo
+  produto fica a de baseline maior e, no empate, a de geração mais recente. O aviso de disco vem depois da primeira cena.
+- **25c:** `zeit.level2_series` (o `run_series` mais o cubo) e `zeit.load_level2_series(out_dir)`, que reabre sem
+  reprocessar. O cubo é `(time, band, y, x)` `float32` lazy, reflectância x 10000 (a escala padrão do `ccdc`), NaN no fill
+  e, com `mask="force"`, onde a QAI reprova; produto, plataforma, baseline, sensor e os `fmask_*`, `aod_green` e
+  `water_vapor_cm` como coordenadas no `time`; `attrs["failed"]` e `attrs["journal"]`. Com `like=`, a QAI sempre por
+  vizinho mais próximo e a máscara depois do warp; o `boa` com `resampling` (o `"auto"` dá vizinho, por ser inteiro). O
+  `temporal_metrics` pede `band=` num cubo de 10 bandas; o `ccdc` e o `regularize_time_series` o leem como está.
+- **25d:** `zeit level2` no CLI, uma cena (`.SAFE` ou nome) ou uma série (`--tile --start --end`), que chama o
+  `run_series` (sem abrir o cubo) e sai com 1 se alguma cena falhou; `docs/cli.md`; a seção "A whole series" do tutorial,
+  com "The same in N calls". Não há changelog no repositório.
+- **Testes:** 13 da orquestração, 14 do cubo, 27 da QAI e 18 do CLI, todos com substitutos (sem rede nem `level2` real).
+- **Falta:** o aceite em cena real (um mês do 23LKC, umas seis cenas, ~670 MB, ~2,5 min e ~22 GiB por cena), com o cubo
+  igual ao do `level2` chamado cena a cena; e o `like=` com bilinear sobre o `int16` com fill, nunca visto em dado real.
 
 ## Para depois
 

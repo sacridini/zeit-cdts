@@ -96,8 +96,8 @@
 | [`load_raster`](data.md#load_raster) / [`save_raster`](data.md#save_raster) | Read any time series as a georeferenced cube (scale and offset, bands by role, quality band, pixel windows) / write GeoTIFFs (with class names and colours) |
 | [`build_vrt`](data.md#build_vrt) | A VRT of tiles mosaicked and bands stacked, without GDAL's Python bindings |
 | [`nd`](data.md#nd) / [`normalized_difference`](data.md#nd) | The normalized difference of two bands, NaN where their sum is 0 |
-| [`qa_mask`](data.md#qa_mask) | The observations a quality band keeps (Fmask, Landsat C2, SCL, HLS) as a boolean mask |
-| [`qa_to_fmask`](data.md#qa_to_fmask) | The Fmask codes of a quality band (Landsat C2, SCL, HLS), for the `qa=` of CCDC and S-CCD |
+| [`qa_mask`](data.md#qa_mask) | The observations a quality band keeps (Fmask, Landsat C2, SCL, HLS, FORCE QAI) as a boolean mask |
+| [`qa_to_fmask`](data.md#qa_to_fmask) | The Fmask codes of a quality band (Landsat C2, SCL, HLS, FORCE QAI), for the `qa=` of CCDC and S-CCD |
 | [`get_georef`](data.md#get_georef) | CRS and transform of a raster or cube |
 | [`qc_sentinel2_scl`](data.md#qc_sentinel2_scl), [`qc_modis_summary`](data.md#qc_modis_summary), [`qc_modis_state`](data.md#qc_modis_state) | QA bands to observation weights |
 | **Embeddings** | |
@@ -115,6 +115,8 @@
 | [`improphe`](preprocessing.md#improphe) | Sharpens a coarse field or the scenes of a coarser sensor with the finer sensor's seasonal means: FORCE's CF-ImproPhe and L2-ImproPhe (Frantz et al. 2016) |
 | [`sentinel2_resmerge`](preprocessing.md#sentinel2_resmerge) | The 20 m bands of Sentinel-2 at 10 m, by a moving-window regression or an ImproPhe-like weighted mean on the 10 m green, red and NIR: FORCE's resolution merge |
 | [`pansharpen`](preprocessing.md#pansharpen) | Multispectral bands on the grid of a finer panchromatic band, for any sensor and any ratio above 1 (CBERS-4A WPM, Landsat 8 band 8, ...): Brovey, Gram-Schmidt adaptive (GSA), high-pass filter and principal components, written from the papers |
+| [`level2_series`](preprocessing.md#level2_series) | `find_l1c`, `download_l1c` and `level2` over the scenes of a tile, one at a time and resumable, as one lazy `(time, band, y, x)` reflectance cube |
+| [`load_level2_series`](preprocessing.md#load_level2_series) | The scenes written by `level2_series` as that cube again: float32 reflectance x 10000, NaN for the fill and the QAI's default screening |
 | [`find_l1c`](preprocessing.md#find_l1c) | Sentinel-2 Level 1C products of a tile or a box in Earth Search, as a table by date with cloud cover and baseline |
 | [`download_l1c`](preprocessing.md#download_l1c) | The `.SAFE` of a product (what `level2` reads) from the public Google Cloud bucket, with MD5 checks and resume |
 | [`download_dem`](preprocessing.md#download_dem) | The Copernicus GLO-30 DEM of a scene or a box as one GeoTIFF, mosaicked in the geometry of the source |
