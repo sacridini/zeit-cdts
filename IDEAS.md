@@ -3552,7 +3552,8 @@ As fontes foram conferidas em 2026-11-14 (os scripts e as versões estão em
 - **24d: dados de validação e `zeit.segmentation_accuracy`.** Os scripts de download (CAR, pivôs),
   os mosaicos das áreas de teste, a amostra a digitalizar no Chaco. As métricas, testadas em casos
   feitos à mão (talhão partido em dois, dois juntos, borda deslocada 1 px).
-- **24e: análise de sensibilidade**, em `benchmarks/fields/`, nas áreas de teste:
+- **24e: análise de sensibilidade** (**feita**, ver abaixo), em `benchmarks/fields/`, nas áreas de
+  teste:
   - convergência: quantas realizações bastam (a diferença para a versão exata ou para 2000
     realizações);
   - um fator por vez em torno do padrão, e depois Morris (efeitos elementares) com uns 8
@@ -3591,6 +3592,83 @@ As fontes foram conferidas em 2026-11-14 (os scripts e as versões estão em
   flutuante iguais; a 24a testa isso de propósito.
 - O limiar de floresta do notebook (2000) está na escala de reflectância dele (× 10000); no Zeit
   vira um parâmetro na escala do cubo.
+
+### 24e: o que a sensibilidade mostrou (2026-11-14)
+
+Em `benchmarks/fields/sensitivity/` (o README diz a ordem e o custo; as saídas, inclusive
+`report_24e.md`, ficam em `ZEIT_FIELDS_DATA/sensitivity/`, fora do git). São 64 casos:
+- 45 janelas do Chaco e 12 do Chaco úmido (Trazo, com a região nos footprints dos chips);
+- LEM (FTW);
+- Sorriso (CAR e pivôs);
+- Porto Murtinho (CAR).
+
+Os estágios 1 + 2 do harness são iguais ao `zeit.fields` (teste). Gastou cerca de 3 h de cômputo
+com 8 threads.
+
+- **Realizações:** de R = 25 a 2000, F a 1 px muda ≤ 0,004 e o desvio entre sementes é ≤ 0,004 em
+  R = 200. A decisão da histerese muda em 1,3–2,6% da fronteira em R = 200. 100–200 bastam.
+- **OAT** (amplitude de F a 1 px):
+  - no Chaco pesam `min_distance` (0,63, mas 0 e 5 colapsam as janelas pequenas por densidade)
+    e a máscara (0,15);
+  - no LEM pesam o gradiente (tophat 0,40, sobel 0,70, multitemporal 0,75) e `markers` (0,11);
+  - `high`, `final` e `coloring` ficam abaixo do ruído entre sementes (≤ 0,004).
+- **Morris** (20 trajetórias, 8 fatores, marcadores como densidade por Mpx):
+  - a densidade, o tipo de máscara e o gradiente lideram em todos os grupos;
+  - `min_size` é o último;
+  - sigma ≈ mu*, ou seja, interações fortes;
+  - F sobe até 400–1000 marcadores/Mpx e fica plano.
+- **A máscara absoluta `swir16 > 2000` não se transfere:**
+  - tira 55% do CAR de Porto Murtinho e 15% das referências do Chaco úmido;
+  - só ganha no Chaco (0,74 contra 0,67 sem máscara).
+- **A exata, com os limiares do notebook, funde quase tudo** (US ≈ 0,95 no Chaco). Só funciona com
+  `low` em 0,01–0,05 e, mesmo com densidade igual, perde para o Monte Carlo em D e `matched`.
+- **Validação cruzada espacial** (F held-out; padrão do notebook → escolhido nos outros folds →
+  ótimo in-sample):
+  - entre os 5 grupos (LOGO): 0,501 → 0,590 → 0,676;
+  - LOGO com o gradiente fixo em tophat: 0,501 → 0,513 → 0,591, ou seja, o ganho vem quase todo do
+    gradiente;
+  - no Chaco, por clusters k = 5: 0,685 → 0,699 → 0,714, ou seja, o padrão já está a 0,01–0,03 do
+    ótimo;
+  - a escolha recorrente foi sobel, sem máscara, `low` 0,1–0,3 e `min_size` 0;
+  - D por LOGO: 0,548 → 0,410;
+  - `low` = 0,5 e `min_size` = 0 caem na borda da grade em vários folds: estender antes de fixar.
+- **O `matched` baixo (0,04–0,20 no Chaco com F 0,72) não é bug. São três causas:**
+  - **fusões:** 69–89% dos campos sem par, com o objeto previsto 3 a 8 vezes maior que o campo;
+  - **recorte:** 53–78% dos campos do Trazo saem da região dos chips, e o `|p|` é contado na grade
+    inteira;
+  - **rede de fronteira:** ocupa 16–25% da região.
+
+  Recortando a previsão na região, `matched` vai de 0,19 a 0,31. Preenchendo também a rede e
+  recortando nos campos, vai a 0,42.
+
+**Para a 24f:**
+- **Candidatos a padrão** (decidir medindo):
+  - `gradient="sobel"`, ou multitemporal quando houver pilha;
+  - marcadores por área (cerca de 600/Mpx) em vez de 1000 por janela;
+  - `low` 0,2, `min_size` 0–10, sem máscara (ou relativa à janela, como o percentil 20);
+  - `preset="notebook"` guarda os valores dele.
+- **O que atacar:**
+  - a sub-segmentação, que é a fraqueza principal;
+  - o multitemporal na validação cruzada;
+  - a grade da validação cruzada estendida;
+  - em `segmentation_accuracy`, uma opção de recortar a previsão pela região e de ignorar os campos
+    cortados por ela.
+
+### Achados nas ferramentas de mosaico (24e, a decidir com o usuário)
+
+Os mosaicos das áreas de teste (`benchmarks/fields/validation/mosaics.py`) contornaram, sem mexer no
+pacote, quatro falhas de `build_annual_composites` / `cube.py`. Corrigi-las muda saídas existentes:
+
+- não há filtro de plataforma, então o Landsat 7 SLC-off (com listras) entra nos compostos;
+- a máscara Landsat de `_clear_mask` usa só o bit 6 (clear) do `QA_PIXEL`, que **não exclui sombra
+  de nuvem**; o certo é fill, dilated cloud, cirrus, cloud e shadow em 0, e clear em 1;
+- a grade de saída não é escolhível: o `stackstac` arredonda os limites a múltiplos de 30 m, e a
+  grade fica 15 m fora da do Landsat (reamostragem à toa);
+- não sai a contagem de observações claras por pixel nem a lista das cenas usadas (o script usou
+  as privadas `build_time_series` + `_composite_block`).
+
+E `ERRORS_AS_NODATA` engole um TIFF corrompido em silêncio (aconteceu numa banda azul de
+2022-06-30, cena 227079): deveria ao menos avisar.
 
 ## Fase 25: o Level 2 em lote até um cubo (o `force-level2` no Zeit) (proposta de 2026-11-14)
 
