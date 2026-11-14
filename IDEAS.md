@@ -3578,7 +3578,7 @@ acima (até 0,5 numa aresta), e o mapa de pixels exato tem correlação 0,97 a 0
 - O limiar de floresta do notebook (2000) está na escala de reflectância dele (× 10000); no Zeit
   vira um parâmetro na escala do cubo.
 
-## Fase 25: o Level 2 em lote até um cubo (o `force-level2` no Zeit) (proposta de 2026-11-14) — **Feito** (25a–25d, sem o aceite em cena real)
+## Fase 25: o Level 2 em lote até um cubo (o `force-level2` no Zeit) (proposta de 2026-11-14) — **Feito** (25a–25d, aceite em cena real em 2026-11-14)
 
 A pergunta do usuário foi se valem funções que juntem várias outras num processamento inteiro.
 A resposta: só onde a cola entre as etapas é difícil (memória, disco, retomada, máscaras, grade),
@@ -3676,8 +3676,14 @@ produtos ficam na grade do tile MGRS, e outra grade vem do `like=`.
   `run_series` (sem abrir o cubo) e sai com 1 se alguma cena falhou; `docs/cli.md`; a seção "A whole series" do tutorial,
   com "The same in N calls". Não há changelog no repositório.
 - **Testes:** 13 da orquestração, 14 do cubo, 27 da QAI e 18 do CLI, todos com substitutos (sem rede nem `level2` real).
-- **Falta:** o aceite em cena real (um mês do 23LKC, umas seis cenas, ~670 MB, ~2,5 min e ~22 GiB por cena), com o cubo
-  igual ao do `level2` chamado cena a cena; e o `like=` com bilinear sobre o `int16` com fill, nunca visto em dado real.
+- **Aceite em cena real (2026-11-14):** julho de 2023 do 23LKC, `level2_series(..., dem="glo30")` com 8 threads: 13 cenas
+  (as 7 da órbita R081 cobrem só parte do tile e levam 57 a 100 s; as 6 da R038, 188 a 309 s, com o download), nenhuma
+  falha, 1884 s ao todo; 11 GiB de produtos (~0,85 GiB por cena) e 4,2 GiB de `.SAFE` guardados (`keep_safe=True`). A
+  retomada pulou as 13 em 3 s e deu o mesmo cubo. O `level2` chamado à mão na primeira e na última cena é igual aos
+  arquivos da série em todos os valores dos sete produtos; o cubo, numa janela de 1000 x 1000, é igual aos arquivos lidos
+  um a um com `qa_mask(qai, "force")` nas 13 datas; e vai direto ao `temporal_metrics(cube, ..., band="NIR")`
+  (`benchmarks`: o script ficou fora do repositório). Falta só o `like=` com bilinear sobre o `int16` com fill, nunca visto
+  em dado real.
 
 ## Para depois
 
