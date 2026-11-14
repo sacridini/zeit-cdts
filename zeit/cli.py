@@ -264,7 +264,8 @@ def run_fields_cli(args: argparse.Namespace) -> None:
         cube, gradient=args.gradient, method=args.method, realizations=args.realizations, markers=args.markers,
         min_distance=args.min_distance, marker_radius=args.marker_radius, low=args.low, high=args.high,
         min_size=args.min_size, final=args.final, mask_threshold=args.mask_threshold, band=band,
-        preset=args.preset, random_state=args.random_state, n_jobs=args.jobs),
+        marker_density=args.marker_density, mask_quantile=args.mask_quantile, preset=args.preset,
+        random_state=args.random_state, n_jobs=args.jobs),
         lazy=False, extras=polygons)
 
 
@@ -730,7 +731,8 @@ def build_parser() -> argparse.ArgumentParser:
     fi_parser.add_argument("--gradient", choices=["tophat", "sobel", "multitemporal"], default="tophat", help="Edge image to flood (default: tophat, the notebook's)")
     fi_parser.add_argument("--method", choices=["montecarlo", "exact"], default="montecarlo", help="Boundary probability: Monte Carlo of watersheds, or the exact one (thresholds not yet calibrated; default: montecarlo)")
     fi_parser.add_argument("--realizations", type=int, default=500, help="Monte Carlo: number of watersheds (default: 500)")
-    fi_parser.add_argument("--markers", type=int, default=1000, help="Random markers per watershed (default: 1000)")
+    fi_parser.add_argument("--markers", type=int, default=None, help="Random markers per watershed (default: 1000)")
+    fi_parser.add_argument("--marker-density", type=float, default=None, help="Markers per million pixels of the image, instead of --markers (F rises up to about 400-1000 and is flat above)")
     fi_parser.add_argument("--min-distance", type=float, default=20, help="Pixels between markers after thinning (default: 20)")
     fi_parser.add_argument("--marker-radius", type=int, default=3, help="Radius of the disk each marker is dilated to (default: 3)")
     fi_parser.add_argument("--low", type=float, default=0.3, help="Hysteresis, low threshold on the boundary probability (default: 0.3)")
@@ -738,6 +740,7 @@ def build_parser() -> argparse.ArgumentParser:
     fi_parser.add_argument("--min-size", type=int, default=50, help="Drop objects of fewer pixels before the final watershed (default: 50)")
     fi_parser.add_argument("--final", choices=["image", "gradient"], default=None, help="Surface of the final watershed (default: image for one image, else gradient)")
     fi_parser.add_argument("--mask-threshold", type=float, default=None, help="Keep only the pixels where the image is greater than this (e.g. 2000 for Landsat SWIR1 x 10000)")
+    fi_parser.add_argument("--mask-quantile", type=float, default=None, help="Keep only the pixels where the image is above its own percentile (0-100), a mask that transfers between regions")
     fi_parser.add_argument("--band", default=None, help="With a stack: the band (name or number) to delineate")
     fi_parser.add_argument("--preset", choices=["notebook"], default=None, help="The MappingDemo notebook's values (final=image, mask threshold 2000)")
     fi_parser.add_argument("--random-state", type=int, default=None, help="Seed of the Monte Carlo")

@@ -206,6 +206,86 @@ def test_fields_dataset_boundary_label_is_ignored():
     assert zeit.segmentation_accuracy(ds0, ref, tolerance=0).objects.n_pred == 3
 
 
+def _clip_case():
+    """A 6 x 8 grid, region = columns 0-4. Reference: 3 = column 0 rows 0-4 (5 px, touches the grid's top),
+    1 = rows 1-4 columns 1-2 (8 px, complete), 2 = rows 1-4 columns 3-5 (12 px; column 5 is outside the region,
+    so 8 px inside). Prediction: 9 and 7 equal to 3 and 1, 8 = rows 1-4 columns 3-7 (20 px: runs out)."""
+    ref = np.zeros((6, 8), dtype=np.int32)
+    ref[0:5, 0] = 3
+    ref[1:5, 1:3] = 1
+    ref[1:5, 3:6] = 2
+    pred = np.zeros((6, 8), dtype=np.int32)
+    pred[0:5, 0] = 9
+    pred[1:5, 1:3] = 7
+    pred[1:5, 3:8] = 8
+    region = np.zeros((6, 8), dtype=bool)
+    region[:, :5] = True
+    return pred, ref, region
+
+
+def test_clip_the_prediction_to_the_region():
+    pred, ref, region = _clip_case()
+    plain = zeit.segmentation_accuracy(pred, ref, tolerance=0, region=region)
+    t = plain.object_table
+    # reference 2 inside the region: 8 px; its best match 8 is counted in full (20 px): overlap 8, IoU = 8 / 20,
+    # OS = 0, US = 1 - 8/20 = 0.6; 8 covers 8 of its 20 px in the region, not more than half: 2 predicted objects
+    assert t.loc[2, "pixels"] == 8 and t.loc[2, "pred_pixels"] == 20
+    assert t.loc[2, "iou"] == pytest.approx(0.4) and t.loc[2, "under_seg"] == pytest.approx(0.6)
+    assert plain.objects.iou_fraction == pytest.approx(2 / 3) and plain.objects.matched_fraction == pytest.approx(2 / 3)
+    assert plain.objects.n_pred == 2 and (plain.clip, plain.complete_only) == (False, False)
+    # defaults unchanged
+    explicit = zeit.segmentation_accuracy(pred, ref, tolerance=0, region=region, clip=False, complete_only=False)
+    assert explicit.objects.equals(plain.objects) and explicit.object_table.equals(plain.object_table)
+
+    clipped = zeit.segmentation_accuracy(pred, ref, tolerance=0, region=region, clip=True)
+    t = clipped.object_table
+    # 8 clipped to columns 3-4: 8 px, IoU 1, US 0: every reference object is found one to one
+    assert t.loc[2, "pred_pixels"] == 8 and t.loc[2, "iou"] == 1 and t.loc[2, "under_seg"] == 0
+    assert clipped.objects.iou_fraction == 1 and clipped.objects.matched_fraction == 1
+    assert clipped.objects.under_seg == 0 and clipped.objects.d == 0 and clipped.objects.n_pred == 3
+    assert list(t["one_to_one"]) == [7, 8, 9] and clipped.clip
+    # the predicted sizes are the clipped ones (8, 5, 8 px)
+    assert clipped.sizes.loc["predicted", "n"] == 3 and clipped.sizes.loc["predicted", "mean"] == pytest.approx(7)
+    # the boundaries do not change
+    assert clipped.boundary.equals(plain.boundary)
+    assert "clipped" in repr(clipped) and "clipped" not in repr(plain)
+
+
+def test_complete_only_drops_the_cut_reference_fields():
+    pred, ref, region = _clip_case()
+    res = zeit.segmentation_accuracy(pred, ref, tolerance=0, region=region, complete_only=True)
+    # 3 touches the grid's edge and 2 runs out of the region: only 1 is kept (8 px, IoU 1)
+    assert list(res.object_table.index) == [1]
+    assert (res.objects.n_ref, res.objects.n_ref_all, res.objects.n_unmatched) == (1, 3, 0)
+    assert res.objects.iou_fraction == 1 and res.objects.matched_fraction == 1 and res.objects.d == 0
+    assert res.sizes.loc["reference", "n"] == 1 and res.complete_only
+    assert "complete" in repr(res)
+    # the default: nothing dropped, no n_ref_all
+    assert "n_ref_all" not in zeit.segmentation_accuracy(pred, ref, tolerance=0, region=region).objects
+    # together: the same on the clipped prediction
+    both = zeit.segmentation_accuracy(pred, ref, tolerance=0, region=region, clip=True, complete_only=True)
+    assert both.objects.n_ref == 1 and both.objects.matched_fraction == 1
+    # the default region (the reference grown by the tolerance) holds every reference field: only the edge cuts
+    grown = zeit.segmentation_accuracy(pred, ref, tolerance=1, complete_only=True)
+    assert list(grown.object_table.index) == [1, 2]
+    # none left: NaN, not an error (the one reference field touches the edge)
+    only_edge = np.where(ref == 3, 3, 0)
+    none = zeit.segmentation_accuracy(pred, only_edge, tolerance=0, region=region, complete_only=True)
+    assert none.objects.n_ref == 0 and none.objects.n_ref_all == 1
+    assert np.isnan(none.objects.iou_fraction) and np.isnan(none.objects.matched_fraction) and np.isnan(none.objects.d)
+    assert len(none.object_table) == 0
+    repr(none)
+
+
+def test_clip_and_complete_only_with_properties():
+    pred, ref, region = _clip_case()
+    with pytest.raises(ValueError, match="complete_only"):
+        zeit.segmentation_accuracy(pred, ref, kind="property", complete_only=True)
+    # clip also applies to the crossing: each clipped object overlaps one property only
+    r = zeit.segmentation_accuracy(pred, ref, kind="property", tolerance=0, region=region, clip=True)
+    assert r.crossing.n_pred == 3 and r.crossing.n_crossing == 0
+
+
 def test_unmatched_reference_object_and_errors():
     ref = _grid([4, 4], [1, 2])
     pred = np.where(ref == 2, 5, 0)            # nothing predicted over field 1

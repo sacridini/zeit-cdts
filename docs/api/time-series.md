@@ -683,10 +683,11 @@ Fields from the stochastic watershed (Angulo & Jeulin 2007), as in the MappingDe
 ```python
 zeit.fields(
     data, *, gradient="tophat", method="montecarlo", realizations=500,
-    markers=1000, min_distance=20, marker_radius=3, n_neighbors=20,
-    coloring="knn", low=0.3, high=0.6, min_size=50, final=None, mask=None,
-    mask_threshold=None, band=None, time=None, preset=None,
-    random_state=None, n_jobs=None,
+    markers=None, min_distance=20, marker_radius=3, n_neighbors=20,
+    coloring="knn", low=0.3, high=0.6, min_size=50, final=None,
+    mask=None, mask_threshold=None, band=None, time=None, preset=None,
+    random_state=None, n_jobs=None, marker_density=None,
+    mask_quantile=None,
 )
 ```
 
@@ -700,7 +701,8 @@ Delineates fields in an image (or in a stack or series, with `gradient="multitem
 | `gradient` | `str`, `DataArray` or `ndarray` | `"tophat"` | `"tophat"` (the notebook's), `"sobel"` or `"multitemporal"` (see [`edge_gradient`](#edge_gradient)), or a ready `(y, x)` gradient. |
 | `method` | `str` | `"montecarlo"` | `"montecarlo"` (the notebook's loop) or `"exact"`: the exact probability of uniform one-pixel markers, in about the time of one union-find pass. The `low` and `high` thresholds are not yet calibrated for `"exact"`: they are applied as given and need tuning. |
 | `realizations` | `int` | `500` | Monte Carlo: how many watersheds. |
-| `markers` | `int` or list | `1000` | Random markers per watershed (for `"exact"`, the number of markers of the model). A list of `(2, k)` `(row, col)` arrays is used as given, one per realization. |
+| `markers` | `int` or list | `None` | Random markers per watershed (for `"exact"`, the number of markers of the model); `None` is 1000, the notebook's. A list of `(2, k)` `(row, col)` arrays is used as given, one per realization. |
+| `marker_density` | `float` | `None` | Markers per million pixels of the whole grid (`rows * cols`), instead of `markers` (an error to give both): `max(1, round(marker_density * rows * cols / 1e6))`. `markers` is a count per image, so the same value is a different density on windows of different sizes; F rises up to about 400 to 1000 per million pixels and is flat above (phase 24e). `attrs` holds the resolved `markers` and the `marker_density`. |
 | `min_distance` | `float` | `20` | Pixels between markers after thinning. |
 | `marker_radius` | `int` | `3` | Radius of the disk each marker is dilated to. |
 | `n_neighbors`, `coloring` | `int`, `str` | `20`, `"knn"` | The marker colouring graph; `"unique"` gives every marker its own label. |
@@ -709,8 +711,9 @@ Delineates fields in an image (or in a stack or series, with `gradient="multitem
 | `final` | `str` | `None` | `"image"` or `"gradient"`: the surface of the final watershed. `None`: the image for one 2-D image, else the gradient. |
 | `mask` | `(y, x)` bool | `None` | True where the pixel is kept (e.g. not forest). |
 | `mask_threshold` | `float` | `None` | Keep the pixels where the image is greater than this, in its own units. Not together with `mask`. |
+| `mask_quantile` | `float` | `None` | A relative mask, in percent (0 to 100): keep the pixels where the image is strictly greater than its own percentile over the finite pixels (`numpy.percentile`, linear). The absolute threshold does not transfer between regions (phase 24e). Needs one 2-D image; not together with `mask` or `mask_threshold`. `attrs` holds `mask_quantile` and the `mask_threshold` it resolved to. |
 | `band`, `time` | | `None` | Select one band and/or date of a stack or cube. |
-| `preset` | `str` | `None` | `"notebook"`: `final="image"` and `mask_threshold=2000` (Landsat SWIR1 reflectance times 10000) unless given. An argument passed explicitly wins. |
+| `preset` | `str` | `None` | `"notebook"`: `final="image"` and `mask_threshold=2000` (Landsat SWIR1 reflectance times 10000) unless given (nor `mask`, `mask_threshold` or `mask_quantile`). An argument passed explicitly wins. |
 | `random_state` | `int` | `None` | Seed of the Monte Carlo; the result does not depend on `n_jobs`. |
 | `n_jobs` | `int` | `None` | Threads (`None` or `-1`: all the cores but one). |
 
@@ -766,13 +769,14 @@ The edge-strength image that `fields` floods. `"tophat"` is the notebook's: the 
 <!-- sig: zeit.stochastic_watershed -->
 ```python
 zeit.stochastic_watershed(
-    gradient, *, method="montecarlo", realizations=500, markers=1000,
+    gradient, *, method="montecarlo", realizations=500, markers=None,
     min_distance=20, marker_radius=3, n_neighbors=20, coloring="knn",
-    mask=None, random_state=None, n_jobs=None, return_counts=False,
+    mask=None, marker_density=None, random_state=None, n_jobs=None,
+    return_counts=False,
 )
 ```
 
-The probability that each pixel lies on a watershed boundary (Angulo & Jeulin 2007): the part of `fields` that costs the time. The parameters are `fields`'s, and `mask` is inside every watershed. Returns a `(y, x)` float32 `DataArray` in `[0, 1]` (with `return_counts`, also the raw counts of the Monte Carlo).
+The probability that each pixel lies on a watershed boundary (Angulo & Jeulin 2007): the part of `fields` that costs the time. The parameters are `fields`'s (`markers=None` is 1000; `marker_density` gives the markers per million pixels instead), and `mask` is inside every watershed. Returns a `(y, x)` float32 `DataArray` in `[0, 1]` (with `return_counts`, also the raw counts of the Monte Carlo).
 
 ### `watershed` { .api }
 

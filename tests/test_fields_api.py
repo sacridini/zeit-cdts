@@ -256,6 +256,116 @@ def test_fields_errors():
 
 
 # --------------------------------------------------------------------------------------
+# marker_density and mask_quantile (phase 24f)
+# --------------------------------------------------------------------------------------
+_SMALL = dict(realizations=8, min_distance=4, marker_radius=2, min_size=10, random_state=5, n_jobs=1)
+
+
+def test_marker_density_equals_the_markers_count():
+    img = _georef(_scene(80, 70, 11).astype(np.float64))        # 5600 px: 8928.57 per Mpx = 50 markers
+    by_density = zeit.fields(img, marker_density=50 * 1e6 / 5600, **_SMALL)
+    by_count = zeit.fields(img, markers=50, **_SMALL)
+    for name in ("labels", "boundary", "gradient"):
+        assert np.array_equal(by_density[name].values, by_count[name].values)
+    assert by_density.attrs["markers"] == 50 and by_density.attrs["marker_density"] == pytest.approx(50 * 1e6 / 5600)
+    assert "marker_density" not in by_count.attrs and by_count.attrs["markers"] == 50
+    # the default is the notebook's 1000, unchanged
+    assert np.array_equal(zeit.fields(img, **_SMALL)["boundary"].values,
+                          zeit.fields(img, markers=1000, **_SMALL)["boundary"].values)
+    assert zeit.fields(img, **_SMALL).attrs["markers"] == 1000
+    # rounded, and at least one marker
+    assert zeit.fields(img, marker_density=1e6 * 12.4 / 5600, **_SMALL).attrs["markers"] == 12
+    assert zeit.fields(img, marker_density=1e-3, **_SMALL).attrs["markers"] == 1
+    # the whole grid counts, not the mask
+    masked = zeit.fields(img, marker_density=8928.571428, mask_threshold=2500, **_SMALL)
+    assert masked.attrs["markers"] == 50
+
+
+def test_marker_density_exact_and_stochastic_watershed():
+    img = _scene(60, 50, 12).astype(np.float64)                  # 3000 px
+    grad = zeit.edge_gradient(img)
+    a = zeit.stochastic_watershed(grad, method="exact", marker_density=100000 / 3, n_jobs=1)    # 100 markers
+    b = zeit.stochastic_watershed(grad, method="exact", markers=100, n_jobs=1)
+    assert np.array_equal(a.values, b.values)
+    assert a.attrs["markers"] == 100 and a.attrs["marker_density"] == pytest.approx(100000 / 3)
+    ra = zeit.fields(img, method="exact", marker_density=100000 / 3, low=0.1, high=0.3, n_jobs=1)
+    rb = zeit.fields(img, method="exact", markers=100, low=0.1, high=0.3, n_jobs=1)
+    assert np.array_equal(ra["labels"].values, rb["labels"].values)
+    mc_a = zeit.stochastic_watershed(grad, marker_density=100000 / 3, realizations=6, min_distance=4,
+                                     marker_radius=2, random_state=1, n_jobs=1)
+    mc_b = zeit.stochastic_watershed(grad, markers=100, realizations=6, min_distance=4, marker_radius=2,
+                                     random_state=1, n_jobs=1)
+    assert np.array_equal(mc_a.values, mc_b.values)
+
+
+def test_marker_density_errors():
+    img = _scene(40, 40, 13).astype(np.float64)
+    with pytest.raises(ValueError, match="not both"):
+        zeit.fields(img, markers=100, marker_density=100, **_SMALL)
+    with pytest.raises(ValueError, match="not both"):
+        zeit.fields(img, markers=1000, marker_density=100, **_SMALL)      # explicit, even if it is the default
+    with pytest.raises(ValueError, match="not both"):
+        zeit.fields(img, markers=_sets((40, 40), 3, 50, 5, 0), marker_density=100)
+    with pytest.raises(ValueError, match="not both"):
+        zeit.stochastic_watershed(img, markers=10, marker_density=100)
+    for bad in (0, -5, float("nan"), float("inf")):
+        with pytest.raises(ValueError, match="marker_density"):
+            zeit.fields(img, marker_density=bad, **_SMALL)
+
+
+def test_mask_quantile_equals_a_mask_by_hand():
+    img = _georef(_scene(80, 80, 14).astype(np.float64))
+    values = img.values
+    for q in (0, 25, 40.5, 99):
+        thr = float(np.percentile(values, q))
+        hand = zeit.fields(img, mask=values > thr, markers=60, **_SMALL)
+        res = zeit.fields(img, mask_quantile=q, markers=60, **_SMALL)
+        for name in ("labels", "boundary", "gradient"):
+            assert np.array_equal(res[name].values, hand[name].values), (q, name)
+        assert res.attrs["mask_quantile"] == q and res.attrs["mask_threshold"] == thr
+        assert (res["labels"].values[values <= thr] == 0).all()
+    # only the finite pixels count (a ready gradient, since the image itself has NaN)
+    holey = values.copy()
+    holey[:10, :10] = np.nan
+    grad = zeit.edge_gradient(img).values
+    thr = float(np.percentile(holey[np.isfinite(holey)], 30))
+    res = zeit.fields(xr.DataArray(holey, dims=("y", "x")), gradient=grad, final="gradient", mask_quantile=30,
+                      markers=60, **_SMALL)
+    assert res.attrs["mask_threshold"] == thr
+    assert (res["labels"].values[:10, :10] == 0).all()
+
+
+def test_mask_quantile_errors_and_preset():
+    img = _scene(60, 60, 15).astype(np.float64)
+    cube = xr.DataArray(np.stack([img, img]), dims=("band", "y", "x"))
+    with pytest.raises(ValueError, match="only one of"):
+        zeit.fields(img, mask_quantile=30, mask=img > 0, **_SMALL)
+    with pytest.raises(ValueError, match="only one of"):
+        zeit.fields(img, mask_quantile=30, mask_threshold=2000, **_SMALL)
+    with pytest.raises(ValueError, match="mask_quantile must"):
+        zeit.fields(img, mask_quantile=101, **_SMALL)
+    with pytest.raises(ValueError, match="mask_quantile must"):
+        zeit.fields(img, mask_quantile=-1, **_SMALL)
+    with pytest.raises(ValueError, match="mask_quantile needs one 2-D image"):
+        zeit.fields(cube, gradient="multitemporal", mask_quantile=30, **_SMALL)
+    with pytest.raises(ValueError, match="no finite"):
+        zeit.fields(np.full((20, 20), np.nan), gradient=np.zeros((20, 20)), final="gradient", mask_quantile=30,
+                    **_SMALL)
+    # the preset keeps its absolute threshold only when no mask was given
+    kw = dict(preset="notebook", markers=60, **_SMALL)
+    assert zeit.fields(img, **kw).attrs["mask_threshold"] == 2000.0
+    q = zeit.fields(img, mask_quantile=30, **kw)
+    assert q.attrs["mask_quantile"] == 30 and q.attrs["mask_threshold"] == float(np.percentile(img, 30))
+    assert q.attrs["final"] == "image" and q.attrs["preset"] == "notebook"
+    given = zeit.fields(img, mask=img > 1500, **kw)
+    assert "mask_threshold" not in given.attrs and "mask_quantile" not in given.attrs
+    assert zeit.fields(img, mask_threshold=1800, **kw).attrs["mask_threshold"] == 1800.0
+    # no option: attrs as before
+    plain = zeit.fields(img, markers=60, **_SMALL)
+    assert not {"mask_quantile", "mask_threshold", "marker_density"} & set(plain.attrs)
+
+
+# --------------------------------------------------------------------------------------
 # Threads and seeds
 # --------------------------------------------------------------------------------------
 def test_n_jobs_and_random_state():

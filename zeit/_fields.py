@@ -302,6 +302,19 @@ def _marker_sets(markers: Any) -> Optional[List[np.ndarray]]:
     return None
 
 
+def _resolve_markers(markers: Any, marker_density: Optional[float], shape: Tuple[int, int]):
+    """``(markers, density)``: ``markers`` as a number or a list of sets (None: the notebook's 1000), or,
+    from ``marker_density`` (per million pixels of the whole grid), the count it stands for."""
+    if marker_density is None:
+        return (_NOTEBOOK["markers"] if markers is None else markers), None
+    if markers is not None:
+        raise ValueError("give markers or marker_density, not both")
+    density = float(marker_density)
+    if not np.isfinite(density) or density <= 0:
+        raise ValueError("marker_density must be positive (markers per million pixels)")
+    return max(1, int(round(density * shape[0] * shape[1] / 1e6))), density
+
+
 def _check_stochastic(method: str, coloring: str) -> None:
     if method not in ("montecarlo", "exact"):
         raise ValueError(f"method must be 'montecarlo' or 'exact', got {method!r}")
@@ -341,12 +354,13 @@ def stochastic_watershed(
     *,
     method: str = "montecarlo",
     realizations: int = 500,
-    markers: Union[int, Sequence[np.ndarray]] = 1000,
+    markers: Union[None, int, Sequence[np.ndarray]] = None,
     min_distance: float = 20,
     marker_radius: int = 3,
     n_neighbors: int = 20,
     coloring: str = "knn",
     mask: Any = None,
+    marker_density: Optional[float] = None,
     random_state: Optional[int] = None,
     n_jobs: Optional[int] = None,
     return_counts: bool = False,
@@ -374,8 +388,8 @@ def stochastic_watershed(
     realizations
         Monte Carlo: how many watersheds (500 in the notebook).
     markers
-        How many uniform random markers per realisation (1000 in the notebook); for ``"exact"``, the
-        number of markers of the model. For ``"montecarlo"`` it may also be a list of ``(2, k)`` float
+        How many uniform random markers per realisation (``None``: 1000, the notebook's); for ``"exact"``,
+        the number of markers of the model. For ``"montecarlo"`` it may also be a list of ``(2, k)`` float
         arrays, one per realisation, with (row, col) coordinates (the notebook's ``x``, ``y``, before
         ``astype(int)``): they are used as given, without thinning, and ``realizations``,
         ``min_distance`` and ``random_state`` are ignored.
@@ -390,6 +404,10 @@ def stochastic_watershed(
         in all) or ``"unique"`` (every marker its own label).
     mask
         ``(y, x)`` boolean (True = flood), inside every watershed; ``None``: everywhere.
+    marker_density
+        Markers per million pixels of the grid (``rows * cols``, the whole grid, not only the mask), instead
+        of ``markers``: the count is ``max(1, round(marker_density * rows * cols / 1e6))``, so the same value
+        means the same density on windows of any size. Not together with ``markers``.
     random_state
         Seed of the Monte Carlo (``numpy.random.default_rng``); the result does not depend on ``n_jobs``.
     n_jobs
@@ -415,12 +433,16 @@ def stochastic_watershed(
         raise ValueError("mask must have the shape of gradient")
     if return_counts and method != "montecarlo":
         raise ValueError("return_counts needs method='montecarlo'")
+    markers, density = _resolve_markers(markers, marker_density, grad.shape)
     prob, counts, r = _boundary(
         grad, m, method=method, realizations=realizations, markers=markers, min_distance=min_distance,
         marker_radius=marker_radius, n_neighbors=n_neighbors, coloring=coloring,
         random_state=random_state, n_jobs=n_jobs)
     tmpl = _template(gradient)
     attrs = {"long_name": "boundary probability", "method": method}
+    if density is not None:
+        attrs["markers"] = int(markers)
+        attrs["marker_density"] = density
     if r is not None:
         attrs["realizations"] = r
     out = _wrap(prob.astype(np.float32), tmpl, "boundary", attrs)
@@ -438,7 +460,7 @@ def fields(
     gradient: Any = "tophat",
     method: str = "montecarlo",
     realizations: int = 500,
-    markers: Union[int, Sequence[np.ndarray]] = 1000,
+    markers: Union[None, int, Sequence[np.ndarray]] = None,
     min_distance: float = 20,
     marker_radius: int = 3,
     n_neighbors: int = 20,
@@ -454,6 +476,8 @@ def fields(
     preset: Optional[str] = None,
     random_state: Optional[int] = None,
     n_jobs: Optional[int] = None,
+    marker_density: Optional[float] = None,
+    mask_quantile: Optional[float] = None,
 ) -> xr.Dataset:
     """Delineate fields by the stochastic watershed (Angulo & Jeulin 2007), as in the MappingDemo notebook.
 
@@ -483,7 +507,15 @@ def fields(
     realizations, markers, min_distance, marker_radius, n_neighbors, coloring
         The Monte Carlo of ``zeit.stochastic_watershed`` (the notebook's values). ``markers`` may be a
         list of ``(2, k)`` (row, col) arrays, one per realisation, used as given (the number of
-        realisations is then their count): this is how the notebook is reproduced exactly.
+        realisations is then their count): this is how the notebook is reproduced exactly. ``markers=None``
+        means 1000, the notebook's.
+    marker_density
+        Markers per million pixels of the grid (``rows * cols``, the whole grid, not only the mask), instead
+        of ``markers`` (an error to give both): the count is ``max(1, round(marker_density * rows * cols /
+        1e6))``. ``markers`` is a count per image, so the same value is a different density on windows of
+        different sizes; the sensitivity analysis (phase 24e) found F rising up to about 400 to 1000 markers
+        per million pixels and flat above. Works with ``"montecarlo"`` and ``"exact"``; ``attrs`` holds the
+        resolved ``markers`` and the ``marker_density``.
     low, high
         The hysteresis, as fractions of the realisations (Monte Carlo: the integer counts are compared,
         strictly greater, with ``low * realizations`` and ``high * realizations``) or of the probability.
@@ -499,12 +531,18 @@ def fields(
     mask_threshold
         Keep the pixels where the image is greater than this, in the image's own units (needs one 2-D image).
         Not together with ``mask``.
+    mask_quantile
+        A relative mask, in percent (0 to 100): keep the pixels where the image is strictly greater than its own
+        ``mask_quantile``-th percentile over the finite pixels (``numpy.percentile``, linear). An absolute
+        threshold does not transfer between regions (phase 24e); this one adapts to the image. Needs one 2-D
+        image; not together with ``mask`` or ``mask_threshold``. ``attrs`` holds ``mask_quantile`` and the
+        ``mask_threshold`` it resolved to.
     band, time
         Select one band and/or date by label (see ``zeit.edge_gradient``).
     preset
         ``"notebook"``: the notebook's values, which are the defaults above, plus ``final="image"``
-        (unless ``final`` is given) and ``mask_threshold=2000`` (unless ``mask`` or ``mask_threshold``
-        is given). 2000 is the notebook's scale (Landsat surface reflectance times 10000, SWIR1). An
+        (unless ``final`` is given) and ``mask_threshold=2000`` (unless ``mask``, ``mask_threshold`` or
+        ``mask_quantile`` is given). 2000 is the notebook's scale (Landsat surface reflectance times 10000, SWIR1). An
         argument passed explicitly is kept, so ``preset="notebook", low=0.4`` departs from the
         notebook in ``low`` only.
     random_state
@@ -536,7 +574,7 @@ def fields(
             raise ValueError(f"unknown preset {preset!r}: only 'notebook' exists")
         if final is None:
             final = _NOTEBOOK["final"]
-        if mask is None and mask_threshold is None:
+        if mask is None and mask_threshold is None and mask_quantile is None:
             mask_threshold = _NOTEBOOK_MASK_THRESHOLD
     _check_stochastic(method, coloring)
     if final not in (None, "image", "gradient"):
@@ -547,6 +585,13 @@ def fields(
         raise ValueError("min_size must not be negative")
     if mask is not None and mask_threshold is not None:
         raise ValueError("give mask or mask_threshold, not both")
+    if mask_quantile is not None:
+        if mask is not None or mask_threshold is not None:
+            raise ValueError("give only one of mask, mask_threshold and mask_quantile")
+        if not (0 <= mask_quantile <= 100):
+            raise ValueError("mask_quantile must be between 0 and 100 (percent)")
+    if marker_density is not None and markers is not None:
+        raise ValueError("give markers or marker_density, not both")
 
     cube = _select(_as_cube(data), band, time)
     cube, features = _layers(cube)
@@ -576,9 +621,18 @@ def fields(
         if img is None:
             raise ValueError("mask_threshold needs one 2-D image: select a layer with band= / time=, or pass mask=")
         keep = img > mask_threshold
+    elif mask_quantile is not None:
+        if img is None:
+            raise ValueError("mask_quantile needs one 2-D image: select a layer with band= / time=, or pass mask=")
+        finite = img[np.isfinite(img)]
+        if finite.size == 0:
+            raise ValueError("mask_quantile: the image has no finite pixels")
+        mask_threshold = float(np.percentile(finite, mask_quantile))
+        keep = img > mask_threshold
     else:
         keep = None
 
+    markers, density = _resolve_markers(markers, marker_density, shape)
     prob, counts, r = _boundary(
         grad, keep, method=method, realizations=realizations, markers=markers, min_distance=min_distance,
         marker_radius=marker_radius, n_neighbors=n_neighbors, coloring=coloring,
@@ -612,8 +666,12 @@ def fields(
     }
     if r is not None:
         attrs["realizations"] = r
+    if density is not None:
+        attrs["marker_density"] = density
     if mask_threshold is not None:
         attrs["mask_threshold"] = float(mask_threshold)
+    if mask_quantile is not None:
+        attrs["mask_quantile"] = float(mask_quantile)
     if preset is not None:
         attrs["preset"] = preset
     if random_state is not None:

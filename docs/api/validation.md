@@ -257,7 +257,7 @@ tr.area.loc["Forest -> Pasture", ["mapped", "estimate", "ci"]]   # hectares, ± 
 zeit.segmentation_accuracy(
     pred, reference, *, kind="fields", tolerance=1, region=None,
     iou_threshold=0.5, min_share=0.1, size_classes=None,
-    transform=None, crs=None,
+    transform=None, crs=None, clip=False, complete_only=False,
 )
 ```
 
@@ -276,8 +276,12 @@ The accuracy of a field segmentation (the result of [`fields`](time-series.md#fi
 | `min_share` | `float` | `0.1` | `kind="property"`: the share of a predicted field's area that a second property must cover for the field to cross. |
 | `size_classes` | sequence of `float` | `None` | Edges of the size classes in ha (pixels without a CRS). Default `[0, 5, 20, 100, inf]`, with a CRS. |
 | `transform`, `crs` | `Affine`, CRS | `None` | The grid's, instead of `pred`'s (needed to rasterise polygons or measure areas from an array). |
+| `clip` | `bool` | `False` | Clip the predicted objects to the region before every object metric (over- and under-segmentation, D, the matching, `iou_fraction`, `matched_fraction`, predicted sizes; for `kind="property"`, the crossing). The boundary precision, recall and F are not changed. |
+| `complete_only` | `bool` | `False` | Only the reference objects entirely inside the region and not touching the grid's edge (matching among all of them, metrics over the kept ones). `objects.n_ref` is then the number kept and `n_ref_all` the number before; with none left the means are NaN. `kind="fields"` only: an error with `"property"`. |
 
 </div>
+
+With a region smaller than the grid (for example the footprints of annotated chips), a predicted field that runs out of the region has a large `|p|` and a low IoU with a reference field that is complete inside it: `clip=True` clips it to the region, and `complete_only=True` drops the reference fields that the region or the grid's edge cut (phase 24e).
 
 A boundary pixel is a pixel of the region with a 4-neighbour of a different label, wherever that neighbour is (so a field's edge against unlabelled land is a boundary, and both pixels of a pair of neighbouring labels are). Precision is the share of predicted boundary pixels within `tolerance` of a reference boundary pixel, recall the share of reference boundary pixels within `tolerance` of a predicted one, F their harmonic mean.
 

@@ -46,7 +46,11 @@ class SegmentationAccuracy:
         object touches), the means (``over_seg``, ``under_seg``, ``d``, per object) and the
         area-weighted means (``over_seg_w``, ``under_seg_w``, ``d_w``), ``iou_fraction`` (share
         of reference objects whose best match has IoU >= ``iou_threshold``) and
-        ``matched_fraction`` (the same, matching one to one by descending IoU).
+        ``matched_fraction`` (the same, matching one to one by descending IoU). With
+        ``complete_only``, ``n_ref`` is the number of complete reference objects kept and
+        ``n_ref_all`` the number before dropping.
+    clip, complete_only
+        The options the result was computed with.
     object_table
         One row per reference object: ``pixels``, ``area``, the ``best`` predicted object, its
         ``pred_pixels``, the ``overlap`` (pixels), ``over_seg``, ``under_seg``, ``d``, ``iou``
@@ -77,6 +81,8 @@ class SegmentationAccuracy:
     region_pixels: int = 0
     iou_threshold: float = 0.5
     min_share: float = 0.1
+    clip: bool = False
+    complete_only: bool = False
 
     def summary(self) -> pd.Series:
         """The scalar results in one Series, with names like ``boundary.f`` and ``objects.d``."""
@@ -90,8 +96,10 @@ class SegmentationAccuracy:
 
     def __repr__(self) -> str:
         b = self.boundary
+        opts = ("" + (", predictions clipped to the region" if self.clip else "")
+                + (", complete reference fields only" if self.complete_only else ""))
         lines = [f"Segmentation accuracy ({self.kind}, tolerance {self.tolerance:g} px, "
-                 f"{self.region_pixels} pixels in the region):",
+                 f"{self.region_pixels} pixels in the region{opts}):",
                  f"  boundaries: precision {b.precision:.3f}, recall {b.recall:.3f}, F {b.f:.3f} "
                  f"({int(b.n_pred)} predicted, {int(b.n_ref)} reference pixels)"]
         if self.objects is not None:
@@ -248,6 +256,8 @@ def segmentation_accuracy(
     size_classes: Optional[Sequence[float]] = None,
     transform: Any = None,
     crs: Any = None,
+    clip: bool = False,
+    complete_only: bool = False,
 ) -> SegmentationAccuracy:
     """The accuracy of a field segmentation against a reference: boundaries, objects and sizes.
 
@@ -277,6 +287,23 @@ def segmentation_accuracy(
     reference objects whose best match has IoU >= ``iou_threshold``; ``matched_fraction`` pairs
     reference and predicted objects one to one, by descending IoU, and counts the reference
     objects whose pair reaches it. Over- and under-segmentation and IoU are in pixels.
+
+    **Clipping and complete fields** (phase 24e). The reference is only known inside the region, but
+    by default a predicted object is counted in full, so when the region is smaller than the grid (for
+    example the footprints of annotated chips) a predicted field that runs out of the region has a
+    large |p| and a low IoU with a reference field that is complete inside it, and over- and
+    under-segmentation are biased. ``clip=True`` clips the predicted objects to the region before every
+    object metric (over- and under-segmentation, D and their weighted means, the matching,
+    ``iou_fraction``, ``matched_fraction``, the predicted sizes and ``n_pred``; ``kind="property"``: the
+    crossing share too). The boundary precision, recall and F already use the region (the pixels of the
+    region, with neighbours anywhere) and are not changed. ``complete_only=True`` restricts the
+    per-reference-object metrics to the reference objects that lie entirely inside the region and do not
+    touch the grid's edge (an object cut by either is not a field of the reference): the matching is
+    done among all the reference objects, then ``object_table``, the means, the fractions and the
+    reference sizes use only the kept ones. ``objects.n_ref`` is the number kept and ``objects.n_ref_all``
+    the number before dropping; with none left the means are NaN. ``complete_only`` needs
+    ``kind="fields"`` (an error with ``"property"``). Both default to False: the results are then
+    unchanged.
 
     **Sizes** (``kind="fields"``). The areas of the reference objects and of the predicted objects
     that overlap the reference area by more than half of their own: ha with a CRS (planar in a
@@ -316,6 +343,10 @@ def segmentation_accuracy(
     transform, crs
         Affine transform and CRS of the grid, instead of ``pred``'s (needed to rasterise polygons
         or measure areas when ``pred`` is an array).
+    clip
+        Clip the predicted objects to the region before the object metrics (see above).
+    complete_only
+        Only the reference objects entirely inside the region and away from the grid's edge (see above).
 
     Returns
     -------
@@ -333,6 +364,8 @@ def segmentation_accuracy(
         raise ValueError(f"kind must be 'fields' or 'property', got {kind!r}")
     if not tolerance >= 0:
         raise ValueError("tolerance must be >= 0")
+    if complete_only and kind != "fields":
+        raise ValueError("complete_only needs kind='fields' (a property reference has no per-field metrics)")
 
     pred_in, boundary_label = _pred_labels(pred)
     pred_arr = _integers(_values2d(pred_in, "pred"), "pred")
@@ -390,9 +423,13 @@ def segmentation_accuracy(
 
     result = SegmentationAccuracy(kind=kind, tolerance=float(tolerance), boundary=boundary,
                                   region_pixels=int(region_arr.sum()), iou_threshold=float(iou_threshold),
-                                  min_share=float(min_share))
+                                  min_share=float(min_share), clip=bool(clip), complete_only=bool(complete_only))
     weights_row = _row_area(shape, transform, crs)
     result.area_unit = "pixels" if weights_row is None else "ha"
+
+    # The boundaries above use the full labels; from here on the predicted objects may be clipped to the region
+    if clip:
+        pred_arr = np.where(region_arr, pred_arr, 0)
 
     # Overlaps between reference and predicted objects (pixels of the reference inside the region)
     pairs = pd.DataFrame({"r": ref_eff[has_eff], "p": pred_arr[has_eff]}).groupby(["r", "p"]).size()
@@ -447,6 +484,13 @@ def segmentation_accuracy(
     table.index.name = "reference"
     table = table[["pixels", "area", "best", "pred_pixels", "overlap", "over_seg", "under_seg", "d", "iou",
                    "one_to_one"]]
+    n_all = len(table)
+    if complete_only:
+        # reference objects with a pixel outside the region, or on the grid's edge, are cut
+        cut = np.unique(np.concatenate([ref_arr[has_ref & ~region_arr], ref_arr[0], ref_arr[-1], ref_arr[:, 0],
+                                        ref_arr[:, -1]]))
+        whole = ~table.index.isin(cut[cut > 0]) if len(table) else np.zeros(0, dtype=bool)
+        table, pair_iou = table[whole], pair_iou[whole]
     result.object_table = table
 
     n = len(table)
@@ -465,6 +509,8 @@ def segmentation_accuracy(
         "iou_fraction": float((table["iou"] >= iou_threshold).mean()) if n else float("nan"),
         "matched_fraction": float((pair_iou >= iou_threshold).mean()) if n else float("nan"),
     })
+    if complete_only:
+        result.objects["n_ref_all"] = n_all
 
     # Sizes
     ra, pa = table["area"].to_numpy(float), pred_objs["area"].to_numpy(float)

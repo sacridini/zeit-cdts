@@ -182,3 +182,12 @@ def test_fields_with_polygons(monkeypatch, tmp_path):
     ref = zeit.fields_to_polygons(expected)
     assert sorted(polygons["field"]) == sorted(ref["field"])
     np.testing.assert_allclose(polygons["area_ha"].sum(), ref["area_ha"].sum())
+
+    # --marker-density and --mask-quantile
+    opts2 = {k: v for k, v in opts.items() if k != "markers"}
+    run(monkeypatch, "fields", tmp_path / "swir.tif", tmp_path / "out2", "--realizations", 20,
+        "--marker-density", 25000, "--min-distance", 4, "--marker-radius", 2, "--min-size", 10,
+        "--random-state", 0, "--jobs", 2, "--mask-quantile", 20)
+    expected2 = zeit.fields(da, marker_density=25000, mask_quantile=20, **opts2)
+    out2 = same_as(tmp_path, tmp_path / "out2" / "fields.tif", expected2)
+    assert expected2.attrs["markers"] == 60 and (out2.values[0] == expected2["labels"].values).all()
