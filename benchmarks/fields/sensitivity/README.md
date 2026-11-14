@@ -70,3 +70,16 @@ above (stage 1 on 8 threads, the cheap stage 2 on a pool of 6 Python threads; on
 
 `pipeline.gradient_of` gained `multimean` (the multitemporal gradient combined by the mean).
 
+
+## Phase 24f, task 5: the Fields of The World predictions
+
+`ftw.py` scores the FTW global predicted polygons (`ftw_predictions.gpkg`, 2024 and 2025, all and confidence >= 69, with the 0
+background and with it filled by the nearest label) with the harness's evaluator, next to `zeit.fields` at the new defaults, with
+the notebook's forest mask (Chaco groups) and the notebook preset. Outputs in `sensitivity/ftw/ftw_rows.csv` and
+`sensitivity/report_ftw.md`.
+
+| command | what | cost |
+|---|---|---|
+| `python ftw.py check` | the harness's `new` / `new_mask` / `notebook` equal a direct `zeit.fields` call, label for label (2 cases) | 1 min |
+| `python ftw.py run` | every case x source -> `ftw/ftw_rows.csv` (stage-1 maps from the cache) | 1 min |
+| `python ftw.py report` | `report_ftw.md` | seconds |

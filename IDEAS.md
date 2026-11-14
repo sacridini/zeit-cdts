@@ -3598,7 +3598,8 @@ As fontes foram conferidas em 2026-11-14 (os scripts e as versões estão em
     tamanho, a estabilidade entre sementes;
   - os limiares escolhidos por validação cruzada espacial (`spatial_folds`), nunca na área em que
     se mede.
-- **24f: as melhorias**, cada uma medida contra a base da 24e (fica só o que ganha):
+- **24f: as melhorias** (**feita**, ver abaixo), cada uma medida contra a base da 24e (fica só o
+  que ganha):
   - gradiente multitemporal e multibanda, em vez do medoide de uma banda;
   - exata contra Monte Carlo; Monte Carlo com ruído (Bernander et al. 2013);
   - densidade de marcadores ligada ao tamanho esperado dos talhões;
@@ -3687,6 +3688,71 @@ com 8 threads.
   - a grade da validação cruzada estendida;
   - em `segmentation_accuracy`, uma opção de recortar a previsão pela região e de ignorar os campos
     cortados por ela.
+
+### 24f: o que entrou e o que não entrou (2026-11-14)
+
+Medido no harness da 24e (`report_24f.md` e `report_ftw.md` em `ZEIT_FIELDS_DATA/sensitivity/`):
+
+- **Entrou no pacote:**
+  - `marker_density` (marcadores por milhão de pixels);
+  - `mask_quantile` (máscara relativa ao percentil da imagem);
+  - `combine="mean"` no multitemporal;
+  - `segmentation_accuracy(clip=, complete_only=)`, que dá exatamente o `matched_in` do harness
+    em 800 de 800 pares;
+  - pixels de gradiente não finito ficam fora da inundação nos dois métodos (a exata dava erro).
+- **Novos padrões** (a escolha minimax-regret da validação cruzada estendida: 4 gradientes, 4
+  densidades, 4 máscaras, `low` de 0,02 a 0,7, `min_size` de 0 a 50):
+  - Sobel numa imagem, multitemporal pela média numa pilha;
+  - 200 realizações, 1000 marcadores/Mpx;
+  - `low` 0,1, `min_size` 10, sem máscara.
+
+  F de borda a 1 px, do notebook para o novo:
+
+  | grupo | notebook | novo |
+  |---|---|---|
+  | Chaco | 0,718 | 0,660 |
+  | Chaco úmido | 0,496 | 0,593 |
+  | LEM | 0,403 | 0,676 |
+  | Sorriso | 0,373 | 0,488 |
+  | Porto Murtinho | 0,516 | 0,737 |
+  | **média** | **0,501** | **0,631** |
+
+  D vai de 0,548 a 0,415. Entre os 5 grupos, a mesma regra dá 0,618 held-out.
+- **Só perde no Chaco seco**, onde a máscara de floresta do notebook paga: com `swir16 > 2000`, o
+  novo vai a 0,742. Nenhuma configuração única vence em todos os grupos.
+- `preset="notebook"` agora repõe todos os valores do notebook não dados.
+- **Não entraram:**
+  - **Ruído gaussiano no gradiente por realização** (aproximação de Bernander et al. 2013, sem o
+    artigo conferido): F +0,02 só em Sorriso e Porto Murtinho, D piora (0,415 → 0,45).
+  - **Corte da hierarquia** das probabilidades de aresta, da exata ou do Monte Carlo, no lugar da
+    histerese: F held-out 0,536–0,559 contra 0,576. Ele sobe o `matched` onde os talhões são
+    pequenos (exata: 0,38 contra 0,17 no Chaco), mas colapsa no LEM e em Sorriso.
+  - **A exata como padrão:** continua atrás do Monte Carlo.
+  - **O watershed final sobre o gradiente:** sem efeito, já na 24e.
+- **O `matched` não segue F.** Nos talhões pequenos (Chaco) ele sobe com a densidade (0,12 → 0,24
+  de 600 a 2000/Mpx); no LEM e em Sorriso, cai. A densidade ligada ao tamanho esperado dos talhões
+  segue em aberto.
+- **FTW global previsto** (Sentinel-2 a 10 m, 2024 e 2025) contra as mesmas referências.
+
+  F por grupo, FTW 2024 contra o `zeit.fields` novo:
+
+  | grupo | FTW 2024 | `zeit.fields` novo |
+  |---|---|---|
+  | Chaco | 0,615 | 0,658 (0,742 com máscara) |
+  | Chaco úmido | 0,264 | 0,592 |
+  | LEM | 0,860 | 0,675 |
+  | Sorriso | 0,512 | 0,487 |
+  | Porto Murtinho | 0,395 | 0,716 |
+  | **média** | **0,529** | **0,626** |
+
+  - FTW 2025: 0,455 de média.
+  - D_w: FTW 0,556 contra 0,416 do novo.
+  - **O FTW só ganha no LEM**, cuja referência é do próprio FTW e talvez do treino dele. No Chaco
+    ganha na mediana por janela (0,74 contra 0,70), mas perde na média e em D.
+  - Os anos não batem (referências de 2019–2022), e o FTW cobre só cerca de 10% do Chaco úmido.
+  - O filtro de confiança ≥ 69, que só existe no Chaco, derruba a revocação (F 0,43).
+- **Fica para depois:** o gradiente de embeddings. O AlphaEarth pede a autenticação do usuário no
+  GEE e o TESSERA é um download à parte; os dois só cobrem os anos recentes.
 
 ### Achados nas ferramentas de mosaico (24e, a decidir com o usuário)
 
