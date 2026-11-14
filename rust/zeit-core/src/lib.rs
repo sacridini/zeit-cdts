@@ -29,6 +29,7 @@ pub mod coreg_local;
 pub mod dist;
 pub mod eigen;
 pub mod ewmacd;
+pub mod fields;
 pub mod fmask;
 pub mod gas;
 pub mod gdal_grid;

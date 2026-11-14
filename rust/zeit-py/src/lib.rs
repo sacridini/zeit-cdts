@@ -22,6 +22,7 @@ mod ccdc;
 mod coded;
 mod coreg;
 mod ewmacd;
+mod fields;
 mod aod;
 mod atmo;
 mod fmask;
@@ -125,5 +126,6 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     add_submodule(m, &topo::module(m.py())?)?;
     add_submodule(m, &topocorr::module(m.py())?)?;
     add_submodule(m, &coreg::module(m.py())?)?;
+    add_submodule(m, &fields::module(m.py())?)?;
     Ok(())
 }

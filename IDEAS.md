@@ -3416,8 +3416,12 @@ da banda B5 (SWIR1) do Landsat de 2000 e de 2019 assim:
 3. 500 watersheds, cada um com 1000 marcadores uniformes, desbastados para ficarem a 20 px ou mais
    uns dos outros (k-d tree, guloso), coloridos por `vertex_coloring` (pyamg) e dilatados por um
    disco de raio 3; máscara `B5 > 2000`;
-4. a frequência com que cada pixel cai numa fronteira (`find_boundaries`, 4-conexo);
-5. histerese em 0,3 e 0,6 × 500, rótulos do complemento, objetos com menos de 50 px fora;
+4. a frequência com que cada pixel cai numa fronteira (`find_boundaries(connectivity=4)`, que em 2D o
+   scikit-image lê como o quadrado 3x3 cheio, 8-conexo, modo `thick`: fronteiras de 2 px; a máscara
+   `B5 > 2000` entra em cada watershed, e a borda dela conta como fronteira);
+5. histerese em 0,3 e 0,6 × 500 (contagens estritamente maiores que 150 e 300), rótulos do
+   complemento mais 1 (a rede de fronteiras vira o rótulo 1, um marcador só no passo 6), objetos com
+   menos de 50 px fora;
 6. um watershed final sobre a imagem original, com essas regiões como marcadores, e a floresta
    (B5 ≤ 2000) zerada.
 
@@ -3566,6 +3570,81 @@ converge para ela.
   flutuante iguais; a 24a testa isso de propósito.
 - O limiar de floresta do notebook (2000) está na escala de reflectância dele (× 10000); no Zeit
   vira um parâmetro na escala do cubo.
+
+## Fase 25: o Level 2 em lote até um cubo (o `force-level2` no Zeit) (proposta de 2026-11-14)
+
+A pergunta do usuário foi se valem funções que juntem várias outras num processamento inteiro.
+A resposta: só onde a cola entre as etapas é difícil (memória, disco, retomada, máscaras, grade),
+não onde se encadeiam três chamadas que um tutorial mostra. A primeira, e por enquanto a única, é
+esta: depois da Fase 23 o `zeit.level2` corrige **uma cena**, e uma série pede, à mão,
+`find_l1c` → `download_l1c` → `download_dem` → `level2` cena a cena → salvar → empilhar no tempo →
+os bits da QAI como máscara. O que torna isso difícil:
+
+- cada cena chega a 21,6 GiB de RAM (28,7 GiB com o merge), então as cenas correm uma por vez e
+  vão para o disco;
+- um ano de um tile são dezenas de cenas e horas de processamento: tem de retomar de onde parou e
+  seguir quando uma cena falha;
+- o DEM é o mesmo para as cenas do tile e se baixa uma vez;
+- o `qa_mask` e o `qa_to_fmask` não leem a QAI do FORCE (não há a regra `"force"`);
+- o mesmo produto aparece em mais de uma versão de processamento (`N0500`, `N0509`...).
+
+**Princípio:** a função é feita só das funções públicas, sem lógica própria além da orquestração,
+e o cubo dela é igual, bit a bit, ao das chamadas feitas uma a uma (isso é um teste). As opções de
+cada etapa vão por um dicionário (`level2_kw=`), não achatadas na assinatura. O FORCE organiza a
+saída num datacube em tiles próprios (Equi7, GLANCE), que a Fase 23 deixou de fora; aqui os
+produtos ficam na grade do tile MGRS, e outra grade vem do `like=`.
+
+### A API proposta
+
+- **`zeit.level2_series(tile, start, end, out_dir, *, max_cloud=..., products=None, dem="glo30",
+  level2_kw=None, mask="force", like=None, keep_safe=False, n_jobs=8)`**:
+  - `products=`: um `DataFrame` do `find_l1c` (ou uma lista de nomes), no lugar da busca;
+  - em `out_dir`, uma pasta por cena (`.zeit.save`: `boa.tif`, `qai.tif`, ...), o DEM do tile e um
+    diário (como o do `run_tiles`): o que já está feito é pulado, a cena que falha fica registrada
+    com o erro e o lote segue; no fim, a lista das que falharam;
+  - o `.SAFE` é apagado depois do sucesso, salvo `keep_safe=True`;
+  - de versões do mesmo produto, fica a de processamento mais recente;
+  - devolve o cubo lazy `(time, band, y, x)`, lido dos arquivos escritos, com o `time` da tomada e,
+    por data, o produto, o sensor e o resumo do Fmask numa tabela nos `attrs`. A forma exata (a
+    reflectância em 0 a 1 com NaN onde a máscara tira, ou o `int16` com a QAI ao lado) fica para a
+    25c, conferida contra o que o `temporal_metrics`, o `ccdc` e o `regularize_time_series` leem;
+  - `like=`: os produtos na grade de outro raster, pelo warp do `load_raster(like=)` (a QAI por
+    vizinho mais próximo).
+- **`zeit.qa_mask(qai, "force")`** e **`zeit.qa_to_fmask(qai, "force")`**: os bits da QAI do
+  FORCE (a tabela de "Reading the QAI flags" no tutorial de Level 2), que servem também a quem
+  já tem ARD do FORCE.
+- **CLI:** `zeit level2` para uma cena (`.SAFE` ou nome) e para um lote (`--tile`, `--start`,
+  `--end`, `--out`). Hoje o `cli.py` não tem `level2`, `find` nem `download`.
+- **Threads:** o `level2` com `n_jobs`, e o download da próxima cena durante o processamento da
+  atual só se o total ficar em 8.
+
+### Etapas
+
+- **25a: a regra `"force"`** no `qa_mask` e no `qa_to_fmask`. Teste: cada bit da tabela do
+  tutorial, em códigos feitos à mão, e a QAI de um `level2` real.
+- **25b: a orquestração.** A busca, o download, o DEM uma vez, o `level2`, o salvamento, o diário,
+  a retomada, as falhas, as versões duplicadas, o `.SAFE` apagado. Testes:
+  - com o download e o `level2` trocados por versões sintéticas (`monkeypatch`): a ordem das
+    etapas, a retomada depois de uma falha no meio, uma cena que falha e o lote que segue;
+  - de aceite: um mês do tile 23LKC (umas seis cenas), com o cubo igual ao do `level2` chamado
+    cena a cena.
+- **25c: o cubo.** A leitura lazy dos arquivos, o `time`, os `attrs`, a máscara e o `like=`. Teste:
+  o cubo vai direto para o `temporal_metrics` e o `ccdc` sem conversão.
+- **25d: o CLI, o tutorial e a API.** Uma seção "Uma série inteira" no `sentinel2-level2.md`, com
+  "o mesmo em N chamadas" ao lado, para quem quiser trocar uma etapa.
+- **Depois, se houver demanda:** vários tiles numa grade só (o `like=` e o `run_tiles`); o
+  Landsat L1, que depende do item da Fase 23. No Janus, ver se a ferramenta de Level 2 já cobre uma
+  pasta de cenas antes de repetir a orquestração.
+
+### Riscos
+
+- **Disco:** o `.SAFE` e os produtos de um tile por um ano chegam a centenas de GB. Medir numa
+  cena e avisar antes de começar, pelo tamanho estimado.
+- **Tempo:** cerca de 2,5 min por cena só no `level2` (146 s medidos), mais o download: um ano de
+  um tile leva horas. A retomada não é opcional.
+- **A rede:** o Earth Search e o bucket público do Google podem falhar ou limitar no meio do lote.
+  Cada arquivo vai por `.part` (como no `download_l1c`), e a cena é tentada de novo na retomada.
+- **Cenas na borda da órbita** cobrem só parte do tile: entram no cubo, com sem dado no resto.
 
 ## Para depois
 
