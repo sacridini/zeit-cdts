@@ -4,7 +4,7 @@
 use numpy::{PyArray1, PyArray2, PyArrayMethods, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use zeit_core::fields::{intensity, label, morph, points, watershed as ws};
+use zeit_core::fields::{exact, intensity, label, morph, points, stochastic, watershed as ws};
 
 use crate::arrays::c_order;
 
@@ -247,6 +247,148 @@ fn trim_close_points<'py>(
     py.detach(|| points::trim_close_points(&xs, &ys, distance)).map_err(err)
 }
 
+/// The k nearest other points of each point as CSR (indptr, indices), as sklearn's kneighbors_graph.
+#[pyfunction]
+fn knn_graph<'py>(
+    py: Python<'py>,
+    x: PyReadonlyArray1<'py, f64>,
+    y: PyReadonlyArray1<'py, f64>,
+    k: usize,
+) -> PyResult<(Bound<'py, PyArray1<u32>>, Bound<'py, PyArray1<u32>>)> {
+    let (xv, yv) = (x.as_array(), y.as_array());
+    let (xs, ys) = (c_order(&xv), c_order(&yv));
+    let (indptr, indices) = py.detach(|| stochastic::knn_graph(&xs, &ys, k)).map_err(err)?;
+    Ok((PyArray1::from_vec(py, indptr), PyArray1::from_vec(py, indices)))
+}
+
+/// pyamg's vertex_coloring(G, method="MIS") of a CSR graph (uint32 indptr and indices) -> int32 colours.
+#[pyfunction]
+fn vertex_coloring_mis<'py>(
+    py: Python<'py>,
+    indptr: PyReadonlyArray1<'py, u32>,
+    indices: PyReadonlyArray1<'py, u32>,
+) -> PyResult<Bound<'py, PyArray1<i32>>> {
+    let (pv, iv) = (indptr.as_array(), indices.as_array());
+    let (p, i) = (c_order(&pv), c_order(&iv));
+    let n = p.len().saturating_sub(1);
+    let out = py.detach(|| stochastic::vertex_coloring_mis(n, &p, &i)).map_err(err)?;
+    Ok(PyArray1::from_vec(py, out))
+}
+
+/// The boundary counts of the Monte Carlo stochastic watershed: one (2, k) float64 array of points
+/// (x = row, y = col) per realisation, thinned by `min_distance` (0: not), labelled by `labelling`
+/// ("knn" or "unique") -> uint32 counts (y, x).
+#[pyfunction]
+#[allow(clippy::too_many_arguments)]
+fn stochastic_counts<'py>(
+    py: Python<'py>,
+    gradient: PyReadonlyArray2<'py, f64>,
+    mask: Option<PyReadonlyArray2<'py, bool>>,
+    points: Vec<PyReadonlyArray2<'py, f64>>,
+    min_distance: f64,
+    labelling: &str,
+    n_neighbors: usize,
+    disk_radius: usize,
+    n_threads: i32,
+) -> PyResult<Bound<'py, PyArray2<u32>>> {
+    let (ny, nx) = gradient.as_array().dim();
+    let gv = gradient.as_array();
+    let g = c_order(&gv);
+    let mview = mask.as_ref().map(|m| m.as_array());
+    let mvals = mview.as_ref().map(c_order);
+    let labelling = match labelling {
+        "knn" => stochastic::Labelling::Knn(n_neighbors),
+        "unique" => stochastic::Labelling::Unique,
+        other => return Err(PyValueError::new_err(format!("unknown labelling {other:?}"))),
+    };
+    let mut owned: Vec<(Vec<f64>, Vec<f64>)> = Vec::with_capacity(points.len());
+    for p in &points {
+        let a = p.as_array();
+        if a.shape()[0] != 2 {
+            return Err(PyValueError::new_err("each marker set must have shape (2, k)"));
+        }
+        owned.push((a.row(0).to_vec(), a.row(1).to_vec()));
+    }
+    let threads = if n_threads > 0 { n_threads as usize } else { 1 };
+    let out = py
+        .detach(|| {
+            let refs: Vec<(&[f64], &[f64])> = owned.iter().map(|(x, y)| (x.as_slice(), y.as_slice())).collect();
+            stochastic::monte_carlo_counts_points(
+                &g,
+                ny,
+                nx,
+                mvals.as_deref(),
+                &refs,
+                min_distance,
+                labelling,
+                disk_radius,
+                threads,
+            )
+        })
+        .map_err(err)?;
+    PyArray1::from_vec(py, out).reshape([ny, nx])
+}
+
+/// The exact boundary probability (Kruskal + union-find) -> (pixel (y, x), edges_h (y, x-1), edges_v (y-1, x)).
+#[pyfunction]
+#[pyo3(signature = (gradient, mask = None, markers = 1000.0, n_threads = 1))]
+#[allow(clippy::type_complexity)]
+fn exact_boundary_probability<'py>(
+    py: Python<'py>,
+    gradient: PyReadonlyArray2<'py, f64>,
+    mask: Option<PyReadonlyArray2<'py, bool>>,
+    markers: f64,
+    n_threads: i32,
+) -> PyResult<(Bound<'py, PyArray2<f64>>, Bound<'py, PyArray2<f64>>, Bound<'py, PyArray2<f64>>)> {
+    let (ny, nx) = gradient.as_array().dim();
+    let gv = gradient.as_array();
+    let g = c_order(&gv);
+    let mview = mask.as_ref().map(|m| m.as_array());
+    let mvals = mview.as_ref().map(c_order);
+    let threads = if n_threads > 0 { n_threads as usize } else { 1 };
+    let (p, h, v) = py
+        .detach(|| exact::exact_boundary_probability(&g, ny, nx, mvals.as_deref(), markers, threads))
+        .map_err(err)?;
+    Ok((
+        PyArray1::from_vec(py, p).reshape([ny, nx])?,
+        PyArray1::from_vec(py, h).reshape([ny, nx.saturating_sub(1)])?,
+        PyArray1::from_vec(py, v).reshape([ny.saturating_sub(1), nx])?,
+    ))
+}
+
+/// The cut counts of the minimum-spanning-forest Monte Carlo: `markers` is a (realisations, N) uint32
+/// array of flat marker pixels -> (edges_h counts (y, x-1), edges_v counts (y-1, x)) uint32.
+#[pyfunction]
+#[pyo3(signature = (gradient, markers, mask = None, n_threads = 1))]
+#[allow(clippy::type_complexity)]
+fn msf_cut_counts<'py>(
+    py: Python<'py>,
+    gradient: PyReadonlyArray2<'py, f64>,
+    markers: PyReadonlyArray2<'py, u32>,
+    mask: Option<PyReadonlyArray2<'py, bool>>,
+    n_threads: i32,
+) -> PyResult<(Bound<'py, PyArray2<u32>>, Bound<'py, PyArray2<u32>>)> {
+    let (ny, nx) = gradient.as_array().dim();
+    let gv = gradient.as_array();
+    let g = c_order(&gv);
+    let mview = mask.as_ref().map(|m| m.as_array());
+    let mvals = mview.as_ref().map(c_order);
+    let mk = markers.as_array();
+    let (reals, per) = mk.dim();
+    let flat = c_order(&mk);
+    let threads = if n_threads > 0 { n_threads as usize } else { 1 };
+    let (h, v) = py
+        .detach(|| {
+            let sets: Vec<&[u32]> = (0..reals).map(|i| &flat[i * per..(i + 1) * per]).collect();
+            exact::msf_cut_counts(&g, ny, nx, mvals.as_deref(), &sets, threads)
+        })
+        .map_err(err)?;
+    Ok((
+        PyArray1::from_vec(py, h).reshape([ny, nx.saturating_sub(1)])?,
+        PyArray1::from_vec(py, v).reshape([ny.saturating_sub(1), nx])?,
+    ))
+}
+
 pub fn module(py: Python<'_>) -> PyResult<Bound<'_, PyModule>> {
     let m = PyModule::new(py, "fields")?;
     m.add(
@@ -268,5 +410,10 @@ pub fn module(py: Python<'_>) -> PyResult<Bound<'_, PyModule>> {
     m.add_function(wrap_pyfunction!(close_pairs, &m)?)?;
     m.add_function(wrap_pyfunction!(trim_close_points_pairs, &m)?)?;
     m.add_function(wrap_pyfunction!(trim_close_points, &m)?)?;
+    m.add_function(wrap_pyfunction!(knn_graph, &m)?)?;
+    m.add_function(wrap_pyfunction!(vertex_coloring_mis, &m)?)?;
+    m.add_function(wrap_pyfunction!(stochastic_counts, &m)?)?;
+    m.add_function(wrap_pyfunction!(exact_boundary_probability, &m)?)?;
+    m.add_function(wrap_pyfunction!(msf_cut_counts, &m)?)?;
     Ok(m)
 }

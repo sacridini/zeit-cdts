@@ -3485,12 +3485,19 @@ cada uma; com N marcadores uniformes:
 
     P(e) = 1 - (1 - a/n)^N - (1 - b/n)^N + (1 - (a + b)/n)^N
 
-A probabilidade de cada pixel é a máxima das arestas que tocam nele. O custo é O(E log E) por
-tile, ou O(E) com o gradiente quantizado e ordenação por contagem. **O modelo de marcadores é
-outro:** uniformes e de um pixel, sem distância mínima nem disco. Os limiares da histerese não se
-transferem do notebook; eles são calibrados na validação (24e). A conferência da versão exata é
-estatística: numa imagem pequena, o Monte Carlo com marcadores do mesmo modelo e muitas realizações
-converge para ela.
+A fórmula vale para as arestas da floresta geradora mínima. Uma aresta que fecha um ciclo (numa
+crista, todas menos a do ponto de sela) é fronteira quando alguma aresta da floresta no caminho
+entre as suas pontas é cortada; ela recebe o **máximo de P nesse caminho**, um limite inferior (a
+probabilidade da união). Dar-lhe 0, ou o P da fusão que primeiro juntou as suas pontas, apaga as
+cristas: o mapa fica com correlação 0,07 com o Monte Carlo (medido na 24b). A probabilidade de
+cada pixel é a máxima das arestas que tocam nele. O custo é O(E log E) por tile (duas passadas de
+union-find; 0,16 a 0,28 s em 1000 × 1000, cerca de 100 bytes por pixel), ou O(E) com o gradiente
+quantizado e ordenação por contagem. **O modelo de marcadores é outro:** uniformes e de um pixel,
+sem distância mínima nem disco. Os limiares da histerese não se transferem do notebook; eles são
+calibrados na validação (24e). A conferência da versão exata é estatística, contra o Monte Carlo do
+corte da floresta com o mesmo modelo de marcadores: nas arestas da floresta ele converge para P
+(dentro de 5 sigmas, com 20.000 realizações); nas outras fica acima do limite, em média 0,02 a 0,1
+acima (até 0,5 numa aresta), e o mapa de pixels exato tem correlação 0,97 a 0,99 com o dele.
 
 ### Validação: onde e contra o quê
 

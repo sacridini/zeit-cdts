@@ -12,6 +12,7 @@ from typing import Optional, Sequence, Tuple
 import numpy as np
 
 from . import _core
+from ._threads import resolve
 
 _F = _core.fields
 
@@ -225,3 +226,115 @@ def trim_close_points(points, distance: float, pairs=None) -> np.ndarray:
         keep = _F.trim_close_points_pairs(len(x), [(int(i), int(j)) for i, j in pairs])
     keep = np.asarray(keep, dtype=np.intp)
     return np.array([np.asarray(points[0])[keep], np.asarray(points[1])[keep]])
+
+
+def knn_graph(points, k: int) -> Tuple[np.ndarray, np.ndarray]:
+    """The k nearest other points of each point of ``points`` (2, n) as CSR ``(indptr, indices)``, the
+    neighbour sets of ``sklearn.neighbors.kneighbors_graph(points.T, k)`` (each row nearest first).
+    A ``k`` above n - 1 takes the n - 1 others (scikit-learn raises)."""
+    x = np.ascontiguousarray(points[0], dtype=np.float64)
+    y = np.ascontiguousarray(points[1], dtype=np.float64)
+    indptr, indices = _F.knn_graph(x, y, int(k))
+    return indptr.astype(np.int64), indices.astype(np.int64)
+
+
+def vertex_coloring_mis(indptr, indices) -> np.ndarray:
+    """``pyamg.graph.vertex_coloring(G, method="MIS")`` of the CSR graph ``(indptr, indices)``: the same
+    colours (from 0), the graph read as given (not symmetrised, the diagonal ignored)."""
+    ip = np.asarray(indptr)
+    ix = np.asarray(indices)
+    if ip.ndim != 1 or ix.ndim != 1 or len(ip) < 1:
+        raise ValueError("indptr and indices must be 1-D, indptr with n + 1 entries")
+    if len(ip) and (ip.min() < 0 or (len(ix) and ix.min() < 0)):
+        raise ValueError("indptr and indices must not be negative")
+    return _F.vertex_coloring_mis(ip.astype(np.uint32), ix.astype(np.uint32))
+
+
+def stochastic_watershed_counts(gradient, mask=None, marker_sets=None, *, realisations: int = 500,
+                                markers: int = 1000, min_distance: float = 20, coloring: str = "knn",
+                                n_neighbors: int = 20, disk_radius: int = 3, seed=None,
+                                n_jobs: Optional[int] = None) -> np.ndarray:
+    """The Monte Carlo of the stochastic watershed (the MappingDemo notebook's loop): for how many of
+    the realisations each pixel of ``gradient`` is on a boundary, as uint32 counts.
+
+    Each realisation colours its marker points (``coloring="knn"``: pyamg's colouring of their
+    ``n_neighbors``-nearest-neighbour graph, as the notebook; ``"unique"``: every point its own label),
+    writes the labels at ``int(x), int(y)``, dilates them by a disk of ``disk_radius``, floods
+    ``gradient`` inside ``mask`` (``None``: everywhere) and counts ``find_boundaries(connectivity=4)``.
+
+    ``marker_sets``: a list of (2, k) float arrays (x = row, y = col), the notebook's convention, used
+    as they are (no thinning); ``realisations``, ``markers``, ``min_distance`` and ``seed`` are then
+    ignored. Without it each of ``realisations`` sets is ``markers`` uniform points drawn from
+    ``numpy.random.default_rng(seed)`` (all up front, in order), thinned to ``min_distance`` (0: no
+    thinning), so the result depends on ``seed`` and not on ``n_jobs``.
+    """
+    grad = _f64_2d(gradient)
+    m = None
+    if mask is not None:
+        m = _bool_2d(mask)
+        if m.shape != grad.shape:
+            raise ValueError("mask must have the shape of gradient")
+    if coloring not in ("knn", "unique"):
+        raise ValueError("coloring must be 'knn' or 'unique'")
+    if marker_sets is not None:
+        sets = [np.ascontiguousarray(s, dtype=np.float64) for s in marker_sets]
+        if any(s.ndim != 2 or s.shape[0] != 2 for s in sets):
+            raise ValueError("each marker set must have shape (2, k)")
+        distance = 0.0
+    else:
+        if realisations < 0 or markers < 0:
+            raise ValueError("realisations and markers must not be negative")
+        rng = np.random.default_rng(seed)
+        scale = np.array([grad.shape[0], grad.shape[1]], dtype=np.float64)[:, None]
+        sets = [rng.random((2, int(markers))) * scale for _ in range(int(realisations))]
+        distance = float(min_distance)
+    return _F.stochastic_counts(grad, m, sets, distance, coloring, int(n_neighbors), int(disk_radius),
+                                resolve(n_jobs))
+
+
+def exact_boundary_probability(gradient, mask=None, markers: float = 1000, *, return_edges: bool = False,
+                               n_jobs: Optional[int] = None):
+    """The exact boundary probability of the stochastic watershed with ``markers`` uniform one-pixel
+    markers (drawn with replacement among the mask pixels): float64 (y, x), the maximum over the
+    4-neighbour edges touching each pixel of the probability that the minimum-spanning-forest cut
+    separates the edge's two sides (0 outside ``mask``). The graph weights an edge ``max(g[p], g[q])``;
+    NaN in ``gradient`` inside ``mask`` is an error. With ``return_edges`` it also gives the per-edge
+    probabilities ``(h, v)``: ``h`` (y, x - 1) between ``(r, c)`` and ``(r, c + 1)``, ``v`` (y - 1, x)
+    between ``(r, c)`` and ``(r + 1, c)`` (0 for edges not inside the mask)."""
+    grad = _f64_2d(gradient)
+    m = None
+    if mask is not None:
+        m = _bool_2d(mask)
+        if m.shape != grad.shape:
+            raise ValueError("mask must have the shape of gradient")
+    pixel, h, v = _F.exact_boundary_probability(grad, m, float(markers), resolve(n_jobs))
+    return (pixel, h, v) if return_edges else pixel
+
+
+def msf_cut_frequency(gradient, mask=None, markers: int = 1000, realisations: int = 1000, seed=None,
+                      n_jobs: Optional[int] = None) -> Tuple[np.ndarray, np.ndarray]:
+    """Monte Carlo of the model of :func:`exact_boundary_probability`: ``realisations`` draws of
+    ``markers`` uniform pixels among the mask pixels (with replacement, all up front, in order, from
+    ``numpy.random.default_rng(seed)``), each cutting the minimum spanning forest where both Kruskal
+    components hold a marker. Returns the per-edge cut frequencies ``(h, v)`` (shapes as there), an
+    unbiased estimate of the exact per-edge probabilities; the result does not depend on ``n_jobs``."""
+    grad = _f64_2d(gradient)
+    m = None
+    if mask is not None:
+        m = _bool_2d(mask)
+        if m.shape != grad.shape:
+            raise ValueError("mask must have the shape of gradient")
+    if realisations < 0 or markers < 0:
+        raise ValueError("realisations and markers must not be negative")
+    realisations, markers = int(realisations), int(markers)
+    inside = np.arange(grad.size, dtype=np.uint32) if m is None else np.flatnonzero(m.ravel()).astype(np.uint32)
+    rng = np.random.default_rng(seed)
+    if len(inside) == 0:
+        draws = np.zeros((realisations, 0), dtype=np.uint32)
+    else:
+        draws = np.empty((realisations, markers), dtype=np.uint32)
+        for i in range(realisations):
+            draws[i] = inside[rng.integers(0, len(inside), size=markers)]
+    h, v = _F.msf_cut_counts(grad, draws, m, resolve(n_jobs))
+    scale = 1.0 / realisations if realisations else 0.0
+    return h * scale, v * scale
