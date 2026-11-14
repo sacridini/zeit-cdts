@@ -282,7 +282,7 @@ def test_tolerated_read_error_warns_and_becomes_nodata():
     # one warning per file, however many blocks fail
     import warnings
     with warnings.catch_warnings():
-        warnings.simplefilter("error")
+        warnings.simplefilter("error", cube_mod.ReadErrorWarning)
         ds.read(window=Window(4, 0, 4, 3), out_dtype=np.dtype("uint16"), masked=True)
 
 

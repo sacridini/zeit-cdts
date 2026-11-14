@@ -97,9 +97,10 @@ def test_no_crs_gives_nan_with_a_warning():
         gdf = zeit.fields_to_polygons(ds)
     assert gdf.crs is None and gdf["area_ha"].isna().all() and gdf["perimeter_m"].isna().all()
     assert list(gdf["n_pixels"]) == [12, 8] and gdf["compactness"].notna().all()
-    # given explicitly, it is measured
+    # given explicitly, it is measured, without zeit's warning (other libraries' deprecations do not count:
+    # rioxarray 0.23 emits a PendingDeprecationWarning inside transform())
     with warnings.catch_warnings():
-        warnings.simplefilter("error")
+        warnings.simplefilter("error", UserWarning)
         gdf = zeit.fields_to_polygons(ds, crs="EPSG:32722")
     np.testing.assert_allclose(gdf["area_ha"], [12 * 900 / 1e4, 8 * 900 / 1e4])
 
