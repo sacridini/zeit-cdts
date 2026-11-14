@@ -1224,6 +1224,21 @@ dos algoritmos. Um teste com rede, opcional (marcado), lendo uma região pequena
 - Só quando a convenção estiver ratificada e houver um segundo produto que a siga; até lá,
   fica o desenho.
 
+### 15f: cópias compactas (int8) — **Feito**
+
+- `save_raster(emb, path, compact=True)` (e `--compact` no `zeit embeddings` e no
+  `zeit fetch embeddings`) grava um GeoTIFF/COG int8, NoData −128, deflate + predictor 2,
+  com a tag `ZEIT_EMBEDDING_ENCODING` (separada da `ZEIT_EMBEDDING`, para não vazar para os
+  `attrs`). `load_raster` decodifica de volta, lazy, para o mesmo cubo float32 com NaN e os
+  `embedding_*`.
+- `aef-int8` (`embedding_source == "alphaearth"`): as mesmas bandas do float32, na curva do
+  produto, `v = sign(x)·round(√|x|·127,5)`; ida e volta exata nos valores nativos.
+- `scaled-int8` (o resto): por pixel e data, as D dimensões e uma banda `scale` com o código
+  `c = ceil(8·log2(m/127))`, `x = q·2^(c/8)`; erro ≤ 2^(c/8)/2 (~0,43% do máximo do pixel);
+  T·(D+1) bandas. TESSERA: 129 B por pixel e ano (512 em float32); AlphaEarth: 64 B (256).
+- O Janus pode ler esse formato depois (as fórmulas estão no tutorial de embeddings).
+- `zeit/_compact.py`; testes em `tests/test_embeddings_compact.py`.
+
 ### A verificar antes de começar: o que se achou
 
 - TESSERA: o `open_zone` do `geotessera` (0.11) devolve um `Dataset` lazy, mas com chunks do

@@ -358,7 +358,8 @@ def run_embeddings_cli(args: argparse.Namespace) -> None:
                           crs=args.crs, res=args.res, version=args.version, variant=args.variant, depth=args.depth,
                           backend=args.backend, store=args.store, cache_dir=args.cache_dir)
     os.makedirs(args.output_dir, exist_ok=True)
-    path = save_raster(emb, os.path.join(args.output_dir, f"{args.prefix or args.source}.tif"))
+    path = save_raster(emb, os.path.join(args.output_dir, f"{args.prefix or args.source}.tif"),
+                       compact=getattr(args, "compact", False))
     print(f"Saved {emb.sizes['time']} years x {emb.sizes['band']} dimensions "
           f"({emb.sizes['y']} x {emb.sizes['x']} cells) to {path}")
 
@@ -610,6 +611,8 @@ def _add_embeddings_args(em_parser: argparse.ArgumentParser) -> None:
     em_parser.add_argument("--store", default=None, help="A local copy of the product to read instead of the public one")
     em_parser.add_argument("--cache-dir", default=None, help="Where downloads are kept (default: the embeddings folder of ZEIT_CACHE_DIR, by default ~/.cache/zeit)")
     em_parser.add_argument("--prefix", default=None, help="Name of the output file (default: the source)")
+    em_parser.add_argument("--compact", action="store_true",
+                           help="Save as int8 (about 1/4 of the size of float32; zeit.load_raster reads it back as float32)")
 
 
 def build_parser() -> argparse.ArgumentParser:

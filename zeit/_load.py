@@ -224,6 +224,12 @@ def load_raster(
     every few bands, date after date: 125 dates for 875 bands give a ``(time, band,
     y, x)`` cube of 7 bands, named as the file names them or 1 to 7.
 
+    A compact copy of a cube of embeddings (``save_raster(emb, path, compact=True)``, an int8 file
+    with a ``ZEIT_EMBEDDING_ENCODING`` tag) is read back as the float32 cube it came from: decoded
+    lazily, block by block, NaN where the file has -128, without the ``scale`` bands, with the
+    ``embedding_*`` attributes. ``scale=`` does not apply to it, and ``band=`` counts the cube's
+    dimension bands (1 to time x dimensions), not the file's.
+
     Examples
     --------
     >>> ndvi = zeit.load_raster("LT_Stack_NDVI_Rondonia.tif")     # bands yr1985 ... yr2024
@@ -603,6 +609,11 @@ def _open_one(path: str, *, band: Any, chunks: Any, date_format: Optional[str], 
     if window is not None:  # lazily indexed: only the window is read from the file
         da = _cut(da, window)
     da.attrs.pop("long_name", None)
+    from ._compact import ENCODING_TAG, decode_cube
+
+    if tags.get(ENCODING_TAG):   # a compact (int8) cube of embeddings: float32 again, without the scale bands
+        da, descriptions = decode_cube(da, tags[ENCODING_TAG], descriptions)
+        scale = False
     count = da.sizes["band"]
     times: Optional[pd.DatetimeIndex] = None
     names: Optional[List[Any]] = None

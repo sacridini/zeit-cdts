@@ -491,6 +491,7 @@ zeit bandpass-adjust ./data/s2_2023.tif ./results --sensor sentinel-2b --prefix 
 | `--store` | `filepath` | *None* | A local copy of the product to read instead of the public one. |
 | `--cache-dir` | `filepath` | `~/.cache/zeit/embeddings` | Where downloads are kept. |
 | `--prefix` | `str` | the source | Name of the output file. |
+| `--compact` | flag | off | Save as `int8`, about a quarter of the size of float32; `zeit.load_raster` reads it back as float32 ([Compact copies](tutorials/embeddings.md#compact-copies)). |
 
 ```bash
 zeit embeddings ./results --source tessera --bbox -63.0 -10.0 -62.9 -9.9 --years 2018-2024

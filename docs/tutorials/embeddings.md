@@ -218,6 +218,17 @@ TESSERA and AlphaEarth are made once a year, for the years they cover. [`zeit.ai
 - `version=`/`variant=` choose a TESSERA run (default v1.1, the complete global one) and `depth=` the first dimensions of a v2 store (Matryoshka embeddings, trained to work truncated).
 - From the shell: `zeit embeddings ./out --source tessera --bbox -63 -10 -62.9 -9.9 --years 2018-2024` ([CLI](../cli.md)).
 
+### Compact copies
+
+`zeit.save_raster(emb, "emb.tif", compact=True)` writes the cube as `int8` instead of `float32`: a GeoTIFF (or COG) a quarter of the size, which `zeit.load_raster` reads back as the same float32 `(time, band, y, x)` cube, with NaN and the `embedding_*` attributes, so that `train_classifier`, `classify`, `similarity` and the rest take it as they take a float32 copy. A cube is encoded block by block, never whole in memory. From the shell, `--compact` does the same in `zeit embeddings` and `zeit fetch embeddings`. Per pixel and year, TESSERA takes 129 bytes (512 as float32) and AlphaEarth 64 (256), before the file's compression.
+
+The file is a GeoTIFF with `int8` bands, NoData -128, deflate with predictor 2, and a metadata tag `ZEIT_EMBEDDING_ENCODING` that tells how to decode it (the `ZEIT_EMBEDDING` tag is written as in the float32 copy). Bands are written date after date. Two encodings:
+
+- `aef-int8`, for AlphaEarth: the same bands as the float32 copy (one per dimension and year), in the product's own curve. Encoding: `v = sign(x) * round(sqrt(|x|) * 127.5)`, clipped to [-127, 127]. Decoding: `x = sign(v) * (v / 127.5)**2`. A pixel and year with any NaN dimension is -128 in all its dimensions. Values that came from the product (read with `load_embeddings` on its native grid) come back bit for bit; after resampling, the values are rounded to the nearest code.
+- `scaled-int8`, for TESSERA, Presto and every other cube (the encoding follows `embedding_source`, so a resampled AlphaEarth cube is `aef-int8` too): per pixel and year, the D dimensions followed by one band, named `scale` (`2020_scale`; `scale` in a single-date cube), that holds the scale code `c`, so `T * (D + 1)` bands. With `m = max |x|` over the D dimensions: `c = ceil(8 * log2(m / 127))`, clipped to [-127, 127] (`c = -127` when `m == 0`), nudged by one when float rounding would put `m / 2**(c/8)` above 127; `q = round(x / 2**(c/8))`, clipped to [-127, 127]. Decoding: `x = q * 2**(c/8)`. A pixel and year with any NaN dimension is -128 in all its bands, scale included. Values above `127 * 2**(127/8)` (about 7.6e6) are refused with a `ValueError`.
+
+The error of a `scaled-int8` value is at most half the step, `2**(c/8) / 2`, and the step is below `2**(1/8) * m / 127`, so no more than about 0.43% of the pixel's largest value. `load_raster(band=...)` counts the cube's dimension bands, as it does for the float32 copy, and `scale=` does not apply.
+
 ## Cite
 
 TESSERA: Feng et al. (2025), *TESSERA: Temporal Embeddings of Surface Spectra for Earth Representation and Analysis*, arXiv:2506.20380 (embeddings and weights CC0; the authors ask to be cited). AlphaEarth: Brown et al. (2025), *AlphaEarth Foundations: An embedding field model for accurate and efficient global mapping from sparse label data*, arXiv:2507.22291; the dataset is CC-BY 4.0 and requires the attribution "The AlphaEarth Foundations Satellite Embedding dataset is produced by Google and Google DeepMind." Both are in the cube's attributes.

@@ -37,6 +37,7 @@ def save_raster(
     reference_cube: Any = None,
     categories: Optional[Mapping[int, str]] = None,
     colors: Optional[Mapping[int, Any]] = None,
+    compact: bool = False,
 ) -> Path:
     """Write a map, a stack or a result of zeit.
 
@@ -94,6 +95,19 @@ def save_raster(
         first band's colour table. Needs a ``uint8`` or ``uint16`` map and a GeoTIFF (or COG);
         values without a colour are transparent black. A GeoTIFF palette
         has no per-class alpha: it is kept as 255 (and 0 for the NoData value).
+    compact
+        For a cube of embeddings (``zeit.load_embeddings``): write it as ``int8``, a quarter of the
+        size of the float32 copy, in a GeoTIFF or COG (not with ``dtype=``, ``nodata=`` or ``.nc``/``.zarr``).
+        NoData is -128 and the file's ``ZEIT_EMBEDDING_ENCODING`` tag names the encoding;
+        ``load_raster`` reads it back as the float32 ``(time, band, y, x)`` cube, with NaN and the
+        ``embedding_*`` attributes, and everything that takes a float32 cube takes it. AlphaEarth cubes
+        (``aef-int8``) use the product's own curve, ``v = sign(x) * round(sqrt(|x|) * 127.5)`` in
+        [-127, 127]: exact for values that came from the product. Any other embeddings (``scaled-int8``)
+        get a scale per pixel and date: its dimensions ``q = round(x / 2**(c/8))`` and one more band
+        (``scale``) with the code ``c = ceil(8 * log2(max|x| / 127))``, so the error of each value
+        is at most ``2**(c/8) / 2``, 0.43% of the pixel's largest value. A pixel-date with a NaN
+        dimension is NoData in all of them. Values above about 7.6e6 raise ``ValueError``. Dask cubes are
+        encoded block by block.
 
     Returns
     -------
@@ -123,6 +137,21 @@ def save_raster(
     path = Path(os.path.expanduser(os.fspath(path)))
     options = dict(like=like, crs=crs, transform=transform, nodata=nodata, dtype=dtype,
                    compress=compress, driver=driver)
+    extra_tags: Dict[str, str] = {}
+    if compact:
+        from ._compact import ENCODING_TAG, NODATA, encode_cube
+
+        if isinstance(data, (xr.Dataset, Mapping)) or not isinstance(data, xr.DataArray):
+            raise ValueError("compact=True writes one cube of embeddings (a DataArray)")
+        if dtype is not None or nodata is not None:
+            raise ValueError("compact=True writes int8 with NoData -128: not with dtype= or nodata=")
+        ext = path.suffix.lower()
+        if ext in _XARRAY_EXTENSIONS or (driver or _driver_for(path.with_suffix(ext or ".tif"))).upper() not in (
+                "GTIFF", "COG"):
+            raise ValueError("compact=True is written to a GeoTIFF or a COG, not " + (driver or ext))
+        data, encoding = encode_cube(data)
+        extra_tags = {ENCODING_TAG: encoding}
+        options.update(dtype="int8", nodata=NODATA)
 
     if categories is not None or colors is not None:
         if isinstance(data, (xr.Dataset, Mapping)):
@@ -147,6 +176,7 @@ def save_raster(
     if path.suffix.lower() in _XARRAY_EXTENSIONS:
         return _write_xarray(_as_dataarray(data), path)
     job = _prepare(data, path, band_names=band_names, **options)
+    job.tags.update(extra_tags)
     job.colors = colors
     if colors and job.profile["dtype"] not in ("uint8", "uint16"):
         raise ValueError(f"colors= needs a uint8 or uint16 map, not {job.profile['dtype']}")
