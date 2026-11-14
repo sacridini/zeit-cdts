@@ -51,3 +51,22 @@ cd benchmarks\fields\sensitivity
 * Cross-validation (`cv.py`): groups, not windows, are the unit of selection in leave-one-group-out; within Chaco the 45 windows
   are folded by their centroids with `zeit.spatial_folds` (k-means clusters and hexagonal blocks, k = 5) and, for
   contrast, at random.
+
+## Phase 24f: the candidate defaults
+
+Outputs in `sensitivity/f24/`, the report in `sensitivity/report_24f.md`. All from PowerShell with the affinity and threads
+above (stage 1 on 8 threads, the cheap stage 2 on a pool of 6 Python threads; one process at a time).
+
+| script | what | command | cost |
+|---|---|---|---|
+| `fast.py`, `s24f.py` | the cheap responses (F, recall, D_w, crossing share; equal to `pipeline.evaluate`), the density / relative mask / hierarchy cut / threaded stage 2 | (modules) | |
+| `test_24f.py` | fast = `pipeline.evaluate`, the threaded stage 2 = `pipeline.stage2`, the cut is a partition | `python -m pytest benchmarks/fields/sensitivity/test_24f.py -q -p no:cacheprovider` | 6 s |
+| `a24f.py` | task A: 64 stage-1 configurations (gradient x density x mask) x 42 stage-2 settings; `lows` adds low 0.02 and 0.05 | `python a24f.py run`, `python a24f.py lows` | 53 min, 10 min |
+| `cv24f.py` | the leave-one-group-out and Chaco folds on A (`A`, `Aext`) or C (`C`): rules mean, minimax regret, mean rank | `python cv24f.py A` | 10 s |
+| `c24f.py` | task C: the hierarchy cut on the exact edge probabilities and on the Monte Carlo map | `python c24f.py run --grads sobel,multimean` | 25 min |
+| `b24f.py` | task B: noise added to the gradient in every realisation (`check` that s = 0 equals the normal counts) | `python b24f.py check --cfg proposed`, `python b24f.py run --cfg proposed` | 3 min per s |
+| `extras.py`, `extras24f.py` | the package's `clip` / `complete_only` metrics at the selected configurations | `python extras24f.py A` | 2 min |
+| `report24f.py` | the tables of B and of the extras, and the assembly of `report_24f.md` | `python report24f.py pieces`, `python report24f.py report` | seconds |
+
+`pipeline.gradient_of` gained `multimean` (the multitemporal gradient combined by the mean).
+

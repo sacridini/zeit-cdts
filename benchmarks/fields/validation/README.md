@@ -55,6 +55,35 @@ Run the scripts from any directory (they import `common.py` next to them).
   cluster, the union of its footprints) and adds the three municipalities.
 - Imagery is not downloaded by the scripts above: see `mosaics.py` below.
 
+## FTW global predictions (`ftw_predictions.py`)
+
+Field polygons predicted by the PRUE model (Sentinel-2, U-Net) for the 62 built mosaic windows, to be
+scored against the same references as `zeit.fields`. Source: `ftw/global-data/predictions/vectors/alpha/results-by-admin-conf/`
+on source.coop (one GeoParquet per country, Brazil per state, row groups of 65,536 rows sorted in space with
+`bbox` statistics). Licence CC-BY-4.0. Cite Kerner et al. (2025), Fields of the World, AAAI-2025,
+arXiv:2409.16252, and Muhawenayo et al. (2026), PRUE: A Practical Recipe for Field Boundary Segmentation at
+Scale, arXiv:2603.27101 (the citations of the collection's `collection.json`).
+
+```
+python benchmarks/fields/validation/ftw_predictions.py plan    # row groups and bytes, no download
+python benchmarks/fields/validation/ftw_predictions.py fetch   # -> ftw_predictions.gpkg, ftw_predictions.json
+```
+
+Only the row groups whose bbox statistics meet a window are read (BR_MT, MS, BA, TO, PY, AR; the cap is
+1.5 GB): 868 MB transferred (827 MB compressed estimated). Output layer `ftw_predictions` (EPSG:4326): the
+polygons intersecting a window, whole (a polygon on two windows appears twice), with `window`, `group`,
+`year` (of `determination:datetime`, 2024 or 2025: both years are in the files and in the windows),
+`confidence`, `metrics:area`, `metrics:perimeter`, `admin:subdivision_code`, `source_file`. Counts by group,
+the confidence quantiles and the bytes are in `ftw_predictions.json`.
+
+- `confidence` is the 500 m model reliability on 0-100 (recommended filter `>= 69`), **null where the
+  layer has no coverage**, not a low score: all of Brazil's windows (Sorriso, Porto Murtinho, LEM) are
+  null, so the filter cannot be applied there; only the Chaco windows have values (about 90 % non-null,
+  median 59-60, 43 % and 46 % of the non-null ones >= 69 in the Dry and Humid Chaco).
+- Year mismatch: the mosaics and references are 2019 (Sorriso, Porto Murtinho), 2020 (LEM, Dry Chaco) and
+  2022 (Humid Chaco); the predictions are 2024 and 2025 (Sentinel-2 planting/harvest composites). Fields
+  that changed in between are counted as errors against the older references.
+
 ## Landsat mosaics (`mosaics.py`)
 
 Annual Landsat 8/9 Collection 2 Level-2 medoids of the test windows, the input of the sensitivity

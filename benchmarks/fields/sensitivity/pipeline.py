@@ -78,6 +78,8 @@ def gradient_of(case: Case, name: str) -> np.ndarray:
             _GRAD.clear()
         if name == "multitemporal":
             g = zeit.edge_gradient(case.stack, "multitemporal", combine="max").values
+        elif name == "multimean":      # 24f: the multitemporal gradient combined by the mean
+            g = zeit.edge_gradient(case.stack, "multitemporal", combine="sum").values
         else:
             g = zeit.edge_gradient(case.img, name).values
         _GRAD[key] = np.asarray(g, np.float64)
