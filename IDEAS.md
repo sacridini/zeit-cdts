@@ -3641,6 +3641,15 @@ As fontes foram conferidas em 2026-11-14 (os scripts e as versões estão em
 - **24h: tutorial e API.** A comparação 2000 × 2019 da distribuição de tamanhos de talhão como
   exemplo; as referências conferidas nos artigos antes de citar.
 
+  **Feita (2026-11-14)** em `docs/tutorials/fields.md`. O exemplo é uma janela de 30 km no Chaco
+  paraguaio, cerca de 55 km a sudoeste de Filadelfia, com a máscara de floresta:
+  - de 860 talhões em 2000 para 1058 em 2019;
+  - a área em talhões vai de 35% para 43% da janela;
+  - a mediana quase não muda: 30 para 32 ha, dentro do que a densidade de marcadores move.
+
+  A API confere com a documentação, e as citações foram conferidas no Crossref e no arXiv.
+  Angulo & Jeulin 2007 não tem DOI: foi conferido pelas listas de referência de quem o cita.
+
 ### Riscos
 
 - Talhões vizinhos sem contraste (a mesma cultura dos dois lados de uma cerca) se fundem: a 30 m,
