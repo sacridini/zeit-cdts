@@ -424,9 +424,12 @@ zeit snic ./data/s2_ndvi_2022.tif ./results --spacing 8 --polygons
 | `--preset` | `str` | *None* | `notebook`: the notebook's value for every option not given (`tophat`, 500 realizations, 1000 markers, `--low 0.3`, `--min-size 50`, `--final image`, `--mask-threshold 2000` for Landsat SWIR1 times 10000, the latter unless `--mask-threshold` or `--mask-quantile` is given). |
 | `--random-state` | `int` | *None* | Seed of the Monte Carlo. |
 | `--polygons` | flag | | Also write the polygons. |
+| `--tile` | `int` | *None* | A raster too large for one call: process tiles of this many pixels per side, each with an overlap, and stitch them ([`zeit.fields_tiled`](api/time-series.md#fields_tiled)). Writes `labels.tif`, `boundary.tif` (COGs) and, with `--polygons`, `fields.gpkg` in the output directory instead of `<prefix>.tif`; the raster is read by window, never whole. `--markers`, `--mask-quantile` and `--preset` are errors with it (use `--marker-density` and `--mask-threshold`). |
+| `--overlap` | `int` | `max(64, 4 x --min-distance)` | With `--tile`: pixels of window around each tile's core. |
 
 ```bash
 zeit fields ./data/B5_medoid_2019.tif ./results --preset notebook --random-state 0 --polygons
+zeit fields ./data/chaco_2020.vrt ./results --tile 512 --random-state 0 --polygons --jobs 8   # too large for one call
 ```
 
 ### 13. Classification (`classify`)

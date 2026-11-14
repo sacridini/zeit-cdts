@@ -129,11 +129,20 @@ def _array2d(a: Any, what: str, dtype=None) -> np.ndarray:
 # --------------------------------------------------------------------------------------
 # Gradients
 # --------------------------------------------------------------------------------------
-def _stretch(img: np.ndarray) -> np.ndarray:
-    """The 2nd / 98th percentile stretch to [0, 1] (the notebook's cell 8)."""
+def _stretch(img: np.ndarray, bounds: Optional[Tuple[float, float]] = None) -> np.ndarray:
+    """The 2nd / 98th percentile stretch to [0, 1] (the notebook's cell 8). ``bounds`` replaces the
+    percentiles of ``img`` by given ones (``fields_tiled`` stretches every tile by those of the whole image)."""
     if img.dtype.kind == "f" and not np.isfinite(img).all():
         raise ValueError("the image has NaN or infinite values: mask or fill them first")
+    if bounds is not None:
+        return _fc.rescale_intensity(img, bounds, out_range=(0, 1))
     return _fc.rescale_intensity_percentile(img, 2, 98, out_range=(0, 1))
+
+
+def _stretch_bounds(img: np.ndarray) -> Tuple[float, float]:
+    """The 2nd and 98th percentiles that ``_stretch`` uses."""
+    p = _fc.percentiles(img, (2, 98))
+    return float(p[0]), float(p[1])
 
 
 def _sobel(img: np.ndarray) -> np.ndarray:
@@ -161,22 +170,38 @@ def _tophat_gradient(stretched: np.ndarray) -> np.ndarray:
     return _fc.dilation(hat - 0.5 * stretched)
 
 
-def _multitemporal(cube: xr.DataArray, combine: str) -> np.ndarray:
-    if combine not in ("max", "mean", "sum"):
-        raise ValueError("combine must be 'max', 'mean' or 'sum'")
+def _layer_values(cube: xr.DataArray) -> np.ndarray:
+    """``(n_layers, y, x)`` float64: the layers of ``cube`` in the order ``_multitemporal`` visits them."""
     cube, features = _layers(cube)
     h, w = cube.sizes["y"], cube.sizes["x"]
     layers = np.asarray(cube.values, dtype=np.float64).reshape(-1, h, w)
-    if not features:  # one image: a single layer
-        layers = layers.reshape(1, h, w)
+    return layers if features else layers.reshape(1, h, w)
+
+
+def _multitemporal_stats(cube: xr.DataArray) -> List[Tuple[float, float]]:
+    """``(mean, std)`` of every layer over its finite pixels (NaN, NaN for a layer without any)."""
+    out = []
+    for layer in _layer_values(cube):
+        finite = np.isfinite(layer)
+        out.append((float(np.mean(layer[finite])), float(np.std(layer[finite]))) if finite.any()
+                   else (np.nan, np.nan))
+    return out
+
+
+def _multitemporal(cube: xr.DataArray, combine: str, stats: Optional[Sequence[Tuple[float, float]]] = None) -> np.ndarray:
+    """``stats`` replaces each layer's own mean and std by given ones (see ``_multitemporal_stats``)."""
+    if combine not in ("max", "mean", "sum"):
+        raise ValueError("combine must be 'max', 'mean' or 'sum'")
+    layers = _layer_values(cube)
+    h, w = layers.shape[1:]
     acc = None
     n_ok = np.zeros((h, w), dtype=np.int64)
-    for layer in layers:
+    for k, layer in enumerate(layers):
         finite = np.isfinite(layer)
         if not finite.any():
             continue
         z = np.where(finite, layer, np.nan)
-        mean, std = np.nanmean(z), np.nanstd(z)
+        mean, std = (np.nanmean(z), np.nanstd(z)) if stats is None else stats[k]
         z = (z - mean) / std if std > 0 else np.where(finite, 0.0, np.nan)
         g = _sobel(z)
         ok = np.isfinite(g)
@@ -196,13 +221,15 @@ def _multitemporal(cube: xr.DataArray, combine: str) -> np.ndarray:
     return np.where(n_ok > 0, acc, np.nan)
 
 
-def _gradient_of(cube: xr.DataArray, method: str, combine: str) -> np.ndarray:
+def _gradient_of(cube: xr.DataArray, method: str, combine: str, stats: Any = None) -> np.ndarray:
+    """``stats`` (``fields_tiled``): the whole image's statistics instead of ``cube``'s own: the stretch
+    bounds for the tophat and sobel, a list of (mean, std) per layer for the multitemporal."""
     if method == "tophat":
-        return _tophat_gradient(_stretch(_image2d(cube, "gradient='tophat'")))
+        return _tophat_gradient(_stretch(_image2d(cube, "gradient='tophat'"), stats))
     if method == "sobel":
-        return _sobel(_stretch(_image2d(cube, "gradient='sobel'")))
+        return _sobel(_stretch(_image2d(cube, "gradient='sobel'"), stats))
     if method == "multitemporal":
-        return _multitemporal(cube, combine)
+        return _multitemporal(cube, combine, stats)
     raise ValueError(f"unknown gradient method {method!r}: use 'tophat', 'sobel' or 'multitemporal'")
 
 
@@ -363,6 +390,29 @@ def _boundary(grad: np.ndarray, mask: Optional[np.ndarray], *, method, realizati
         min_distance=min_distance, coloring=coloring, n_neighbors=n_neighbors, disk_radius=marker_radius,
         seed=random_state, n_jobs=n_jobs)
     return counts.astype(np.float64) / r, counts, r
+
+
+def _labels_from_boundary(prob, counts, r, surface, keep, *, low, high, min_size):
+    """Stages 3 to 5 of ``fields``: ``(labels int32, boundary_label)`` from the boundary probability (or, for
+    the Monte Carlo, its integer counts and the number ``r`` of realisations), the surface of the final
+    watershed and the mask ``keep`` (or None)."""
+    # Hysteresis: the integer counts against low * R and high * R (not divided first: ties).
+    if counts is not None:
+        hyst = _fc.hysteresis_threshold(counts.astype(np.float64), low * r, high * r)
+    else:
+        hyst = _fc.hysteresis_threshold(prob, low, high)
+    regions, _ = _fc.label(~hyst, connectivity=1)
+    regions = _fc.remove_small_objects(regions + 1, min_size)
+    network_kept = bool((regions == 1).any())  # label 1 is the boundary network until relabelled
+    regions, _ = _fc.relabel_sequential(regions)
+
+    lab = _fc.watershed(surface, regions, connectivity=1)
+    if keep is not None:
+        lab = np.where(keep, lab, 0).astype(np.int32)
+    # The network is label 1 of ``regions`` (the smallest, so it stays 1 through every relabelling).
+    boundary_label = int(network_kept and (lab == 1).any())
+    lab, _ = _fc.relabel_sequential(lab)
+    return lab, boundary_label
 
 
 def stochastic_watershed(
@@ -700,23 +750,8 @@ def fields(
         marker_radius=marker_radius, n_neighbors=n_neighbors, coloring=coloring,
         random_state=random_state, n_jobs=n_jobs)
 
-    # Hysteresis: the integer counts against low * R and high * R (not divided first: ties).
-    if counts is not None:
-        hyst = _fc.hysteresis_threshold(counts.astype(np.float64), low * r, high * r)
-    else:
-        hyst = _fc.hysteresis_threshold(prob, low, high)
-    regions, _ = _fc.label(~hyst, connectivity=1)
-    regions = _fc.remove_small_objects(regions + 1, min_size)
-    network_kept = bool((regions == 1).any())  # label 1 is the boundary network until relabelled
-    regions, _ = _fc.relabel_sequential(regions)
-
-    surface = img if final == "image" else grad
-    lab = _fc.watershed(surface, regions, connectivity=1)
-    if keep is not None:
-        lab = np.where(keep, lab, 0).astype(np.int32)
-    # The network is label 1 of ``regions`` (the smallest, so it stays 1 through every relabelling).
-    boundary_label = int(network_kept and (lab == 1).any())
-    lab, _ = _fc.relabel_sequential(lab)
+    lab, boundary_label = _labels_from_boundary(
+        prob, counts, r, img if final == "image" else grad, keep, low=low, high=high, min_size=min_size)
 
     tmpl = _template(data if isinstance(data, xr.DataArray) else None, cube, gradient)
     attrs = {
@@ -841,11 +876,7 @@ def fields_to_polygons(result, *, transform=None, crs=None, include_boundary: bo
     >>> polygons = zeit.fields_to_polygons(res)
     >>> polygons.to_file("fields.gpkg")
     """
-    import geopandas as gpd
-    from rasterio import features
     from rasterio.transform import Affine
-    from shapely.geometry import shape
-    from shapely.ops import unary_union
 
     if isinstance(result, xr.Dataset):
         if "labels" not in result:
@@ -867,17 +898,35 @@ def fields_to_polygons(result, *, transform=None, crs=None, include_boundary: bo
     keep = values > 0
     if boundary and not include_boundary:
         keep &= values != boundary
-    geoms: dict = {}
-    for geom, value in features.shapes(values, mask=keep, transform=transform, connectivity=4):
-        geoms.setdefault(int(value), []).append(shape(geom))
-    ids = np.array(sorted(geoms), dtype=np.int64)
-    shapes = [unary_union(geoms[i]) if len(geoms[i]) > 1 else geoms[i][0] for i in ids]
+    ids, shapes = _polygonise(values, keep, transform)
 
     if crs is None:
         import warnings
 
         warnings.warn("fields_to_polygons: no CRS, so area_ha and perimeter_m are NaN (compactness is "
                       "computed in the units of the transform); pass crs= to measure", UserWarning, stacklevel=2)
+    n_pixels = np.bincount(values[keep], minlength=int(ids.max()) + 1 if len(ids) else 1)[ids]
+    return _polygon_table(ids, shapes, n_pixels, crs)
+
+
+def _polygonise(values: np.ndarray, keep: np.ndarray, transform: Any):
+    """``(ids, shapes)``: one geometry per label of ``values`` where ``keep`` (4-connected pieces, unioned)."""
+    from rasterio import features
+    from shapely.geometry import shape
+    from shapely.ops import unary_union
+
+    geoms: dict = {}
+    for geom, value in features.shapes(values, mask=keep, transform=transform, connectivity=4):
+        geoms.setdefault(int(value), []).append(shape(geom))
+    ids = np.array(sorted(geoms), dtype=np.int64)
+    return ids, [unary_union(geoms[i]) if len(geoms[i]) > 1 else geoms[i][0] for i in ids]
+
+
+def _polygon_table(ids, shapes, n_pixels, crs):
+    """The GeoDataFrame of ``fields_to_polygons``: the geometries with their pixel count, area, perimeter and
+    compactness."""
+    import geopandas as gpd
+
     area_ha, perimeter_m, _ = _measure(shapes, crs)
     if crs is None:
         area = np.array([g.area for g in shapes])
@@ -886,7 +935,6 @@ def fields_to_polygons(result, *, transform=None, crs=None, include_boundary: bo
         area, perim = area_ha * 1e4, perimeter_m
     with np.errstate(invalid="ignore", divide="ignore"):
         compactness = 4 * np.pi * area / perim ** 2
-    n_pixels = np.bincount(values[keep], minlength=int(ids.max()) + 1 if len(ids) else 1)[ids]
     return gpd.GeoDataFrame(
         {"field": ids, "n_pixels": n_pixels, "area_ha": area_ha, "perimeter_m": perimeter_m,
          "compactness": compactness},

@@ -254,6 +254,29 @@ def run_fields_cli(args: argparse.Namespace) -> None:
     if band is not None and band.lstrip("-").isdigit():
         band = int(band)
 
+    if args.tile is not None:  # a raster too large for one call: overlapping tiles, stitched
+        from ._fields_tiled import fields_tiled
+
+        try:
+            res = fields_tiled(
+                args.input, args.output_dir, tile=args.tile, overlap=args.overlap, polygons=args.polygons,
+                n_jobs=args.jobs, random_state=args.random_state, gradient=args.gradient, method=args.method,
+                realizations=args.realizations, marker_density=args.marker_density, min_distance=args.min_distance,
+                marker_radius=args.marker_radius, low=args.low, high=args.high, min_size=args.min_size,
+                final=args.final, mask_threshold=args.mask_threshold, band=band, combine=args.combine,
+                **({"markers": args.markers} if args.markers is not None else {}),
+                **({"mask_quantile": args.mask_quantile} if args.mask_quantile is not None else {}),
+                **({"preset": args.preset} if args.preset is not None else {}))
+        except Exception as e:
+            print(f"Error running fields: {e}")
+            sys.exit(1)
+        print(f"Successfully processed {res['tiles'][0]} x {res['tiles'][1]} tiles (overlap {res['overlap']}): "
+              f"{res['n_fields']} fields")
+        for key in ("labels", "boundary", "polygons"):
+            if res[key]:
+                print(f"Saved {res[key]}")
+        return
+
     def polygons(result, stem):
         if not args.polygons:
             return []
@@ -794,6 +817,8 @@ def build_parser() -> argparse.ArgumentParser:
     fi_parser.add_argument("--preset", choices=["notebook"], default=None, help="The MappingDemo notebook's values for every option not given (tophat gradient, 500 realizations, 1000 markers, low 0.3, min size 50, final image, mask threshold 2000)")
     fi_parser.add_argument("--random-state", type=int, default=None, help="Seed of the Monte Carlo")
     fi_parser.add_argument("--polygons", action="store_true", help="Also write the fields as polygons with their area (<prefix>.gpkg)")
+    fi_parser.add_argument("--tile", type=int, default=None, help="A raster too large for one call: process tiles of this many pixels per side, each with an overlap, and stitch them; writes labels.tif, boundary.tif and (--polygons) fields.gpkg in the output directory (e.g. 512)")
+    fi_parser.add_argument("--overlap", type=int, default=None, help="With --tile: pixels of window around each tile's core (default: max(64, 4 x --min-distance))")
 
     cl_parser = subparsers.add_parser("classify", help="Classify every pixel with a random forest trained on sample points")
     _add_cube_args(cl_parser, "classes", what="Path to the raster to classify (each band, or date and band, a feature)")

@@ -3613,6 +3613,31 @@ As fontes foram conferidas em 2026-11-14 (os scripts e as versões estão em
   medido em 10 tiles e extrapolado antes de rodar tudo. **O download decide o custo:** o Landsat
   cru de dois anos do Chaco chega a terabytes. O caminho provável são os mosaicos feitos no GEE
   (`gee_tiles`) e baixados prontos. Isso vai ser decidido com o usuário antes de baixar.
+
+  **Feita a parte de código (2026-11-14).** `zeit.fields_tiled(src, out, tile=512, overlap=)` e
+  `zeit fields --tile`:
+  - **Como funciona:**
+    - o raster é lido por janela;
+    - o gradiente usa estatísticas da imagem inteira (exatas até 16 Mpx por camada, depois uma
+      amostra em grade);
+    - a probabilidade sai só no miolo de cada tile;
+    - a histerese e o watershed rodam na janela estendida;
+    - a costura une os rótulos frente a frente nos seams quando a rotulação estendida de um dos dois
+      tiles os dá iguais;
+    - grava `labels.tif`, `boundary.tif` e `fields.gpkg` (um polígono por campo, unido entre blocos).
+  - **Parâmetros:** a semente de cada tile vem de (semente, linha, coluna), então o resultado é o
+    mesmo com qualquer `n_jobs`. A densidade de marcadores é obrigatória, e uma contagem por imagem
+    é recusada. O overlap padrão é max(64, 4 × `min_distance`).
+  - **No LEM** (1,8 Mpx, 3 × 3 tiles), o tiled concorda com o `fields` inteiro tanto quanto o
+    `fields` com outra semente: F 0,971 contra 0,969.
+  - **Tempo:** 9,1 s por Mpx de núcleo com 8 threads. Os tiles de 512 custam menos que os de 2048,
+    apesar do overlap maior. Extrapolado, dá cerca de **3,4 h por ano** para 1,2e9 pixels (o Chaco
+    a 30 m), com a máquina ocupada. **O custo é o download, não o cálculo.**
+  - **Riscos:**
+    - histerese ligada além do overlap;
+    - `min_size` de objetos cortados na janela estendida;
+    - a união em cadeia nos seams;
+    - não há retomada.
 - **24h: tutorial e API.** A comparação 2000 × 2019 da distribuição de tamanhos de talhão como
   exemplo; as referências conferidas nos artigos antes de citar.
 

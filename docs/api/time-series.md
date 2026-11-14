@@ -732,6 +732,44 @@ polygons = zeit.fields_to_polygons(res)
 res = zeit.fields(cube, mask=~forest, method="exact", markers=500)   # multitemporal gradient
 ```
 
+### `fields_tiled` { .api }
+
+<!-- sig: zeit.fields_tiled -->
+```python
+zeit.fields_tiled(
+    src, out, *, tile=512, overlap=None, polygons=True, n_jobs=None,
+    random_state=None, **fields_kwargs,
+)
+```
+
+[`fields`](#fields) for rasters too large for one call (the Gran Chaco is about 1.2e9 pixels at 30 m per year). The raster is cut into `tile` x `tile` cores. Pass 1 computes the boundary probability of each core from its window enlarged by `overlap` pixels on every side and keeps the core; pass 2 makes the labels of each core from that probability and the image of the same enlarged window, with `fields`' own code (hysteresis, labelling, `min_size`, the final watershed), and keeps the core. Two pixels facing each other across a seam are one field when either tile's enlarged labelling gives them the same label; the ids are joined through chains of such pairs (a union-find), renumbered `1..k` and written, and the polygons are made block by block and dissolved across the blocks. Only windows are in memory, never the raster.
+
+The gradient is the whole raster's, not each tile's: the stretch percentiles of `"tophat"` and `"sobel"` and the mean and standard deviation of each layer of `"multitemporal"` are those of the raster (of a regular sample of 16 Mpx per layer when it is larger). The marker density is the same on every tile, and each tile draws from `SeedSequence(random_state, spawn_key=(row, col))`, so the result depends on neither `n_jobs` nor the order of the tiles (it does on `tile`).
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `src` | path or `DataArray` | required | A raster (GeoTIFF, VRT...; one band, or several for the multitemporal gradient) read by window, or a `(y, x)` / `(band, y, x)` DataArray. |
+| `out` | path | required | Output folder: `labels.tif` (int32 COG; the boundary network, when kept, is id 1), `boundary.tif` (float32 COG, the probability) and `fields.gpkg`. |
+| `tile` | `int` | `512` | Pixels per side of a core (smaller tiles cost less per pixel, measured). |
+| `overlap` | `int` | `None` | Pixels of window around the core; `None` is `max(64, 4 * min_distance)` (80 at the defaults). |
+| `polygons` | `bool` | `True` | Also write `fields.gpkg`, with the columns of [`fields_to_polygons`](#fields_to_polygons). |
+| `n_jobs` | `int` | `None` | Threads in all (`None`: all but one). The tiles run `min(n_jobs, tiles)` at a time. |
+| `random_state` | `int` | `None` | Seed. |
+| `**fields_kwargs` | | | `gradient` (a name), `method`, `realizations`, `marker_density`, `min_distance`, `marker_radius`, `n_neighbors`, `coloring`, `low`, `high`, `min_size`, `final`, `mask_threshold`, `band`, `combine`, as in `fields`. `markers` (a count per image, a different density on every tile), `mask`, `mask_quantile` (a percentile of the whole raster), `preset` and `time` are errors. |
+
+</div>
+
+**Returns** a dict: `labels`, `boundary` and `polygons` (paths), `n_fields` (without the network), `boundary_label`, `tiles` `(rows, cols)`, `overlap` and `n_polygons`.
+
+What a tile cannot see: the hysteresis joins a boundary pixel to a strong one along any path, and `min_size` counts an object's pixels, but both look only inside the enlarged window, so a boundary line connected to a strong one only beyond the overlap, or an object cut by the window, can differ from the whole raster's. The labels are the whole raster's as a partition up to the Monte Carlo's own noise and these edge effects (see `benchmarks/fields/tiled/README.md`).
+
+```python
+res = zeit.fields_tiled("chaco_2020.vrt", "out/", random_state=0, n_jobs=8)
+res["labels"], res["n_fields"]
+```
+
 ### `fields_to_polygons` { .api }
 
 <!-- sig: zeit.fields_to_polygons -->

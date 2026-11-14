@@ -151,7 +151,7 @@
 | [`phenology`](time-series.md#phenology) | 19 phenology metrics per year or season |
 | [`twdtw`](time-series.md#twdtw) | Classification by time-weighted DTW, on a file, cube or single pixel |
 | [`snic`](time-series.md#snic) / [`snic_to_polygons`](time-series.md#snic_to_polygons) / [`snic_grid`](time-series.md#snic_grid) | Superpixel segmentation of a map or cube, and its polygons |
-| [`fields`](time-series.md#fields) / [`fields_to_polygons`](time-series.md#fields_to_polygons) / [`edge_gradient`](time-series.md#edge_gradient) / [`stochastic_watershed`](time-series.md#stochastic_watershed) / [`watershed`](time-series.md#watershed) | Field boundaries by the stochastic watershed, and their polygons |
+| [`fields`](time-series.md#fields) / [`fields_tiled`](time-series.md#fields_tiled) / [`fields_to_polygons`](time-series.md#fields_to_polygons) / [`edge_gradient`](time-series.md#edge_gradient) / [`stochastic_watershed`](time-series.md#stochastic_watershed) / [`watershed`](time-series.md#watershed) | Field boundaries by the stochastic watershed (also by overlapping tiles, for rasters too large for one call), and their polygons |
 | [`texture`](time-series.md#texture) | GLCM and window texture features of a map or a cube's summary |
 | [`som`](time-series.md#som) | Self-organizing map clusters of a map or cube, with each neuron's prototype |
 | [`clean_samples`](time-series.md#clean_samples) | Flag labelled samples whose class is not their SOM neuron's |
