@@ -18,12 +18,18 @@ from . import _fields_core as _fc
 _SOBEL_EDGE = np.array([1.0, 0.0, -1.0])
 _SOBEL_SMOOTH = np.array([1.0, 2.0, 1.0]) / 4
 
-#: The notebook's values (cells 8-17): the defaults of ``fields`` (``preset="notebook"`` adds final and the mask).
+#: The notebook's values (cells 8-17): what ``preset="notebook"`` sets (and the mask threshold below).
 _NOTEBOOK = dict(
     gradient="tophat", method="montecarlo", realizations=500, markers=1000, min_distance=20,
     marker_radius=3, n_neighbors=20, coloring="knn", low=0.3, high=0.6, min_size=50, final="image",
 )
 _NOTEBOOK_MASK_THRESHOLD = 2000
+#: The defaults of ``fields`` when no preset is given: the configuration chosen by the spatial
+#: cross-validation of phase 24f (``gradient`` and ``final`` depend on the data: see ``fields``).
+_DEFAULTS = dict(
+    realizations=200, marker_density=1000.0, min_distance=20, marker_radius=3, n_neighbors=20,
+    coloring="knn", low=0.1, high=0.6, min_size=10, combine="mean",
+)
 
 
 # --------------------------------------------------------------------------------------
@@ -156,8 +162,8 @@ def _tophat_gradient(stretched: np.ndarray) -> np.ndarray:
 
 
 def _multitemporal(cube: xr.DataArray, combine: str) -> np.ndarray:
-    if combine not in ("max", "sum"):
-        raise ValueError("combine must be 'max' or 'sum'")
+    if combine not in ("max", "mean", "sum"):
+        raise ValueError("combine must be 'max', 'mean' or 'sum'")
     cube, features = _layers(cube)
     h, w = cube.sizes["y"], cube.sizes["x"]
     layers = np.asarray(cube.values, dtype=np.float64).reshape(-1, h, w)
@@ -184,7 +190,7 @@ def _multitemporal(cube: xr.DataArray, combine: str) -> np.ndarray:
             acc = acc + g
     if acc is None:
         return np.full((h, w), np.nan)
-    if combine == "sum":
+    if combine != "max":
         with np.errstate(invalid="ignore", divide="ignore"):
             acc = acc / n_ok
     return np.where(n_ok > 0, acc, np.nan)
@@ -228,8 +234,9 @@ def edge_gradient(
         Select one band and/or one date by label (a position where the dim has no coordinate), so
         that a cube becomes the 2-D image ``"tophat"`` and ``"sobel"`` need.
     combine
-        For ``"multitemporal"``: ``"max"`` (the strongest edge of any layer) or ``"sum"``, the sum
-        divided by the number of layers with a value at the pixel, that is, the mean.
+        For ``"multitemporal"``: ``"max"`` (the strongest edge of any layer) or ``"mean"`` (``"sum"`` is
+        an older name for the same thing): the sum divided by the number of layers with a value at the
+        pixel. The result is NaN where no layer has a value, and ``zeit.fields`` leaves those pixels out.
     n_jobs
         Accepted for symmetry with the other functions; the operations here are single-threaded.
 
@@ -303,13 +310,13 @@ def _marker_sets(markers: Any) -> Optional[List[np.ndarray]]:
 
 
 def _resolve_markers(markers: Any, marker_density: Optional[float], shape: Tuple[int, int]):
-    """``(markers, density)``: ``markers`` as a number or a list of sets (None: the notebook's 1000), or,
-    from ``marker_density`` (per million pixels of the whole grid), the count it stands for."""
-    if marker_density is None:
-        return (_NOTEBOOK["markers"] if markers is None else markers), None
+    """``(markers, density)``: ``markers`` as a number or a list of sets or, from ``marker_density`` (per
+    million pixels of the whole grid), the count it stands for. Neither given: the default density, 1000."""
+    if marker_density is None and markers is not None:
+        return markers, None
     if markers is not None:
         raise ValueError("give markers or marker_density, not both")
-    density = float(marker_density)
+    density = float(_DEFAULTS["marker_density"] if marker_density is None else marker_density)
     if not np.isfinite(density) or density <= 0:
         raise ValueError("marker_density must be positive (markers per million pixels)")
     return max(1, int(round(density * shape[0] * shape[1] / 1e6))), density
@@ -320,6 +327,15 @@ def _check_stochastic(method: str, coloring: str) -> None:
         raise ValueError(f"method must be 'montecarlo' or 'exact', got {method!r}")
     if coloring not in ("knn", "unique"):
         raise ValueError(f"coloring must be 'knn' or 'unique', got {coloring!r}")
+
+
+def _flood_mask(grad: np.ndarray, mask: Optional[np.ndarray]) -> Optional[np.ndarray]:
+    """``mask`` with the pixels of non-finite gradient left out (a NoData edge of the multitemporal gradient):
+    they are not flooded by either method and are labelled 0, like masked pixels."""
+    finite = np.isfinite(grad)
+    if finite.all():
+        return mask
+    return finite if mask is None else (mask & finite)
 
 
 def _boundary(grad: np.ndarray, mask: Optional[np.ndarray], *, method, realizations, markers, min_distance,
@@ -353,7 +369,7 @@ def stochastic_watershed(
     gradient: Any,
     *,
     method: str = "montecarlo",
-    realizations: int = 500,
+    realizations: int = 200,
     markers: Union[None, int, Sequence[np.ndarray]] = None,
     min_distance: float = 20,
     marker_radius: int = 3,
@@ -386,9 +402,11 @@ def stochastic_watershed(
     method
         ``"montecarlo"`` or ``"exact"``.
     realizations
-        Monte Carlo: how many watersheds (500 in the notebook).
+        Monte Carlo: how many watersheds (200 by default: the sensitivity analysis found 100 to 200
+        enough; the notebook uses 500).
     markers
-        How many uniform random markers per realisation (``None``: 1000, the notebook's); for ``"exact"``,
+        How many uniform random markers per realisation (``None``, without ``marker_density``: a density of
+        1000 per million pixels, see ``marker_density``; the notebook uses a count of 1000); for ``"exact"``,
         the number of markers of the model. For ``"montecarlo"`` it may also be a list of ``(2, k)`` float
         arrays, one per realisation, with (row, col) coordinates (the notebook's ``x``, ``y``, before
         ``astype(int)``): they are used as given, without thinning, and ``realizations``,
@@ -402,12 +420,13 @@ def stochastic_watershed(
     coloring
         ``"knn"`` (the notebook's: the markers are coloured so that near ones differ, 5 to 10 labels
         in all) or ``"unique"`` (every marker its own label).
-    mask
-        ``(y, x)`` boolean (True = flood), inside every watershed; ``None``: everywhere.
     marker_density
         Markers per million pixels of the grid (``rows * cols``, the whole grid, not only the mask), instead
         of ``markers``: the count is ``max(1, round(marker_density * rows * cols / 1e6))``, so the same value
-        means the same density on windows of any size. Not together with ``markers``.
+        means the same density on windows of any size. Not together with ``markers``. Neither given: 1000.
+    mask
+        ``(y, x)`` boolean (True = flood), inside every watershed; ``None``: everywhere. Pixels whose
+        gradient is not finite are always left out of the flooded area, by both methods (as if masked).
     random_state
         Seed of the Monte Carlo (``numpy.random.default_rng``); the result does not depend on ``n_jobs``.
     n_jobs
@@ -434,6 +453,7 @@ def stochastic_watershed(
     if return_counts and method != "montecarlo":
         raise ValueError("return_counts needs method='montecarlo'")
     markers, density = _resolve_markers(markers, marker_density, grad.shape)
+    m = _flood_mask(grad, m)
     prob, counts, r = _boundary(
         grad, m, method=method, realizations=realizations, markers=markers, min_distance=min_distance,
         marker_radius=marker_radius, n_neighbors=n_neighbors, coloring=coloring,
@@ -457,17 +477,17 @@ def stochastic_watershed(
 def fields(
     data: Any,
     *,
-    gradient: Any = "tophat",
+    gradient: Any = None,
     method: str = "montecarlo",
-    realizations: int = 500,
+    realizations: Optional[int] = None,
     markers: Union[None, int, Sequence[np.ndarray]] = None,
     min_distance: float = 20,
     marker_radius: int = 3,
     n_neighbors: int = 20,
     coloring: str = "knn",
-    low: float = 0.3,
+    low: Optional[float] = None,
     high: float = 0.6,
-    min_size: int = 50,
+    min_size: Optional[int] = None,
     final: Optional[str] = None,
     mask: Any = None,
     mask_threshold: Optional[float] = None,
@@ -478,11 +498,13 @@ def fields(
     n_jobs: Optional[int] = None,
     marker_density: Optional[float] = None,
     mask_quantile: Optional[float] = None,
+    combine: str = "mean",
 ) -> xr.Dataset:
-    """Delineate fields by the stochastic watershed (Angulo & Jeulin 2007), as in the MappingDemo notebook.
+    """Delineate fields by the stochastic watershed (Angulo & Jeulin 2007), after the MappingDemo notebook.
 
-    The steps are those of the notebook (Baumann 2020, after E. Gouillart's segmentation tutorial),
-    whose values are the defaults: (1) a gradient image (``gradient``); (2) the probability that each
+    The steps are those of the notebook (Baumann 2020, after E. Gouillart's segmentation tutorial), with
+    defaults tuned in phase 24f (see Notes; ``preset="notebook"`` restores the notebook's values):
+    (1) a gradient image (``gradient``); (2) the probability that each
     pixel lies on a boundary of a watershed from random markers (``zeit.stochastic_watershed``), with the
     ``mask`` inside every watershed; (3) a hysteresis threshold on that probability (``low``, ``high``),
     whose complement is labelled (4-connected) with the boundary network as one label of its own;
@@ -498,30 +520,43 @@ def fields(
         length 1 are squeezed.
     gradient
         ``"tophat"`` (the notebook's), ``"sobel"`` or ``"multitemporal"`` (see ``zeit.edge_gradient``), or
-        a ready ``(y, x)`` gradient (DataArray or array, e.g. a learned edge map).
+        a ready ``(y, x)`` gradient (DataArray or array, e.g. a learned edge map). ``None`` (the default):
+        ``"sobel"`` for one 2-D image (after ``band`` / ``time``), ``"multitemporal"`` for several layers
+        (bands and/or dates); with ``preset="notebook"``, ``"tophat"``. Pixels where the gradient is not
+        finite (the multitemporal one is NaN where no layer has data) are left out of the flooded area by
+        both methods, like masked pixels: the labels are 0 there (before this the exact method raised, and the
+        Monte Carlo flooded them by an accident of the comparison order). The exact probability is 0 there;
+        the Monte Carlo's thick boundaries can spill a pixel or two into such a hole, as at the edge of a mask.
+    combine
+        How ``"multitemporal"`` combines the layers' gradients: ``"mean"`` (the default) or ``"max"`` (see
+        ``zeit.edge_gradient``). No effect on the other gradients.
     method
         ``"montecarlo"`` (the notebook's) or ``"exact"`` (uniform one-pixel markers; ``min_distance``,
         ``marker_radius``, ``n_neighbors`` and ``coloring`` are ignored). **The hysteresis thresholds are
         not calibrated for the exact probability**: ``low`` and ``high`` are applied to it as given and
         must be tuned (this is the validation of phase 24e).
     realizations, markers, min_distance, marker_radius, n_neighbors, coloring
-        The Monte Carlo of ``zeit.stochastic_watershed`` (the notebook's values). ``markers`` may be a
-        list of ``(2, k)`` (row, col) arrays, one per realisation, used as given (the number of
-        realisations is then their count): this is how the notebook is reproduced exactly. ``markers=None``
-        means 1000, the notebook's.
+        The Monte Carlo of ``zeit.stochastic_watershed``. ``realizations`` defaults to 200 (notebook: 500).
+        ``markers`` may be a list of ``(2, k)`` (row, col) arrays, one per realisation, used as given (the
+        number of realisations is then their count): this is how the notebook is reproduced exactly.
+        ``markers=None`` (without ``marker_density``) means a density of 1000 per million pixels; the
+        notebook's is a count of 1000 per image.
     marker_density
         Markers per million pixels of the grid (``rows * cols``, the whole grid, not only the mask), instead
         of ``markers`` (an error to give both): the count is ``max(1, round(marker_density * rows * cols /
         1e6))``. ``markers`` is a count per image, so the same value is a different density on windows of
         different sizes; the sensitivity analysis (phase 24e) found F rising up to about 400 to 1000 markers
-        per million pixels and flat above. Works with ``"montecarlo"`` and ``"exact"``; ``attrs`` holds the
-        resolved ``markers`` and the ``marker_density``.
+        per million pixels and flat above. Neither given: 1000. Works with ``"montecarlo"`` and ``"exact"``;
+        ``attrs`` holds the resolved ``markers`` and the ``marker_density``.
     low, high
         The hysteresis, as fractions of the realisations (Monte Carlo: the integer counts are compared,
         strictly greater, with ``low * realizations`` and ``high * realizations``) or of the probability.
+        ``low`` defaults to 0.1 (notebook: 0.3), ``high`` to 0.6.
     min_size
         Objects of fewer pixels are removed before the final watershed (the boundary network
-        counts as one object).
+        counts as one object). Default 10 (notebook: 50): the cross-validation preferred 0, at the edge
+        of the grid searched; values up to 25 cost at most 0.006 in F and nothing in D, and 10 avoids
+        thousands of one-pixel objects.
     final
         ``"image"``: the final watershed floods the image (the notebook's); ``"gradient"``: the
         gradient. ``None``: ``"image"`` for one 2-D image (after ``band`` / ``time``), else
@@ -540,11 +575,12 @@ def fields(
     band, time
         Select one band and/or date by label (see ``zeit.edge_gradient``).
     preset
-        ``"notebook"``: the notebook's values, which are the defaults above, plus ``final="image"``
-        (unless ``final`` is given) and ``mask_threshold=2000`` (unless ``mask``, ``mask_threshold`` or
-        ``mask_quantile`` is given). 2000 is the notebook's scale (Landsat surface reflectance times 10000, SWIR1). An
-        argument passed explicitly is kept, so ``preset="notebook", low=0.4`` departs from the
-        notebook in ``low`` only.
+        ``"notebook"``: every value of the notebook that was not passed explicitly: ``gradient="tophat"``,
+        ``realizations=500``, ``markers=1000`` (a count, unless ``marker_density`` is given), ``min_distance=20``,
+        ``marker_radius=3``, ``coloring="knn"``, ``low=0.3``, ``high=0.6``, ``min_size=50``, ``final="image"`` and
+        ``mask_threshold=2000`` (unless ``mask``, ``mask_threshold`` or ``mask_quantile`` is given). 2000 is
+        the notebook's scale (Landsat surface reflectance times 10000, SWIR1). An argument passed
+        explicitly is kept, so ``preset="notebook", low=0.4`` departs from the notebook in ``low`` only.
     random_state
         Seed of the Monte Carlo; the result does not depend on ``n_jobs``.
     n_jobs
@@ -562,20 +598,43 @@ def fields(
         ``min_size`` and remained in the labels, as one label that the final watershed grew like the
         notebook does, else 0: drop it before counting fields).
 
+    Notes
+    -----
+    The defaults come from the sensitivity analysis (24e) and the spatial cross-validation (24f) on 64
+    windows in Brazil and the Chaco: the mean boundary F (1 px tolerance) rises from 0.50 with the notebook's
+    values to 0.63 with these. In forested landscapes such as the Dry Chaco a forest mask like the
+    notebook's ``swir16 > 2000`` raises F (about 0.66 to 0.74), so pass ``mask=`` or ``mask_threshold=``
+    there (no mask is the default, since an absolute threshold does not transfer between regions).
+
     Examples
     --------
     >>> swir = zeit.load_raster("B5_medoid_2019.tif")                    # raw digital numbers
-    >>> res = zeit.fields(swir, preset="notebook", random_state=0)
+    >>> res = zeit.fields(swir, preset="notebook", random_state=0)       # the notebook's values
+    >>> res = zeit.fields(swir, random_state=0)                          # the tuned defaults
     >>> res["labels"].max()
-    >>> res = zeit.fields(cube, gradient="multitemporal", mask=~forest, method="exact", markers=500)
+    >>> res = zeit.fields(cube, mask=~forest, method="exact", markers=500)   # multitemporal gradient
     """
+    notebook = False
     if preset is not None:
         if preset != "notebook":
             raise ValueError(f"unknown preset {preset!r}: only 'notebook' exists")
-        if final is None:
-            final = _NOTEBOOK["final"]
+        notebook = True
         if mask is None and mask_threshold is None and mask_quantile is None:
             mask_threshold = _NOTEBOOK_MASK_THRESHOLD
+    # Parameters whose default differs from the notebook's are None until here: one table or the other.
+    table = _NOTEBOOK if notebook else _DEFAULTS
+    if realizations is None:
+        realizations = table["realizations"]
+    if low is None:
+        low = table["low"]
+    if min_size is None:
+        min_size = table["min_size"]
+    if final is None and notebook:
+        final = _NOTEBOOK["final"]
+    if notebook and markers is None and marker_density is None:
+        markers = _NOTEBOOK["markers"]
+    if combine not in ("mean", "max"):
+        raise ValueError(f"combine must be 'mean' or 'max', got {combine!r}")
     _check_stochastic(method, coloring)
     if final not in (None, "image", "gradient"):
         raise ValueError(f"final must be 'image' or 'gradient', got {final!r}")
@@ -605,8 +664,10 @@ def fields(
     img = _image2d(cube, "the image") if single else None
     shape = (cube.sizes["y"], cube.sizes["x"])
 
+    if gradient is None:
+        gradient = _NOTEBOOK["gradient"] if notebook else ("sobel" if single else "multitemporal")
     if isinstance(gradient, str):
-        grad = _gradient_of(cube, gradient, "max")
+        grad = _gradient_of(cube, gradient, combine)
     else:
         grad = _array2d(gradient, "gradient", np.float64)
         if grad.shape != shape:
@@ -631,6 +692,7 @@ def fields(
         keep = img > mask_threshold
     else:
         keep = None
+    keep = _flood_mask(grad, keep)  # NoData of the gradient: out of the flooded area and labelled 0
 
     markers, density = _resolve_markers(markers, marker_density, shape)
     prob, counts, r = _boundary(
@@ -664,6 +726,8 @@ def fields(
         "n_neighbors": int(n_neighbors), "coloring": coloring, "low": float(low), "high": float(high),
         "min_size": int(min_size), "final": final, "boundary_label": boundary_label,
     }
+    if isinstance(gradient, str) and gradient == "multitemporal":
+        attrs["combine"] = combine
     if r is not None:
         attrs["realizations"] = r
     if density is not None:

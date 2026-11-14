@@ -185,7 +185,7 @@ def test_watershed_equals_skimage_and_keeps_coords():
 # --------------------------------------------------------------------------------------
 def test_fields_georeferencing_and_attrs():
     img = _georef(_scene(80, 80, 6).astype(np.float64))
-    res = zeit.fields(img, markers=_sets((80, 80), 6, 120, 10, 0), mask_threshold=2000, n_jobs=1)
+    res = zeit.fields(img, preset="notebook", markers=_sets((80, 80), 6, 120, 10, 0), n_jobs=1)
     for name in ("labels", "boundary", "gradient"):
         da = res[name]
         assert da.dims == ("y", "x")
@@ -215,13 +215,13 @@ def test_fields_exact_mask_dataarray_and_selection():
     assert res["boundary"].values.max() <= 1
     assert (res["boundary"].values[forest] == 0).all()
     # the exact probability of the public function agrees with fields' boundary layer
-    ex = zeit.stochastic_watershed(zeit.edge_gradient(cube, band="b1"), method="exact", markers=300, mask=~forest, n_jobs=1)
+    ex = zeit.stochastic_watershed(zeit.edge_gradient(cube, "sobel", band="b1"), method="exact", markers=300, mask=~forest, n_jobs=1)
     assert np.max(np.abs(ex.values - res["boundary"].values)) < 1e-6
     # multi-layer cube: gradient defaults to final='gradient'
     multi = zeit.fields(cube, gradient="multitemporal", method="exact", markers=300, n_jobs=1)
     assert multi.attrs["final"] == "gradient" and multi["labels"].values.max() >= 1
     # a ready gradient (ndarray) on a cube
-    grad = zeit.edge_gradient(cube, "multitemporal").values
+    grad = zeit.edge_gradient(cube, "multitemporal", combine="mean").values
     again = zeit.fields(cube, gradient=grad, method="exact", markers=300, n_jobs=1)
     assert np.array_equal(again["labels"].values, multi["labels"].values)
     # time selection on a cube without it is an error
@@ -234,7 +234,9 @@ def test_fields_errors():
     cube = xr.DataArray(np.stack([img, img]).astype(float), dims=("band", "y", "x"))
     sets = _sets((60, 60), 3, 100, 10, 0)
     with pytest.raises(ValueError, match="band="):
-        zeit.fields(cube, markers=sets)
+        zeit.fields(cube, gradient="tophat", markers=sets)
+    with pytest.raises(ValueError, match="band="):
+        zeit.fields(cube, preset="notebook", markers=sets)
     with pytest.raises(ValueError, match="final='image'"):
         zeit.fields(cube, gradient="multitemporal", final="image", markers=sets)
     with pytest.raises(ValueError, match="unknown preset"):
@@ -269,10 +271,14 @@ def test_marker_density_equals_the_markers_count():
         assert np.array_equal(by_density[name].values, by_count[name].values)
     assert by_density.attrs["markers"] == 50 and by_density.attrs["marker_density"] == pytest.approx(50 * 1e6 / 5600)
     assert "marker_density" not in by_count.attrs and by_count.attrs["markers"] == 50
-    # the default is the notebook's 1000, unchanged
-    assert np.array_equal(zeit.fields(img, **_SMALL)["boundary"].values,
-                          zeit.fields(img, markers=1000, **_SMALL)["boundary"].values)
-    assert zeit.fields(img, **_SMALL).attrs["markers"] == 1000
+    # the default is a density of 1000 per Mpx (6 markers here); the notebook preset is a count of 1000
+    default = zeit.fields(img, **_SMALL)
+    assert default.attrs["markers"] == 6 and default.attrs["marker_density"] == 1000.0
+    assert np.array_equal(default["boundary"].values, zeit.fields(img, markers=6, **_SMALL)["boundary"].values)
+    nb_preset = zeit.fields(img, preset="notebook", **_SMALL)
+    assert nb_preset.attrs["markers"] == 1000 and "marker_density" not in nb_preset.attrs
+    given = zeit.fields(img, preset="notebook", marker_density=8928.571428, **_SMALL)
+    assert given.attrs["markers"] == 50
     # rounded, and at least one marker
     assert zeit.fields(img, marker_density=1e6 * 12.4 / 5600, **_SMALL).attrs["markers"] == 12
     assert zeit.fields(img, marker_density=1e-3, **_SMALL).attrs["markers"] == 1
@@ -363,6 +369,93 @@ def test_mask_quantile_errors_and_preset():
     # no option: attrs as before
     plain = zeit.fields(img, markers=60, **_SMALL)
     assert not {"mask_quantile", "mask_threshold", "marker_density"} & set(plain.attrs)
+
+
+# --------------------------------------------------------------------------------------
+# The defaults (phase 24f): the new table, the notebook preset, NoData
+# --------------------------------------------------------------------------------------
+def test_preset_notebook_equals_every_notebook_value_explicit():
+    img = _georef(_scene(70, 70, 16).astype(np.float64))
+    preset = zeit.fields(img, preset="notebook", random_state=2, n_jobs=1)
+    explicit = zeit.fields(
+        img, gradient="tophat", realizations=500, markers=1000, min_distance=20, marker_radius=3,
+        n_neighbors=20, coloring="knn", low=0.3, high=0.6, min_size=50, final="image", mask_threshold=2000,
+        random_state=2, n_jobs=1)
+    for name in ("labels", "boundary", "gradient"):
+        assert np.array_equal(preset[name].values, explicit[name].values), name
+    for key, value in explicit.attrs.items():
+        assert preset.attrs[key] == value, key
+    # an explicit argument wins over the preset, in the parameters that had a different default
+    low = zeit.fields(img, preset="notebook", low=0.1, realizations=20, min_size=5, gradient="sobel", **_SMALL_NB)
+    assert (low.attrs["low"], low.attrs["realizations"], low.attrs["min_size"], low.attrs["gradient"]) == (
+        0.1, 20, 5, "sobel")
+
+
+_SMALL_NB = dict(random_state=1, n_jobs=1)
+
+
+def test_plain_defaults_are_the_new_table():
+    img = _georef(_scene(80, 70, 17).astype(np.float64))                # 5600 px: density 1000 -> 6 markers
+    res = zeit.fields(img, random_state=3, n_jobs=1)
+    a = res.attrs
+    assert a["gradient"] == "sobel" and a["final"] == "image" and a["method"] == "montecarlo"
+    assert a["realizations"] == 200 and a["markers"] == 6 and a["marker_density"] == 1000.0
+    assert (a["low"], a["high"], a["min_size"]) == (0.1, 0.6, 10)
+    assert (a["min_distance"], a["marker_radius"], a["n_neighbors"], a["coloring"]) == (20.0, 3, 20, "knn")
+    assert "mask_threshold" not in a and "preset" not in a
+    explicit = zeit.fields(img, gradient="sobel", realizations=200, markers=6, low=0.1, high=0.6, min_size=10,
+                           final="image", random_state=3, n_jobs=1)
+    for name in ("labels", "boundary", "gradient"):
+        assert np.array_equal(res[name].values, explicit[name].values), name
+    # several layers: the multitemporal gradient by the mean, and the final watershed on the gradient
+    base = img.values
+    cube = xr.DataArray(np.stack([base, base[::-1] * 0.8 + 100]), dims=("time", "y", "x"))
+    multi = zeit.fields(cube, random_state=3, n_jobs=1)
+    assert multi.attrs["gradient"] == "multitemporal" and multi.attrs["combine"] == "mean"
+    assert multi.attrs["final"] == "gradient"
+    by_hand = zeit.edge_gradient(cube, "multitemporal", combine="mean").values.astype(np.float32)
+    assert np.array_equal(multi["gradient"].values, by_hand)
+    mx = zeit.fields(cube, combine="max", random_state=3, n_jobs=1)
+    assert mx.attrs["combine"] == "max" and not np.array_equal(mx["gradient"].values, multi["gradient"].values)
+    # a stack with one layer left after band= is one image
+    assert zeit.fields(cube, time=0, random_state=3, n_jobs=1).attrs["gradient"] == "sobel"
+    # the stochastic watershed: 200 realisations and a density of 1000 per Mpx
+    sw = zeit.stochastic_watershed(zeit.edge_gradient(img, "sobel"), random_state=1, n_jobs=1)
+    assert sw.attrs["realizations"] == 200 and sw.attrs["markers"] == 6 and sw.attrs["marker_density"] == 1000.0
+    with pytest.raises(ValueError, match="combine"):
+        zeit.fields(img, combine="min")
+
+
+@pytest.mark.parametrize("method", ["montecarlo", "exact"])
+def test_nodata_gradient_is_left_out_by_both_methods(method):
+    base = _scene(60, 60, 18).astype(np.float64)
+    stack = np.stack([base, base[::-1] * 0.8 + 100, base * 0.5 + 30])
+    hole = (slice(20, 24), slice(20, 24))
+    kw = dict(method=method, random_state=4, n_jobs=1, markers=80, realizations=10, min_distance=4,
+              marker_radius=2, min_size=5, **({"low": 0.1, "high": 0.3} if method == "exact" else {}))
+    if method == "exact":
+        kw.pop("realizations"), kw.pop("min_distance"), kw.pop("marker_radius")
+    # one date with NoData: the other dates still give a gradient there, so nothing changes in kind
+    one = stack.copy()
+    one[(1,) + hole] = np.nan
+    res1 = zeit.fields(xr.DataArray(one, dims=("time", "y", "x")), **kw)
+    assert np.isfinite(res1["gradient"].values).all() and (res1["labels"].values[hole] > 0).any()
+    # every date with NoData: the gradient is NaN there, and both methods leave it out (probability and labels 0)
+    every = stack.copy()
+    every[(slice(None),) + hole] = np.nan
+    res = zeit.fields(xr.DataArray(every, dims=("time", "y", "x")), **kw)
+    nan = np.isnan(res["gradient"].values)
+    assert nan.any() and nan[hole].all()
+    assert (res["labels"].values[nan] == 0).all() and res["labels"].values.max() >= 1
+    if method == "exact":      # (the Monte Carlo's thick boundaries spill over the edge of a mask, as the notebook's)
+        assert (res["boundary"].values[nan] == 0).all()
+    # the same through the public stochastic watershed on a ready gradient
+    grad = res["gradient"].values.astype(np.float64)
+    sw = zeit.stochastic_watershed(grad, method=method, markers=80, realizations=10, min_distance=4,
+                                   marker_radius=2, random_state=4, n_jobs=1)
+    assert np.isfinite(sw.values).all()
+    if method == "exact":
+        assert (sw.values[np.isnan(grad)] == 0).all()
 
 
 # --------------------------------------------------------------------------------------

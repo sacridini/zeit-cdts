@@ -40,7 +40,7 @@ def test_equals_zeit_fields(loaded, case_id, s1, s2):
         data, gradient=s1.gradient, method=s1.method, realizations=s1.realizations, markers=s1.markers,
         min_distance=s1.min_distance, marker_radius=s1.marker_radius, coloring=s1.coloring, low=s2.low,
         high=s2.high, min_size=s2.min_size, final=s2.final, mask=case.keep(s1.mask_threshold),
-        random_state=s1.seed, n_jobs=4)
+        combine="max", random_state=s1.seed, n_jobs=4)   # the harness's multitemporal is the max
     np.testing.assert_array_equal(res["labels"].values, lab)
     assert int(res.attrs["boundary_label"]) == bl
 

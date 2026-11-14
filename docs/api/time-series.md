@@ -675,45 +675,48 @@ The seed grids of the R `snic` package, as `(n, 2)` `(row, col)` positions. Also
 
 ## Field boundaries
 
-Fields from the stochastic watershed (Angulo & Jeulin 2007), as in the MappingDemo notebook (Baumann 2020, after Emmanuelle Gouillart's segmentation tutorial), whose values are the defaults. A gradient image is flooded from many random markers; the frequency with which each pixel lands on a watershed boundary is thresholded (hysteresis), the complement is labelled and a final watershed grows those labels into fields. The building blocks are equal, value for value, to scikit-image's and SciPy's.
+Fields from the stochastic watershed (Angulo & Jeulin 2007), after the MappingDemo notebook (Baumann 2020, after Emmanuelle Gouillart's segmentation tutorial); `preset="notebook"` reproduces the notebook's values exactly, and the defaults are those chosen by the sensitivity analysis and spatial cross-validation of phases 24e and 24f. A gradient image is flooded from many random markers; the frequency with which each pixel lands on a watershed boundary is thresholded (hysteresis), the complement is labelled and a final watershed grows those labels into fields. The building blocks are equal, value for value, to scikit-image's and SciPy's.
 
 ### `fields` { .api }
 
 <!-- sig: zeit.fields -->
 ```python
 zeit.fields(
-    data, *, gradient="tophat", method="montecarlo", realizations=500,
+    data, *, gradient=None, method="montecarlo", realizations=None,
     markers=None, min_distance=20, marker_radius=3, n_neighbors=20,
-    coloring="knn", low=0.3, high=0.6, min_size=50, final=None,
+    coloring="knn", low=None, high=0.6, min_size=None, final=None,
     mask=None, mask_threshold=None, band=None, time=None, preset=None,
     random_state=None, n_jobs=None, marker_density=None,
-    mask_quantile=None,
+    mask_quantile=None, combine="mean",
 )
 ```
 
-Delineates fields in an image (or in a stack or series, with `gradient="multitemporal"`).
+Delineates fields in an image, or in a stack or series (the multitemporal gradient is then the default).
+
+The defaults come from the sensitivity analysis (24e) and the spatial cross-validation (24f) on 64 windows in Brazil and the Chaco: the mean F of the field matching rises from 0.50 with the notebook's values to 0.63 with these. In forested landscapes such as the Dry Chaco, a forest mask like the notebook's `swir16 > 2000` raises F (about 0.66 to 0.74), so pass `mask=` or `mask_threshold=` there; no mask is the default because an absolute threshold does not transfer between regions. Pixels where the gradient is not finite (NoData of every layer, in the multitemporal gradient) are left out of the flooded area by both methods, like masked pixels, and labelled 0.
 
 <div class="params" markdown>
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `data` | `DataArray`, `ndarray` or path | required | `(y, x)`, `(band, y, x)`, `(time, y, x)` or `(time, band, y, x)`. Dims of length 1 are squeezed. |
-| `gradient` | `str`, `DataArray` or `ndarray` | `"tophat"` | `"tophat"` (the notebook's), `"sobel"` or `"multitemporal"` (see [`edge_gradient`](#edge_gradient)), or a ready `(y, x)` gradient. |
+| `gradient` | `str`, `DataArray` or `ndarray` | `None` | `"tophat"` (the notebook's), `"sobel"` or `"multitemporal"` (see [`edge_gradient`](#edge_gradient)), or a ready `(y, x)` gradient. `None`: `"sobel"` for one 2-D image, `"multitemporal"` for several layers (bands and/or dates); `"tophat"` with the notebook preset. |
+| `combine` | `str` | `"mean"` | With the multitemporal gradient: `"mean"` or `"max"` of the layers' gradients. No effect otherwise. |
 | `method` | `str` | `"montecarlo"` | `"montecarlo"` (the notebook's loop) or `"exact"`: the exact probability of uniform one-pixel markers, in about the time of one union-find pass. The `low` and `high` thresholds are not yet calibrated for `"exact"`: they are applied as given and need tuning. |
-| `realizations` | `int` | `500` | Monte Carlo: how many watersheds. |
-| `markers` | `int` or list | `None` | Random markers per watershed (for `"exact"`, the number of markers of the model); `None` is 1000, the notebook's. A list of `(2, k)` `(row, col)` arrays is used as given, one per realization. |
-| `marker_density` | `float` | `None` | Markers per million pixels of the whole grid (`rows * cols`), instead of `markers` (an error to give both): `max(1, round(marker_density * rows * cols / 1e6))`. `markers` is a count per image, so the same value is a different density on windows of different sizes; F rises up to about 400 to 1000 per million pixels and is flat above (phase 24e). `attrs` holds the resolved `markers` and the `marker_density`. |
+| `realizations` | `int` | `None` | Monte Carlo: how many watersheds; `None` is 200 (500 with the notebook preset). |
+| `markers` | `int` or list | `None` | Random markers per watershed (for `"exact"`, the number of markers of the model); `None` (without `marker_density`) is a density of 1000 per million pixels (the notebook preset: a count of 1000). A list of `(2, k)` `(row, col)` arrays is used as given, one per realization. |
+| `marker_density` | `float` | `None` | Markers per million pixels of the whole grid (`rows * cols`), instead of `markers` (an error to give both): `max(1, round(marker_density * rows * cols / 1e6))`. `markers` is a count per image, so the same value is a different density on windows of different sizes; F rises up to about 400 to 1000 per million pixels and is flat above (phase 24e). Neither given: 1000. `attrs` holds the resolved `markers` and the `marker_density`. |
 | `min_distance` | `float` | `20` | Pixels between markers after thinning. |
 | `marker_radius` | `int` | `3` | Radius of the disk each marker is dilated to. |
 | `n_neighbors`, `coloring` | `int`, `str` | `20`, `"knn"` | The marker colouring graph; `"unique"` gives every marker its own label. |
-| `low`, `high` | `float` | `0.3`, `0.6` | Hysteresis thresholds on the boundary probability. |
-| `min_size` | `int` | `50` | Objects of fewer pixels are removed before the final watershed. |
+| `low`, `high` | `float` | `None` (0.1), `0.6` | Hysteresis thresholds on the boundary probability; `low=None` is 0.1 (0.3 with the notebook preset). |
+| `min_size` | `int` | `None` | Objects of fewer pixels are removed before the final watershed; `None` is 10 (50 with the notebook preset). The cross-validation preferred 0, at the edge of the grid; up to 25 costs at most 0.006 in F and nothing in D, and 10 avoids thousands of one-pixel objects. |
 | `final` | `str` | `None` | `"image"` or `"gradient"`: the surface of the final watershed. `None`: the image for one 2-D image, else the gradient. |
 | `mask` | `(y, x)` bool | `None` | True where the pixel is kept (e.g. not forest). |
 | `mask_threshold` | `float` | `None` | Keep the pixels where the image is greater than this, in its own units. Not together with `mask`. |
 | `mask_quantile` | `float` | `None` | A relative mask, in percent (0 to 100): keep the pixels where the image is strictly greater than its own percentile over the finite pixels (`numpy.percentile`, linear). The absolute threshold does not transfer between regions (phase 24e). Needs one 2-D image; not together with `mask` or `mask_threshold`. `attrs` holds `mask_quantile` and the `mask_threshold` it resolved to. |
 | `band`, `time` | | `None` | Select one band and/or date of a stack or cube. |
-| `preset` | `str` | `None` | `"notebook"`: `final="image"` and `mask_threshold=2000` (Landsat SWIR1 reflectance times 10000) unless given (nor `mask`, `mask_threshold` or `mask_quantile`). An argument passed explicitly wins. |
+| `preset` | `str` | `None` | `"notebook"`: every notebook value not passed explicitly: `gradient="tophat"`, `realizations=500`, `markers=1000` (a count, unless `marker_density` is given), `low=0.3`, `min_size=50`, `final="image"` and `mask_threshold=2000` (Landsat SWIR1 reflectance times 10000; not with `mask`, `mask_threshold` or `mask_quantile`). An argument passed explicitly wins. |
 | `random_state` | `int` | `None` | Seed of the Monte Carlo; the result does not depend on `n_jobs`. |
 | `n_jobs` | `int` | `None` | Threads (`None` or `-1`: all the cores but one). |
 
@@ -723,9 +726,10 @@ Delineates fields in an image (or in a stack or series, with `gradient="multitem
 
 ```python
 swir = zeit.load_raster("B5_medoid_2019.tif")                    # raw digital numbers
-res = zeit.fields(swir, preset="notebook", random_state=0)
+res = zeit.fields(swir, preset="notebook", random_state=0)       # the notebook's values
+res = zeit.fields(swir, random_state=0)                          # the tuned defaults
 polygons = zeit.fields_to_polygons(res)
-res = zeit.fields(cube, gradient="multitemporal", mask=~forest, method="exact", markers=500)
+res = zeit.fields(cube, mask=~forest, method="exact", markers=500)   # multitemporal gradient
 ```
 
 ### `fields_to_polygons` { .api }
@@ -762,21 +766,21 @@ zeit.edge_gradient(
 )
 ```
 
-The edge-strength image that `fields` floods. `"tophat"` is the notebook's: the image stretched between its 2nd and 98th percentiles, `black_tophat(img, 3x3) - 0.5 * img`, then a grey dilation. `"sobel"` is the Sobel magnitude of the stretched image (equal to `skimage.filters.sobel`). `"multitemporal"` standardises and Sobels every layer (each date and band) and combines them with `combine` (`"max"` or `"sum"`, the mean of the layers with a value). `"tophat"` and `"sobel"` need one 2-D image, so select it with `band` / `time`. Returns a `(y, x)` `DataArray` with the input's coordinates.
+The edge-strength image that `fields` floods. `"tophat"` is the notebook's: the image stretched between its 2nd and 98th percentiles, `black_tophat(img, 3x3) - 0.5 * img`, then a grey dilation. `"sobel"` is the Sobel magnitude of the stretched image (equal to `skimage.filters.sobel`). `"multitemporal"` standardises and Sobels every layer (each date and band) and combines them with `combine` (`"max"` or `"mean"`, the sum over the layers with a value divided by their number; `"sum"` is an older name for `"mean"`). `"tophat"` and `"sobel"` need one 2-D image, so select it with `band` / `time`. Returns a `(y, x)` `DataArray` with the input's coordinates.
 
 ### `stochastic_watershed` { .api }
 
 <!-- sig: zeit.stochastic_watershed -->
 ```python
 zeit.stochastic_watershed(
-    gradient, *, method="montecarlo", realizations=500, markers=None,
+    gradient, *, method="montecarlo", realizations=200, markers=None,
     min_distance=20, marker_radius=3, n_neighbors=20, coloring="knn",
     mask=None, marker_density=None, random_state=None, n_jobs=None,
     return_counts=False,
 )
 ```
 
-The probability that each pixel lies on a watershed boundary (Angulo & Jeulin 2007): the part of `fields` that costs the time. The parameters are `fields`'s (`markers=None` is 1000; `marker_density` gives the markers per million pixels instead), and `mask` is inside every watershed. Returns a `(y, x)` float32 `DataArray` in `[0, 1]` (with `return_counts`, also the raw counts of the Monte Carlo).
+The probability that each pixel lies on a watershed boundary (Angulo & Jeulin 2007): the part of `fields` that costs the time. The parameters are `fields`'s (`realizations=200`; `markers=None` is a density of 1000 per million pixels; `marker_density` sets another density instead), and `mask` is inside every watershed; pixels of non-finite gradient are always left out, by both methods. Returns a `(y, x)` float32 `DataArray` in `[0, 1]` (with `return_counts`, also the raw counts of the Monte Carlo).
 
 ### `watershed` { .api }
 

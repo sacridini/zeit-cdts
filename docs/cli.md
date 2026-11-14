@@ -403,24 +403,25 @@ zeit snic ./data/s2_ndvi_2022.tif ./results --spacing 8 --polygons
 
 ### 12b. Field boundaries (`fields`)
 
-[`zeit.fields`](api/time-series.md#fields): fields by the stochastic watershed (Angulo & Jeulin 2007), with the MappingDemo notebook's values (Baumann 2020, after Emmanuelle Gouillart's tutorial) as defaults. The input is read into memory. One three-band raster, `<prefix>.tif`: `labels` (field ids, `0` outside the mask; the boundary network, label 1, stays in it), `boundary` (the boundary probability) and `gradient`. `--polygons` also writes `<prefix>.gpkg`, the fields as polygons with `n_pixels`, `area_ha`, `perimeter_m` and `compactness` (the boundary network left out).
+[`zeit.fields`](api/time-series.md#fields): fields by the stochastic watershed (Angulo & Jeulin 2007), after the MappingDemo notebook (Baumann 2020, after Emmanuelle Gouillart's tutorial), with defaults chosen by the sensitivity analysis and spatial cross-validation of phases 24e and 24f (mean F 0.50 to 0.63 on 64 Brazil and Chaco windows; `--preset notebook` restores the notebook's values). In forested landscapes such as the Dry Chaco a forest mask raises F, so pass `--mask-threshold` there. The input is read into memory. One three-band raster, `<prefix>.tif`: `labels` (field ids, `0` outside the mask; the boundary network, label 1, stays in it), `boundary` (the boundary probability) and `gradient`. `--polygons` also writes `<prefix>.gpkg`, the fields as polygons with `n_pixels`, `area_ha`, `perimeter_m` and `compactness` (the boundary network left out).
 
 | Option | Type | Default | Description |
 | :--- | :---: | :---: | :--- |
-| `--gradient` | `str` | `tophat` | `tophat` (the notebook's), `sobel` or `multitemporal` (a stack or series). |
+| `--gradient` | `str` | sobel for one image, multitemporal for a stack or series | `tophat` (the notebook's), `sobel` or `multitemporal`. |
+| `--combine` | `str` | `mean` | `mean` or `max`: how the multitemporal gradient combines the layers. |
 | `--method` | `str` | `montecarlo` | `montecarlo` or `exact`. The thresholds are not yet calibrated for `exact`. |
-| `--realizations` | `int` | `500` | Monte Carlo: number of watersheds. |
-| `--markers` | `int` | `1000` | Random markers per watershed. |
-| `--marker-density` | `float` | *None* | Markers per million pixels of the image, instead of `--markers` (not both). |
+| `--realizations` | `int` | `200` | Monte Carlo: number of watersheds (500 with `--preset notebook`). |
+| `--markers` | `int` | *density 1000* | Random markers per watershed, as a count (1000 with `--preset notebook`). |
+| `--marker-density` | `float` | `1000` | Markers per million pixels of the image, instead of `--markers` (not both). |
 | `--min-distance` | `float` | `20` | Pixels between markers. |
 | `--marker-radius` | `int` | `3` | Radius of the disk of each marker. |
-| `--low`, `--high` | `float` | `0.3`, `0.6` | Hysteresis thresholds on the boundary probability. |
-| `--min-size` | `int` | `50` | Drop objects of fewer pixels before the final watershed. |
+| `--low`, `--high` | `float` | `0.1`, `0.6` | Hysteresis thresholds on the boundary probability (`--low 0.3` with `--preset notebook`). |
+| `--min-size` | `int` | `10` | Drop objects of fewer pixels before the final watershed (50 with `--preset notebook`). |
 | `--final` | `str` | image, or gradient for a stack | `image` or `gradient`: what the final watershed floods. |
 | `--mask-threshold` | `float` | *None* | Keep the pixels where the image is greater than this. |
 | `--mask-quantile` | `float` | *None* | Keep the pixels where the image is above its own percentile (0 to 100); not together with `--mask-threshold`. |
 | `--band` | `str` | *None* | A stack: the band (name or number) to delineate. |
-| `--preset` | `str` | *None* | `notebook`: `--final image` and `--mask-threshold 2000` (Landsat SWIR1 times 10000), the latter unless `--mask-threshold` or `--mask-quantile` is given. |
+| `--preset` | `str` | *None* | `notebook`: the notebook's value for every option not given (`tophat`, 500 realizations, 1000 markers, `--low 0.3`, `--min-size 50`, `--final image`, `--mask-threshold 2000` for Landsat SWIR1 times 10000, the latter unless `--mask-threshold` or `--mask-quantile` is given). |
 | `--random-state` | `int` | *None* | Seed of the Monte Carlo. |
 | `--polygons` | flag | | Also write the polygons. |
 
