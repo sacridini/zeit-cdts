@@ -3788,7 +3788,22 @@ Medido no harness da 24e (`report_24f.md` e `report_ftw.md` em `ZEIT_FIELDS_DATA
 - **Fica para depois:** o gradiente de embeddings. O AlphaEarth pede a autenticação do usuário no
   GEE e o TESSERA é um download à parte; os dois só cobrem os anos recentes.
 
-### Achados nas ferramentas de mosaico (24e, a decidir com o usuário)
+### Achados nas ferramentas de mosaico (24e) — **corrigidos (2026-11-14, a pedido do usuário)**
+
+Correções em `zeit/cube.py`:
+- **Máscara Landsat:** os bits 0–4 (fill, dilated cloud, cirrus, cloud, shadow) em 0 e o bit 6 em
+  1; neve e água continuam claras.
+- **Plataforma:** `platforms=` e `slc_off=`. O Landsat 7 depois de 2003-05-31 sai por padrão, menos
+  no BAP, que já lhe dá peso 0,5.
+- **Grade:** `align="native"` põe a grade na do próprio Landsat (15 mod 30) quando o CRS e a
+  resolução são os das cenas. Isso vale também para o gêmeo de hemisfério, porque o Planetary
+  Computer guarda o Landsat do sul na zona norte, com northings negativos.
+- **Saídas novas:** `clear_count=True` dá a coordenada `n_clear`, e `attrs["scenes"]` sai sempre.
+- **Erros de leitura:** uma `ReadErrorWarning` por arquivo que vira nodata.
+
+Na janela de Sorriso de 2019, o resultado é idêntico em 100% dos pixels ao mosaico de `mosaics.py`.
+
+O texto original segue:
 
 Os mosaicos das áreas de teste (`benchmarks/fields/validation/mosaics.py`) contornaram, sem mexer no
 pacote, quatro falhas de `build_annual_composites` / `cube.py`. Corrigi-las muda saídas existentes:

@@ -32,8 +32,8 @@ def test_nanmedian_time_matches_numpy():
 
 
 def test_clear_mask():
-    qa = np.array([CLEAR, 0, CLEAR | 8, 21824], dtype="uint16")  # 21824: L8 clear land
-    assert _clear_mask(qa, "qa_pixel").tolist() == [True, False, True, True]
+    qa = np.array([CLEAR, 0, CLEAR | 8, 21824, CLEAR | 16], dtype="uint16")  # 21824: L8 clear land; 8 cloud, 16 shadow
+    assert _clear_mask(qa, "qa_pixel").tolist() == [True, False, False, True, False]
     scl = np.array([4, 8, 9, 3, 6, 11], dtype="uint16")
     assert _clear_mask(scl, "scl").tolist() == [True, False, False, False, True, True]
 

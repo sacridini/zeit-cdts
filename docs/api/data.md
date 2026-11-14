@@ -14,7 +14,7 @@ zeit.cube.build_time_series(
     end_date="2020-12-31", cloud_cover_max=30, bands=None,
     apply_cloud_mask=False, resolution=None, epsg=4326,
     validate_items=False, access_token=None, chunksize=2048,
-    dtype="float32",
+    dtype="float32", platforms=None, slc_off=False, align="native",
 )
 ```
 
@@ -39,12 +39,19 @@ Builds a lazy, Dask-backed `xarray.DataArray` from a STAC catalog. It searches t
 | `access_token` | `str` | `None` | Token for catalogs that require one (e.g. Brazil Data Cube). |
 | `chunksize` | `int` | `2048` | Spatial chunk size, in pixels. Large chunks mean fewer HTTP requests and fewer COG blocks read twice at chunk edges. |
 | `dtype` | `str` | `"float32"` | Float types hold reflectance (scale and offset applied, NaN = nodata). Integer types (`"uint16"`) hold the raw digital numbers (0 = nodata) at half the memory, with per-scene `scale` and `offset` coordinates to recover reflectance; `apply_cloud_mask` must then stay `False`. |
+| `platforms` | `list[str]` | `None` | Keep only the items of these platforms, e.g. `["landsat-8", "landsat-9"]` (the items' `platform` property: `landsat-5` to `landsat-9` on Planetary Computer and Earth Search; case and `_` / `-` do not matter). Applied to the items before anything is read. |
+| `slc_off` | `bool` | `False` | Keep the Landsat 7 scenes acquired from 2003-05-31 on, after its scan line corrector failed (stripes of no data in every band). They are dropped by default. |
+| `align` | `str` | `"native"` | `"native"` puts the grid on the pixel edges of the scenes' own grid when they are in the requested `epsg` at the requested `resolution` (Landsat on UTM: edges at 15 mod 30 m, so no pixel is resampled); `"resolution"` snaps the bounds to multiples of `resolution`, as before. Anything else (another CRS or resolution, no `bbox`) uses `"resolution"` too. |
 
 </div>
 
 **Returns** a lazy `xarray.DataArray` `(time, band, y, x)`.
 
-Missing files (HTTP 404) and corrupted blocks become nodata. Access errors raise: Landsat on Earth Search lives in the requester-pays `s3://usgs-landsat` bucket and needs AWS credentials (the requester pays the transfer), while Planetary Computer serves the same Landsat files for free.
+With `apply_cloud_mask=True` (or the QA band loaded and masked with `zeit.cube._clear_mask`), a Landsat pixel is clear when its `QA_PIXEL` has the fill, dilated cloud, cirrus, cloud and cloud shadow bits (0 to 4) at 0 and the clear bit (6) at 1. The clear bit alone does not exclude the cloud shadow. Snow (bit 5) and water (bit 7) are surfaces, not defects: they stay clear, as in Sentinel-2's SCL and HLS's Fmask.
+
+**Native grid.** On a UTM `epsg` at 30 m the scenes are not resampled: the bounds are widened to Landsat's lattice. Planetary Computer keeps the Southern Hemisphere's Landsat scenes in the *northern* zone with negative northings (Sorriso, Brazil: EPSG:32621, not 32721); asking for the southern twin (32721) also lands on the lattice in x and shifts y by the false northing of 10,000,000 m (the edges are then at 25 mod 30 m in y), a pure translation. With the default `epsg=4326` nothing is aligned.
+
+Missing files (HTTP 404) and corrupted blocks become nodata, but each file that had one raises a `zeit.cube.ReadErrorWarning` naming it (the file name carries the scene and the band; `zeit.cube.READ_ERRORS` lists them). Access errors raise: Landsat on Earth Search lives in the requester-pays `s3://usgs-landsat` bucket and needs AWS credentials (the requester pays the transfer), while Planetary Computer serves the same Landsat files for free.
 
 ```python
 import zeit
@@ -73,6 +80,7 @@ zeit.cube.build_annual_composites(
     method="median", apply_cloud_mask=True, resolution=30, epsg=4326,
     access_token=None, chunksize=2048, target_doy=None, doy_sigma=30.0,
     cloud_distance=(30.0, 1500.0), weights=None, bap_info=False,
+    platforms=None, slc_off=None, align="native", clear_count=False,
 )
 ```
 
@@ -101,10 +109,18 @@ Builds one cloud-masked composite per year from a STAC catalog: the annual stack
 | `epsg` | `int` | `4326` | Output coordinate reference system. |
 | `access_token` | `str` | `None` | Token for catalogs that require one. |
 | `chunksize` | `int` | `2048` | Spatial chunk size, in pixels. Memory per chunk in flight is about `scenes × bands × chunksize² × 2` bytes. |
+| `platforms` | `list[str]` | `None` | Keep only the scenes of these platforms, e.g. `["landsat-8", "landsat-9"]`, as in `build_time_series`. |
+| `slc_off` | `bool` | `None` | Keep the Landsat 7 scenes acquired after its scan line corrector failed (2003-05-31), which have stripes of no data. `None`: dropped for `"median"` and `"medoid"`, kept for `"bap"`, whose sensor score already weighs them 0.5 so that they fill what the others do not. |
+| `align` | `str` | `"native"` | `"native"` or `"resolution"`, as in `build_time_series`. The grid is on Landsat's own pixel edges only where `epsg` is the scenes' UTM zone (see the note there; the default `epsg=4326` is not) and `resolution` is 30; otherwise the old grid. |
+| `clear_count` | `bool` | `False` | Add the `n_clear` coordinate (below). It comes from the same read as the composite and costs a few array operations; a consumer that computes the composite and `n_clear` in two separate calls reads the scenes twice, hence opt-in. |
 
 </div>
 
 **Returns** a lazy float32 `xarray.DataArray` `(time, band, y, x)` of reflectance, with `time` on January 1st of each year and a `year` coordinate. Years without scenes are NaN, so the time axis has no gaps.
+
+`attrs["scenes"]` is a JSON string, `{"2019": ["LC08_L2SP_...", ...], ...}`: the ids of the scenes read for each year (a string because netCDF attributes cannot hold a dict; `json.loads` it). With `clear_count=True` the coordinate `n_clear`, `(time, y, x)` of int16, holds each pixel's clear observations of the year: the QA band's clear with a value in every composited band (0 in years without scenes). Both survive `to_netcdf`; `save_raster` writes the bands and leaves them out.
+
+Changed in the Landsat composites: the Landsat mask also excludes cloud shadow (it kept only the clear bit), Landsat 7 scenes after 2003-05-31 are dropped by default (`"median"`, `"medoid"`), and where `epsg` is the scenes' UTM zone the grid is Landsat's own lattice (edges at 15 mod 30 m) instead of multiples of 30 m. Pass `slc_off=True` and `align="resolution"` for the old grid and scenes; the mask has no switch.
 
 ```python
 import zeit
@@ -144,6 +160,7 @@ zeit.cube.build_spectral_temporal_metrics(
     metrics=('median', 'p10', 'p25', 'p75', 'p90', 'std'),
     band_map=None, cloud_cover_max=30, apply_cloud_mask=True,
     resolution=30, epsg=4326, access_token=None, chunksize=1024,
+    platforms=None, slc_off=False, align="native",
 )
 ```
 
@@ -168,6 +185,7 @@ Builds per-year spectral temporal metrics (STMs) from a STAC catalog: the median
 | `epsg` | `int` | `4326` | Output coordinate reference system. |
 | `access_token` | `str` | `None` | Token for catalogs that require one. |
 | `chunksize` | `int` | `1024` | Spatial chunk size, in pixels. Memory per chunk in flight is about `scenes × chunksize² × (2 bytes per band loaded + 4 per band or index used)`. |
+| `platforms`, `slc_off`, `align` | | `None`, `False`, `"native"` | As in `build_time_series`: the platforms kept, Landsat 7 after 2003-05-31 dropped unless `slc_off=True`, the grid on Landsat's own lattice where `epsg` is the scenes' zone. `attrs["scenes"]` lists each year's scenes, as in `build_annual_composites`. |
 
 </div>
 

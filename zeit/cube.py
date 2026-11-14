@@ -14,11 +14,22 @@ from typing import List, Optional, Sequence, Tuple, Union
 import xarray as xr
 
 import concurrent.futures
+import json
+import math
 import re
+import threading
+import warnings
+from collections import Counter
+
 import numpy as np
 import pandas as pd
 import rasterio
 from rasterio.errors import RasterioIOError
+try:  # stackstac internals, for the read-error warning only: without them the cube is read as before
+    from stackstac.nodata_reader import NodataReader, exception_matches
+    from stackstac.rio_reader import AutoParallelRioReader
+except ImportError:  # pragma: no cover - another stackstac layout
+    AutoParallelRioReader = None
 
 from .indices import INDICES, canonical_index, index_array, parse_metrics, temporal_metrics, DEFAULT_METRICS
 
@@ -46,6 +57,70 @@ ERRORS_AS_NODATA = (
     RasterioIOError(".*IReadBlock failed"),
     RasterioIOError(".*not recognized as( being in)? a supported file format"),
 )
+
+
+class ReadErrorWarning(UserWarning):
+    """An asset (or a block of it) could not be read and became nodata (see `ERRORS_AS_NODATA`)."""
+
+
+#: Files that had a read error turned into nodata in this process: ``{url without its token: message}``.
+READ_ERRORS: dict = {}
+_READ_ERRORS_LOCK = threading.Lock()
+
+
+def _report_read_error(url: str, what: str) -> None:
+    """Warn, once per file, that ``url`` became nodata, naming the file (its name carries the scene and the band)."""
+    key = str(url).split("?")[0]
+    with _READ_ERRORS_LOCK:
+        first = key not in READ_ERRORS
+        READ_ERRORS[key] = what
+    if first:
+        name = key.rsplit("/", 1)[-1]
+        warnings.warn(ReadErrorWarning(
+            f"{name}: {what}; read as nodata (scene and band are in the file name; the cube has gaps there). "
+            f"URL: {key}"), stacklevel=2)
+
+
+class _WatchedDataset:
+    """A stackstac dataset whose tolerated read errors (`ERRORS_AS_NODATA`) are reported before they become a
+    fully masked block."""
+
+    def __init__(self, ds, url, errors):
+        self._ds, self._url, self._errors = ds, url, errors
+
+    def read(self, window, **kwargs):
+        try:
+            return self._ds.read(window=window, **kwargs)
+        except Exception as e:
+            if not exception_matches(e, self._errors):
+                raise
+            _report_read_error(self._url, f"a block could not be read ({str(e).strip()[:200]})")
+            return np.ma.masked_all((1, int(window.height), int(window.width)), dtype=kwargs["out_dtype"])
+
+    def close(self):
+        self._ds.close()
+
+
+if AutoParallelRioReader is not None:
+    class _ZeitReader(AutoParallelRioReader):
+        """stackstac's reader, reporting (`ReadErrorWarning`, once per file) what `ERRORS_AS_NODATA` turns into
+        nodata.
+
+        stackstac has no callback for it, and its own plain warning does not say which scene it was; the error is
+        caught one level down, in the dataset, and answered with the same fully masked block stackstac would
+        give."""
+
+        def _open(self):
+            ds = super()._open()
+            if isinstance(ds, NodataReader):   # the open failed and stackstac already turned it into nodata
+                _report_read_error(self.url, "could not be opened")
+                return ds
+            return _WatchedDataset(ds, self.url, self.errors_as_nodata)
+else:  # pragma: no cover
+    _ZeitReader = None
+
+# Landsat QA_PIXEL bits that must be 0 on a clear pixel: fill, dilated cloud, cirrus, cloud, cloud shadow.
+LANDSAT_BAD_BITS = 0b11111
 
 # Sentinel-2 SCL classes kept as clear: vegetation, bare soil, water, unclassified, snow.
 SCL_CLEAR = [4, 5, 6, 7, 11]
@@ -108,8 +183,11 @@ def _clear_mask(qa: np.ndarray, qa_band: str) -> np.ndarray:
     if qa_band.lower() == "fmask":
         # HLS Fmask: bits 1 cloud, 2 adjacent to cloud or shadow, 3 cloud shadow; 255 is fill.
         return ((qa & 0b1110) == 0) & (qa != 255)
-    # Landsat QA_PIXEL: bit 6 is set on clear pixels.
-    return (qa & (1 << 6)) > 0
+    # Landsat QA_PIXEL (Collection 2, Landsat 4-9): bit 0 fill, 1 dilated cloud, 2 cirrus (8-9 only), 3 cloud,
+    # 4 cloud shadow, 5 snow, 6 clear, 7 water. The clear bit only says that the cloud and dilated cloud bits are
+    # 0, so a cloud shadow, a cirrus and a fill pixel can have it set: they are excluded one by one. Snow and
+    # water are surfaces, not defects (as in Sentinel-2's SCL and HLS's Fmask above), and stay clear.
+    return ((qa & LANDSAT_BAD_BITS) == 0) & ((qa & (1 << 6)) > 0)
 
 
 def _validate_stac_item(item, band):
@@ -122,8 +200,111 @@ def _validate_stac_item(item, band):
     except Exception:
         return None
 
+#: The day Landsat 7's scan line corrector failed: its scenes from then on have gaps (stripes) in every band.
+SLC_FAILURE = pd.Timestamp("2003-05-31")
+
+
+def _norm_platform(p) -> str:
+    """A platform name as one string: ``"landsat-8"`` for ``"LANDSAT_8"``, ``"Landsat-8"``..."""
+    return str(p).strip().lower().replace("_", "-")
+
+
+def _item_props(item) -> dict:
+    return getattr(item, "properties", None) or {}
+
+
+def _item_time(item) -> Optional[pd.Timestamp]:
+    """The acquisition time of a STAC item, UTC and without time zone (None if it has none)."""
+    t = getattr(item, "datetime", None) or _item_props(item).get("datetime")
+    if t is None:
+        return None
+    t = pd.Timestamp(t)
+    return t.tz_convert("UTC").tz_localize(None) if t.tzinfo is not None else t
+
+
+def _filter_platforms(items, platforms: Optional[Sequence[str]], slc_off: bool):
+    """The items of the given platforms (``["landsat-8", "landsat-9"]``; None keeps every platform) and, unless
+    ``slc_off``, without Landsat 7 scenes acquired from 2003-05-31 on (its scan line corrector failed).
+
+    The platform is the item's ``platform`` property, as Planetary Computer and Earth Search spell it
+    (``landsat-5``, ``landsat-7``, ``landsat-8``, ``landsat-9``); the case and ``_`` / ``-`` do not matter.
+    An item without a platform is dropped when ``platforms`` is given."""
+    wanted = None if platforms is None else {_norm_platform(p) for p in ([platforms] if isinstance(platforms, str)
+                                                                         else platforms)}
+    out = []
+    for item in items:
+        p = _norm_platform(_item_props(item).get("platform", ""))
+        if wanted is not None and p not in wanted:
+            continue
+        if not slc_off and p == "landsat-7":
+            t = _item_time(item)
+            if t is not None and t >= SLC_FAILURE:
+                continue
+        out.append(item)
+    return out
+
+
+def _item_native(item) -> Optional[Tuple[int, Tuple[float, ...]]]:
+    """``(epsg, proj:transform)`` of a STAC item, from its properties (or its first asset that has them)."""
+    props = _item_props(item)
+    sources = [props] + [getattr(a, "extra_fields", None) or {} for a in (getattr(item, "assets", None) or {}).values()]
+    for s in sources:
+        transform = s.get("proj:transform")
+        code = s.get("proj:epsg") or s.get("proj:code")
+        if transform is None or code is None:
+            continue
+        try:
+            epsg = int(str(code).split(":")[-1])
+        except ValueError:
+            continue
+        return epsg, tuple(float(v) for v in transform)
+    return None
+
+
+def _native_lattice(items, epsg: int, resolution: float) -> Optional[Tuple[float, float]]:
+    """The offsets ``(x, y)``, in ``[0, resolution)``, of the pixel edges of the items' own grid expressed in
+    ``epsg``, or None when the items are not on a grid of ``resolution`` in (a CRS equivalent to) ``epsg``.
+
+    Equivalent CRSs: the same one, or the two hemispheres of one UTM zone (326zz and 327zz differ by a false
+    northing of 10,000,000 m, so a scene in one is a pure shift of the other: Planetary Computer keeps the
+    Southern Hemisphere's Landsat scenes in the northern zone, with negative northings). Landsat's pixel edges
+    are at 15 mod 30 m in x and y of its own zone. When the items disagree the most common lattice wins."""
+    offsets = Counter()
+    for item in items:
+        native = _item_native(item)
+        if native is None:
+            continue
+        code, t = native
+        if abs(t[0]) != resolution or abs(t[4]) != resolution or t[1] != 0 or t[3] != 0:
+            continue
+        if code == epsg:
+            shift = 0.0
+        elif 32601 <= code <= 32660 and epsg == code + 100:     # north -> south of the same zone
+            shift = 10_000_000.0
+        elif 32701 <= code <= 32760 and epsg == code - 100:     # south -> north
+            shift = -10_000_000.0
+        else:
+            continue
+        offsets[(round(t[2] % resolution, 6), round((t[5] + shift) % resolution, 6))] += 1
+    if not offsets:
+        return None
+    return offsets.most_common(1)[0][0]
+
+
+def _snap_to_lattice(bounds, lattice: Tuple[float, float], resolution: float) -> Tuple[float, float, float, float]:
+    """``(minx, miny, maxx, maxy)`` widened to the pixel edges of a lattice (offsets ``(x, y)`` mod ``resolution``)."""
+    lx, ly = lattice
+    minx, miny, maxx, maxy = bounds
+    # a tolerance of a millionth of a pixel: a bound exactly on an edge must not move a whole pixel
+    eps = 1e-6
+    return (math.floor((minx - lx) / resolution + eps) * resolution + lx,
+            math.floor((miny - ly) / resolution + eps) * resolution + ly,
+            math.ceil((maxx - lx) / resolution - eps) * resolution + lx,
+            math.ceil((maxy - ly) / resolution - eps) * resolution + ly)
+
+
 def build_time_series(
-    source: str = "earth_search", 
+    source: str = "earth_search",
     collection: Union[str, List[str]] = "sentinel-2-l2a", 
     bbox: Optional[List[float]] = None, 
     vector_path: Optional[str] = None,
@@ -139,6 +320,9 @@ def build_time_series(
     access_token: Optional[str] = None,
     chunksize: int = 2048,
     dtype: str = "float32",
+    platforms: Optional[Sequence[str]] = None,
+    slc_off: bool = False,
+    align: str = "native",
 ) -> xr.DataArray:
     """
     Builds a lazy Dask-backed xarray DataCube from a STAC catalog.
@@ -167,7 +351,25 @@ def build_time_series(
         `offset` coordinates (time, band) to recover reflectance; the cloud mask can't be
         applied in place then, so `apply_cloud_mask` must stay False (load the QA band
         through `bands` instead).
+    platforms: Keep only the items of these platforms, e.g. ``["landsat-8", "landsat-9"]``
+        (the items' ``platform`` property, spelled ``landsat-5`` ... ``landsat-9`` by Planetary
+        Computer and Earth Search). Applied to the items before anything is read.
+    slc_off: Landsat 7 scenes acquired after its scan line corrector failed (2003-05-31) have
+        stripes of no data in every band. They are dropped (default) unless ``slc_off=True``.
+    align: ``"native"`` (default) puts the output grid on the pixel edges of the scenes' own grid
+        when the scenes are in the requested ``epsg`` (or in the other hemisphere's twin of that
+        UTM zone: Planetary Computer keeps the Southern Hemisphere's Landsat scenes in the northern
+        zone, e.g. 32621 for 32721) at the requested ``resolution``, so no pixel is resampled:
+        the bounds are widened to that lattice (Landsat's edges are at 15 mod 30 m, not at the
+        multiples of 30 m stackstac snaps to) and passed to stackstac. Otherwise (another CRS or
+        resolution, no ``bbox``) the grid is the one of ``"resolution"``: the bounds snapped to
+        multiples of ``resolution``, as before.
+
+    Read errors that `ERRORS_AS_NODATA` tolerates (a missing file, a corrupted block) still become
+    nodata, but each file that had one raises a `ReadErrorWarning` naming it (see `READ_ERRORS`).
     """
+    if align not in ("native", "resolution"):
+        raise ValueError(f"Unknown align {align!r}. Use 'native' or 'resolution'.")
     hls = [_hls_kind(c) for c in ([collection] if isinstance(collection, str) else collection)]
     if all(hls) and len(hls) > 1:
         if bands is None or any(b not in HLS_ROLES["l30"] for b in bands if b != "Fmask"):
@@ -177,7 +379,8 @@ def build_time_series(
                                    start_date=start_date, end_date=end_date, cloud_cover_max=cloud_cover_max,
                                    bands=list(bands), apply_cloud_mask=apply_cloud_mask, resolution=resolution,
                                    epsg=epsg, validate_items=validate_items, access_token=access_token,
-                                   chunksize=chunksize, dtype=dtype) for c in collection]
+                                   chunksize=chunksize, dtype=dtype, platforms=platforms, slc_off=slc_off,
+                                   align=align) for c in collection]
         return join_in_time(parts)
     renames = {}
     if hls[0] and bands:   # roles -> this product's assets, named back after the roles below
@@ -257,6 +460,15 @@ def build_time_series(
         
     items_list = list(items)
 
+    # 3.4 Platform and Landsat 7 SLC-off filter, on the items, before anything is read
+    if platforms is not None or not slc_off:
+        found = len(items_list)
+        items_list = _filter_platforms(items_list, platforms, slc_off)
+        if len(items_list) != found:
+            print(f"Kept {len(items_list)} of {found} scenes (platforms={platforms}, slc_off={slc_off})")
+        if not items_list:
+            raise ValueError("No images found for the given criteria (every scene was dropped by platforms / slc_off).")
+
     # Manual post-filtering for Landsat tiles if multiple were provided
     # since STAC query doesn't easily support OR conditions across multiple path/row pairs
     if tiles and "landsat" in col_name:
@@ -292,7 +504,6 @@ def build_time_series(
         if qa_band and bands and qa_band not in bands:
             bands = list(bands) + [qa_band]   # not the caller's list
         if qa_band is None:
-            import warnings
             warnings.warn(f"apply_cloud_mask: no known QA band for {col_name!r} (Sentinel-2's SCL, Landsat's "
                           "QA_PIXEL and HLS's Fmask are); the cube is not masked", stacklevel=2)
             
@@ -326,6 +537,8 @@ def build_time_series(
         "gdal_env": GDAL_ENV,
         "errors_as_nodata": ERRORS_AS_NODATA,
     }
+    if _ZeitReader is not None:
+        stack_kwargs["reader"] = _ZeitReader
     if integer_output:
         stack_kwargs.update(fill_value=np.dtype(dtype).type(0), rescale=False)
     else:
@@ -335,7 +548,15 @@ def build_time_series(
         stack_kwargs.update(rescale=False, fill_value=np.dtype(dtype).type(np.nan))
     if bbox is not None:
         stack_kwargs["bounds_latlon"] = bbox
-        
+        lattice = _native_lattice(items_list, epsg, resolution) if align == "native" and resolution else None
+        if lattice is not None:
+            # The scenes' own pixel edges, not multiples of the resolution: stackstac takes the bounds as given.
+            from stackstac.geom_utils import reproject_bounds
+
+            stack_kwargs.pop("bounds_latlon")
+            stack_kwargs["bounds"] = _snap_to_lattice(reproject_bounds(tuple(bbox), 4326, epsg), lattice, resolution)
+            stack_kwargs["snap_bounds"] = False
+
     cube = stackstac.stack(items_list, **stack_kwargs)
     if hls[0] and not integer_output:   # HLS's fill values, in case the reader kept them
         # Fmask's fill (255) stays: _clear_mask reads it as not clear.
@@ -424,15 +645,30 @@ def _masked_reflectance(raw, i, clear, scale, offset):
     return out
 
 
-def _composite_block(raw, band_idx, qa_idx, qa_band, scale, offset, method):
+def _clear_count(raw, band_idx, clear) -> np.ndarray:
+    """Clear observations of each pixel of a raw block: the QA's clear (``clear``) and a value in every band."""
+    ok = (raw[:, band_idx] != 0).all(axis=1)
+    return (ok & clear).sum(axis=0)
+
+
+def _composite_block(raw, band_idx, qa_idx, qa_band, scale, offset, method, count=False):
     """Reduce one spatial chunk of raw digital numbers to a composite.
 
     raw: ``(time, band, y, x)`` integer array, 0 = nodata.
     scale, offset: ``(time, len(band_idx))`` per-scene factors (they differ between
         scenes when a provider changes processing baseline).
-    Returns ``(len(band_idx), y, x)`` float32 reflectance.
+    Returns ``(len(band_idx), y, x)`` float32 reflectance; with ``count``, one more layer: the
+    pixel's clear observations (`_clear_count`).
     """
     clear = _clear_mask(raw[:, qa_idx], qa_band) if qa_idx is not None else True
+    out = _composite_values(raw, band_idx, clear, scale, offset, method)
+    if count:
+        n = _clear_count(raw, band_idx, clear).astype(np.float32)
+        out = np.concatenate([out, n[None]])
+    return out
+
+
+def _composite_values(raw, band_idx, clear, scale, offset, method):
     vals = np.empty((raw.shape[0], len(band_idx)) + raw.shape[2:], dtype=np.float32)
     for k, i in enumerate(band_idx):
         vals[:, k] = _masked_reflectance(raw, i, clear, scale[:, k], offset[:, k])
@@ -510,8 +746,9 @@ def _cube_scale_offset(cube: xr.DataArray, bands: List[str]) -> Tuple[np.ndarray
     return pick("scale"), pick("offset")
 
 
-def _composite_cube(cube, bands, qa_band, method):
-    """Lazy composite of a raw integer cube: one dask task per spatial chunk."""
+def _composite_cube(cube, bands, qa_band, method, count=False):
+    """Lazy composite of a raw integer cube: one dask task per spatial chunk (with ``count``, one more layer:
+    the clear observations of each pixel, from the same read)."""
     import dask.array as da
 
     names = list(cube.band.values)
@@ -521,8 +758,8 @@ def _composite_cube(cube, bands, qa_band, method):
     # All scenes and bands of a spatial chunk in one block, so every byte is read once.
     raw = cube.data.rechunk({0: -1, 1: -1})
     return da.map_blocks(
-        _composite_block, raw, band_idx, qa_idx, qa_band, scale, offset, method,
-        drop_axis=0, dtype=np.float32, chunks=((len(bands),),) + raw.chunks[2:],
+        _composite_block, raw, band_idx, qa_idx, qa_band, scale, offset, method, count,
+        drop_axis=0, dtype=np.float32, chunks=((len(bands) + int(count),),) + raw.chunks[2:],
     )
 
 
@@ -588,14 +825,15 @@ def _scene_dates(cube: xr.DataArray) -> Tuple[np.ndarray, np.ndarray, np.ndarray
     return doy, sensor, cover
 
 
-def _bap_block(raw, band_idx, qa_idx, qa_band, scale, offset, doy, sensor, cover, opts, info, pads):
+def _bap_block(raw, band_idx, qa_idx, qa_band, scale, offset, doy, sensor, cover, opts, info, pads, count=False):
     """The best available pixel composite of one spatial chunk of raw digital numbers (with `pads` = (top, bottom,
     left, right) rows and columns of its neighbours around it, the margin of the cloud distance).
 
     raw: ``(time, band, y, x)`` integer array, 0 = nodata. Each pixel takes, of its clear observations (the QA's
     and every band's), the one of the highest score (zeit-core's bap: day of the year, distance to clouds, sensor,
     cover). Returns ``(len(band_idx) [+ 3], y, x)`` float32 reflectance (and the date's day of the year, its score,
-    the pixel's clear observations), the margins cut off.
+    the pixel's clear observations), the margins cut off; with ``count``, one more last layer, the same clear
+    observations (the ones that count for the score), for ``clear_count``.
     """
     from ._core import bap
 
@@ -615,7 +853,7 @@ def _bap_block(raw, band_idx, qa_idx, qa_band, scale, offset, doy, sensor, cover
     sub = raw[:, :, ys, xs]
     has = date >= 0
     d = np.where(has, date, 0)
-    out = np.full((len(band_idx) + (3 if info else 0),) + date.shape, np.nan, dtype=np.float32)
+    out = np.full((len(band_idx) + (3 if info else 0) + int(count),) + date.shape, np.nan, dtype=np.float32)
     for k, i in enumerate(band_idx):
         v = np.take_along_axis(sub[:, i], d[None], 0)[0].astype(np.float32)
         v = v * scale[d, k] + offset[d, k]
@@ -624,6 +862,8 @@ def _bap_block(raw, band_idx, qa_idx, qa_band, scale, offset, doy, sensor, cover
         out[len(band_idx)] = np.where(has, doy[d], np.nan)
         out[len(band_idx) + 1] = score
         out[len(band_idx) + 2] = clear
+    if count:
+        out[-1] = clear
     return out
 
 
@@ -666,7 +906,7 @@ def _pixel_metres(cube: xr.DataArray) -> float:
     return dx
 
 
-def _bap_cube(cube, bands, qa_band, opts, info):
+def _bap_cube(cube, bands, qa_band, opts, info, count=False):
     """Lazy best available pixel composite of a raw integer cube: one dask task per spatial chunk, each with the
     margin of the cloud distance read from its neighbours. `opts`' cloud distances in metres."""
     import dask.array as da
@@ -691,9 +931,9 @@ def _bap_cube(cube, bands, qa_band, opts, info):
     def block(b, block_info=None):
         _, _, iy, ix = block_info[0]["chunk-location"]
         pads = (my if iy > 0 else 0, my if iy < ny - 1 else 0, mx if ix > 0 else 0, mx if ix < nx - 1 else 0)
-        return _bap_block(b, band_idx, qa_idx, qa_band, scale, offset, doy, sensor, cover, opts, info, pads)
+        return _bap_block(b, band_idx, qa_idx, qa_band, scale, offset, doy, sensor, cover, opts, info, pads, count)
 
-    n_out = len(bands) + (3 if info else 0)
+    n_out = len(bands) + (3 if info else 0) + int(count)
     return da.map_blocks(block, padded, drop_axis=0, dtype=np.float32,
                          chunks=((n_out,),) + out_chunks[2:])
 
@@ -755,12 +995,15 @@ def _stm_cube(cube, layers, assets, qa_band, metrics):
 
 def _annual_stack(reduce, out_bands, name, *, source, collection, bbox, vector_path,
                   start_year, end_year, season, load, cloud_cover_max, resolution, epsg,
-                  access_token, chunksize):
+                  access_token, chunksize, platforms=None, slc_off=False, align="native", counted=False):
     """Stack ``reduce(raw_cube) -> (len(out_bands), y, x)`` over each year's season window.
 
     Each year is read as raw integers (`build_time_series` with ``dtype="uint16"``) on the
     grid every year shares, and the results stacked to ``(time, band, y, x)``. Years
-    without scenes are NaN, so the time axis has no gaps.
+    without scenes are NaN, so the time axis has no gaps. With ``counted``, ``reduce`` returns one
+    more layer, the clear observations, which becomes the ``n_clear`` coordinate (time, y, x) of
+    int16 (0 in the years without scenes). ``attrs["scenes"]`` is a JSON object, year to the ids of
+    the scenes read for it.
     """
     import dask.array as da
 
@@ -772,6 +1015,7 @@ def _annual_stack(reduce, out_bands, name, *, source, collection, bbox, vector_p
 
     years = list(range(start_year, end_year + 1))
     results = {}
+    scenes = {}
     template = None
     for year in years:
         try:
@@ -782,6 +1026,7 @@ def _annual_stack(reduce, out_bands, name, *, source, collection, bbox, vector_p
                 cloud_cover_max=cloud_cover_max, bands=list(load),
                 apply_cloud_mask=False, resolution=resolution, epsg=epsg,
                 access_token=access_token, chunksize=chunksize, dtype="uint16",
+                platforms=platforms, slc_off=slc_off, align=align,
             )
         except ValueError as e:
             if "No images found" not in str(e):
@@ -789,6 +1034,7 @@ def _annual_stack(reduce, out_bands, name, *, source, collection, bbox, vector_p
             print(f"{year}: no scenes, filled with NaN")
             continue
         results[year] = reduce(cube)
+        scenes[str(year)] = [str(v) for v in cube.coords["id"].values] if "id" in cube.coords else []
         if template is None:
             template = cube
 
@@ -798,6 +1044,10 @@ def _annual_stack(reduce, out_bands, name, *, source, collection, bbox, vector_p
     first = next(iter(results.values()))
     empty = da.full(first.shape, np.nan, dtype=np.float32, chunks=first.chunks)
     data = da.stack([results.get(y, empty) for y in years])
+    n_clear = None
+    if counted:   # the last layer of each year: slices of the same graph, read once if computed together
+        n_clear = da.where(da.isnan(data[:, -1]), 0.0, data[:, -1]).astype(np.int16)
+        data = data[:, :-1]
 
     out = xr.DataArray(
         data,
@@ -809,9 +1059,12 @@ def _annual_stack(reduce, out_bands, name, *, source, collection, bbox, vector_p
             "x": template.x.values,
             "y": template.y.values,
         },
-        attrs={k: v for k, v in template.attrs.items() if k in ("crs", "transform", "resolution")},
+        attrs={**{k: v for k, v in template.attrs.items() if k in ("crs", "transform", "resolution")},
+               "scenes": json.dumps({str(y): scenes.get(str(y), []) for y in years})},
         name=name,
     )
+    if n_clear is not None:
+        out = out.assign_coords(n_clear=(("time", "y", "x"), n_clear))
     if "epsg" in template.coords:
         out = out.assign_coords(epsg=template.coords["epsg"])
     return out
@@ -838,6 +1091,10 @@ def build_annual_composites(
     cloud_distance: Tuple[float, float] = (30.0, 1500.0),
     weights: Optional[dict] = None,
     bap_info: bool = False,
+    platforms: Optional[Sequence[str]] = None,
+    slc_off: Optional[bool] = None,
+    align: str = "native",
+    clear_count: bool = False,
 ) -> xr.DataArray:
     """
     Builds one cloud-masked composite per year from a STAC catalog: the annual stack
@@ -858,7 +1115,22 @@ def build_annual_composites(
         multi-band median, keeping bands consistent) or "bap" (the best available pixel:
         each pixel's clear observation of the highest score, all its bands from that one
         date; see below).
-    apply_cloud_mask: Mask clouds and shadows with the collection's QA band.
+    apply_cloud_mask: Mask clouds and shadows with the collection's QA band (Landsat's
+        QA_PIXEL: fill, dilated cloud, cirrus, cloud and cloud shadow must be 0 and clear 1;
+        snow and water stay clear).
+    platforms: Keep only the scenes of these platforms, e.g. ``["landsat-8", "landsat-9"]``
+        (as in `build_time_series`).
+    slc_off: Keep the Landsat 7 scenes acquired after its scan line corrector failed
+        (2003-05-31), which have stripes of no data. Default None: dropped for "median" and
+        "medoid" (False), kept for "bap" (True), whose sensor score already weighs them 0.5, so
+        that they fill what the others do not.
+    align: ``"native"`` (default) or ``"resolution"``: as in `build_time_series`. The grid is
+        on Landsat's own pixel edges only where ``epsg`` is the scenes' UTM zone (or its
+        other-hemisphere twin) and ``resolution`` is 30: the default ``epsg=4326`` is not, and
+        keeps the old grid.
+    clear_count: Add the ``n_clear`` coordinate (below). It comes from the same read as the
+        composite and costs a few array operations, but a consumer that computes the composite
+        and ``n_clear`` in two separate calls reads the scenes twice; so it is opt-in.
     target_doy, doy_sigma, cloud_distance, weights, bap_info: the best available pixel's
         score (method="bap"), a weighted sum, after Griffiths et al. (2013) and White et
         al. (2014), of what makes an observation good:
@@ -879,6 +1151,11 @@ def build_annual_composites(
 
     Returns a lazy float32 DataArray (time, band, y, x) of reflectance, with ``time`` on
     January 1st of each year and a ``year`` coordinate. Years without scenes are NaN.
+    ``attrs["scenes"]`` is a JSON string, ``{"2019": ["LC08_L2SP_...", ...], ...}``: the ids of the
+    scenes read for each year (a JSON string because netCDF attributes cannot hold a dict; use
+    ``json.loads``). With ``clear_count=True`` the ``n_clear`` coordinate, ``(time, y, x)`` int16,
+    holds each pixel's clear observations per year: the QA band's clear (all of them if there is
+    no QA band) with a value in every composited band; 0 in years without scenes.
     """
     if method not in ("median", "medoid", "bap"):
         raise ValueError(f"Unknown method {method!r}. Use 'median', 'medoid' or 'bap'.")
@@ -895,9 +1172,9 @@ def build_annual_composites(
                          cloud_distance, weights)
         if bap_info:
             out_bands += list(BAP_INFO_BANDS)
-        reduce = lambda cube: _bap_cube(cube, bands, qa_band, opts, bap_info)
+        reduce = lambda cube: _bap_cube(cube, bands, qa_band, opts, bap_info, clear_count)
     else:
-        reduce = lambda cube: _composite_cube(cube, bands, qa_band, method)
+        reduce = lambda cube: _composite_cube(cube, bands, qa_band, method, clear_count)
     return _annual_stack(
         reduce,
         out_bands, f"{method}_composite",
@@ -905,6 +1182,8 @@ def build_annual_composites(
         start_year=start_year, end_year=end_year, season=season, load=load,
         cloud_cover_max=cloud_cover_max, resolution=resolution, epsg=epsg,
         access_token=access_token, chunksize=chunksize,
+        platforms=platforms, slc_off=(method == "bap") if slc_off is None else slc_off, align=align,
+        counted=clear_count,
     )
 
 
@@ -925,6 +1204,9 @@ def build_spectral_temporal_metrics(
     epsg: int = 4326,
     access_token: Optional[str] = None,
     chunksize: int = 1024,
+    platforms: Optional[Sequence[str]] = None,
+    slc_off: bool = False,
+    align: str = "native",
 ) -> xr.DataArray:
     """
     Builds per-year spectral temporal metrics (STMs) from a STAC catalog: statistics such
@@ -946,6 +1228,9 @@ def build_spectral_temporal_metrics(
     apply_cloud_mask: Mask clouds and shadows with the collection's QA band.
     chunksize: Spatial chunk size in pixels. Memory per chunk in flight is about
         scenes x chunksize^2 x (2 bytes per band loaded + 4 per band or index used).
+    platforms, slc_off, align: as in `build_time_series` (Landsat 7 scenes after 2003-05-31 are
+        dropped unless ``slc_off=True``). ``attrs["scenes"]`` lists each year's scenes, as in
+        `build_annual_composites`.
 
     Returns a lazy float32 DataArray (time, band, y, x), one band per index and metric
     named "<index>_<metric>" (e.g. "NDVI_p10"), with ``time`` on January 1st of each year
@@ -986,4 +1271,5 @@ def build_spectral_temporal_metrics(
         start_year=start_year, end_year=end_year, season=season, load=load,
         cloud_cover_max=cloud_cover_max, resolution=resolution, epsg=epsg,
         access_token=access_token, chunksize=chunksize,
+        platforms=platforms, slc_off=slc_off, align=align,
     )
