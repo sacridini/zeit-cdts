@@ -297,7 +297,7 @@ TOA_DOMAINS = ("ULTRABLUE", "BLUE", "GREEN", "RED", "REDEDGE1", "REDEDGE2", "RED
 #: The roles of ``zeit.sentinel2_resmerge`` and the domain each is: ``nir`` is the broad NIR (B08), ``nir08`` the narrow one (B8A).
 _MERGE_ROLES = (("green", "GREEN"), ("red", "RED"), ("nir", "BROADNIR"), ("rededge1", "REDEDGE1"), ("rededge2", "REDEDGE2"),
                 ("rededge3", "REDEDGE3"), ("nir08", "NIR"), ("swir16", "SWIR1"), ("swir22", "SWIR2"))
-MERGE_METHODS = ("regression", "improphe")
+MERGE_METHODS = ("regression", "improphe", "starfm")
 TOA_NODATA = -9999
 _QAI_FILL = -1
 
@@ -378,7 +378,7 @@ def _toa_coregister(toa: np.ndarray, qai: np.ndarray, desc: Dict[str, Any], refe
 def _toa_merge(toa: np.ndarray, qai: np.ndarray, method: str, n_jobs: int) -> np.ndarray:
     """The TOA with the six 20 m bands predicted at 10 m (FORCE's ``resolution_merge``, ``zeit.sentinel2_resmerge`` with
     ``force=True``, its arithmetic): the pixels that are off are -9999 and left out; the ones with a cloud, a shadow or
-    off are not predicted (``clear`` is ``!off && cloud == 0 && !shadow`` of the QAI)."""
+    off are not predicted (``clear`` is ``!off && cloud == 0 && !shadow`` of the QAI; ``"starfm"`` ignores it, as FORCE's)."""
     import xarray as xr
 
     from ._resmerge import sentinel2_resmerge
@@ -405,7 +405,7 @@ def _toa_merge(toa: np.ndarray, qai: np.ndarray, method: str, n_jobs: int) -> np
 
 def _check_merge_coreg(merge: Any, reference: Any, coreg_band: Any) -> None:
     if merge is not None and merge not in MERGE_METHODS:
-        raise ValueError(f"merge must be None, 'regression' or 'improphe', got {merge!r}")
+        raise ValueError(f"merge must be None, 'regression', 'improphe' or 'starfm', got {merge!r}")
     if reference is not None and str(coreg_band).upper() not in TOA_DOMAINS:
         raise ValueError(f"coreg_band must be one of {list(TOA_DOMAINS)}, got {coreg_band!r}")
 
@@ -603,12 +603,13 @@ def level2(
     n_jobs
         Threads of the correction, the Fmask and the JPEG 2000 decoder.
     merge
-        ``None`` (default, no merge), ``"regression"`` or ``"improphe"``: FORCE's resolution merge (``RES_MERGE``), the
+        ``None`` (default, no merge), ``"regression"``, ``"improphe"`` or ``"starfm"``: FORCE's resolution merge (``RES_MERGE``), the
         methods of ``zeit.sentinel2_resmerge``, with its ``force=True`` arithmetic (truncated integers; the regression sweeps
         the image in order on one thread, as FORCE does). It runs on the TOA reflectance, before the atmospheric
         correction, as ``force-l2ps`` does: the red edge 1 to 3, narrow NIR (B8A), SWIR1 and SWIR2 are predicted at 10 m from
         green, red and the broad NIR (B08). A pixel is predicted if it is not off, has no cloud and no shadow in the QAI
-        (snow and water are predicted); the others keep their 20 m values. The aerosol, vapour and all the products then
+        (snow and water are predicted); the others keep their 20 m values (``"starfm"``, as FORCE's, predicts the clouds and
+        shadows too: only the pixels that are off are left out; its code is adopted from the USDA-ARS STARFM). The aerosol, vapour and all the products then
         see the merged bands.
     reference
         ``None`` (default, no coregistration) or the reference image: a raster path or a DataArray, of any grid (it is put on
@@ -640,12 +641,13 @@ def level2(
     Raises
     ------
     ValueError
-        ``topography=True`` without ``dem``; a ``merge`` that is not ``"regression"`` or ``"improphe"``; a ``coreg_band`` that is not a band.
+        ``topography=True`` without ``dem``; a ``merge`` that is not ``"regression"``, ``"improphe"`` or ``"starfm"``; a ``coreg_band`` that is not a band.
 
     Notes
     -----
     The merge is compared with ``force-l2ps`` (``RES_MERGE = REGRESSION`` and ``IMPROPHE``) by
-    ``benchmarks/vs_originals/force_l2ps_real.py --merge``. The coregistration cannot be compared: FORCE's is another method.
+    ``benchmarks/vs_originals/force_l2ps_real.py --merge``. ``STARFM`` is equal to FORCE in every pixel of ``boa`` and of the other
+    products (scene 23LKC, 2023, no BRDF; also, per function, in a C harness, ``benchmarks/vs_originals/force_resmerge.py``). The coregistration cannot be compared: FORCE's is another method.
 
     Equal to FORCE 3.11.00 in every pixel of ``boa``, ``qai``, ``aod``, ``wvp``, ``hot``, ``dst`` and ``vzn`` when the cloud
     flags, the sun, the geography and the BRDF factor are FORCE's (see the benchmark). Zeit computes them itself (its own sun,

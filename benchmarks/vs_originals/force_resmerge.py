@@ -1,8 +1,9 @@
 """``zeit.sentinel2_resmerge`` against FORCE 3.11.00's resolution merge (``resmerge-ll.c``) on the same synthetic scene.
 
 FORCE runs the merge only inside ``force-l2ps``, so there is no FORCE program to feed an ARD tile to: the C harness in
-``force_resmerge/`` (``make_harness.sh``, WSL) is FORCE's ``resolution_merge_1`` (regression) and ``resolution_merge_2``
-(ImproPhe-like), ``improphe_resmerge``, ``rescale_weight_resmerge`` and ``distance_kernel`` copied verbatim behind shims
+``force_resmerge/`` (``make_harness.sh``, WSL) is FORCE's ``resolution_merge_1`` (regression), ``resolution_merge_2``
+(ImproPhe-like) and ``resolution_merge_3`` (STARFM), with ``improphe_resmerge``, ``rescale_weight_resmerge``, ``starfm``,
+``distance_kernel`` and ``gauss_kernel`` copied verbatim behind shims
 that replace the brick and QAI accessors with plain arrays, linked statically to the real GSL 2.7 of the conda env
 ``force-ref`` (libgsl.a and the reference libgslcblas.a: conda-forge's ``libgslcblas.so.0`` is OpenBLAS). It runs with one
 OpenMP thread, where FORCE's regression is deterministic (row-major, each prediction written back before the next pixel)::
@@ -13,8 +14,10 @@ The scene is made here: a 10 m Sentinel-2 scene (int16, reflectance times 10000)
 the 20 m bands as 2 x 2 blocks (the nearest neighbour copies FORCE's GDAL read makes), with no-data pixels (a stripe and
 scattered pixels), clouds, shadows, a patch of constant spectra (a rank deficient fit) and a border of zeros. Zeit gets it as
 float32 with NaN at the "off" pixels and ``clear`` from the cloud and shadow masks. ``force=True`` is compared with FORCE's
-int16 output per band over every pixel that is not off (the predicted ones and those left alone): the share of equal values,
-of values within 1, and the largest difference. ``force=False`` (no truncation; no feedback for the regression) is compared
+int16 output per band over every pixel that is not off (the predicted ones and those left alone): the number of
+values compared and of those that differ, the share of equal values, of values within 1, and the largest difference
+(STARFM, which predicts every pixel that is not off, clouds included, is also compared over the pixels that are off,
+where FORCE writes 0). ``force=False`` (no truncation; no feedback for the regression) is compared
 with ``force=True`` as the difference it makes. Times: FORCE's harness (gcc -O2, 1 and 4 OpenMP threads; with 4 threads
 its regression is racy, only the time is of use) and Zeit (release build, Windows), best of ``--reps``.
 """
@@ -134,23 +137,31 @@ def main():
           f"{predicted.sum()} predicted")
     cube = zeit_cube(x, off)
     clear = xr.DataArray(~(cloud | shadow), dims=("y", "x"))
-    for method, name in ((1, "regression"), (2, "improphe")):
+    for method, name in ((1, "regression"), (2, "improphe"), (3, "starfm")):
+        predicted = ~off if method == 3 else ~(off | cloud | shadow)
         out = DATA / f"force_{method}.bin"
         run_force(scene, method, 1, out)
         ref = np.fromfile(out, np.int16).reshape(6, args.size, args.size)
         forced = zeit.sentinel2_resmerge(cube, method=name, clear=clear, force=True, n_jobs=1)
         free = zeit.sentinel2_resmerge(cube, method=name, clear=clear, force=False, n_jobs=1)
         print(f"\n== {name} ==  FORCE (int16) vs zeit force=True, over the {(~off).sum()} pixels with data")
-        print(f"{'band':10s} {'identical':>10s} {'within 1':>9s} {'max |d|':>8s}   predicted pixels: identical")
-        keep = ~off
+        print(f"{'band':10s} {'compared':>9s} {'differ':>7s} {'identical':>10s} {'within 1':>9s} {'max |d|':>8s}   "
+              f"predicted pixels: identical")
+        keep = np.ones_like(off) if method == 3 else ~off
+        tot = diffs = 0
+        worst = 0.0
         for k, band in enumerate(PRED):
             z = forced.sel(band=band).values[keep]
             f = ref[k][keep].astype(np.float32)
             d = np.abs(z - f)
             zp = forced.sel(band=band).values[predicted]
             fp = ref[k][predicted].astype(np.float32)
-            print(f"{band:10s} {100 * (d == 0).mean():9.4f}% {100 * (d <= 1).mean():8.4f}% {d.max():8.1f}   "
-                  f"{100 * (zp == fp).mean():9.4f}%")
+            tot += d.size
+            diffs += int((d != 0).sum())
+            worst = max(worst, float(d.max()))
+            print(f"{band:10s} {d.size:9d} {int((d != 0).sum()):7d} {100 * (d == 0).mean():9.4f}% "
+                  f"{100 * (d <= 1).mean():8.4f}% {d.max():8.1f}   {100 * (zp == fp).mean():9.4f}%")
+        print(f"{'total':10s} {tot:9d} {diffs:7d}   max |d| {worst:.1f}")
         print(f"zeit force=False vs force=True (predicted pixels): per band share within 1 / max |d| / mean |d|")
         for k, band in enumerate(PRED):
             a = free.sel(band=band).values[predicted]
@@ -158,13 +169,13 @@ def main():
             d = np.abs(a - b)
             print(f"{band:10s} {100 * (d <= 1).mean():8.3f}% {d.max():9.2f} {d.mean():9.4f}")
         # the input is not touched where a pixel is not predicted
-        for k, band in enumerate(PRED):
+        for k, band in enumerate(PRED if method != 3 else []):
             z = forced.sel(band=band).values
             assert np.array_equal(z[~predicted & ~off], x[3 + k][~predicted & ~off].astype(np.float32))
 
     print("\ntimes (ms, best of %d)" % args.reps)
     print(f"{'':24s} {'1 thread':>10s} {'4 threads':>10s}")
-    for method, name in ((1, "regression"), (2, "improphe")):
+    for method, name in ((1, "regression"), (2, "improphe"), (3, "starfm")):
         out = DATA / "tmp.bin"
         f1 = min(run_force(scene, method, 1, out) for _ in range(args.reps))
         f4 = min(run_force(scene, method, 4, out) for _ in range(args.reps))

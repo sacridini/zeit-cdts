@@ -3,7 +3,9 @@
 FORCE's resolution merge of the Level 2 processing system (``resmerge-ll.c``, FORCE 3.11, David Frantz,
 GPL-3.0-or-later): the six 20 m bands (red edge 1-3, B8A, SWIR1, SWIR2) predicted at 10 m from the 10 m green, red
 and broad NIR, by a moving-window regression (``method="regression"``) or by the ImproPhe weighted mean
-(``method="improphe"``). Computed by the compiled core (``zeit._core.resmerge``).
+(``method="improphe"``) or by STARFM on a pseudo-PAN (``method="starfm"``, FORCE's ``resolution_merge_3``, whose STARFM
+is adopted from the USDA Agricultural Research Service's version, Feng Gao, 2005-2014). Computed by the compiled core
+(``zeit._core.resmerge``).
 """
 
 from typing import Any, Dict, Optional, Union
@@ -16,7 +18,7 @@ from ._specadjust import TARGET_BANDS, _TARGET_NAMES, _find
 #: The bands the 10 m ones predict, and the 10 m ones that predict.
 PREDICTORS = ("green", "red", "nir")
 PREDICTED = ("rededge1", "rededge2", "rededge3", "nir08", "swir16", "swir22")
-METHODS = ("regression", "improphe")
+METHODS = ("regression", "improphe", "starfm")
 
 
 def _clear_array(clear: Any, cube: xr.DataArray, order: tuple) -> Optional[np.ndarray]:
@@ -60,7 +62,7 @@ def sentinel2_resmerge(
     buffer with GDAL's ``RasterIO``, whose resampling is the nearest neighbour, and this function takes a cube
     that is already so (``zeit.build_time_series`` with the 10 m grid, or a resampling of the 20 m bands by
     nearest neighbour). The merge then predicts each pixel's six 20 m bands from its 10 m green (B03), red (B04)
-    and broad NIR (B08), by one of two methods.
+    and broad NIR (B08), by one of three methods.
 
     ``"regression"`` (FORCE's ``RES_MERGE = REGRESSION``) fits, for each pixel and each 20 m band, the least
     squares line ``y = c0 + c1 green + c2 red + c3 NIR`` to the 5 x 5 pixels around it (GSL's
@@ -76,16 +78,30 @@ def sentinel2_resmerge(
     each band is the mean of the neighbours weighted by ``1 / (1 + exp(25 x - 7.5))``, ``x`` the rescaled
     difference. Faster than the regression.
 
+    ``"starfm"`` (``RES_MERGE = STARFM``) is STARFM (Gao et al. 2006) in a spectral instead of a temporal setup, as
+    FORCE's ``resolution_merge_3`` has it (the STARFM part of FORCE's code is adopted from the USDA-ARS version,
+    Copyright 2005-2014 Feng Gao, released for further development). A pseudo-PAN (the mean of green and red) and
+    the broad NIR are the fine images; the coarse ones are those convolved with a 5 x 5 Gaussian (sigma 0.5, the
+    pixels with no data left out) and averaged over the aligned 2 x 2 blocks. Each 20 m band is the coarse image at
+    the prediction date and STARFM (radius 1, 40 spectral classes, uncertainty 0.002) the prediction: the
+    candidates are the pixels of the 3 x 3 window, in each of the two pairs, whose fine value is within
+    ``2 std / 40`` of the pixel's and whose differences between coarse images, or between coarse and fine, are
+    small; they are weighted by those differences and the distance. FORCE notes artefacts at the object
+    boundaries. Clouds and shadows are not looked at (``clear`` is ignored): FORCE's third method does not.
+
     Pixels with a missing value (NaN or ``nodata``) in any of the nine bands are FORCE's "off": left out of the
     windows and not predicted. Pixels that are not ``clear`` are not predicted either (the regression still reads
-    them as neighbours, ImproPhe does not). Pixels not predicted keep their values.
+    them as neighbours, ImproPhe does not; STARFM predicts them and uses them). Pixels not predicted keep their values.
 
     Differences from FORCE. FORCE's regression writes each prediction into the band before the next pixel's
     window reads it (row-major with one thread, racy with several): with ``force=False`` every window reads the
     original values and the pixels run in parallel; the output is float32 and not truncated. ``force=True``
     is FORCE's arithmetic, truncated integers (``(short)(v * 10000)``) and, for ``"regression"``, the in-place
     row-major sweep on one thread; its values equal those of FORCE's code run on the same scene (see
-    ``benchmarks/vs_originals/force_resmerge.py``).
+    ``benchmarks/vs_originals/force_resmerge.py``). For ``"starfm"`` FORCE's 2 x 2 averaging of the coarse images
+    tests the "off" flag of the wrong pixel (its counter ``p`` is incremented once per block, not per pixel): the
+    default tests the block's first pixel; ``force=True`` reproduces FORCE, and also writes 0 at the pixels with
+    no data (FORCE's ``(short)0``; the default leaves them as they were).
 
     Parameters
     ----------
@@ -95,7 +111,7 @@ def sentinel2_resmerge(
         rededge3 nir08 swir16 swir22``; ``nir`` is B08 and ``nir08`` B8A) or under ``B03``... ``B12``. Other
         bands (blue...) pass through unchanged. Held in memory (a lazy cube is computed).
     method
-        ``"regression"`` (default) or ``"improphe"``.
+        ``"regression"`` (default), ``"improphe"`` or ``"starfm"``.
     clear
         Optional boolean array broadcastable to ``(time, y, x)``: True where the pixel is not cloud or shadow.
         By default every pixel with data is.
@@ -194,7 +210,8 @@ def sentinel2_resmerge(
     result.attrs = dict(cube.attrs)
     result.attrs["sentinel2_resmerge"] = (
         f"{method}{' (FORCE arithmetic)' if force else ''}: {', '.join(PREDICTED)} predicted at 10 m from "
-        f"green, red and nir; FORCE's resolution merge, resmerge-ll.c (David Frantz, GPL-3.0-or-later)")
+        f"green, red and nir; FORCE's resolution merge, resmerge-ll.c (David Frantz, GPL-3.0-or-later)"
+        f"{'; STARFM adopted from the USDA-ARS version (Feng Gao)' if method == 'starfm' else ''}")
     if cube.rio.crs is not None:
         result = result.rio.write_crs(cube.rio.crs)
     if cube.rio.nodata is not None and not np.issubdtype(cube.dtype, np.integer):

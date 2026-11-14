@@ -5,7 +5,7 @@
 //! Copyright (C) 2013-2022 David Frantz, GPL-3.0-or-later, https://github.com/davidfrantz/force),
 //! src/modules/lower-level/resmerge-ll.c: `resolution_merge_1` (`regression`), and `resolution_merge_2`,
 //! `improphe_resmerge` and `rescale_weight_resmerge` (`improphe`); the second is the ImproPhe weighted mean in a
-//! spectral instead of a temporal setup. FORCE's third option (STARFM, the USDA's code) is not here.
+//! spectral instead of a temporal setup. FORCE's third option, STARFM (`resolution_merge_3`, the USDA's code), is in `starfm.rs`.
 //!
 //! The 20 m bands are on the 10 m grid before either runs: FORCE reads them with GDAL's `RasterIO` into the 10 m
 //! buffer, whose default resampling is the nearest neighbour, so each 20 m pixel is four equal 10 m pixels.

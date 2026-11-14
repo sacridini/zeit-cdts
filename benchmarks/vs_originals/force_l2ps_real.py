@@ -292,8 +292,8 @@ def main():
     ap.add_argument("--scene", choices=sorted(SCENES), default="2023")
     ap.add_argument("--brdf", action="store_true")
     ap.add_argument("--modes", default="zeit,geo,force")
-    ap.add_argument("--merge", choices=["regression", "improphe"],
-                    help="compare level2(merge=...) with force-l2ps RES_MERGE = REGRESSION or IMPROPHE (force_out_<scene>_merge_<method>, "
+    ap.add_argument("--merge", choices=["regression", "improphe", "starfm"],
+                    help="compare level2(merge=...) with force-l2ps RES_MERGE = REGRESSION, IMPROPHE or STARFM (force_out_<scene>_merge_<method>, "
                          "made by run_force.sh with the fifth argument); the inputs of the dump run, FORCE's cloud detection precedes the merge")
     ap.add_argument("--force-dir", help="with --merge: the folder (in the data folder) of FORCE's output to compare with, instead of force_out_<scene>_merge_<method>")
     ap.add_argument("--flags-from-force", action="store_true",

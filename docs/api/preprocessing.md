@@ -359,17 +359,17 @@ zeit.sentinel2_resmerge(
 )
 ```
 
-The 20 m bands of Sentinel-2 (red edge 1-3, B8A, SWIR1, SWIR2) at 10 m, predicted from the 10 m green, red and broad NIR: FORCE's resolution merge of its Level 2 processing (`resmerge-ll.c`, FORCE 3.11, David Frantz, GPL-3.0-or-later). FORCE's third option, STARFM (the USDA's code), is not part of it. The input is a cube already on the 10 m grid, where each 20 m pixel is four equal pixels: that is how FORCE gets them (it reads the 20 m files into the 10 m buffer with GDAL's `RasterIO`, whose resampling is the nearest neighbour), and a nearest-neighbour `reproject_match` of the 20 m bands gives the same.
+The 20 m bands of Sentinel-2 (red edge 1-3, B8A, SWIR1, SWIR2) at 10 m, predicted from the 10 m green, red and broad NIR: FORCE's resolution merge of its Level 2 processing (`resmerge-ll.c`, FORCE 3.11, David Frantz, GPL-3.0-or-later). FORCE's third option, STARFM, is `method="starfm"` (its STARFM is adopted from the USDA Agricultural Research Service's version, Feng Gao, 2005-2014, released for further development). The input is a cube already on the 10 m grid, where each 20 m pixel is four equal pixels: that is how FORCE gets them (it reads the 20 m files into the 10 m buffer with GDAL's `RasterIO`, whose resampling is the nearest neighbour), and a nearest-neighbour `reproject_match` of the 20 m bands gives the same.
 
-`method="regression"` fits, for each pixel and each of the six bands, `y = c0 + c1 green + c2 red + c3 NIR` by least squares over the 5 x 5 pixels around it (GSL's `gsl_multifit_linear`: the singular value decomposition of the column-balanced matrix, singular values at or below `epsilon` times the largest dropped) and evaluates it at the pixel. The pixel is in its own window; pixels with no data are left out, and a window with fewer than 25 pixels is filled with rows `(1, 0, 0, 0)` and `y = 0` (FORCE's: it pulls the fit towards zero at the borders and next to gaps); clouds and shadows are kept in the window. `method="improphe"` is ImproPhe's weighted mean with spectral instead of temporal similarity: the pixels of the disc of radius 2 that are not cloud, shadow or no data and whose mean absolute difference of green, red and NIR (reflectance) to the pixel is under 0.0025, 0.005, 0.01, 0.02 or 0.025 are the neighbours; the smallest of those cutoffs that has at least 3 of them is used, and each band is the mean of the neighbours' values weighted by `1 / (1 + exp(25 x - 7.5))`, `x` the difference rescaled over the neighbours of the cutoff. It is faster than the regression.
+`method="regression"` fits, for each pixel and each of the six bands, `y = c0 + c1 green + c2 red + c3 NIR` by least squares over the 5 x 5 pixels around it (GSL's `gsl_multifit_linear`: the singular value decomposition of the column-balanced matrix, singular values at or below `epsilon` times the largest dropped) and evaluates it at the pixel. The pixel is in its own window; pixels with no data are left out, and a window with fewer than 25 pixels is filled with rows `(1, 0, 0, 0)` and `y = 0` (FORCE's: it pulls the fit towards zero at the borders and next to gaps); clouds and shadows are kept in the window. `method="improphe"` is ImproPhe's weighted mean with spectral instead of temporal similarity: the pixels of the disc of radius 2 that are not cloud, shadow or no data and whose mean absolute difference of green, red and NIR (reflectance) to the pixel is under 0.0025, 0.005, 0.01, 0.02 or 0.025 are the neighbours; the smallest of those cutoffs that has at least 3 of them is used, and each band is the mean of the neighbours' values weighted by `1 / (1 + exp(25 x - 7.5))`, `x` the difference rescaled over the neighbours of the cutoff. It is faster than the regression. `method="starfm"` is STARFM (Gao et al. 2006) with a spectral instead of a temporal setup (FORCE's `resolution_merge_3`): the mean of green and red and the broad NIR are the fine images, the coarse ones are those convolved with a 5 x 5 Gaussian (sigma 0.5) and averaged over the aligned 2 x 2 blocks, and each band is predicted by STARFM (radius 1, 40 spectral classes, uncertainty 0.002) from the coarse image of the band; FORCE notes artefacts at the object boundaries. It looks at no cloud or shadow (`clear` is ignored, as in FORCE). FORCE's 2 x 2 averaging tests the "off" flag of the wrong pixel (a block counter instead of the pixel's index); `force=True` keeps that, and writes 0 where the pixel is off, while the default tests the block's first pixel and leaves the pixel as it was.
 
 <div class="params" markdown>
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `cube` | `DataArray` | required | Reflectance `(time, band, y, x)` or `(band, y, x)`, each date on its own, all bands on the 10 m grid, with `green red nir rededge1 rededge2 rededge3 nir08 swir16 swir22` (`nir` is B08, `nir08` B8A) or `B03 B04 B08 B05 B06 B07 B8A B11 B12`. Other bands pass through. In memory (a lazy cube is computed). |
-| `method` | `"regression"` or `"improphe"` | `"regression"` | FORCE's `RES_MERGE = REGRESSION` or `IMPROPHE`. |
-| `clear` | boolean array | `None` | Broadcastable to `(time, y, x)`: True where the pixel is not cloud or shadow. By default every pixel with data is. Pixels that are not clear are not predicted. |
+| `method` | `"regression"`, `"improphe"` or `"starfm"` | `"regression"` | FORCE's `RES_MERGE = REGRESSION`, `IMPROPHE` or `STARFM`. |
+| `clear` | boolean array | `None` | Broadcastable to `(time, y, x)`: True where the pixel is not cloud or shadow. By default every pixel with data is. Pixels that are not clear are not predicted (`"starfm"` ignores it). |
 | `force` | `bool` | `False` | FORCE's arithmetic (below). |
 | `bands` | `dict` | `None` | The cube's band of each of the nine roles, when its names are not the usual ones. |
 | `scale` | `"auto"` or `float` | `"auto"` | What the reflectance is multiplied by in the data (10000 for integers or values above 2, else 1). The thresholds of `"improphe"` are in reflectance and the regression's coefficients are not scale-free, so a cube in 0-1 and one in 0-10000 give the same. |
@@ -384,11 +384,50 @@ The 20 m bands of Sentinel-2 (red edge 1-3, B8A, SWIR1, SWIR2) at 10 m, predicte
 s2 = zeit.build_time_series(collection="sentinel-2-l2a", resolution=10, ...)   # the 20 m bands by nearest neighbour
 sharp = zeit.sentinel2_resmerge(s2, method="regression", clear=cloud_free)
 fast = zeit.sentinel2_resmerge(s2, method="improphe", clear=cloud_free)
+starfm = zeit.sentinel2_resmerge(s2, method="starfm")
 ```
 
 **Where it differs from FORCE.** FORCE's regression writes each prediction into the band before the next pixel's window reads it (row-major with one thread; with OpenMP's several it is a race, so its output depends on the thread schedule). With `force=False` every window reads the original values, the pixels run in parallel and the output is float32, not truncated. `force=True` is FORCE's arithmetic: the values are taken as reflectance times 10000 (a cube in another `scale` is converted and rounded), predictions are truncated to integers (`(short)(v * 10000)`) held in float32, and for `"regression"` the sweep is FORCE's, in place, row-major, on one thread. The feedback is not a detail: on the synthetic scene of the benchmark the two differ by 11-20 digital numbers on average and up to 490 (the windows of `force=True` read smoothed predictions where those of `force=False` read the blocks of the 20 m bands), and `force=False` matches an independent least squares (numpy's `lstsq`, 216 pixels) to 1e-4 digital numbers. For `"improphe"` there is no feedback: the two modes differ by the truncation.
 
 **Agreement with FORCE.** `force=True` equals the code of FORCE 3.11.00 in every value, for both methods, on a synthetic 500 x 500 scene with no-data pixels, clouds, shadows, constant spectra (a rank deficient fit) and zeros (6 bands x 245,534 pixels per method): the C harness is FORCE's own functions on plain arrays, linked to the real GSL 2.7 and its reference CBLAS, run on one thread (see [Against the Original Implementations](../benchmarks/vs-originals.md#the-resolution-merge-vs-force)). FORCE has no module that runs this on an ARD tile; it runs only inside `force-l2ps`.
+
+### `starfm` { .api }
+
+<!-- sig: zeit.starfm -->
+```python
+zeit.starfm(
+    fine, coarse, *, radius, target=None, nclass=40.0, unc_fine=0.002,
+    unc_coarse=0.002, scale="auto", nodata="auto", n_jobs=-1,
+)
+```
+
+STARFM (Gao, Masek, Schwaller and Hall 2006, IEEE TGRS 44:2207) as a general spatiotemporal fusion: the fine image (Landsat, Sentinel-2) of a date that only a coarse product (MODIS, VIIRS, a daily product) covers, from pairs of fine and coarse images of dates that have both. It is FORCE 3.11's `starfm()` (`resmerge-ll.c`, David Frantz, GPL-3.0-or-later, adopted from the USDA Agricultural Research Service's version, Feng Gao, 2005-2014, released for further development) with its arithmetic, for any number of pairs, targets, bands and any radius, where FORCE fixes two pairs, a radius of 1, 40 classes and 0.002 for the Sentinel-2 merge. For each pixel the candidates are the pixels of the `(2 radius + 1)` window, in each pair, whose fine value is within `2 std / nclass` of the pixel's and whose coarse change to the target date, or coarse-fine difference, is under the smallest of the pixel's own plus the uncertainty; each is weighted by the inverse of its temporal difference, spectral difference and distance, and the prediction is the weighted mean of `fine + (coarse at the target - coarse at the pair)`. Where there is no candidate the coarse value is kept. Bands are independent.
+
+`coarse` has to be **on the fine grid**: the coarse product resampled to the fine pixels, with the same bands in the same order and the same scale (`zeit.load_raster(path, like=fine)`). A different grid, shape or band list raises a `ValueError`. The pairs are the dates in both `fine` and `coarse` (exact match on `time`) and every target is predicted from all the pairs together.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `fine` | `DataArray` | required | Fine images `(time, y, x)` or `(time, band, y, x)` at the pair dates (one or more). |
+| `coarse` | `DataArray` | required | The coarse product on the same grid, covering the pair dates and the dates to predict. |
+| `radius` | `int` | required | Half-width of the window in pixels. No default: FORCE's 1 is right for 20 m to 10 m and not for MODIS to Landsat, and the window of the paper depends on the sensors. |
+| `target` | dates | `None` | The dates to predict (in `coarse.time`); default: every date of `coarse` that is not a pair. |
+| `nclass` | `float` | `40` | Spectral classes: the similarity threshold is `2 std / nclass`. FORCE's value. |
+| `unc_fine`, `unc_coarse` | `float` | `0.002` | Uncertainties of the images, in reflectance (0-1). FORCE's value. |
+| `scale` | `"auto"` or `float` | `"auto"` | What the reflectance is multiplied by in the data (10000 for integers or values above 2, else 1; `fine` and `coarse` must agree). The result is in the input's scale. |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | Missing values besides NaN. A pixel missing in any pair's fine or coarse image, or in the target's coarse image, in a band is off for that band and target: not a candidate and not predicted. |
+| `n_jobs` | `int` | `-1` | Threads (the processors zeit may use by default); the result does not depend on it. |
+
+</div>
+
+**Returns** float32 `(time, [band], y, x)` with `time` the predicted dates and the coordinates and CRS of `fine`; NaN where there is no prediction.
+
+```python
+landsat = zeit.load_raster("landsat_pairs.tif", dates=[...])                 # 30 m
+modis = zeit.load_raster("modis_daily.tif", dates=[...], like=landsat)       # on the Landsat grid
+daily = zeit.starfm(landsat, modis, radius=25)
+```
 
 ## Co-registration
 
@@ -585,7 +624,7 @@ The atmospheric correction of a Sentinel-2 Level 1C scene to surface reflectance
 | `fmask_compat` | `bool` | `False` | `True` reproduces three oddities of the original Fmask 4.7 code; the default corrects them. |
 | `dem_resampling` | `str` | `"bilinear"` | The resampling of the DEM onto the grid of the scene (FORCE's default). |
 | `n_jobs` | `int` | `8` | Threads of the correction, the Fmask and the JPEG 2000 decoder. |
-| `merge` | `None`, `"regression"` or `"improphe"` | `None` | FORCE's resolution merge (`RES_MERGE`): the red edge 1-3, B8A, SWIR1 and SWIR2 predicted at 10 m from green, red and the broad NIR (B08), the methods of [`sentinel2_resmerge`](#sentinel2_resmerge) with `force=True` (FORCE's arithmetic). It runs on the TOA reflectance, before the correction, as `force-l2ps` does; a pixel is predicted if it is not off and has no cloud and no shadow in the QAI (snow and water are predicted). |
+| `merge` | `None`, `"regression"`, `"improphe"` or `"starfm"` | `None` | FORCE's resolution merge (`RES_MERGE`): the red edge 1-3, B8A, SWIR1 and SWIR2 predicted at 10 m from green, red and the broad NIR (B08), the methods of [`sentinel2_resmerge`](#sentinel2_resmerge) with `force=True` (FORCE's arithmetic). It runs on the TOA reflectance, before the correction, as `force-l2ps` does; a pixel is predicted if it is not off and has no cloud and no shadow in the QAI (snow and water are predicted; `"starfm"`, as FORCE's, predicts clouds and shadows too and leaves out only the pixels that are off). |
 | `reference` | path, `DataArray` or `None` | `None` | The image to coregister the scene to (any grid: it is put on the scene's with `load_raster(..., like=)`). The shift is found by [`coregister`](#coregister) (AROSICS' global co-registration; FORCE's own coregistration is another method) on `coreg_band` of the TOA, and every band of the TOA and the QAI are moved by it, before the merge and the correction, so all the products come out aligned. |
 | `coreg_band` | `str` | `"BROADNIR"` | The band of the scene that is matched: `ULTRABLUE BLUE GREEN RED REDEDGE1 REDEDGE2 REDEDGE3 BROADNIR NIR VAPOR CIRRUS SWIR1 SWIR2` (`BROADNIR` is B08, `NIR` is B8A). |
 | `coreg_ref_band` | label, position or `None` | `None` | The band of `reference` to match (the first by default). |

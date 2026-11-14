@@ -113,7 +113,8 @@
 | [`spectral_adjust`](preprocessing.md#spectral_adjust) | Landsat 4-9 and MODIS on Sentinel-2A's ten bands, the red edge predicted: FORCE's spectral adjustment |
 | [`tasseled_cap`](preprocessing.md#tasseled_cap) | Tasseled Cap brightness, greenness, wetness (and FORCE's disturbance): Crist 1985 as FORCE, or each sensor's matrix |
 | [`improphe`](preprocessing.md#improphe) | Sharpens a coarse field or the scenes of a coarser sensor with the finer sensor's seasonal means: FORCE's CF-ImproPhe and L2-ImproPhe (Frantz et al. 2016) |
-| [`sentinel2_resmerge`](preprocessing.md#sentinel2_resmerge) | The 20 m bands of Sentinel-2 at 10 m, by a moving-window regression or an ImproPhe-like weighted mean on the 10 m green, red and NIR: FORCE's resolution merge |
+| [`sentinel2_resmerge`](preprocessing.md#sentinel2_resmerge) | The 20 m bands of Sentinel-2 at 10 m, by a moving-window regression, an ImproPhe-like weighted mean or STARFM on the 10 m green, red and NIR: FORCE's resolution merge |
+| [`starfm`](preprocessing.md#starfm) | STARFM spatiotemporal fusion (Gao et al. 2006, as FORCE's `starfm()`): the fine image of a date that only a coarse product covers, from pairs of fine and coarse images |
 | [`pansharpen`](preprocessing.md#pansharpen) | Multispectral bands on the grid of a finer panchromatic band, for any sensor and any ratio above 1 (CBERS-4A WPM, Landsat 8 band 8, ...): Brovey, Gram-Schmidt adaptive (GSA), high-pass filter and principal components, written from the papers |
 | [`level2_series`](preprocessing.md#level2_series) | `find_l1c`, `download_l1c` and `level2` over the scenes of a tile, one at a time and resumable, as one lazy `(time, band, y, x)` reflectance cube |
 | [`load_level2_series`](preprocessing.md#load_level2_series) | The scenes written by `level2_series` as that cube again: float32 reflectance x 10000, NaN for the fill and the QAI's default screening |
