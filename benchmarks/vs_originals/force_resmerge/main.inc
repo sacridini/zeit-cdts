@@ -1,6 +1,6 @@
 
 /* ---- the harness itself (Zeit) ------------------------------------------------------------------------------
- * resmerge_harness <scene.bin> <out.bin> <method 1|2>
+ * resmerge_harness <scene.bin> <out.bin> <method 1|2|3>
  * scene.bin: int32 nx, int32 ny, then int16 bands [9][ny*nx] (green, red, broad NIR, red edge 1-3, NIR (B8A),
  * SWIR1, SWIR2) and bytes off, cloud, shadow [ny*nx] each. out.bin: the six predicted bands, int16 [6][ny*nx].
  * Prints the time of the call (ms). The number of threads is OMP_NUM_THREADS. */
@@ -24,7 +24,8 @@ int main(int argc, char **argv){
 
   struct timespec t0, t1;
   clock_gettime(CLOCK_MONOTONIC, &t0);
-  int err = atoi(argv[3]) == 1 ? resolution_merge_1(&b, &b) : resolution_merge_2(&b, &b);
+  int m = atoi(argv[3]);
+  int err = m == 1 ? resolution_merge_1(&b, &b) : m == 3 ? resolution_merge_3(&b, &b) : resolution_merge_2(&b, &b);
   clock_gettime(CLOCK_MONOTONIC, &t1);
   if (err != SUCCESS){ fprintf(stderr, "merge failed\n"); return 1; }
   printf("%.3f\n", (t1.tv_sec - t0.tv_sec) * 1e3 + (t1.tv_nsec - t0.tv_nsec) * 1e-6);

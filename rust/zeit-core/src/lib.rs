@@ -60,6 +60,7 @@ pub mod radtran;
 mod radtran_tables;
 pub mod recovery;
 pub mod resmerge;
+pub mod starfm;
 pub mod robustfit;
 pub mod s2l1c;
 pub mod sccd;

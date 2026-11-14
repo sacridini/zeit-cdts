@@ -3282,7 +3282,24 @@ validação.
 
     Pesa menos que o Sentinel-2: o L2 do Landsat C2 já está no STAC, e os ajustes do Zeit valem
     sobre ele.
-  - **Lacunas menores, sem data:** o STARFM (fora pela licença; provavelmente é obra do governo
+  - **O STARFM, feito em 2026-11-14 (decisão de licença do usuário):** port direto do `starfm()` e do
+    `resolution_merge_3()` do `resmerge-ll.c` (`rust/zeit-core/src/starfm.rs`), com o copyright do Frantz e o texto do
+    USDA-ARS (linhas 23-38: liberado ao público "for further development", sem direitos reservados sobre adaptações; Feng
+    Gao é do ARS) no cabeçalho e no `THIRD_PARTY_NOTICES.md`. Exceção consciente à regra "nunca código sem licença", pedida
+    pelo usuário. Entra como `sentinel2_resmerge(method="starfm")`, `level2(merge="starfm")` e `zeit.starfm(fine, coarse,
+    radius=, target=)` para a fusão temporal genérica (`radius` obrigatório: sem fonte citável para a janela de Gao et al.
+    2006, e o r=1 do FORCE só serve ao 20 -> 10 m).
+    - Contra as funções do FORCE num harness em C: o merge igual em todos os valores com `force=True` (1.500.000 em
+      500 x 500, 540.000 em 300 x 300); o `starfm()` direto, com 1 a 3 pares, raios 1, 5 e 12 e outros `nclass`/incertezas
+      (o FORCE fixa dois pares, `nclass` 40 e 0,002; o harness troca só essas linhas por globais), igual em 592.775 valores.
+    - Bug do FORCE no `resolution_merge_3`: a média dos blocos 2 x 2 testa o "off" do pixel errado (o contador sobe por
+      bloco); `force=True` o reproduz, `force=False` o corrige (1,2 a 1,6 DN em média, até ~620). Nem o FORCE nem o Zeit
+      olham nuvem e sombra nesse método.
+    - Limites do `zeit.starfm`: um `off` só por alvo e banda (um NaN em qualquer par tira o pixel de todos os pares); tudo
+      em memória (um cubo dask é computado; áreas grandes por tiles, com margem de `radius`).
+    - Falta: o `force-l2ps` com `RES_MERGE = STARFM` numa cena real (`force_l2ps_real.py --merge starfm`, que já aceita a
+      opção).
+  - **Lacunas menores, sem data:** ~~o STARFM~~ (feito, acima; antes: fora pela licença; provavelmente é obra do governo
     dos EUA, o que reabriria o caso) e o BAP paramétrico do FORCE (Frantz 2017, só como
     comparação ao de Griffiths 2013). O datacube em tiles, o Equi7 e o GLANCE não fazem falta,
     porque o Zeit monta a grade sob demanda (`like=`).

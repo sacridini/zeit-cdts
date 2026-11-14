@@ -218,7 +218,7 @@ def test_errors():
     with pytest.raises(ValueError, match="rededge1.*rededge2|rededge2"):
         zeit.sentinel2_resmerge(cube.drop_sel(band=["rededge1", "rededge2"]))
     with pytest.raises(ValueError, match="method"):
-        zeit.sentinel2_resmerge(cube, method="starfm")
+        zeit.sentinel2_resmerge(cube, method="nope")
     with pytest.raises(ValueError, match="band"):
         zeit.sentinel2_resmerge(cube.isel(band=0, drop=True))
     with pytest.raises(TypeError):
@@ -241,3 +241,44 @@ def test_core_checks_its_inputs():
         _core.resmerge.resmerge_batch(g, g[:3], g, t, m, m, "improphe")
     with pytest.raises(ValueError):
         _core.resmerge.resmerge_batch(g, g, g, t, m, m, "nope")
+    assert _core.resmerge.resmerge_batch(g, g, g, t, m, m, "starfm").shape == (6, 4, 5)
+
+
+def test_starfm_shapes_nodata_and_the_integers_of_force():
+    cube = linear_scene(ny=12, nx=14, nt=2)
+    cube.loc[{"time": cube.time[0], "band": "green"}] = cube.sel(time=cube.time[0], band="green").where(
+        ~xr.DataArray(np.arange(12 * 14).reshape(12, 14) == 30, dims=("y", "x")))
+    free = zeit.sentinel2_resmerge(cube, method="starfm")
+    assert free.shape == cube.shape and free.dtype == np.float32
+    assert free.dims == cube.dims
+    # the bands that are not predicted are as they were
+    np.testing.assert_array_equal(free.sel(band=["blue", "green", "red", "nir"]).values,
+                                  cube.sel(band=["blue", "green", "red", "nir"]).values)
+    for name in PREDICTED:
+        # the pixel with a missing value in one band is off: not predicted, as it was
+        assert free.sel(time=cube.time[0], band=name).values.ravel()[30] == cube.sel(time=cube.time[0], band=name).values.ravel()[30]
+        assert np.isfinite(free.sel(time=cube.time[1], band=name).values).all()
+    # the same on every thread count
+    np.testing.assert_array_equal(zeit.sentinel2_resmerge(cube, method="starfm", n_jobs=1).values, free.values)
+    forced = zeit.sentinel2_resmerge(cube, method="starfm", force=True)
+    v = forced.sel(band=PREDICTED).values
+    off = np.isnan(cube.sel(time=cube.time[0], band="green").values).ravel().nonzero()[0]
+    assert (v[0].reshape(6, -1)[:, off] == 0).all()      # FORCE writes (short)0 where the pixel is off
+    ok = np.ones(v.shape, bool)
+    ok[0].reshape(6, -1)[:, off] = False
+    np.testing.assert_array_equal(v[ok], np.trunc(v[ok]))
+    # without a pixel off the two modes differ only by the truncation
+    whole = linear_scene(ny=12, nx=14)
+    d = (zeit.sentinel2_resmerge(whole, method="starfm", force=True) - zeit.sentinel2_resmerge(whole, method="starfm"))
+    assert np.abs(d.sel(band=PREDICTED).values).max() <= 1.0 + 1e-3
+    assert "STARFM" in free.attrs["sentinel2_resmerge"]
+
+
+def test_starfm_ignores_clear_as_force_does_and_is_unit_free():
+    cube = linear_scene(ny=10, nx=10)
+    clear = np.ones((10, 10), bool)
+    clear[3:6, 3:6] = False
+    a = zeit.sentinel2_resmerge(cube, method="starfm")
+    np.testing.assert_array_equal(zeit.sentinel2_resmerge(cube, method="starfm", clear=clear).values, a.values)
+    small = zeit.sentinel2_resmerge(cube / 10000.0, method="starfm")
+    np.testing.assert_allclose(small.values * 10000.0, a.values, rtol=1e-5, atol=0.05)

@@ -52,6 +52,7 @@ from ._specadjust import spectral_adjust
 from ._tasseled import tasseled_cap
 from ._improphe import improphe
 from ._resmerge import sentinel2_resmerge
+from ._starfm import starfm
 from ._pansharpen import pansharpen
 from ._parallax import buffer_mask, cloud_displacement_index, parallax_clouds
 from ._level2 import level2
@@ -139,6 +140,7 @@ __all__ = [
     "tasseled_cap",
     "improphe",
     "sentinel2_resmerge",
+    "starfm",
     "pansharpen",
     "cloud_displacement_index",
     "parallax_clouds",

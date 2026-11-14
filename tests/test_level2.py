@@ -339,13 +339,15 @@ def test_level2_maps_merge_and_coregistration_to_the_engine_and_the_attrs(monkey
     assert a["coreg_reliability"] == 87.0 and a["coreg_success"] is True and a["coreg_reason"] == ""
     ds = _level2.level2("scene.SAFE", topography=False, merge="regression")
     assert ds.attrs["merge"] == "regression" and "coreg_success" not in ds.attrs
+    ds = _level2.level2("scene.SAFE", topography=False, merge="starfm")
+    assert ds.attrs["merge"] == "starfm"
 
 
 def test_level2_refuses_a_merge_or_a_coreg_band_that_does_not_exist_before_anything_runs(monkeypatch):
     calls = []
     fake_arrays(monkeypatch, calls)
     with pytest.raises(ValueError, match="merge must be"):
-        _level2.level2("scene.SAFE", topography=False, merge="starfm")
+        _level2.level2("scene.SAFE", topography=False, merge="nope")
     with pytest.raises(ValueError, match="coreg_band"):
         _level2.level2("scene.SAFE", topography=False, reference="ref.tif", coreg_band="B04")
     assert not calls
