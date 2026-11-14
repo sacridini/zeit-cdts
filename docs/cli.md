@@ -411,14 +411,16 @@ zeit snic ./data/s2_ndvi_2022.tif ./results --spacing 8 --polygons
 | `--method` | `str` | `montecarlo` | `montecarlo` or `exact`. The thresholds are not yet calibrated for `exact`. |
 | `--realizations` | `int` | `500` | Monte Carlo: number of watersheds. |
 | `--markers` | `int` | `1000` | Random markers per watershed. |
+| `--marker-density` | `float` | *None* | Markers per million pixels of the image, instead of `--markers` (not both). |
 | `--min-distance` | `float` | `20` | Pixels between markers. |
 | `--marker-radius` | `int` | `3` | Radius of the disk of each marker. |
 | `--low`, `--high` | `float` | `0.3`, `0.6` | Hysteresis thresholds on the boundary probability. |
 | `--min-size` | `int` | `50` | Drop objects of fewer pixels before the final watershed. |
 | `--final` | `str` | image, or gradient for a stack | `image` or `gradient`: what the final watershed floods. |
 | `--mask-threshold` | `float` | *None* | Keep the pixels where the image is greater than this. |
+| `--mask-quantile` | `float` | *None* | Keep the pixels where the image is above its own percentile (0 to 100); not together with `--mask-threshold`. |
 | `--band` | `str` | *None* | A stack: the band (name or number) to delineate. |
-| `--preset` | `str` | *None* | `notebook`: `--final image` and `--mask-threshold 2000` (Landsat SWIR1 times 10000). |
+| `--preset` | `str` | *None* | `notebook`: `--final image` and `--mask-threshold 2000` (Landsat SWIR1 times 10000), the latter unless `--mask-threshold` or `--mask-quantile` is given. |
 | `--random-state` | `int` | *None* | Seed of the Monte Carlo. |
 | `--polygons` | flag | | Also write the polygons. |
 
