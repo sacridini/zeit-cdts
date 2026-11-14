@@ -36,6 +36,7 @@ from ._hotspots import emerging_hotspots
 from .segmentation import snic_grid, snic_to_polygons
 from ._snic_api import snic
 from ._fields import fields, edge_gradient, stochastic_watershed, watershed, fields_to_polygons
+from ._segacc import segmentation_accuracy
 from ._texture_api import texture
 from ._som_api import som, clean_samples
 from ._smooth import smooth
@@ -130,6 +131,7 @@ __all__ = [
     "emerging_hotspots",
     "snic_grid", "snic_to_polygons",
     "fields", "edge_gradient", "stochastic_watershed", "watershed", "fields_to_polygons",
+    "segmentation_accuracy",
     "extract_water_mask",
     "qc_modis_summary", "qc_modis_state", "qc_sentinel2_scl", "qa_mask", "qa_to_fmask",
     "build_time_series",

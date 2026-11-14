@@ -174,6 +174,7 @@
 | [`interpret`](validation.md#interpret) | Label reference points by eye: chips, series, keyboard, review |
 | [`accuracy`](validation.md#accuracy) | Accuracies and error-adjusted areas with confidence intervals (direct, difference or ratio estimator) |
 | [`transitions`](validation.md#transitions) | The area of each transition between two dates of a map of classes, with its interval |
+| [`segmentation_accuracy`](validation.md#segmentation_accuracy) | Boundary, object (over/under-segmentation, IoU) and size accuracy of a field segmentation against a reference |
 | **Visualisation** | |
 | [`plot`](plot.md#plot) | Any cube, map, result or pixel: interactive viewer in a notebook or window, or a matplotlib figure |
 | **Deep learning** (`zeit.ai`) | |

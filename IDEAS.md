@@ -3501,15 +3501,29 @@ acima (até 0,5 numa aresta), e o mapa de pixels exato tem correlação 0,97 a 0
 
 ### Validação: onde e contra o quê
 
-- **Brasil**, com CAR (SICAR, por município; o download pode pedir captcha, e aí é manual) e os
-  pivôs centrais da ANA/Embrapa (a conferir a versão):
-  - Porto Murtinho (MS), no Chaco brasileiro, quase só pastagem;
-  - Sorriso (MT), lavoura mecanizada, talhões grandes;
-  - (talvez) um município do MATOPIBA, fronteira agrícola recente.
-- **Chaco**: uma amostra de talhões digitalizados sobre imagem de alta resolução (Planet NICFI
-  onde cobrir, a conferir). **É trabalho humano** (o usuário ou o amigo, no QGIS); o Zeit sorteia os
-  pontos (`sampling_design`, estratificado por país e uso) e prepara os recortes.
-- Conjuntos públicos (Fields of The World): a conferir se cobrem o Brasil ou o Chaco.
+As fontes foram conferidas em 2026-11-14 (os scripts e as versões estão em
+`benchmarks/fields/validation/`):
+
+- **Brasil:**
+  - CAR (`AREA_IMOVEL`): o download oficial agora é só por estado e tem captcha de imagem, então
+    fica manual. O espelho em GeoParquet do source.coop (instantâneo do SICAR de 2026-07-16, 3,3 GB)
+    é lido só nas linhas que caem no município (bbox), filtrando pelo prefixo `UF-IBGE7-` do
+    `cod_imovel`. Não há licença publicada: serve para validar, não para redistribuir.
+  - Pivôs centrais: a última camada que se baixa por script é a de 2019 (ANA/Embrapa, FeatureServer
+    do SNIRH). A de 2022 (ANA/INPE) e a de 2024 (Embrapa) não têm download.
+  - As áreas de teste:
+    - Porto Murtinho (MS, 5006903), no Chaco brasileiro, quase só pastagem, sem pivôs;
+    - Sorriso (MT, 5107925), lavoura mecanizada, 173 pivôs em 2019;
+    - Luís Eduardo Magalhães (BA, MATOPIBA), onde o Fields of The World tem 1.854 talhões
+      desenhados à mão (2019/20, CC-BY-4.0). É o único trecho do Brasil no FTW.
+- **Chaco:** as anotações Trazo (WRI/ASU, CC-BY-4.0, desenhadas à mão sobre mosaicos Planet)
+  cobrem o Chaco seco (2020), o Chaco úmido (2022) e o Paraguai (2024). Elas substituem a
+  amostra que seria digitalizada à mão, se os talhões de cada recorte estiverem completos (a
+  conferir). O Planet NICFI acabou em 2025, e o FTW não cobre o Paraguai, a Argentina nem a
+  Bolívia.
+- Para comparar com modelos (24f), há as previsões do FTW global (Sentinel-2, 2024-25, CC-BY-4.0)
+  e as do Trazo (2023-24), que cobrem o Chaco. São saídas de modelo, não referência. O cadastro do
+  Paraguai (SNC, 2,2 milhões de parcelas) tem o papel do CAR lá.
 - Mosaicos de entrada: Landsat C2 L2, um medoide anual (como o notebook) e mosaicos sazonais
   (para o gradiente multitemporal), de 2000 e de 2019; Sentinel-2 de 2019 para comparar
   resoluções.

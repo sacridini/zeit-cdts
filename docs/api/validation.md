@@ -249,3 +249,56 @@ tr = zeit.transitions("lc_2015.tif", "lc_2022.tif", points, strata="change_2015_
                       estimator="difference")
 tr.area.loc["Forest -> Pasture", ["mapped", "estimate", "ci"]]   # hectares, ± the 95% interval
 ```
+
+## `segmentation_accuracy` { .api }
+
+<!-- sig: zeit.segmentation_accuracy -->
+```python
+zeit.segmentation_accuracy(
+    pred, reference, *, kind="fields", tolerance=1, region=None,
+    iou_threshold=0.5, min_share=0.1, size_classes=None,
+    transform=None, crs=None,
+)
+```
+
+The accuracy of a field segmentation (the result of [`fields`](time-series.md#fields), or any label image) against a reference: boundaries, objects and sizes. Not sample-based like [`accuracy`](#accuracy): it compares two label images over a region. Also exported as `zeit.segmentation_accuracy`.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `pred` | `Dataset`, `DataArray` or array | required | The `fields` result (its `labels`; the boundary network `attrs["boundary_label"]` counts as 0), or an integer label image. |
+| `reference` | `DataArray`, array or `GeoDataFrame` | required | A label raster on the same grid (0 = no reference), or polygons (fields, or properties) rasterised onto `pred`'s grid: reprojected to its CRS, each polygon its own id, a pixel in a polygon when its centre is. |
+| `kind` | `str` | `"fields"` | `"fields"` (the reference delimits fields) or `"property"` (a cadastre such as the CAR: properties, not fields). |
+| `tolerance` | `float` | `1` | Boundary distance tolerance in pixels (Euclidean). `0` asks for coincident pixels. |
+| `region` | boolean `DataArray` or array | `None` | The pixels evaluated. Default: where the reference has an object, grown by `tolerance` pixels for `kind="fields"`. |
+| `iou_threshold` | `float` | `0.5` | IoU from which a reference object counts as found. |
+| `min_share` | `float` | `0.1` | `kind="property"`: the share of a predicted field's area that a second property must cover for the field to cross. |
+| `size_classes` | sequence of `float` | `None` | Edges of the size classes in ha (pixels without a CRS). Default `[0, 5, 20, 100, inf]`, with a CRS. |
+| `transform`, `crs` | `Affine`, CRS | `None` | The grid's, instead of `pred`'s (needed to rasterise polygons or measure areas from an array). |
+
+</div>
+
+A boundary pixel is a pixel of the region with a 4-neighbour of a different label, wherever that neighbour is (so a field's edge against unlabelled land is a boundary, and both pixels of a pair of neighbouring labels are). Precision is the share of predicted boundary pixels within `tolerance` of a reference boundary pixel, recall the share of reference boundary pixels within `tolerance` of a predicted one, F their harmonic mean.
+
+For each reference object (Clinton et al. 2010) the predicted object with the largest overlap gives the over-segmentation `1 - |r ∩ p| / |r|`, the under-segmentation `1 - |r ∩ p| / |p|` and `D = sqrt((OS² + US²) / 2)`. `|p|` is counted in full, not only in the region: a field that leaks out of the reference area is under-segmentation, which assumes the reference is complete around each object. Sizes (quantiles, Wasserstein distance and Kolmogorov–Smirnov test of the log10 areas, counts per size class) compare the reference objects with the predicted objects that overlap the reference area by more than half of their own.
+
+With `kind="property"` only the recall of the boundaries is meaningful (fields subdivide properties, so precision is NaN) and the share of predicted fields that **cross** a property boundary: those whose second-largest overlap with a property is at least `min_share` of their area.
+
+**Returns** a `SegmentationAccuracy`; `print(acc)` gives a summary and `acc.summary()` the scalars as a `Series`.
+
+| Attribute | Meaning |
+| :--- | :--- |
+| `boundary` | `precision`, `recall`, `f`, `n_pred`, `n_ref` (pixels). |
+| `objects` | `over_seg`, `under_seg`, `d` (means), the same weighted by reference area (`_w`), `iou_fraction`, `matched_fraction` (one to one, by descending IoU), `n_ref`, `n_pred`, `n_unmatched`. |
+| `object_table` | One row per reference object: its best match, `over_seg`, `under_seg`, `d`, `iou`, `one_to_one`. |
+| `sizes`, `size_tests`, `size_classes` | Quantiles of the areas; `wasserstein`, `ks`, `ks_p`; counts per class. |
+| `crossing` | `kind="property"`: `n_pred`, `n_crossing`, `share`, `area_share`. |
+
+```python
+res = zeit.fields(swir, preset="notebook", random_state=0)
+acc = zeit.segmentation_accuracy(res, digitised_polygons, tolerance=2)
+acc.boundary.f, acc.objects.iou_fraction
+car = zeit.segmentation_accuracy(res, car_properties, kind="property")
+car.crossing.share          # predicted fields that cross a property boundary
+```
