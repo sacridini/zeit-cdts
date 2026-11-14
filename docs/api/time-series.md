@@ -675,7 +675,7 @@ The seed grids of the R `snic` package, as `(n, 2)` `(row, col)` positions. Also
 
 ## Field boundaries
 
-Fields from the stochastic watershed (Angulo & Jeulin 2007), after the MappingDemo notebook (Baumann 2020, after Emmanuelle Gouillart's segmentation tutorial); `preset="notebook"` reproduces the notebook's values exactly, and the defaults are those chosen by the sensitivity analysis and spatial cross-validation of phases 24e and 24f. A gradient image is flooded from many random markers; the frequency with which each pixel lands on a watershed boundary is thresholded (hysteresis), the complement is labelled and a final watershed grows those labels into fields. The building blocks are equal, value for value, to scikit-image's and SciPy's.
+Fields from the stochastic watershed (Angulo & Jeulin 2007), after the MappingDemo notebook (Baumann 2020, after Emmanuelle Gouillart's segmentation tutorial); `preset="notebook"` reproduces the notebook's values exactly, and the defaults are those chosen by the sensitivity analysis and spatial cross-validation of phases 24e and 24f. A gradient image is flooded from many random markers; the frequency with which each pixel lands on a watershed boundary is thresholded (hysteresis), the complement is labelled and a final watershed grows those labels into fields. The building blocks are equal, value for value, to scikit-image's and SciPy's. Tutorial: [Field boundaries](../tutorials/fields.md).
 
 ### `fields` { .api }
 

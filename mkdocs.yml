@@ -166,6 +166,7 @@ nav:
           - Pattern Matching (TWDTW): tutorials/twdtw.md
           - Clustering (SOM): tutorials/som.md
           - Segmentation (SNIC): tutorials/snic.md
+          - Field Boundaries: tutorials/fields.md
       - Validation:
           - Accuracy & Area: tutorials/accuracy.md
       - Deep Learning:

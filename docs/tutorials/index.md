@@ -104,6 +104,11 @@ Trends, seasons, patterns and objects.
   <span class="tile-body"><span class="tile-kicker">Segmentation</span><span class="tile-title">SNIC</span><span class="tile-text">Group pixels with similar histories into fields and patches.</span></span>
 </a>
 
+<a class="tile" href="fields/">
+  <img src="../assets/figures/thumbs/fields.webp" alt="" loading="lazy">
+  <span class="tile-body"><span class="tile-kicker">Field boundaries</span><span class="tile-title">Fields</span><span class="tile-text">Draw the fields of a landscape as polygons and compare their sizes between two years.</span></span>
+</a>
+
 </div>
 
 ## Deep learning

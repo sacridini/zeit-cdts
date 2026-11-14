@@ -11,7 +11,10 @@ medoid) and written with ``zeit.save_raster`` as a COG in the native UTM zone at
   "B5" is SWIR1: ``swir16`` here (band 5 of the file), B6 of Landsat 8/9;
 - clear observations: QA_PIXEL with the fill, dilated cloud, cirrus, cloud and cloud shadow bits all 0 and
   the clear bit set (Zeit's stock Landsat mask is the clear bit alone, which keeps the shadow);
-- Landsat 8 and 9 only (the Landsat 7 SLC-off stripes and the Landsat 5 / 7 differences stay out);
+- Landsat 8 and 9 only (the Landsat 7 SLC-off stripes and the Landsat 5 / 7 differences stay out); a window
+  may carry ``platforms``, ``start`` and ``end`` instead (the field-boundary tutorial's 2000 mosaic is Landsat
+  5 and 7 before the SLC failure, of the dry season; the band names and the QA_PIXEL bits used here are the
+  same for Landsat 5, 7, 8 and 9 in Collection 2);
 - a second file ``<name>_<year>_clear.tif`` (uint8): the clear observations of each pixel.
 
 Beside each mosaic: ``<name>_<year>.json`` (provenance), ``<name>_<year>_quicklook.png`` (SWIR1 / NIR / red).
@@ -190,13 +193,20 @@ def lonlat_bbox(w):
     return [min(p[0] for p in pts), min(p[1] for p in pts), max(p[0] for p in pts), max(p[1] for p in pts)]
 
 
+def period(w):
+    """(start, end) dates of a window's mosaic: the calendar year, or ``w["start"]`` / ``w["end"]`` (the
+    tutorial's dry season)."""
+    return w.get("start", f"{w['year']}-01-01"), w.get("end", f"{w['year']}-12-31")
+
+
 def search(w, cloud):
-    """The Landsat 8/9 items of the window's year (unsigned)."""
+    """The Landsat items of the window's period (Landsat 8/9, or ``w["platforms"]``) (unsigned)."""
     import pystac_client
 
+    start, end = period(w)
     cat = pystac_client.Client.open(STAC)
-    s = cat.search(collections=[COLLECTION], bbox=lonlat_bbox(w), datetime=f"{w['year']}-01-01/{w['year']}-12-31",
-                   query={"eo:cloud_cover": {"lt": cloud}, "platform": {"in": PLATFORMS}})
+    s = cat.search(collections=[COLLECTION], bbox=lonlat_bbox(w), datetime=f"{start}/{end}",
+                   query={"eo:cloud_cover": {"lt": cloud}, "platform": {"in": w.get("platforms", PLATFORMS)}})
     return list(s.items())
 
 
@@ -244,13 +254,15 @@ def net_bytes():
 # ------------------------------------------------------------------------------------------- the build
 
 @contextlib.contextmanager
-def zeit_shims(bounds, shadow=True):
+def zeit_shims(bounds, shadow=True, platforms=None):
     """Three things ``zeit.cube`` cannot be told (reported, not fixed): the platform of the scenes, the exact
     output grid (``snap_bounds`` and ``bounds`` of ``stackstac.stack``, so the mosaic sits on Landsat's own
-    lattice and has exactly the requested size) and a Landsat mask that includes the cloud shadow."""
+    lattice and has exactly the requested size) and a Landsat mask that includes the cloud shadow. The mask
+    bits are the same for Landsat 5, 7, 8 and 9 (bit 2, cirrus, is only set by 8 and 9)."""
     import stackstac
     import zeit.cube as zc
 
+    platforms = platforms or PLATFORMS
     real_open = zc.Client.open
     real_stack = stackstac.stack
 
@@ -260,7 +272,7 @@ def zeit_shims(bounds, shadow=True):
 
         def search_(**kw):
             q = dict(kw.get("query") or {})
-            q["platform"] = {"in": PLATFORMS}
+            q["platform"] = {"in": platforms}
             kw["query"] = q
             return real_search(**kw)
 
@@ -311,8 +323,9 @@ def quicklook(refl, path):
         plt.imsave(path, img)
 
 
-def build(w, cloud, tile_bytes=None):
-    """Build one mosaic. Returns its provenance dict."""
+def build(w, cloud, tile_bytes=None, out=None):
+    """Build one mosaic into ``out`` (default ``mosaics_dir()``). Returns its provenance dict. A window may
+    carry ``platforms`` (default Landsat 8/9) and ``start`` / ``end`` dates (default the calendar year)."""
     import dask
     import xarray as xr
     from affine import Affine
@@ -324,12 +337,15 @@ def build(w, cloud, tile_bytes=None):
     t0 = time.time()
     name, year, epsg = w["name"], w["year"], w["epsg"]
     x0, y0, x1, y1 = w["bounds"]
-    out = mosaics_dir()
+    out = Path(out) if out is not None else mosaics_dir()
+    out.mkdir(parents=True, exist_ok=True)
+    platforms = w.get("platforms", PLATFORMS)
+    start, end = period(w)
     net0 = net_bytes()
-    with zeit_shims(w["bounds"]) as zc:
+    with zeit_shims(w["bounds"], platforms=platforms) as zc:
         cube = zc.build_time_series(
             source="planetary_computer", collection=COLLECTION, bbox=lonlat_bbox(w),
-            start_date=f"{year}-01-01", end_date=f"{year}-12-31", cloud_cover_max=cloud,
+            start_date=start, end_date=end, cloud_cover_max=cloud,
             bands=BANDS + [QA], apply_cloud_mask=False, resolution=PIXEL, epsg=epsg, chunksize=2048,
             dtype="uint16")
         t = cube.sizes["time"]
@@ -377,7 +393,7 @@ def build(w, cloud, tile_bytes=None):
         "name": name, "group": w["group"], "year": year, "built": today(), "why": w.get("why"),
         "reference": w.get("reference"),
         "source": {"stac": STAC, "collection": COLLECTION, "signed": "planetary_computer",
-                   "platforms": PLATFORMS, "datetime": f"{year}-01-01/{year}-12-31",
+                   "platforms": platforms, "datetime": f"{start}/{end}",
                    "scene_cloud_cover_lt": cloud, "windowed_cog_reads": True},
         "grid": {"crs": f"EPSG:{epsg}", "pixel_m": PIXEL, "bounds": [x0, y0, x1, y1], "shape": list(data.shape),
                  "lattice": "edges at 15 mod 30 m, Landsat's own (no resampling)"},
