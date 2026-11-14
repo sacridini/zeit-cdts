@@ -3449,11 +3449,11 @@ histerese, `find_boundaries` e as medidas de acurácia de segmentação.
 
 - **`zeit.fields(cube, ...)`** devolve um `Dataset` com `labels (y, x)` (int32, 0 fora da máscara),
   `boundary (y, x)` (a probabilidade de fronteira, de 0 a 1) e `gradient (y, x)`, os parâmetros nos
-  `attrs`; `.to_polygons()` dá um `GeoDataFrame` com área (ha), perímetro e compacidade. Parâmetros:
+  `attrs`; `zeit.fields_to_polygons(res)` (como `snic_to_polygons`) dá um `GeoDataFrame` com área (ha), perímetro e compacidade. Parâmetros:
   - `gradient=`: `"tophat"` (o do notebook), `"sobel"`, `"multitemporal"` (o Sobel de cada data e
     banda padronizadas, combinado por máximo ou soma), ou um `DataArray` pronto (um mapa de bordas
     aprendido, por exemplo);
-  - `method="exact"` (padrão, ver abaixo) ou `"montecarlo"` (o do notebook), com `realizations=`,
+  - `method="montecarlo"` (padrão, o do notebook: os limiares dele valem para ele; a troca do padrão espera a 24e) ou `"exact"` (ver abaixo), com `realizations=`,
     `markers=` (quantos, ou a densidade por km²), `min_distance=` (px), `marker_radius=`,
     `noise=` (Bernander et al. 2013) e `random_state=`;
   - `low=`, `high=` (a histerese, em fração), `min_size=` (px), `final="image"` (como no notebook)
@@ -3532,7 +3532,7 @@ acima (até 0,5 numa aresta), e o mapa de pixels exato tem correlação 0,97 a 0
   - o Monte Carlo do Zeit e o laço do notebook com os mesmos marcadores (exportados de uma
     execução do notebook) dão a mesma contagem;
   - a versão exata contra um Monte Carlo longo, com o mesmo modelo de marcadores (convergência).
-- **24c: `zeit.fields`, `.to_polygons()` e o CLI.** Com `preset="notebook"`, o caminho inteiro
+- **24c: `zeit.fields`, `zeit.fields_to_polygons` e o CLI.** Com `preset="notebook"`, o caminho inteiro
   (passos 1 a 6) igual ao notebook rodado por nós, dados os marcadores. `zeit.edge_gradient` com
   `"tophat"`, `"sobel"` e `"multitemporal"`.
 - **24d: dados de validação e `zeit.segmentation_accuracy`.** Os scripts de download (CAR, pivôs),

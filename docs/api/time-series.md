@@ -673,6 +673,116 @@ The seed grids of the R `snic` package, as `(n, 2)` `(row, col)` positions. Also
 
 </div>
 
+## Field boundaries
+
+Fields from the stochastic watershed (Angulo & Jeulin 2007), as in the MappingDemo notebook (Baumann 2020, after Emmanuelle Gouillart's segmentation tutorial), whose values are the defaults. A gradient image is flooded from many random markers; the frequency with which each pixel lands on a watershed boundary is thresholded (hysteresis), the complement is labelled and a final watershed grows those labels into fields. The building blocks are equal, value for value, to scikit-image's and SciPy's.
+
+### `fields` { .api }
+
+<!-- sig: zeit.fields -->
+```python
+zeit.fields(
+    data, *, gradient="tophat", method="montecarlo", realizations=500,
+    markers=1000, min_distance=20, marker_radius=3, n_neighbors=20,
+    coloring="knn", low=0.3, high=0.6, min_size=50, final=None, mask=None,
+    mask_threshold=None, band=None, time=None, preset=None,
+    random_state=None, n_jobs=None,
+)
+```
+
+Delineates fields in an image (or in a stack or series, with `gradient="multitemporal"`).
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `data` | `DataArray`, `ndarray` or path | required | `(y, x)`, `(band, y, x)`, `(time, y, x)` or `(time, band, y, x)`. Dims of length 1 are squeezed. |
+| `gradient` | `str`, `DataArray` or `ndarray` | `"tophat"` | `"tophat"` (the notebook's), `"sobel"` or `"multitemporal"` (see [`edge_gradient`](#edge_gradient)), or a ready `(y, x)` gradient. |
+| `method` | `str` | `"montecarlo"` | `"montecarlo"` (the notebook's loop) or `"exact"`: the exact probability of uniform one-pixel markers, in about the time of one union-find pass. The `low` and `high` thresholds are not yet calibrated for `"exact"`: they are applied as given and need tuning. |
+| `realizations` | `int` | `500` | Monte Carlo: how many watersheds. |
+| `markers` | `int` or list | `1000` | Random markers per watershed (for `"exact"`, the number of markers of the model). A list of `(2, k)` `(row, col)` arrays is used as given, one per realization. |
+| `min_distance` | `float` | `20` | Pixels between markers after thinning. |
+| `marker_radius` | `int` | `3` | Radius of the disk each marker is dilated to. |
+| `n_neighbors`, `coloring` | `int`, `str` | `20`, `"knn"` | The marker colouring graph; `"unique"` gives every marker its own label. |
+| `low`, `high` | `float` | `0.3`, `0.6` | Hysteresis thresholds on the boundary probability. |
+| `min_size` | `int` | `50` | Objects of fewer pixels are removed before the final watershed. |
+| `final` | `str` | `None` | `"image"` or `"gradient"`: the surface of the final watershed. `None`: the image for one 2-D image, else the gradient. |
+| `mask` | `(y, x)` bool | `None` | True where the pixel is kept (e.g. not forest). |
+| `mask_threshold` | `float` | `None` | Keep the pixels where the image is greater than this, in its own units. Not together with `mask`. |
+| `band`, `time` | | `None` | Select one band and/or date of a stack or cube. |
+| `preset` | `str` | `None` | `"notebook"`: `final="image"` and `mask_threshold=2000` (Landsat SWIR1 reflectance times 10000) unless given. An argument passed explicitly wins. |
+| `random_state` | `int` | `None` | Seed of the Monte Carlo; the result does not depend on `n_jobs`. |
+| `n_jobs` | `int` | `None` | Threads (`None` or `-1`: all the cores but one). |
+
+</div>
+
+**Returns** an `xarray.Dataset`, georeferenced like the input: `labels (y, x)` (int32, `1..k`, `0` outside the mask), `boundary (y, x)` (float32 boundary probability) and `gradient (y, x)`. `attrs["boundary_label"]` is `1` when label 1 is the boundary network (the notebook keeps it as a label of its own and grows it), else `0`: [`fields_to_polygons`](#fields_to_polygons) drops it. `save_raster` writes the three maps.
+
+```python
+swir = zeit.load_raster("B5_medoid_2019.tif")                    # raw digital numbers
+res = zeit.fields(swir, preset="notebook", random_state=0)
+polygons = zeit.fields_to_polygons(res)
+res = zeit.fields(cube, gradient="multitemporal", mask=~forest, method="exact", markers=500)
+```
+
+### `fields_to_polygons` { .api }
+
+<!-- sig: zeit.fields_to_polygons -->
+```python
+zeit.fields_to_polygons(
+    result, *, transform=None, crs=None, include_boundary=False,
+)
+```
+
+Converts the labels to a GeoDataFrame, one row per field (a MultiPolygon if the label is in several pieces), with columns `field` (the label), `n_pixels`, `area_ha`, `perimeter_m`, `compactness` (Polsby-Popper, `4 pi A / P^2`, 1 for a circle) and `geometry`. Label 0 and the boundary network are skipped.
+
+Area and perimeter are planar in a projected CRS (feet and other units are converted to metres) and geodesic on the CRS's ellipsoid in a geographic one. Without a CRS, `area_ha` and `perimeter_m` are NaN, with a warning, and `compactness` is computed in the units of the transform.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `result` | `Dataset`, `DataArray` or `ndarray` | required | The output of [`fields`](#fields) (its transform, CRS and boundary label are used), its `labels`, or an integer array. |
+| `transform` | `Affine` | `None` | Instead of the result's (identity: pixel coordinates). |
+| `crs` | | `None` | Instead of the result's. |
+| `include_boundary` | `bool` | `False` | Keep the boundary network's polygon. |
+
+</div>
+
+### `edge_gradient` { .api }
+
+<!-- sig: zeit.edge_gradient -->
+```python
+zeit.edge_gradient(
+    data, method="tophat", *, band=None, time=None, combine="max",
+    n_jobs=None,
+)
+```
+
+The edge-strength image that `fields` floods. `"tophat"` is the notebook's: the image stretched between its 2nd and 98th percentiles, `black_tophat(img, 3x3) - 0.5 * img`, then a grey dilation. `"sobel"` is the Sobel magnitude of the stretched image (equal to `skimage.filters.sobel`). `"multitemporal"` standardises and Sobels every layer (each date and band) and combines them with `combine` (`"max"` or `"sum"`, the mean of the layers with a value). `"tophat"` and `"sobel"` need one 2-D image, so select it with `band` / `time`. Returns a `(y, x)` `DataArray` with the input's coordinates.
+
+### `stochastic_watershed` { .api }
+
+<!-- sig: zeit.stochastic_watershed -->
+```python
+zeit.stochastic_watershed(
+    gradient, *, method="montecarlo", realizations=500, markers=1000,
+    min_distance=20, marker_radius=3, n_neighbors=20, coloring="knn",
+    mask=None, random_state=None, n_jobs=None, return_counts=False,
+)
+```
+
+The probability that each pixel lies on a watershed boundary (Angulo & Jeulin 2007): the part of `fields` that costs the time. The parameters are `fields`'s, and `mask` is inside every watershed. Returns a `(y, x)` float32 `DataArray` in `[0, 1]` (with `return_counts`, also the raw counts of the Monte Carlo).
+
+### `watershed` { .api }
+
+<!-- sig: zeit.watershed -->
+```python
+zeit.watershed(elevation, markers, *, mask=None, connectivity=1)
+```
+
+Marker-controlled watershed, equal to `skimage.segmentation.watershed`: floods `elevation` from the integer `markers` (0: unlabelled), inside `mask`, with 4 (`connectivity=1`) or 8 (`2`) neighbours. Returns int32 labels.
+
 ## Texture
 
 ### `texture` { .api }

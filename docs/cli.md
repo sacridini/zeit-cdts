@@ -305,7 +305,7 @@ zeit mmu-filter ./results/lt_event_yod.tif ./results/lt_event_yod_mmu.tif --mmu-
 
 ## The other cube functions
 
-`phenology`, `smooth`, `tmask`, `twdtw`, `snic`, `classify`, `som`, `coded` and `bandpass-adjust` run the Python function of the same name on any raster [`load_raster`](api/data.md#load_raster) reads, with the dates in the band names (as `save_raster` writes them, `yr1985`, `2020-01-15` or `2020-01-15_red` for a time × band stack). They share the same syntax and options, and write `<output_dir>/<prefix>.tif`, one band per map (or per date), computed block by block in one pass:
+`phenology`, `smooth`, `tmask`, `twdtw`, `snic`, `fields`, `classify`, `som`, `coded` and `bandpass-adjust` run the Python function of the same name on any raster [`load_raster`](api/data.md#load_raster) reads, with the dates in the band names (as `save_raster` writes them, `yr1985`, `2020-01-15` or `2020-01-15_red` for a time × band stack). They share the same syntax and options, and write `<output_dir>/<prefix>.tif`, one band per map (or per date), computed block by block in one pass:
 
 ```bash
 zeit <command> <input> <output_dir> [OPTIONS]
@@ -401,6 +401,31 @@ zeit twdtw ./data/ndvi_2022.tif ./results --patterns ./data/patterns.csv
 zeit snic ./data/s2_ndvi_2022.tif ./results --spacing 8 --polygons
 ```
 
+### 12b. Field boundaries (`fields`)
+
+[`zeit.fields`](api/time-series.md#fields): fields by the stochastic watershed (Angulo & Jeulin 2007), with the MappingDemo notebook's values (Baumann 2020, after Emmanuelle Gouillart's tutorial) as defaults. The input is read into memory. One three-band raster, `<prefix>.tif`: `labels` (field ids, `0` outside the mask; the boundary network, label 1, stays in it), `boundary` (the boundary probability) and `gradient`. `--polygons` also writes `<prefix>.gpkg`, the fields as polygons with `n_pixels`, `area_ha`, `perimeter_m` and `compactness` (the boundary network left out).
+
+| Option | Type | Default | Description |
+| :--- | :---: | :---: | :--- |
+| `--gradient` | `str` | `tophat` | `tophat` (the notebook's), `sobel` or `multitemporal` (a stack or series). |
+| `--method` | `str` | `montecarlo` | `montecarlo` or `exact`. The thresholds are not yet calibrated for `exact`. |
+| `--realizations` | `int` | `500` | Monte Carlo: number of watersheds. |
+| `--markers` | `int` | `1000` | Random markers per watershed. |
+| `--min-distance` | `float` | `20` | Pixels between markers. |
+| `--marker-radius` | `int` | `3` | Radius of the disk of each marker. |
+| `--low`, `--high` | `float` | `0.3`, `0.6` | Hysteresis thresholds on the boundary probability. |
+| `--min-size` | `int` | `50` | Drop objects of fewer pixels before the final watershed. |
+| `--final` | `str` | image, or gradient for a stack | `image` or `gradient`: what the final watershed floods. |
+| `--mask-threshold` | `float` | *None* | Keep the pixels where the image is greater than this. |
+| `--band` | `str` | *None* | A stack: the band (name or number) to delineate. |
+| `--preset` | `str` | *None* | `notebook`: `--final image` and `--mask-threshold 2000` (Landsat SWIR1 times 10000). |
+| `--random-state` | `int` | *None* | Seed of the Monte Carlo. |
+| `--polygons` | flag | | Also write the polygons. |
+
+```bash
+zeit fields ./data/B5_medoid_2019.tif ./results --preset notebook --random-state 0 --polygons
+```
+
 ### 13. Classification (`classify`)
 
 [`zeit.train_classifier`](api/post-processing.md#train_classifier) and [`zeit.classify`](api/post-processing.md#classify) in one call: a random forest trained on sample points (each band, or date and band, a feature) classifies every pixel. Bands `label` (and each class's probability with `--probability`).
@@ -475,7 +500,7 @@ zeit classify ./results/tessera.tif ./results --samples ./data/samples.gpkg   # 
 
 ### 17. Many tiles, here and on other computers
 
-Every command that reads one raster (`landtrendr`, `ccdc`, `bfast-monitor`, `bfast-lite`, `bfast`, `mann-kendall`, `phenology`, `smooth`, `tmask`, `twdtw`, `snic`, `classify`, `som`, `coded`, `bandpass-adjust`) also runs on a whole folder of tiles, with the same options, writing `<output_dir>/<tile name>/` per tile. Add `--helpers` and the computers of the local network running [`zeit worker`](#18-lending-a-computer-zeit-worker) process tiles too. The Python form is [`zeit.run_tiles`](api/parallel.md#run_tiles); the tutorial, with what limits the speed, is [Many tiles on several computers](tutorials/parallel-cloud-processing.md#many-tiles-on-several-computers).
+Every command that reads one raster (`landtrendr`, `ccdc`, `bfast-monitor`, `bfast-lite`, `bfast`, `mann-kendall`, `phenology`, `smooth`, `tmask`, `twdtw`, `snic`, `fields`, `classify`, `som`, `coded`, `bandpass-adjust`) also runs on a whole folder of tiles, with the same options, writing `<output_dir>/<tile name>/` per tile. Add `--helpers` and the computers of the local network running [`zeit worker`](#18-lending-a-computer-zeit-worker) process tiles too. The Python form is [`zeit.run_tiles`](api/parallel.md#run_tiles); the tutorial, with what limits the speed, is [Many tiles on several computers](tutorials/parallel-cloud-processing.md#many-tiles-on-several-computers).
 
 ```bash
 zeit landtrendr nbr_tiles/ lt_out/ --tiles                    # every tile, on this computer

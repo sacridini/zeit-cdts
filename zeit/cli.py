@@ -144,7 +144,7 @@ def run_mmu_filter_cli(args: argparse.Namespace) -> None:
 
 def _run_cube_cli(args: argparse.Namespace, name: str, compute, *, lazy: bool = True, extras=None) -> None:
     """Shared body of the commands of the cube functions (phenology, smooth, tmask, twdtw,
-    snic, classify, som): read the input (lazily, in blocks of --chunk-size), compute, and
+    snic, fields, classify, som): read the input (lazily, in blocks of --chunk-size), compute, and
     write <output_dir>/<prefix>.tif in one pass, one band per map or date. ``extras(result,
     stem)`` writes what is not a raster (polygons, prototypes) next to it and returns the
     paths."""
@@ -244,6 +244,27 @@ def run_snic_cli(args: argparse.Namespace) -> None:
 
     _run_cube_cli(args, "snic", lambda cube: snic(
         cube, spacing=args.spacing, compactness=args.compactness, grid=args.grid, n_jobs=args.jobs),
+        lazy=False, extras=polygons)
+
+
+def run_fields_cli(args: argparse.Namespace) -> None:
+    from ._fields import fields, fields_to_polygons
+
+    band = args.band
+    if band is not None and band.lstrip("-").isdigit():
+        band = int(band)
+
+    def polygons(result, stem):
+        if not args.polygons:
+            return []
+        fields_to_polygons(result).to_file(stem + ".gpkg")
+        return [stem + ".gpkg"]
+
+    _run_cube_cli(args, "fields", lambda cube: fields(
+        cube, gradient=args.gradient, method=args.method, realizations=args.realizations, markers=args.markers,
+        min_distance=args.min_distance, marker_radius=args.marker_radius, low=args.low, high=args.high,
+        min_size=args.min_size, final=args.final, mask_threshold=args.mask_threshold, band=band,
+        preset=args.preset, random_state=args.random_state, n_jobs=args.jobs),
         lazy=False, extras=polygons)
 
 
@@ -704,6 +725,24 @@ def build_parser() -> argparse.ArgumentParser:
     sn_parser.add_argument("--grid", choices=["rectangular", "diamond", "hexagonal", "random"], default="rectangular", help="Seed grid (default: rectangular)")
     sn_parser.add_argument("--polygons", action="store_true", help="Also write the segments as polygons with their means (<prefix>.gpkg)")
 
+    fi_parser = subparsers.add_parser("fields", help="Delineate fields by the stochastic watershed (labels, boundary probability)")
+    _add_cube_args(fi_parser, "fields", what="Path to the input raster (one image, or a stack or series for --gradient multitemporal)")
+    fi_parser.add_argument("--gradient", choices=["tophat", "sobel", "multitemporal"], default="tophat", help="Edge image to flood (default: tophat, the notebook's)")
+    fi_parser.add_argument("--method", choices=["montecarlo", "exact"], default="montecarlo", help="Boundary probability: Monte Carlo of watersheds, or the exact one (thresholds not yet calibrated; default: montecarlo)")
+    fi_parser.add_argument("--realizations", type=int, default=500, help="Monte Carlo: number of watersheds (default: 500)")
+    fi_parser.add_argument("--markers", type=int, default=1000, help="Random markers per watershed (default: 1000)")
+    fi_parser.add_argument("--min-distance", type=float, default=20, help="Pixels between markers after thinning (default: 20)")
+    fi_parser.add_argument("--marker-radius", type=int, default=3, help="Radius of the disk each marker is dilated to (default: 3)")
+    fi_parser.add_argument("--low", type=float, default=0.3, help="Hysteresis, low threshold on the boundary probability (default: 0.3)")
+    fi_parser.add_argument("--high", type=float, default=0.6, help="Hysteresis, high threshold on the boundary probability (default: 0.6)")
+    fi_parser.add_argument("--min-size", type=int, default=50, help="Drop objects of fewer pixels before the final watershed (default: 50)")
+    fi_parser.add_argument("--final", choices=["image", "gradient"], default=None, help="Surface of the final watershed (default: image for one image, else gradient)")
+    fi_parser.add_argument("--mask-threshold", type=float, default=None, help="Keep only the pixels where the image is greater than this (e.g. 2000 for Landsat SWIR1 x 10000)")
+    fi_parser.add_argument("--band", default=None, help="With a stack: the band (name or number) to delineate")
+    fi_parser.add_argument("--preset", choices=["notebook"], default=None, help="The MappingDemo notebook's values (final=image, mask threshold 2000)")
+    fi_parser.add_argument("--random-state", type=int, default=None, help="Seed of the Monte Carlo")
+    fi_parser.add_argument("--polygons", action="store_true", help="Also write the fields as polygons with their area (<prefix>.gpkg)")
+
     cl_parser = subparsers.add_parser("classify", help="Classify every pixel with a random forest trained on sample points")
     _add_cube_args(cl_parser, "classes", what="Path to the raster to classify (each band, or date and band, a feature)")
     cl_parser.add_argument("--samples", default=None, help="Vector file of sample points with their class")
@@ -870,6 +909,8 @@ def main(argv: Optional[List[str]] = None) -> None:
         run_twdtw_cli(args)
     elif args.command == "snic":
         run_snic_cli(args)
+    elif args.command == "fields":
+        run_fields_cli(args)
     elif args.command == "classify":
         run_classify_cli(args)
     elif args.command == "som":

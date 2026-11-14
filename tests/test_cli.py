@@ -158,3 +158,27 @@ def test_a_failure_exits_with_an_error(monkeypatch, tmp_path, capsys):
     with pytest.raises(SystemExit):
         run(monkeypatch, "smooth", tmp_path / "missing.tif", tmp_path / "out")
     assert "Error running smooth" in capsys.readouterr().out
+
+
+def test_fields_with_polygons(monkeypatch, tmp_path):
+    gpd = pytest.importorskip("geopandas")
+    rng = np.random.default_rng(3)
+    levels = np.array([[1500, 3000, 2200], [3500, 1800, 2800]], dtype=float)
+    img = levels[np.repeat(np.arange(2), 20)[:, None], np.repeat(np.arange(3), 20)[None, :]]
+    img = (img + rng.normal(0, 40, img.shape)).astype(np.uint16)
+    da = xr.DataArray(img, dims=("y", "x"), name="swir",
+                      coords={"y": TR.f - 30.0 * (np.arange(40) + 0.5), "x": TR.c + 30.0 * (np.arange(60) + 0.5)}
+                      ).rio.write_crs("EPSG:32722")
+    zeit.save_raster(da, tmp_path / "swir.tif")
+    opts = dict(realizations=20, markers=60, min_distance=4, marker_radius=2, min_size=10, random_state=0, n_jobs=2)
+    run(monkeypatch, "fields", tmp_path / "swir.tif", tmp_path / "out", "--realizations", 20, "--markers", 60,
+        "--min-distance", 4, "--marker-radius", 2, "--min-size", 10, "--random-state", 0, "--jobs", 2,
+        "--mask-threshold", 1000, "--polygons")
+    expected = zeit.fields(da, mask_threshold=1000, **opts)
+    out = same_as(tmp_path, tmp_path / "out" / "fields.tif", expected)
+    assert out.shape[0] == 3 and (out.values[0] == expected["labels"].values).all()
+    polygons = gpd.read_file(tmp_path / "out" / "fields.gpkg")
+    assert polygons.crs == "EPSG:32722" and len(polygons) > 1
+    ref = zeit.fields_to_polygons(expected)
+    assert sorted(polygons["field"]) == sorted(ref["field"])
+    np.testing.assert_allclose(polygons["area_ha"].sum(), ref["area_ha"].sum())

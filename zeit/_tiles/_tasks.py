@@ -23,7 +23,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 # The commands that read one raster and write into an output folder.
 TILE_COMMANDS = ("landtrendr", "ccdc", "bfast-monitor", "bfast-lite", "bfast", "mann-kendall", "phenology",
-                 "smooth", "tmask", "twdtw", "snic", "classify", "som", "coded", "bandpass-adjust")
+                 "smooth", "tmask", "twdtw", "snic", "fields", "classify", "som", "coded", "bandpass-adjust")
 # Options naming one file used by every tile: sent to the helpers along with the task.
 SHARED_FILES = {"ccdc": ("dates_file",), "twdtw": ("patterns",), "classify": ("model",), "coded": ("training",)}
 # Options naming a file that belongs to one raster: they make no sense for many tiles.
