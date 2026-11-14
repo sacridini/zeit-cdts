@@ -38,3 +38,6 @@ examples/data/
 
 # Rust build output
 rust/target/
+
+# local outputs of Claude sessions
+Claude outputs/
