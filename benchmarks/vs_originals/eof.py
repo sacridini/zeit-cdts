@@ -313,11 +313,11 @@ def accuracy_real(cube):
     r1 = agreement(ds, pix, run_eofs(a), "eofs (exact)", True)
     m, rx = run_xeofs(a, solver="full")
     r2 = agreement(ds, pix, rx, "xeofs (solver='full')", False)
-    rnd = zeit.eof(cube, n_modes=NM, weights="none", solver="randomized", n_jobs=8)
+    rnd = zeit.eof(cube, n_modes=NM, weights="none", solver="randomized", power_iterations=2, n_jobs=8)
     r3 = agreement(rnd, pix, run_eofs(a), "Zeit randomized vs eofs", True)
     for r in (r1, r2, r3):
         show(r)
-    # the randomized sketch (Halko et al.: 10 more columns, 2 power passes) is not exact on a spectrum that decays as
+    # the randomized sketch (Halko et al.: 10 more columns; 2 power passes here, 4 by default) is not exact on a spectrum that decays as
     # slowly as this real cube's: its error by mode, and with more power passes
     err = {2: np.abs(rnd.variance.values - ds.variance.values)}
     for q in (4, 8):

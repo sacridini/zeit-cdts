@@ -57,9 +57,9 @@ pub trait Blocks: Sync {
 /// How the singular vectors are found.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Solver {
-    /// `Exact` when T <= 256 (one pass over the data, its Gram cheap next to
+    /// `Exact` when T <= 1000 (one pass over the data, its Gram cheap next to
     /// the randomized passes) or the sketch (modes + 10) is at least T / 2,
-    /// else `Randomized` with 10 and 2.
+    /// else `Randomized` with 10 and 4.
     Auto,
     /// The eigendecomposition of the T x T Gram matrix.
     Exact,
@@ -354,12 +354,12 @@ pub fn decompose(
     let k = s.modes.min(t - 1);
     let solver = match s.solver {
         Solver::Auto => {
-            if t <= 256 || (k + 10) * 2 >= t {
+            if t <= 1000 || (k + 10) * 2 >= t {
                 Solver::Exact
             } else {
                 Solver::Randomized {
                     oversampling: 10,
-                    power_iterations: 2,
+                    power_iterations: 4,
                 }
             }
         }

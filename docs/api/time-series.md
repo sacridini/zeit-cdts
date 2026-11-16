@@ -229,7 +229,7 @@ zeit.eof(
     data, n_modes=10, *, anomaly="month", harmonics=2, base=None,
     detrend=False, standardize=False, weights="area", min_valid=0.8,
     min_date_valid=0.5, scaling="units", solver="auto",
-    oversampling=10, power_iterations=2, rotate=0, kaiser=True,
+    oversampling=10, power_iterations=4, rotate=0, kaiser=True,
     north_n="dates", correlation_maps=False, seed=42, band=None,
     nodata="auto", n_jobs=-1,
 )
@@ -254,9 +254,9 @@ North et al.'s (1982) rule of thumb says when a mode can be told from its neighb
 | `min_valid` | `float` | `0.8` | A pixel is kept when this fraction of the dates is valid after the anomalies. |
 | `min_date_valid` | `float` | `0.5` | A date is part of the fit when this fraction of the kept pixels is valid there. |
 | `scaling` | `str` | `"units"` | `"units"`: each EOF in the data's units per standard deviation of its PC (the PCs have unit variance); `"none"`: orthonormal EOFs, the PCs carry the variance. |
-| `solver` | `str` | `"auto"` | `"exact"`, `"randomized"`, or `"auto"` (exact with up to 256 dates, else randomized). |
+| `solver` | `str` | `"auto"` | `"exact"`, `"randomized"`, or `"auto"` (exact with up to 1000 dates, else randomized). |
 | `oversampling` | `int` | `10` | Columns of the randomized sketch beyond `n_modes`. |
-| `power_iterations` | `int` | `2` | Power passes of the randomized solver: each costs a pass over the data and makes the deeper modes more accurate. |
+| `power_iterations` | `int` | `4` | Power passes of the randomized solver: each costs a pass over the data and makes the deeper modes more accurate. |
 | `rotate` | `int` | `0` | Rotate the first `rotate` modes (2 or more) by varimax. The rotated EOFs are always in data units per standard deviation of the PC. |
 | `kaiser` | `bool` | `True` | Kaiser's row normalization in the rotation. |
 | `north_n` | `str` | `"dates"` | The number of independent dates of North's error: `"dates"` or `"autocorrelation"`. |

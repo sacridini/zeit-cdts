@@ -730,15 +730,15 @@ The tie points are 4.5 to 12 times faster in Zeit on one thread against AROSICS 
 
 | Workload | Original | Time | Zeit, 1 thread | Zeit, 8 threads | Speedup (1 / 8) |
 |:---|:---|---:|---:|---:|:---:|
-| EOF, exact: 120 months x 99,856 px | eofs (full SVD) | 1.04 s | 0.169 s | 0.108 s | 6× / 10× |
-| | xeofs (`solver="full"`) | 1.23 s | | | 7× / 11× |
-| EOF, exact: 240 months x 499,849 px | eofs | 11.5 s | 2.44 s | 1.28 s | 5× / 9× |
-| | xeofs (`solver="full"`) | 14.2 s | | | 6× / 11× |
-| EOF, exact: 300 months x 361,000 px kept (EVI) | eofs | 8.39 s | 2.77 s | 1.48 s | 3× / 6× |
-| | xeofs (`solver="full"`) | 11.4 s | | | 4× / 8× |
-| EOF, randomized: 120 months x 99,856 px | xeofs (default, randomized) | 0.645 s | 0.284 s | 0.195 s | 2× / 3× |
-| EOF, randomized: 240 months x 499,849 px | xeofs (default) | 6.59 s | 4.80 s | 2.32 s | 1.4× / 2.8× |
-| EOF, randomized: 300 months x 361,000 px kept (EVI) | xeofs (default) | 5.76 s | 4.27 s | 2.38 s | 1.3× / 2.4× |
+| EOF, exact: 120 months x 99,856 px | eofs (full SVD) | 0.944 s | 0.169 s | 0.108 s | 6× / 9× |
+| | xeofs (`solver="full"`) | 1.19 s | | | 7× / 11× |
+| EOF, exact: 240 months x 499,849 px | eofs | 11.7 s | 2.58 s | 1.32 s | 5× / 9× |
+| | xeofs (`solver="full"`) | 14.7 s | | | 6× / 11× |
+| EOF, exact: 300 months x 361,000 px kept (EVI) | eofs | 8.83 s | 3.25 s | 1.89 s | 3× / 5× |
+| | xeofs (`solver="full"`) | 11.3 s | | | 3× / 6× |
+| EOF, randomized: 120 months x 99,856 px | xeofs (default, randomized) | 0.618 s | 0.365 s | 0.252 s | 1.7× / 2.4× |
+| EOF, randomized: 240 months x 499,849 px | xeofs (default) | 6.89 s | 5.91 s | 3.04 s | 1.2× / 2.3× |
+| EOF, randomized: 300 months x 361,000 px kept (EVI) | xeofs (default) | 6.25 s | 5.15 s | 2.87 s | 1.2× / 2.2× |
 | Lagged correlation, 7 lags: 575 dates x 99,856 px | `xr.corr` per lag (r only) | 7.15 s | 2.00 s | 0.660 s | 4× / 11× |
 | | `xr.corr`, the pairs and scipy's t p-values | 7.32 s | 1.34 s | 0.510 s | 5× / 14× |
 | Lagged correlation, 7 lags: 300 months x 460,360 px (EVI) | `xr.corr` per lag (r only) | 31.5 s | 7.17 s | 2.29 s | 4× / 14× |
@@ -767,7 +767,7 @@ The first line of each pair gives Zeit's times; the second reuses them against t
 
 !!! warning "What is not the same work"
     - **The anomalies.** The references receive the matrix Zeit decomposes (its kept pixels and dates, each column centred over its valid values, the gaps 0), because they cannot handle gaps. Their time is the decomposition and the extraction of 10 modes; Zeit's is the whole call (the anomalies, the filtering of pixels and dates, the weights, the maps), so the speedups are conservative. eofs always computes the full SVD; xeofs' default solver is randomized (scikit-learn's), and with `solver="full"` it needs `solver_kwargs={"full_matrices": False}` or it allocates an N x N matrix. The references ran with 8 BLAS threads.
-    - **The randomized solver.** On a spectrum that decays slowly, like this EVI cube's, Zeit's default (10 more columns, 2 power passes) is exact for mode 1 (7e-8 in the variance) but every mode is within 7e-4 of the exact one (mode 6: 7e-4); with 4 passes the worst is 3e-4, with 8 passes 2e-5. xeofs' default is closer (1.9e-5). Zeit's `solver="auto"` takes the exact one up to 256 dates.
+    - **The randomized solver.** On a spectrum that decays slowly, like this EVI cube's, Zeit's randomized solver with 2 power passes is exact for mode 1 (7e-8 in the variance) but every mode is within 7e-4 of the exact one (mode 6: 7e-4); with 4 passes the worst is 3e-4, with 8 passes 2e-5. xeofs' default is closer (1.9e-5). Zeit's `solver="auto"` therefore takes the exact one up to 1000 dates (on this cube also the faster one), and its randomized default is 4 passes.
     - **Conventions.** eofs' and xeofs' maps are those of the weighted data, Zeit's `units` maps have the weights taken out (data units per standard deviation of the PC); with equal weights Zeit's maps and PCs are eofs' `eofs(eofscaling=2)` and `pcs(pcscaling=1)`. Signs are arbitrary in the references; Zeit's rule makes the PC correlate positively with the mean anomaly. xeofs' rotated PCs carry the variance, Zeit's have unit variance. Zeit's weights have mean 1, eofs' are sqrt(cos(latitude)) as given, so the eigenvalues differ by that constant and the ratios do not. Zeit leaves a month NaN for a pixel with fewer than 2 values of that calendar month (`min_per_month`), xarray does not; the script applies the same rule.
     - **The correlation.** `xr.corr` gives r only; the second reference adds the pairs and the p-values of independent pairs, and still has neither the effective sample size, the Sidak adjustment of the lags nor the false discovery rate that Zeit's call returns. The 2000-pixel loops are given the anomalies; Zeit's call starts from the 16-day or monthly cube.
 

@@ -302,7 +302,7 @@ fn run(
 /// `pixel_kept`, `total_variance`, `solver`, and with `rotate` the `rotated_*`
 /// ones (in the units scaling, unit-variance PCs).
 #[pyfunction]
-#[pyo3(signature = (values, weights = None, modes = 10, solver = "auto", oversampling = 10, power_iterations = 2,
+#[pyo3(signature = (values, weights = None, modes = 10, solver = "auto", oversampling = 10, power_iterations = 4,
     seed = 42, min_valid = 0.8, min_date_valid = 0.5, scaling = "units", rotate = 0, kaiser = true,
     north_n = "dates", correlation_maps = false, n_jobs = -1))]
 #[allow(clippy::too_many_arguments)]

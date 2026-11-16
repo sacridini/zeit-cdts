@@ -85,7 +85,7 @@ def eof(
     scaling: str = "units",
     solver: str = "auto",
     oversampling: int = 10,
-    power_iterations: int = 2,
+    power_iterations: int = 4,
     rotate: int = 0,
     kaiser: bool = True,
     north_n: str = "dates",
@@ -132,7 +132,7 @@ def eof(
         ``"units"`` (default): each EOF in the data's units per standard deviation of its PC (the PCs have unit
         variance); ``"none"``: orthonormal EOFs, the PCs carry the variance.
     solver, oversampling, power_iterations, seed
-        ``"auto"`` (exact with up to 256 dates, else randomized), ``"exact"`` or ``"randomized"``; the sketch
+        ``"auto"`` (exact with up to 1000 dates, else randomized), ``"exact"`` or ``"randomized"``; the sketch
         has ``n_modes + oversampling`` columns and ``power_iterations`` power passes; the seed of the random
         test matrix.
     rotate
