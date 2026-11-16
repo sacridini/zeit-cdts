@@ -33,6 +33,8 @@ from ._aoa import TrainDI, aoa, train_di
 from ._folds import SpatialFolds, autocorrelation_range, spatial_folds
 from ._profile import ErrorProfile, error_profile
 from ._hotspots import emerging_hotspots
+from ._eof import eof
+from ._correlation import lagged_correlation, fdr
 from .segmentation import snic_grid, snic_to_polygons
 from ._snic_api import snic
 from ._fields import fields, edge_gradient, stochastic_watershed, watershed, fields_to_polygons
@@ -131,6 +133,7 @@ __all__ = [
     "spatial_folds", "SpatialFolds", "autocorrelation_range",
     "error_profile", "ErrorProfile",
     "emerging_hotspots",
+    "eof", "lagged_correlation", "fdr",
     "snic_grid", "snic_to_polygons",
     "fields", "fields_tiled", "edge_gradient", "stochastic_watershed", "watershed", "fields_to_polygons",
     "segmentation_accuracy",
