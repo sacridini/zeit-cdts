@@ -724,6 +724,55 @@ The tie points are 4.5 to 12 times faster in Zeit on one thread against AROSICS 
 
 ---
 
+### EOFs and lagged correlation
+
+`zeit.eof` against **xeofs 3.0.4** (MIT) and **eofs 2.0.0** (GPL-3.0), and `zeit.lagged_correlation` and `zeit.fdr` against **xarray 2026.9** (`xr.corr` of the series with the driver shifted by each lag), **scipy 1.18** (`pearsonr`, `spearmanr`, the Student t distribution, `false_discovery_control`) and **statsmodels 0.15** (`fdrcorrection`). The data are a synthetic monthly cube with three known modes (a dipole, a monopole and a checker with periods of 29, 47 and 61 months; EPSG:3035, and a geographic one with cos(latitude) weights), a synthetic 16-day cube whose pixels follow a monthly driver at lags of 0 to 3 months, and the real cube of the [EOF tutorial](../tutorials/eof.md): 25 years of 16-day EVI, 575 dates, 677 x 680 pixels at 250 m (EPSG:3035, 77.6 % of the monthly values valid), averaged to 300 months (the driver of the correlation: the mean of a 120 x 120 pixel block of the cube).
+
+| Workload | Original | Time | Zeit, 1 thread | Zeit, 8 threads | Speedup (1 / 8) |
+|:---|:---|---:|---:|---:|:---:|
+| EOF, exact: 120 months x 99,856 px | eofs (full SVD) | 1.04 s | 0.169 s | 0.108 s | 6× / 10× |
+| | xeofs (`solver="full"`) | 1.23 s | | | 7× / 11× |
+| EOF, exact: 240 months x 499,849 px | eofs | 11.5 s | 2.44 s | 1.28 s | 5× / 9× |
+| | xeofs (`solver="full"`) | 14.2 s | | | 6× / 11× |
+| EOF, exact: 300 months x 361,000 px kept (EVI) | eofs | 8.39 s | 2.77 s | 1.48 s | 3× / 6× |
+| | xeofs (`solver="full"`) | 11.4 s | | | 4× / 8× |
+| EOF, randomized: 120 months x 99,856 px | xeofs (default, randomized) | 0.645 s | 0.284 s | 0.195 s | 2× / 3× |
+| EOF, randomized: 240 months x 499,849 px | xeofs (default) | 6.59 s | 4.80 s | 2.32 s | 1.4× / 2.8× |
+| EOF, randomized: 300 months x 361,000 px kept (EVI) | xeofs (default) | 5.76 s | 4.27 s | 2.38 s | 1.3× / 2.4× |
+| Lagged correlation, 7 lags: 575 dates x 99,856 px | `xr.corr` per lag (r only) | 7.15 s | 2.00 s | 0.660 s | 4× / 11× |
+| | `xr.corr`, the pairs and scipy's t p-values | 7.32 s | 1.34 s | 0.510 s | 5× / 14× |
+| Lagged correlation, 7 lags: 300 months x 460,360 px (EVI) | `xr.corr` per lag (r only) | 31.5 s | 7.17 s | 2.29 s | 4× / 14× |
+| | `xr.corr`, the pairs and scipy's t p-values | 31.9 s | 4.82 s | 1.72 s | 7× / 19× |
+| Pearson, 2000 pixels x 7 lags (EVI) | `scipy.stats.pearsonr` loop | 1.67 s | 0.024 s | 0.010 s | 71× / 160× |
+| Spearman, 2000 pixels x 7 lags (EVI) | `scipy.stats.spearmanr` loop | 2.29 s | 0.144 s | 0.036 s | 16× / 64× |
+
+The first line of each pair gives Zeit's times; the second reuses them against the second original. Zeit's lagged correlation rows with the p-values use `effective_n=False`, the rows with r only the default.
+
+**How they were checked.** Every number below is asserted by `benchmarks/vs_originals/eof.py` and `correlation.py`, which stop with an error otherwise.
+
+| | Against | Agreement |
+|:---|:---|:---|
+| Monthly anomalies | xarray `groupby("time.month")` | identical (max difference 0), also on the EVI cube |
+| EOF, explained variance of 10 modes | eofs, xeofs (exact) | 1e-14 absolute (3e-15 synthetic, 8e-15 EVI) |
+| EOF maps and PCs | eofs, xeofs (exact) | 1 - \|cos\| below 4e-14 over the 10 modes; eofs' scaled maps and PCs to 2e-13 and 2e-11 |
+| North's errors, `north_n="dates"` | eofs `northTest` | 2e-14 relative |
+| Varimax of 2 and 3 modes, with Kaiser's normalization | xeofs `EOFRotator` | rotated variance 3e-15, maps 1 - \|cos\| 7e-15 |
+| cos(latitude) weights | eofs (`weights=sqrt(coslat)`), xeofs (`use_coslat=True`) | variance 1e-15, maps 1e-16 in the weighted space |
+| Known modes put in | the synthetic truth | \|cos\| of the PCs 0.9998 to 1, of the EOFs above 0.998 |
+| Lagged correlation r and pairs, best lag | `xr.corr` | r identical in float32, no pair or best lag differs (99,856 and 460,360 pixels, 7 lags) |
+| r in float64, p with `effective_n=False` | `xr.corr`, scipy's t | 3e-16, and 2e-13 |
+| Sample of 1500 pixels x 7 lags | `pearsonr`, `spearmanr` | r 1e-15, p 2e-13 |
+| Effective n and its p-value | numpy (Bretherton et al. 1999), scipy's t with non-integer degrees of freedom | 2e-15 and 1e-12 relative |
+| False discovery rate | `scipy.stats.false_discovery_control`, statsmodels | q 2e-16; the same pixels significant |
+
+!!! warning "What is not the same work"
+    - **The anomalies.** The references receive the matrix Zeit decomposes (its kept pixels and dates, each column centred over its valid values, the gaps 0), because they cannot handle gaps. Their time is the decomposition and the extraction of 10 modes; Zeit's is the whole call (the anomalies, the filtering of pixels and dates, the weights, the maps), so the speedups are conservative. eofs always computes the full SVD; xeofs' default solver is randomized (scikit-learn's), and with `solver="full"` it needs `solver_kwargs={"full_matrices": False}` or it allocates an N x N matrix. The references ran with 8 BLAS threads.
+    - **The randomized solver.** On a spectrum that decays slowly, like this EVI cube's, Zeit's default (10 more columns, 2 power passes) is exact for mode 1 (7e-8 in the variance) but every mode is within 7e-4 of the exact one (mode 6: 7e-4); with 4 passes the worst is 3e-4, with 8 passes 2e-5. xeofs' default is closer (1.9e-5). Zeit's `solver="auto"` takes the exact one up to 256 dates.
+    - **Conventions.** eofs' and xeofs' maps are those of the weighted data, Zeit's `units` maps have the weights taken out (data units per standard deviation of the PC); with equal weights Zeit's maps and PCs are eofs' `eofs(eofscaling=2)` and `pcs(pcscaling=1)`. Signs are arbitrary in the references; Zeit's rule makes the PC correlate positively with the mean anomaly. xeofs' rotated PCs carry the variance, Zeit's have unit variance. Zeit's weights have mean 1, eofs' are sqrt(cos(latitude)) as given, so the eigenvalues differ by that constant and the ratios do not. Zeit leaves a month NaN for a pixel with fewer than 2 values of that calendar month (`min_per_month`), xarray does not; the script applies the same rule.
+    - **The correlation.** `xr.corr` gives r only; the second reference adds the pairs and the p-values of independent pairs, and still has neither the effective sample size, the Sidak adjustment of the lags nor the false discovery rate that Zeit's call returns. The 2000-pixel loops are given the anomalies; Zeit's call starts from the 16-day or monthly cube.
+
+---
+
 ## Protocol
 
 - **The same inputs.** Each script draws its inputs with a fixed seed, writes them to a temporary folder (CSV or raw float64), runs the original on the files from `Rscript`, and runs Zeit on the same arrays in memory.
@@ -739,8 +788,8 @@ The tie points are 4.5 to 12 times faster in Zeit on one thread against AROSICS 
 | Platform | Windows 11 (`Windows-11-10.0.26300-SP0`) |
 | Processor | `Intel64 Family 6 Model 183 Stepping 1, GenuineIntel` (the Intel Core i5-13600K of the other benchmarks), 20 logical processors |
 | R | 4.4.2, with sfdep 0.2.5, RecoverMetricsR 0.1.0, RStoolbox 1.0.2.2, sits 1.5.4, CAST 1.0.4, Rbeast 1.0.2, remotePARTS 1.0.4, blockCV 4.0.1 (with automap 1.1.20), scam 1.2.23 and survey 4.5 |
-| Python | pyxccd 1.1.0, in a virtual environment of its own |
-| Date | 2026-10-24 (the AR(1) trends and PARTS: 2026-10-28; the spatial cross-validation: 2026-10-29; the transitions: 2026-11-03; ImproPhe: 2026-11-06; the resolution merge: 2026-11-07; the coregistration: 2026-11-07) |
+| Python | pyxccd 1.1.0, in a virtual environment of its own; xeofs 3.0.4, eofs 2.0.0, xarray 2026.9.0, scipy 1.18.1, statsmodels 0.15.0 and numpy 2.5.5, in the conda environment `eofbench` (Python 3.12), with Zeit from the repository on `PYTHONPATH` |
+| Date | 2026-10-24 (the AR(1) trends and PARTS: 2026-10-28; the spatial cross-validation: 2026-10-29; the transitions: 2026-11-03; ImproPhe: 2026-11-06; the resolution merge: 2026-11-07; the coregistration: 2026-11-07; the EOFs and the lagged correlation: 2026-11-16, Zeit on 1 and 8 threads) |
 
 ---
 
@@ -784,6 +833,8 @@ python benchmarks/vs_originals/force_atmo.py  # zeit_core::atc, sunview and atmo
 wsl -e bash -lc 'bash benchmarks/vs_originals/force_l2/make_harness.sh'                   # FORCE's radiometric_correction as it is (the objects of force-l2ps), on GSL 2.7 (static) and GDAL 3.9.3; then:
 python benchmarks/vs_originals/force_l2.py    # zeit_core::l2 against it, bit for bit, one OpenMP thread
 python benchmarks/vs_originals/topocorr.py            # gdaldem (GDAL_BIN) and terra/RStoolbox 1.0.2.2, against zeit.topographic_correction
+python benchmarks/vs_originals/eof.py                 # xeofs 3.0.4 and eofs 2.0.0 (conda env eofbench, 8 BLAS threads); --no-real, --no-timing, --sizes 120x316x316
+python benchmarks/vs_originals/correlation.py         # xarray, scipy and statsmodels (the same env); the real cube is the 16-day EVI series (ZEIT_BENCH_EVI)
 python benchmarks/vs_originals/arosics.py            # AROSICS 1.14.0 (conda env arosics-ref; AROSICS_ENV=...), against zeit.coregister
 python benchmarks/vs_originals/arosics.py local run 1   # COREG_LOCAL with CPUs=1 and with 4 (`local run 4`), then zeit.coregister_local against both:
 python benchmarks/vs_originals/arosics.py local compare

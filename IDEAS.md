@@ -3926,6 +3926,35 @@ produtos ficam na grade do tile MGRS, e outra grade vem do `like=`.
   (`benchmarks`: o script ficou fora do repositório). Falta só o `like=` com bilinear sobre o `int16` com fill, nunca visto
   em dado real.
 
+## Fase 26: EOF temporal e correlação defasada (pedido de 2026-11-16) — **Feito** (Z1–Z5)
+
+Duas perguntas sobre um cubo de mapas no tempo: quais poucos padrões espaciais e séries explicam a variabilidade
+(`zeit.eof`), e onde, e com que atraso, os pixels seguem uma série condutora (`zeit.lagged_correlation`, com
+`zeit.fdr` para o conjunto de testes). Implementadas a partir dos artigos (North et al. 1982; Halko, Martinsson & Tropp
+2011; Kaiser 1958; Everson & Sirovich 1995; Bretherton et al. 1999; Benjamini & Hochberg 1995; Wilks 2016), sem copiar
+código: o xeofs (MIT) e o eofs (GPL-3) entram só como referência de comparação, pelas saídas. Nada vai para o
+THIRD_PARTY_NOTICES.
+
+- **Núcleo (zeit-core):** anomalias (média, climatologia mensal, harmônico, tendência), EOF exata (Gram T x T somada por
+  blocos de 4096 pixels) e aleatória (Halko, oversampling 10, 2 passes), resultado idêntico bit a bit para qualquer
+  `n_jobs`, mapas, North, varimax com Kaiser, projeção das datas descartadas, correlação defasada (Pearson, Spearman,
+  n efetivo, Student t, Sidak) e BH.
+- **Python:** `zeit.eof`, `zeit.lagged_correlation`, `zeit.fdr`; API em `docs/api/time-series.md`, tutorial
+  `docs/tutorials/eof.md` (figuras de `docs/scripts/make_eof_figures.py`).
+- **Z5, comparação (`benchmarks/vs_originals/eof.py`, `correlation.py`, ambiente conda `eofbench`):** contra eofs 2.0.0 e
+  xeofs 3.0.4 (variância explicada, mapas, PCs, North e varimax com o `EOFRotator`: 1e-14), e contra xarray, scipy e
+  statsmodels (r, pares, melhor defasagem, p, n efetivo, FDR: 1e-12 ou melhor). Tempos num cubo real de EVI (300 meses x
+  361 mil pixels): EOF exata 2,8 s (1 thread) e 1,5 s (8) contra 8,4 s (eofs) e 11,4 s (xeofs); correlação com 7
+  defasagens de 460 mil pixels 7,2 s e 2,3 s contra 31,5 s do `xr.corr` (só r).
+- **O que a comparação mostrou:** o solver aleatório com o padrão (2 passes) erra a variância dos modos fundos em até 7e-4
+  num espectro que decai devagar (o EVI real); o `Auto` só usa o exato até 256 datas, e com 300 já usa o aleatório. Com
+  `power_iterations=4` o pior erro cai para 3e-4 e com 8 para 2e-5. Considerar subir o limite do `Auto` (a exata custa uma
+  passada e um problema de autovalores T x T) ou o padrão para 4 passes.
+- **Convenções que diferem dos pacotes:** os mapas do eofs e do xeofs são do dado ponderado, os `units` do Zeit têm o
+  peso removido; os sinais deles são arbitrários; os PCs rotacionados do xeofs carregam a variância, os do Zeit têm
+  variância 1; o Zeit deixa NaN o mês com menos de 2 valores (`min_per_month`).
+- **Janus:** as ferramentas `eof` e `lagged_correlation` e o `corr()` da calculadora seguem o plano do Z1 (fora desta fase).
+
 ## Para depois
 
 - Fase 19: `zeit.ai.predict` com fp16 na GPU (2,4× no Siamese, medido) vale para todos os

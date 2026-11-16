@@ -148,6 +148,8 @@
 | [`ar_trend`](time-series.md#ar_trend) | Trend with AR(1) errors and its t-test (remotePARTS) |
 | [`parts`](time-series.md#parts) | Regional test of the trends: mean, classes, covariates (PARTS) |
 | [`emerging_hotspots`](time-series.md#emerging_hotspots) | Emerging hot spot analysis: Getis-Ord Gi* of every date and its trend, ESRI's patterns |
+| [`eof`](time-series.md#eof) | Temporal EOFs (principal components) of a cube: maps, PCs, North's test, varimax, for cubes larger than the memory |
+| [`lagged_correlation`](time-series.md#lagged_correlation) / [`fdr`](time-series.md#fdr) | Correlation of every pixel with a driver at several lags, with the effective sample size, and the false discovery rate |
 | [`phenology`](time-series.md#phenology) | 19 phenology metrics per year or season |
 | [`twdtw`](time-series.md#twdtw) | Classification by time-weighted DTW, on a file, cube or single pixel |
 | [`snic`](time-series.md#snic) / [`snic_to_polygons`](time-series.md#snic_to_polygons) / [`snic_grid`](time-series.md#snic_grid) | Superpixel segmentation of a map or cube, and its polygons |

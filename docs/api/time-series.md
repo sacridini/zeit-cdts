@@ -217,6 +217,148 @@ ehs.category.zeit.plot()                                       # legend: the pat
 new_fronts = ehs.category.isin([1, 2, 3])                     # new, consecutive, intensifying hot spots
 ```
 
+## Modes and lagged correlation
+
+Two questions about a cube of maps over time, and the same machinery behind both (the seasonal cycle taken out of each pixel, pixel blocks read in parallel, results that do not depend on the number of threads). [`eof`](#eof) finds the few spatial patterns and time series that explain most of the variability. [`lagged_correlation`](#lagged_correlation) asks where, and after how many months, a driver (a climate index, a regional mean, another cube) is followed by the pixels' series, and [`fdr`](#fdr) says which of those pixels to believe when thousands of them are tested at once. Tutorial: [EOFs and lagged correlation](../tutorials/eof.md). Agreement with xeofs, eofs, xarray, scipy and statsmodels: [Against the original implementations](../benchmarks/vs-originals.md#eofs-and-lagged-correlation).
+
+### `eof` { .api #eof }
+
+<!-- sig: zeit.eof -->
+```python
+zeit.eof(
+    data, n_modes=10, *, anomaly="month", harmonics=2, base=None,
+    detrend=False, standardize=False, weights="area", min_valid=0.8,
+    min_date_valid=0.5, scaling="units", solver="auto",
+    oversampling=10, power_iterations=2, rotate=0, kaiser=True,
+    north_n="dates", correlation_maps=False, seed=42, band=None,
+    nodata="auto", n_jobs=-1,
+)
+```
+
+Temporal empirical orthogonal functions (principal components) of a cube: the maps (EOFs) and the time series (PCs) that explain most of its variance. The seasonal cycle is taken out of each pixel (`anomaly`), the pixels are weighted by their area, and the cube `X` (dates x pixels) is decomposed as `X = U S V^T`. The dates are the short side, so the singular vectors come from the dates x dates Gram matrix summed over blocks of 4096 pixels (`solver="exact"`) or from a randomized range finder with power iterations (Halko, Martinsson & Tropp 2011; `solver="randomized"`) in a few passes over the pixels. The maps come in one more pass. Pixels with too few valid dates (`min_valid`) have NaN maps; dates with too few valid pixels (`min_date_valid`) are left out of the fit and get their PC by least squares over their valid pixels (Everson & Sirovich 1995), flagged in `pc_filled`. The sign of each mode is fixed so that its PC correlates positively with the area-weighted mean anomaly (a dipole: its largest value is positive), because the sign of a singular vector is arbitrary. The result is bitwise the same for any `n_jobs`.
+
+North et al.'s (1982) rule of thumb says when a mode can be told from its neighbours: an eigenvalue `λ` has a sampling error of `λ sqrt(2 / n)`, and a mode is `separable` when its error bar does not touch its neighbours'. With `north_n="dates"` (default) `n` is the number of dates, as in `eofs`; for series with memory it is too large, and `"autocorrelation"` uses `T (1 - ρ) / (1 + ρ)` with the lag-1 autocorrelation of each PC. `rotate=m` rotates the first `m` modes by Kaiser's (1958) varimax, with Kaiser's row normalization, to patterns that are more local.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `data` | path, `DataArray` or `Dataset` | required | One variable (an index) as a `(time, y, x)` cube (a `Dataset` with `band=`). Missing values are NaN. Aggregate to months first (`data.resample(time="MS").mean()`) if the gaps of the dates would drop them from the fit. |
+| `n_modes` | `int` | `10` | Modes computed, at most the number of dates - 1. |
+| `anomaly` | `str` | `"month"` | What is removed from each pixel's series: `"month"` (the climatology of each calendar month; a month needs two values at least), `"harmonic"` (a constant and `harmonics` sine and cosine pairs of the year, by least squares) or `"none"` (only the mean). |
+| `harmonics` | `int` | `2` | The order of the harmonic fit. |
+| `base` | `tuple` | `None` | `(first_year, last_year)`: the years that define the climatology (default all). |
+| `detrend` | `bool` | `False` | Remove a straight line from each pixel too. |
+| `standardize` | `bool` | `False` | Divide each pixel by the standard deviation of its anomalies: the decomposition of the correlation matrix instead of the covariance. |
+| `weights` | `str` or array | `"area"` | `"area"`: the area of each pixel ([`pixel_area`](post-processing.md#pixel_area)), normalized to mean 1, so a pixel of a high latitude counts for what it covers; `"coslat"`: cos(latitude), for a geographic CRS only; `"none"`; or an array `(y, x)`. Without a CRS the weights are 1 (a warning). |
+| `min_valid` | `float` | `0.8` | A pixel is kept when this fraction of the dates is valid after the anomalies. |
+| `min_date_valid` | `float` | `0.5` | A date is part of the fit when this fraction of the kept pixels is valid there. |
+| `scaling` | `str` | `"units"` | `"units"`: each EOF in the data's units per standard deviation of its PC (the PCs have unit variance); `"none"`: orthonormal EOFs, the PCs carry the variance. |
+| `solver` | `str` | `"auto"` | `"exact"`, `"randomized"`, or `"auto"` (exact with up to 256 dates, else randomized). |
+| `oversampling` | `int` | `10` | Columns of the randomized sketch beyond `n_modes`. |
+| `power_iterations` | `int` | `2` | Power passes of the randomized solver: each costs a pass over the data and makes the deeper modes more accurate. |
+| `rotate` | `int` | `0` | Rotate the first `rotate` modes (2 or more) by varimax. The rotated EOFs are always in data units per standard deviation of the PC. |
+| `kaiser` | `bool` | `True` | Kaiser's row normalization in the rotation. |
+| `north_n` | `str` | `"dates"` | The number of independent dates of North's error: `"dates"` or `"autocorrelation"`. |
+| `correlation_maps` | `bool` | `False` | Also return `corrmap`: the correlation of each pixel with each PC. |
+| `seed` | `int` | `42` | Seed of the randomized solver's test matrix. |
+| `band` | `str` or `int` | `None` | The index to use in a `(time, band, y, x)` cube or a `Dataset`. |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | Value marking a missing observation besides NaN. |
+| `n_jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job ([how they are counted](parallel.md#threads-n_jobs)). |
+
+</div>
+
+**Returns** an `xarray.Dataset`: `eof (mode, y, x)` and `pc (mode, time)`; `variance (mode)`, the fraction of the total variance of each mode, and `eigenvalue (mode)`, `s² / (T - 1)` of the weighted data; `north_error (mode)` and `separable (mode)`; `pc_filled (time)`, the dates whose PC comes from the gappy projection. With `rotate`: `eof_rotated (mode_rotated, y, x)`, `pc_rotated` (unit variance) and `variance_rotated`, ordered by variance. With `correlation_maps`: `corrmap`. Attributes: `total_variance`, `solver` (the one that ran), `weights`, `anomaly`, `n_pixels` and `n_dates` kept in the fit.
+
+```python
+ndvi = zeit.load_raster("ndvi_monthly.tif")                   # (time, y, x)
+ds = zeit.eof(ndvi, n_modes=5, rotate=3)
+ds.variance.values                                             # fraction of the variance of each mode
+ds.separable.values                                            # which modes North's rule separates
+ds.eof.sel(mode=1).zeit.plot()                                 # the first pattern
+ds.pc.sel(mode=1).plot()                                       # and its time series
+```
+
+!!! note "The conventions of the references"
+    The EOFs of [`eofs`](https://github.com/ajdawson/eofs) and [xeofs](https://github.com/xarray-contrib/xeofs) are those of the weighted data (orthonormal, or in the weighted data's units), and the sign of each is arbitrary. Zeit's `scaling="units"` EOFs have the weights taken out again, so that a map is in the data's units and its PC has unit variance; with equal weights they equal eofs' `eofs(eofscaling=2)` and `pcs(pcscaling=1)` up to the sign. The rotated PCs of xeofs carry the variance, Zeit's have unit variance. The randomized solver is exact for the modes North's rule separates and approximate for the deeper ones; `solver="exact"` costs one pass over the data and a dates x dates eigenproblem, and is the one to use up to a few hundred dates.
+
+### `lagged_correlation` { .api #lagged_correlation }
+
+<!-- sig: zeit.lagged_correlation -->
+```python
+zeit.lagged_correlation(
+    x, y, lags=3, *, step="month", match="nearest", tolerance="8D",
+    anomaly="month", method="pearson", best="absolute", min_pairs=10,
+    effective_n=True, sidak=True, alpha_fdr=0.1, band=None,
+    nodata="auto", n_jobs=-1,
+)
+```
+
+The correlation of every pixel's series `x` with a driver `y` at several lags. At lag `k` the pairs are `(x_t, y_{t-k})`: `y` leads `x` by `k` steps, and a driver that acts two months later shows its strongest correlation at lag 2. The pairs are the dates where both are valid. The driver is one series (a `pandas.Series` with a `DatetimeIndex`, or a `DataArray` of `time`: a climate index, a regional mean) or a cube on the grid of `x` (each pixel against its own).
+
+With `step="month"` (default) both are averaged to calendar months first, so a monthly index can drive a 16-day series and the lags are months; with `step="dates"` the driver is matched to the dates of `x` (`match`, `tolerance`) and the lags are observations of `x`. The seasonal cycle is taken out of both (`anomaly`), otherwise the shared seasonality dominates every correlation.
+
+The p-value is a two-sided Student t test with the **effective** number of pairs `n (1 - rx ry) / (1 + rx ry)` (Bretherton et al. 1999; `rx` and `ry` the lag-1 autocorrelations, their product clamped to 0 to 0.99), because consecutive values of a smooth series are not independent: with `n` instead, a map of a slowly varying index is covered with false positives. The p-value of the best lag is adjusted for having tried the lags (Sidak), and `significant` marks the pixels whose best lag passes the Benjamini-Hochberg false discovery rate (`alpha_fdr`, [`fdr`](#fdr)). Spearman's correlation uses average ranks on each lag's pairs.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `x` | path, `DataArray` or `Dataset` | required | The series of every pixel: a `(time, y, x)` cube. |
+| `y` | `Series`, `DataArray` or cube | required | The driver: one series, or a `(time, y, x)` cube on the grid of `x`. |
+| `lags` | `int` or list | `3` | `K` for the lags `0, 1, ..., K`, or the list of lags (steps; negative: `x` leads). |
+| `step` | `str` | `"month"` | `"month"`: both averaged to calendar months, lags in months. `"dates"`: `y` matched to the dates of `x`, lags in observations of `x`. |
+| `match` | `str` | `"nearest"` | For `step="dates"`: `"nearest"` (the nearest date of `y` within `tolerance`), `"exact"`, `"month"` (a date of the same calendar month) or `"year"`. |
+| `tolerance` | `str` or `float` | `"8D"` | For `match="nearest"`: days, or a string like `"8D"`, `"2W"`, `"12h"`. |
+| `anomaly` | `str` | `"month"` | Taken out of both before correlating: `"month"`, `"harmonic"`, `"mean"` or `"none"` (the raw values: trends and seasonality then count). |
+| `method` | `str` | `"pearson"` | `"pearson"` or `"spearman"`. |
+| `best` | `str` | `"absolute"` | The best lag: the largest `|r|`, or the largest positive (`"positive"`) or negative (`"negative"`) `r`. |
+| `min_pairs` | `int` | `10` | Fewer pairs give NaN. |
+| `effective_n` | `bool` | `True` | `False` takes the pairs as independent (the p-values are then too small for smooth series). |
+| `sidak` | `bool` | `True` | Adjust `best_p` for the number of lags tried. |
+| `alpha_fdr` | `float` | `0.1` | The false discovery rate of `significant`. Wilks (2016) recommends twice the level the single tests would have. |
+| `band` | `str` or `int` | `None` | The index to use in a `(time, band, y, x)` cube or a `Dataset`. |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | Value marking a missing observation besides NaN. |
+| `n_jobs` | `int` | `-1` | Threads. `-1`: all the cores but one, or every core of a cluster job ([how they are counted](parallel.md#threads-n_jobs)). |
+
+</div>
+
+**Returns** an `xarray.Dataset`: `r`, `p`, `n` (pairs) and `n_eff` (effective pairs), each `(lag, y, x)`, with `r` and `p` in float32; `best_r`, `best_lag` (`-1` where no lag has a correlation), `best_p` (Sidak-adjusted), `q` (the false discovery rate adjusted p) and `significant` (`q <= alpha_fdr`), each `(y, x)`. The attribute `p_threshold` is the p-value up to which `best_p` is significant.
+
+```python
+ndvi = zeit.load_raster("ndvi_16d.tif")                                   # (time, y, x), 16-day
+oni = pd.read_csv("oni.csv", index_col=0, parse_dates=True)["oni"]       # monthly climate index
+lc = zeit.lagged_correlation(ndvi, oni, lags=6)                           # ndvi_t against oni_{t-k}, k = 0..6 months
+lc.best_lag.where(lc.significant).zeit.plot()                             # where, and after how many months
+lc.r.sel(lag=3)                                                           # the correlation at one lag
+```
+
+### `fdr` { .api #fdr }
+
+<!-- sig: zeit.fdr -->
+```python
+zeit.fdr(p, alpha=0.1)
+```
+
+Benjamini and Hochberg's (1995) false discovery rate procedure. Of the `M` p-values that are not NaN, the ones at or below the threshold `p*` (the largest `p_(i)` with `p_(i) <= i alpha / M`) are significant: among them, at most the fraction `alpha` is expected to be false discoveries when the tests are independent or positively dependent. Wilks (2016) recommends it for maps of tests, with `alpha` twice the level the single tests would have (a global 0.10 for 0.05).
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `p` | array or `DataArray` | required | The p-values, any shape (a `DataArray` gives its coordinates back); NaN are left out. |
+| `alpha` | `float` | `0.1` | The false discovery rate. |
+
+</div>
+
+**Returns** `(q, threshold, significant)`: `q`, the adjusted p-values (the smallest rate at which each one is significant), NaN where `p` is; `threshold`, `p*` (0 when nothing is significant); `significant`, bool, `q <= alpha`. `q` equals `scipy.stats.false_discovery_control(p, method="bh")` and statsmodels' `fdrcorrection`.
+
+```python
+q, threshold, significant = zeit.fdr(p_map, alpha=0.10)
+trend = zeit.mann_kendall(ndvi)
+q, _, sig = zeit.fdr(trend.p, alpha=0.10)      # the trend map, corrected for testing every pixel
+```
+
 ## FORCE time series analysis
 
 Six functions ported from the higher-level time series analysis of [FORCE](https://github.com/davidfrantz/force) 3.11.00 (Frantz 2019, *Remote Sensing* 11, 1124; GPL-3.0-or-later). They are the steps of FORCE's TSA after the interpolation ([`interpolate`](preprocessing.md#interpolate) and [`standardize`](preprocessing.md#standardize) are in Pre-processing): spectral-temporal metrics and their folds by period, linear trends, change-aftereffect-trend, clear-observation statistics and polar phenology metrics. Each runs on any input of the [BFAST family](change-detection.md#bfast_monitor) (a `(time, y, x)` cube in memory or dask, a raster, a numpy array, one pixel's series) and returns floats, not FORCE's int16 scaled by 10000. Tutorial: [FORCE's time series analysis chain](../tutorials/force_tsa.md). Agreement with FORCE on 10,000 pixels: [Against the original implementations](../benchmarks/vs-originals.md#force-tsa).

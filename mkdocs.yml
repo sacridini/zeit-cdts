@@ -161,6 +161,7 @@ nav:
               - Advanced Topics: tutorials/regional-trends/advanced.md
               - Interpreting, FAQ & Pitfalls: tutorials/regional-trends/faq.md
           - Emerging Hot Spots: tutorials/hotspots.md
+          - EOFs and Lagged Correlation: tutorials/eof.md
           - Spectral Unmixing: tutorials/unmixing.md
           - Phenology: tutorials/phenology.md
           - Pattern Matching (TWDTW): tutorials/twdtw.md

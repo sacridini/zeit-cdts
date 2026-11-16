@@ -79,6 +79,11 @@ Trends, seasons, patterns and objects.
   <span class="tile-body"><span class="tile-kicker">Space-time patterns</span><span class="tile-title">Emerging hot spots</span><span class="tile-text">Getis-Ord Gi* at every date and its trend: new, intensifying, persistent, sporadic hot and cold spots.</span></span>
 </a>
 
+<a class="tile" href="eof/">
+  <img src="../assets/figures/thumbs/eof.webp" alt="" loading="lazy">
+  <span class="tile-body"><span class="tile-kicker">Modes of variability</span><span class="tile-title">EOFs and lagged correlation</span><span class="tile-text">The few maps and time series that explain a cube, and where and after how many months a driver is followed.</span></span>
+</a>
+
 <a class="tile" href="phenology/">
   <img src="../assets/figures/thumbs/phenology.webp" alt="" loading="lazy">
   <span class="tile-body"><span class="tile-kicker">Seasons</span><span class="tile-title">Phenology</span><span class="tile-text">Start, peak and end of every growing season, and 16 more metrics.</span></span>
