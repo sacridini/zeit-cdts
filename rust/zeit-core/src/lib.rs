@@ -30,6 +30,7 @@ pub mod coreg_local;
 pub mod correlation;
 pub mod dist;
 pub mod eigen;
+pub mod eof;
 pub mod ewmacd;
 pub mod fields;
 pub mod fmask;
