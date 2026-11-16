@@ -314,7 +314,7 @@ fn acf(x: &[f64], nlags: i64, centered: &mut Vec<f64>, result: &mut Vec<f64>) {
 }
 
 /// scipy.stats.rankdata(method='average').
-fn rankdata(x: &[f64], idx: &mut Vec<usize>, ranks: &mut Vec<f64>) {
+pub(crate) fn rankdata(x: &[f64], idx: &mut Vec<usize>, ranks: &mut Vec<f64>) {
     let n = x.len();
     idx.clear();
     idx.extend(0..n);
