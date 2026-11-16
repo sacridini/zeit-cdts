@@ -10,6 +10,7 @@ use pyo3::types::PyModule;
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
+mod anomaly;
 mod aoa;
 mod arrays;
 mod bap;
@@ -21,6 +22,8 @@ mod brdf;
 mod ccdc;
 mod coded;
 mod coreg;
+mod correlation;
+mod eof;
 mod ewmacd;
 mod fields;
 mod aod;
@@ -100,6 +103,9 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     add_submodule(m, &postproc::module(m.py())?)?;
     add_submodule(m, &aoa::module(m.py())?)?;
     add_submodule(m, &hotspots::module(m.py())?)?;
+    add_submodule(m, &anomaly::module(m.py())?)?;
+    add_submodule(m, &eof::module(m.py())?)?;
+    add_submodule(m, &correlation::module(m.py())?)?;
     add_submodule(m, &sccd::module(m.py())?)?;
     add_submodule(m, &beast::module(m.py())?)?;
     add_submodule(m, &parallel::module(m.py())?)?;
