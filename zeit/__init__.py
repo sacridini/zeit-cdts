@@ -57,6 +57,7 @@ from ._tasseled import tasseled_cap
 from ._improphe import improphe
 from ._resmerge import sentinel2_resmerge
 from ._starfm import starfm
+from ._fusion import fuse_starfm, fuse_estarfm, fusion_plan
 from ._pansharpen import pansharpen
 from ._parallax import buffer_mask, cloud_displacement_index, parallax_clouds
 from ._level2 import level2
@@ -145,6 +146,9 @@ __all__ = [
     "bandpass_adjust",
     "spectral_adjust",
     "tasseled_cap",
+    "fuse_starfm",
+    "fuse_estarfm",
+    "fusion_plan",
     "improphe",
     "sentinel2_resmerge",
     "starfm",

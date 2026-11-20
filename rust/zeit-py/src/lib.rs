@@ -56,6 +56,7 @@ mod snic;
 mod som;
 mod specadjust;
 mod tasseled;
+mod fusion;
 mod texture;
 mod tmask;
 mod topo;
@@ -116,6 +117,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     add_submodule(m, &specadjust::module(m.py())?)?;
     add_submodule(m, &brdf::module(m.py())?)?;
     add_submodule(m, &tasseled::module(m.py())?)?;
+    add_submodule(m, &fusion::module(m.py())?)?;
     add_submodule(m, &improphe::module(m.py())?)?;
     add_submodule(m, &parallax::module(m.py())?)?;
     add_submodule(m, &resmerge::module(m.py())?)?;

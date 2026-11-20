@@ -34,6 +34,7 @@ pub mod eof;
 pub mod ewmacd;
 pub mod fields;
 pub mod fmask;
+pub mod fusion;
 pub mod gas;
 pub mod gdal_grid;
 pub mod gls;
