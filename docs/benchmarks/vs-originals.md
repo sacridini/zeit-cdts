@@ -771,6 +771,50 @@ The first line of each pair gives Zeit's times; the second reuses them against t
     - **Conventions.** eofs' and xeofs' maps are those of the weighted data, Zeit's `units` maps have the weights taken out (data units per standard deviation of the PC); with equal weights Zeit's maps and PCs are eofs' `eofs(eofscaling=2)` and `pcs(pcscaling=1)`. Signs are arbitrary in the references; Zeit's rule makes the PC correlate positively with the mean anomaly. xeofs' rotated PCs carry the variance, Zeit's have unit variance. Zeit's weights have mean 1, eofs' are sqrt(cos(latitude)) as given, so the eigenvalues differ by that constant and the ratios do not. Zeit leaves a month NaN for a pixel with fewer than 2 values of that calendar month (`min_per_month`), xarray does not; the script applies the same rule.
     - **The correlation.** `xr.corr` gives r only; the second reference adds the pairs and the p-values of independent pairs, and still has neither the effective sample size, the Sidak adjustment of the lags nor the false discovery rate that Zeit's call returns. The 2000-pixel loops are given the anomalies; Zeit's call starts from the 16-day or monthly cube.
 
+### iMAD, radcal and the omnibus test vs Canty
+
+`zeit.imad`, `zeit.radcal` and `zeit.omnibus` against Mort Canty's `iMad.py`, `iMadmap.py`, `radcal.py` and `sar_seqQ.py` (CRC5Docker, MIT licence, the code of the book *Image Analysis, Classification and Change Detection in Remote Sensing*). The scripts were **run as black boxes** (`benchmarks/vs_originals/canty_run.py`, which only lets them run on a current numpy and on Windows); Zeit's methods were written from the papers and their outputs compared. Times are wall-clock of the whole run, Canty's own reading and writing of files included, 4 threads for both (`OMP_NUM_THREADS=4` for Canty); Zeit's are the best of 2 or 3 calls from files (iMAD, radcal) or from an array (omnibus), the fit on every pixel.
+
+| Workload | Original | Time | Zeit (4 threads) | Speedup |
+|:---|:---|---:|---:|:---:|
+| iMAD + map + radcal, 1000 x 1000 px x 6 bands, 10 % changed (synthetic) | iMad + iMadmap + radcal | 11.5 s | 2.12 s | 5x |
+| iMAD + map + radcal, 1000 x 1000 px x 6 bands, 40 % changed (synthetic) | iMad + iMadmap + radcal | 11.1 s | 2.19 s | 5x |
+| iMAD + map + radcal, Landsat 2021-07-16 and 2022-07-27, 1690 x 1675 px x 6 bands (Rondonia) | iMad + iMadmap + radcal | 30.0 s | 7.97 s | 4x |
+| Omnibus, 500 x 500 px x 12 dates x VV+VH (synthetic) | `sar_seqQ.py` | 17.5 s | 0.102 s | 172x |
+| Omnibus, 300 x 300 px x 46 dates x VV+VH (Sentinel-1 RTC, Rondonia) | `sar_seqQ.py` | 41.5 s | 0.184 s | 226x |
+
+Zeit's iMAD with the default sample of 1,000,000 pixels takes 1.0 s (synthetic, 1000 x 1000) and 1.2 s (Landsat) for the fit and the output of every pixel. The omnibus test of 12 dates of 2000 x 2000 pixels takes 0.79 s; `sar_seqQ.py` keeps a `k x k x pixels` array of float64 on disk, 5 GB for that size (and 46 dates would need 2.7 GB for 400 x 400 pixels), so it was not run there.
+
+**Data.** Synthetic iMAD pair: five land covers with spatial grain, date 2 seen with a gain and an offset per band and noise of the same size, square blocks of changed cover (`change_data.py`). Real pair: the dry seasons of 2021 and 2022 of the Landsat stack of the BR-364 frontier (`CCDC_Stack_Rondonia.tif`: 16 July 2021 and 27 July 2022, six bands, raw digital numbers, more than 98 % clear). Synthetic series: gamma speckle of 4.4 looks and three blocks with known changes (a darkening, a bright flood that goes back, VV up with VH down). Real series: the RTC gamma0 (linear VV and VH, 10 m) of Planetary Computer's `sentinel-1-rtc` over 22 km of Rondonia (box -63.30..-63.10, -9.90..-9.70), relative orbit 83 descending, 46 dates from 2021-06-06 to 2022-06-19, with the equivalent number of looks estimated on the most homogeneous 15 x 15 block of intact forest (VV 6.49, VH 6.72: 6.5 used by both sides, since RTC resampling raises it above 4.4). `sar_seqQ.py` was given the central 300 x 300 pixels.
+
+**How they were checked.** Asserted by `imad.py` and `omnibus.py`.
+
+| | Synthetic 10 % / 40 % | Landsat pair |
+|:---|:---|:---|
+| Canonical correlations of the last iteration (`standardize="weighted"`, `tol=1e-3`) | 6e-6 / 6e-6 apart | 4.8e-6 apart |
+| Iterations | 14 for Zeit and Canty | 20 |
+| MAD variates (his band `N + 1 - i` is our `MADi`) | \|r\| 1.0000000, standard deviation ratio 1.00000-1.00001 | \|r\| 1.0000000, ratio 1.00001-1.00002 |
+| Chi-square | ratio within 0.993-1.008 / 0.998-1.003 | 0.99996-1.00012, r 1.000000000 |
+| Change map at 0.01 (`iMadmap.py`) | 99.985 % / 99.996 % of the pixels agree; the others have \|p - 0.01\| below 5e-5 | 99.9995 % (14 pixels, \|p - 0.01\| below 3e-6) |
+| Normalization: slopes | within 1.1e-3 of Canty's | within 6e-3 (his own three runs span up to 6e-3) |
+| Normalized images | r above 0.999999, mean difference below 0.04 % of the range | r above 0.999999, below 0.16 % |
+
+| | Omnibus, synthetic | Omnibus, Sentinel-1 RTC |
+|:---|:---|:---|
+| Date of the first change, of the last, number of changes (`"improved"`) | identical in 100 % of the pixels | identical in 100 % of the pixels (65 % of them changed at 0.01) |
+| Change at each date (`bmap`) | 99.998 % | 99.91 % |
+| Direction where both found a change | 99.79 % | 97.3 % |
+| Same, with `approximation="chi2"` (first / last / count) | 98.8 / 98.6 / 98.8 % | 92.4 / 88.3 / 87.6 % |
+
+!!! note "What the black-box runs settled"
+    - **The standardization of iMAD.** Canty's script divides the MAD variates by `sqrt(2 (1 - rho))` (Canty and Nielsen 2008), not by their unweighted standard deviation over all the pixels (Nielsen 2007): the correlations of every iteration agree with `standardize="weighted"` (to 5e-7 at iteration 2 and 9e-6 at iteration 10 on the synthetic pair) and not with `"all"`. This standardization over-flags where nothing changed (the weights shrink the variance it estimates): 15 to 30 % of the pixels at 0.01 on simulated no-change data, in Zeit and in the script alike; `"all"` keeps 1 % there.
+    - **The stopping rule.** Canty's script stops when the largest change of a canonical correlation is below 1e-3 (it ran 14 iterations where Zeit's changes were 1.03e-3 and then 6.7e-4); Zeit's `tol` defaults to the same. At 1e-6 the weighted iteration does not converge in 50 iterations.
+    - **The order and sign of the MAD variates.** Canty's band 1 is the pair of the largest canonical correlation; Zeit's `MAD1` is the pair of the smallest (largest variance, as Nielsen 2007). Signs are arbitrary. The scale is the same, and the covariance he reports uses `1 / (W - 1)`, which does not move the correlations.
+    - **The `iMadmap.py` map** is the MAD variates of the pixels whose chi-square tail `p` is below the significance, and 0 elsewhere: Zeit's `change` band is the same set.
+    - **The hold-out of `radcal.py`** is random (its fits move by up to 6e-3 in the slope between runs on the same input) and Zeit's is every third invariant pixel in raster order, so the fits agree to the sampling error, not exactly; Canty's split is 2/3 and 1/3, as Zeit's.
+    - **The omnibus test.** `sar_seqQ.py` reads a two-band file per date as the diagonal dual-polarization case (VV, VH in linear intensity, the equivalent number of looks as an argument), uses the **improved** p-values of Conradsen et al. (2024), not the chi-square: Zeit's `approximation="improved"` reproduces its maps to the pixel, `"chi2"` does not. Its `smap` and `cmap` hold the 0-based index of the first image after the change (0: no change; Zeit's decimal year of that image), `fmap` the number of changes, `bmap` one band per interval (image `j + 1` is band `j`) with 1, 2, 3 for brightening, darkening and indefinite, as Zeit's `per_date`. When the omnibus test rejects but no single date does, both stop (no change). Zeit's direction takes the difference to the mean of the images since the last change; it equals Canty's in 99.8 % of 5,286 changes of the synthetic series (the other 11 are not explained by the other references tried: the previous image, the mean of all earlier images, the mean after the change), and 97.3 % on the real series. The greatest change and the median filter have no counterpart in his script.
+    - **What is not the same work.** Canty's times include starting Python and reading the files; the IPython cluster that `sar_seqQ.py` tries to find is not there (it falls back to one process, and loses a second or two looking). Zeit's iMAD times include reading the two files as well; its omnibus time is from an array in memory.
+
 ---
 
 ## Protocol
@@ -839,6 +883,9 @@ python benchmarks/vs_originals/arosics.py            # AROSICS 1.14.0 (conda env
 python benchmarks/vs_originals/arosics.py local run 1   # COREG_LOCAL with CPUs=1 and with 4 (`local run 4`), then zeit.coregister_local against both:
 python benchmarks/vs_originals/arosics.py local compare
 python benchmarks/vs_originals/polar.py               # PolarMetrics 0.1.0 (R package from GitHub: R CMD INSTALL), against zeit.polar_metrics
+# iMAD, radcal and the omnibus test against Canty's scripts (CRC5Docker, MIT; run as black boxes by canty_run.py):
+CANTY_PYTHON=path/to/env/python CANTY_SRC=path/to/CRC5Docker/src python benchmarks/vs_originals/imad.py        # [synthetic|landsat]
+CANTY_PYTHON=path/to/env/python CANTY_SRC=path/to/CRC5Docker/src python benchmarks/vs_originals/omnibus.py     # [synthetic|real|speed]
 python benchmarks/vs_originals/ewmacd.py "path/to/EWMACD v1.3.0.r"   # Brooks' script, not distributed
 PYXCCD_PYTHON=path/to/pyxccd-env/python python benchmarks/vs_originals/sccd.py CCDC_Stack_Rondonia.tif CCDC_Stack_Rondonia_Dates.csv
 ```

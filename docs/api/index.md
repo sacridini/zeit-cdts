@@ -143,6 +143,10 @@
 | [`coded`](change-detection.md#coded) | Forest degradation and deforestation from the NDFI (CODED) |
 | [`ewmacd`](change-detection.md#ewmacd) | Monitoring of irregular series with EWMA control charts (EWMACD): disturbance, recovery, gain |
 | [`beast`](change-detection.md#beast) | Bayesian changepoints, season and trend (BEAST): their probabilities and credible intervals |
+| [`cva`](change-detection.md#cva) | Change vector analysis of two dates: magnitude and direction (compressed, polar or sign sectors), fixed, Otsu or EM threshold |
+| [`imad`](change-detection.md#imad) | Iteratively re-weighted MAD (iMAD) between two dates: change images and the probability of no change, no radiometric normalization needed |
+| [`radcal`](change-detection.md#radcal) | Relative radiometric normalization to a reference date by the invariant pixels of iMAD, with the tests of the fit |
+| [`omnibus`](change-detection.md#omnibus) / [`estimate_enl`](change-detection.md#estimate_enl) | The omnibus change test for Sentinel-1 series: dates, directions and p-values of the changes; the equivalent number of looks |
 | **Time-series analysis** | |
 | [`mann_kendall`](time-series.md#mann_kendall) | Trend test and Theil-Sen slope |
 | [`ar_trend`](time-series.md#ar_trend) | Trend with AR(1) errors and its t-test (remotePARTS) |
