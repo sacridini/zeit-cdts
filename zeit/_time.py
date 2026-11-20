@@ -22,7 +22,9 @@ _DATE_PATTERNS = [
     (re.compile(r"(?<!\d)(?P<date>\d{4}-\d{2})(?!\d|-\d)"), "%Y-%m"),
     (re.compile(r"(?<!\d)(?P<date>\d{4}_\d{2})(?!\d|_\d)"), "%Y_%m"),
     (re.compile(r"(?<!\d)(?P<date>\d{4}\.\d{2})(?!\d|\.\d)"), "%Y.%m"),
-    (re.compile(r"(?<!\d)(?P<date>\d{6})(?!\d)"), "%Y%m"),
+    # compact: only years 1800-2100 and months 01-12, so that a Landsat path/row (218012)
+    # is not December 2180
+    (re.compile(r"(?<!\d)(?P<date>(?:1[89]\d\d|20\d\d|2100)(?:0[1-9]|1[0-2]))(?!\d)"), "%Y%m"),
 ]
 _YEAR = re.compile(r"(?<!\d)(?P<date>(?:1[89]|2[01])\d{2})(?!\d)")
 # A band description that is only a year: "1985", "yr1985", "year_1985", "y1985".
@@ -48,7 +50,8 @@ def find_date(text: str, date_format: Optional[str] = None) -> Optional[Tuple[pd
     ``YYYY-MM-DD`` (also ``_`` and ``.``), ``YYYYMMDD``, ``YYYYDOY``, then a year and
     a month (``2001-02``, ``2001_02``, ``2001.02``, ``200102``; the first day of the
     month), then a lone year. A six-digit run is a month only when it reads as year
-    (1800-2199) and month (01-12), so a path/row such as ``221071`` is not a date.
+    (1800-2100) and month (01-12), so a path/row such as ``221071`` or ``218012`` is
+    not a date.
     """
     text = str(text).strip()
     if date_format is not None:

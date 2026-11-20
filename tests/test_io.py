@@ -175,6 +175,7 @@ def test_folder_of_single_date_files(tmp_path):
     ("evi_2001-02-30", "2001", None),  # an impossible day is not read as a month
     ("tile_221071_2001", "2001-01-01", None),
     ("evi_200113", None, None),  # month 13
+    ("tile_218012", None, None),  # a path/row, not December 2180
 ])
 def test_find_date_layouts(name, expected, rest):
     from zeit._time import find_date
