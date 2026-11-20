@@ -2045,6 +2045,17 @@
    "threads": 8,
    "note": "240 x 499849 px kept; explained variance (10 modes) max diff against eofs 2.8e-06; Zeit's whole call (anomalies, filtering, maps) against the references' decomposition of the anomalies; the references with 8 BLAS threads",
    "date": "2026-11-16"
+  },
+  {
+   "method": "estarfm",
+   "original": "Zhu's ESTARFM (Python)",
+   "size": "400x400 px x 3 bands, w=25",
+   "original_s": 75.18467070000042,
+   "zeit_s": 5.277722599999834,
+   "speedup": 14.245665488368562,
+   "threads": 4,
+   "note": "Zhu's bundled test data, not redistributed",
+   "date": "2026-11-20"
   }
  ],
  "machine": {
