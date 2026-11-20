@@ -28,6 +28,7 @@ pub mod coded;
 pub mod coreg;
 pub mod coreg_local;
 pub mod correlation;
+pub mod cva;
 pub mod dist;
 pub mod imad;
 pub mod eigen;
