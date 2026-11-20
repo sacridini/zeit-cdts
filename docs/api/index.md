@@ -112,6 +112,7 @@
 | [`bandpass_adjust`](preprocessing.md#bandpass_adjust) | Sentinel-2 (and Landsat 5/7) on Landsat 8's bands: HLS's bandpass step, for L2A cubes (HLS itself: [`build_time_series`](data.md#build_time_series)) |
 | [`spectral_adjust`](preprocessing.md#spectral_adjust) | Landsat 4-9 and MODIS on Sentinel-2A's ten bands, the red edge predicted: FORCE's spectral adjustment |
 | [`tasseled_cap`](preprocessing.md#tasseled_cap) | Tasseled Cap brightness, greenness, wetness (and FORCE's disturbance): Crist 1985 as FORCE, or each sensor's matrix |
+| [`mnf`](preprocessing.md#mnf) | Minimum Noise Fraction components of a multiband image, highest SNR first, the noise from neighbouring pixels (Green et al. 1988; `mnf_fit`, `inverse_mnf`, `mnf_denoise` and `MNFTransform` fit, invert, denoise and keep it) |
 | [`improphe`](preprocessing.md#improphe) | Sharpens a coarse field or the scenes of a coarser sensor with the finer sensor's seasonal means: FORCE's CF-ImproPhe and L2-ImproPhe (Frantz et al. 2016) |
 | [`sentinel2_resmerge`](preprocessing.md#sentinel2_resmerge) | The 20 m bands of Sentinel-2 at 10 m, by a moving-window regression, an ImproPhe-like weighted mean or STARFM on the 10 m green, red and NIR: FORCE's resolution merge |
 | [`starfm`](preprocessing.md#starfm) | STARFM spatiotemporal fusion (Gao et al. 2006, as FORCE's `starfm()`): the fine image of a date that only a coarse product covers, from pairs of fine and coarse images |
@@ -146,6 +147,10 @@
 | [`coded`](change-detection.md#coded) | Forest degradation and deforestation from the NDFI (CODED) |
 | [`ewmacd`](change-detection.md#ewmacd) | Monitoring of irregular series with EWMA control charts (EWMACD): disturbance, recovery, gain |
 | [`beast`](change-detection.md#beast) | Bayesian changepoints, season and trend (BEAST): their probabilities and credible intervals |
+| [`cva`](change-detection.md#cva) | Change vector analysis of two dates: magnitude and direction (compressed, polar or sign sectors), fixed, Otsu or EM threshold |
+| [`imad`](change-detection.md#imad) | Iteratively re-weighted MAD (iMAD) between two dates: change images and the probability of no change, no radiometric normalization needed |
+| [`radcal`](change-detection.md#radcal) | Relative radiometric normalization to a reference date by the invariant pixels of iMAD, with the tests of the fit |
+| [`omnibus`](change-detection.md#omnibus) / [`estimate_enl`](change-detection.md#estimate_enl) | The omnibus change test for Sentinel-1 series: dates, directions and p-values of the changes; the equivalent number of looks |
 | **Time-series analysis** | |
 | [`mann_kendall`](time-series.md#mann_kendall) | Trend test and Theil-Sen slope |
 | [`ar_trend`](time-series.md#ar_trend) | Trend with AR(1) errors and its t-test (remotePARTS) |

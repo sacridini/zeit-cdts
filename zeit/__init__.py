@@ -34,6 +34,9 @@ from ._folds import SpatialFolds, autocorrelation_range, spatial_folds
 from ._profile import ErrorProfile, error_profile
 from ._hotspots import emerging_hotspots
 from ._eof import eof
+from ._imad import imad, imad_table, radcal, radcal_table
+from ._cva import cva, cva_table
+from ._omnibus import omnibus, estimate_enl
 from ._correlation import lagged_correlation, fdr
 from .segmentation import snic_grid, snic_to_polygons
 from ._snic_api import snic
@@ -54,6 +57,7 @@ from ._nbar import nbar
 from ._s2angles import sentinel2_angles
 from ._specadjust import spectral_adjust
 from ._tasseled import tasseled_cap
+from ._mnf import mnf, mnf_fit, inverse_mnf, mnf_denoise, MNFTransform
 from ._improphe import improphe
 from ._resmerge import sentinel2_resmerge
 from ._starfm import starfm
@@ -149,6 +153,12 @@ __all__ = [
     "fuse_starfm",
     "fuse_estarfm",
     "fusion_plan",
+    "imad", "imad_table", "radcal", "radcal_table", "cva", "cva_table", "omnibus", "estimate_enl",
+    "mnf",
+    "mnf_fit",
+    "inverse_mnf",
+    "mnf_denoise",
+    "MNFTransform",
     "improphe",
     "sentinel2_resmerge",
     "starfm",

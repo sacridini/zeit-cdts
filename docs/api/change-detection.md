@@ -906,3 +906,181 @@ px.trend_cp_occ.plot()                                   # where it changes
 ```
 
 Reference: Zhao, K., Wulder, M. A., Hu, T., Bright, R., Wu, Q., Qin, H., Li, Y., Toman, E., Mallick, B., Zhang, X., & Brown, M. (2019). Detecting change-point, trend, and seasonality in satellite time series data to track abrupt changes and nonlinear dynamics: A Bayesian ensemble algorithm. *Remote Sensing of Environment*, 232, 111181.
+
+## Two dates and Sentinel-1 series
+
+Tutorial: [Change between two dates and in Sentinel-1 series](../tutorials/change-bitemporal.md). Four functions that take the change between two dates, or in a radar series, from the statistics of the pixels themselves: [`cva`](#cva) (the magnitude and direction of the vector of band differences), [`imad`](#imad) (multivariate alteration detection, which needs no radiometric normalization), [`radcal`](#radcal) (the normalization that iMAD's unchanged pixels give) and [`omnibus`](#omnibus) (the omnibus test for Sentinel-1). They agree with the scripts of Mort Canty's *Image Analysis, Classification and Change Detection in Remote Sensing* (MIT licence), run as black boxes: see [Against the Original Implementations](../benchmarks/vs-originals.md#imad-radcal-and-the-omnibus-test-vs-canty).
+
+### `cva` { .api #cva }
+
+<!-- sig: zeit.cva -->
+```python
+zeit.cva(
+    data, after=None, *, dates=(0, -1), bands=None, roles=None, direction="c2va",
+    polar_bands=None, n_sectors=4, c2va_sectors=None, labels=None, scale="none",
+    threshold="em", em_init=0.2, sample=1_000_000, nodata="auto", chunks=None, n_jobs=-1,
+)
+```
+
+Change vector analysis of two dates. For each pixel the change vector holds the difference (after minus before) of every band; its length `rho` is the **magnitude** (Malila 1980) and a pixel has changed when `rho` exceeds the **threshold**. The **direction** is one of three descriptions:
+
+| `direction` | What it is |
+| :--- | :--- |
+| `"c2va"` (default) | The angle, in degrees from 0 to 180, between the vector and the diagonal of uniform change: `acos(sum(d) / (sqrt(B) rho))`. 0 is every band up by the same amount, 90 is changes that sum to zero, 180 is every band down by the same amount. Any number of bands (the compressed CVA of Bovolo, Marchesi and Bruzzone 2012); a pixel with no change at all has no direction (NaN). |
+| `"polar"` | The angle `atan2(d2, d1)` in degrees, 0 to 360, of the two bands `polar_bands`, cut into `n_sectors` equal sectors from 0 degrees (Malila 1980; Bovolo and Bruzzone 2007). With 4 sectors: 1 both up, 2 the second up and the first down, 3 both down, 4 the first up and the second down. |
+| `"sign"` | The sector from 1 to 8 of the signs of the changes of red, NIR and SWIR1: `1 + [red up] + 2 [NIR up] + 4 [SWIR1 up]` (a change of exactly 0 is not up). 6 is vegetation loss (clearing to soil), 3 vegetation gain, 5 a burn scar, 1 darker in every band, 8 brighter in every band; the labels are a heuristic. |
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `data` | `DataArray` or path | required | A cube `(time, band, y, x)` (with `dates` choosing two of its dates), a date `(band, y, x)` with `after` the second, or anything [`load_raster`](data.md#load_raster) reads. Both dates need the same bands in the same order on the same grid, and must be radiometrically consistent ([`radcal`](#radcal) first if they are not). |
+| `after` | `DataArray` or path | `None` | The second date when `data` is the first. |
+| `dates` | pair | `(0, -1)` | The two dates of a cube: indices, labels of its `time` coordinate or date strings (the nearest date). |
+| `bands` | list | `None` | The bands the vector is made of (names or indices); default all. A pixel is valid when all of them are valid at both dates. |
+| `roles` | `dict` | `None` | For `"sign"`: the band of each of `red`, `nir`, `swir1` when their names are not the usual ones. |
+| `direction` | `str` | `"c2va"` | `"c2va"`, `"polar"` or `"sign"`. |
+| `polar_bands`, `n_sectors` | pair, `int` | `None`, `4` | For `"polar"`: the two bands, and the number of sectors. |
+| `c2va_sectors` | list | `None` | For `"c2va"`: edges in degrees of sectors of the angle, e.g. `[0, 60, 120, 180]`. Without it `"c2va"` has no `sector` band. |
+| `labels` | `dict` | `None` | `{sector: name}` replacing the default labels. |
+| `scale` | `str` | `"none"` | `"std"` divides each band's difference by its standard deviation over the sample, so that every band weighs the same. |
+| `threshold` | number or `str` | `"em"` | A number (units of the magnitude, after the scale); `"otsu"` (Otsu 1979: 1024 bins up to the 99.9th percentile of the sample); or `"em"` (Bruzzone and Prieto 2000): a two-class Gaussian mixture (no change, change) fitted to the magnitudes by EM, and the root between its means of the equation of the minimum error of Bayes' rule (Otsu's value if there is none). |
+| `em_init` | `float` | `0.2` | The width of the EM seed sets around the middle of the magnitude range. |
+| `sample` | `int` or `None` | `1_000_000` | The threshold and the `scale` are estimated on a lattice of this many valid pixels (every s-th row and column from the first: deterministic); `None`: every pixel. The output is for every pixel. |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | Missing values besides NaN (the raster's NoData; 0 for integers without one). |
+| `chunks` | `"auto"`, `dict` | `None` | Inputs read from disk: `None` reads into memory; otherwise the result is lazy, block by block with the threshold fixed. |
+| `n_jobs` | `int` | `-1` | Threads for an in-memory cube. |
+
+</div>
+
+**Returns** `(band, y, x)` float32 with the bands `magnitude`, `direction` (degrees; with `"sign"` the sector), `change` (1 or 0) and, where the direction has sectors, `sector` (0 where nothing changed); missing pixels are NaN. `attrs["cva"]` is a JSON record: the threshold and how it was found (for EM the shares, means and standard deviations of the classes, the iterations and whether it converged; for Otsu the between-class variance and the bin width), the scale of each band and `sectors`: label, pixel count, area in hectares (grids in metres) and mean magnitude of each. `zeit.cva_table(result)` returns the sectors as a `DataFrame`.
+
+```python
+out = zeit.cva(cube, dates=("2021-07-16", "2022-07-27"), direction="sign", threshold="otsu")
+zeit.cva_table(out)                         # pixels, hectares and mean magnitude of each sector
+loss = out.sel(band="sector") == 6          # vegetation loss
+```
+
+### `imad` { .api #imad }
+
+<!-- sig: zeit.imad -->
+```python
+zeit.imad(
+    data, after=None, *, dates=(0, -1), bands=None, max_iter=50, tol=1e-3, lam=0.0,
+    penalty="ridge", standardize="weighted", alpha=0.01, canonical=False,
+    sample=1_000_000, nodata="auto", chunks=None, n_jobs=-1,
+)
+```
+
+The iteratively re-weighted multivariate alteration detection (iMAD, IR-MAD) of two dates. The canonical correlation analysis of the bands of the two dates finds the linear combinations of each that agree most; their differences, the **MAD variates**, are uncorrelated change images ordered by variance (Nielsen, Conradsen and Simpson 1998). Each pixel's `chi2`, the sum of the squared standardized MAD variates, is approximately chi-square distributed with one degree of freedom per band where nothing changed, and `p_nochange` is its upper tail. Each iteration weights every pixel by the `p_nochange` of the last one in the means and covariances (Nielsen 2007; Canty and Nielsen 2008), until the canonical correlations stop changing. With `lam = 0` the result does not depend on the gain, the offset or any linear transform of either date, so the dates need no normalization first.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `data`, `after`, `dates`, `bands`, `nodata`, `chunks`, `n_jobs` | | | As in [`cva`](#cva). |
+| `max_iter` | `int` | `50` | At most this many iterations; `1` is the original, not iterated MAD. |
+| `tol` | `float` | `1e-3` | Stops when no canonical correlation changed by more than this since the iteration before (`0`: always `max_iter`). 1e-3 is where Canty's `iMad.py` stops (same iteration counts and correlations on the benchmark data); the correlations still creep up by about 1e-5 per iteration afterwards. A warning says when `max_iter` came first. |
+| `lam` | `float` | `0.0` | Nielsen's (2007) regularization for many correlated bands: `lam` times a penalty matrix is added to the covariances of the constraints. In the units of the band variances, and it breaks the invariance to linear transforms: scale the bands alike first. With `0`, collinear or constant bands are an error naming the date. |
+| `penalty` | `str` | `"ridge"` | `"ridge"` (the length of the coefficient vectors) or `"curvature"` (their second differences along the bands, which must be in order of wavelength). |
+| `standardize` | `str` | `"weighted"` | The standard deviation the MAD variates are divided by. `"weighted"` (Canty and Nielsen 2008, and Canty's scripts): `sqrt(2 (1 - rho))`, that under the current weights. `"all"` (Nielsen 2007): the unweighted standard deviation over all the pixels. See the note. |
+| `alpha` | `float` | `0.01` | `change` is `p_nochange < alpha`. |
+| `canonical` | `bool` | `False` | Also return the canonical variates `U1..UN` (date 1) and `V1..VN` (date 2). |
+| `sample` | `int` or `None` | `1_000_000` | The statistics are computed on a lattice of this many valid pixels, then the transformation is applied to every pixel. `None`: all of them. |
+
+</div>
+
+**Returns** `(band, y, x)` float32 with the bands `MAD1..MADN` (MAD1 has the largest variance, the pair of the smallest canonical correlation; Canty's scripts number them the other way), `chi2`, `p_nochange`, `change` and, with `canonical`, `U1..UN`, `V1..VN` (descending correlation). `attrs["imad"]` is a JSON record: the canonical correlations of every iteration, `iterations`, `converged`, the coefficient matrices `a` and `b` (columns are canonical pairs), the means, the standard deviations and `loadings_x`, `loadings_y` (the correlation of each MAD variate with each band of each date). `zeit.imad_table(result)` returns the correlations of every iteration as a `DataFrame`.
+
+!!! note "The weighted standardization over-flags where nothing changed"
+    The weights shrink the variance that the weighted standardization estimates, so on data with no change at all the chi-square exceeds a chi-square of N degrees of freedom and `change` flags more than `alpha` of the pixels (15 to 30 % at `alpha = 0.01` on simulated pairs, and the same in Canty's script). It is what the published method and its reference implementation do, so it is the default; `standardize="all"` keeps the false alarms near `alpha` on such data but weights changed pixels down less. The ranking of the pixels by `chi2` is nearly the same either way.
+
+```python
+change = zeit.imad(cube, dates=("2021-07-16", "2022-07-27"))
+zeit.imad_table(change).tail()              # the correlations settle
+change.sel(band="p_nochange")               # 1 where nothing changed, 0 where something did
+```
+
+### `radcal` { .api #radcal }
+
+<!-- sig: zeit.radcal -->
+```python
+zeit.radcal(
+    data, after=None, *, reference=0, targets=None, threshold=0.95, holdout=1/3,
+    bands=None, max_iter=50, tol=1e-3, lam=0.0, sample=1_000_000, nodata="auto",
+    chunks=None, n_jobs=-1,
+)
+```
+
+Relative radiometric normalization of dates to a reference date by the invariant pixels of iMAD (Canty, Nielsen and Schmidt 2004; Canty and Nielsen 2008). For each target date [`imad`](#imad) against the reference finds the pixels that did not change (`p_nochange` above `threshold`); an **orthogonal regression** of each band of the reference on the same band of the target, fitted on two thirds of them, gives its gain and offset (it allows for the error in both dates, unlike least squares); the other third tests the result with a paired t-test of the means and an F-test of the variances of the reference and the normalized target (approximate: the samples are paired). The normalized target is `a + b * target` for every pixel. The fit needs at least 30 invariant pixels.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `data` | `DataArray` or path | required | A cube `(time, band, y, x)` whose dates are normalized to `reference`, or the reference date `(band, y, x)` when `after` is the target (the result is then the normalized target). |
+| `after` | `DataArray` or path | `None` | The target date, when `data` is the reference. |
+| `reference` | date | `0` | The reference date of a cube (index, label or date string); copied unchanged. |
+| `targets` | list | `None` | The dates to normalize (default every other); the others are copied unchanged. |
+| `threshold` | `float` | `0.95` | The invariant pixels have `p_nochange` above this. About 5 % of the pixels that did not change pass 0.95, so give an image of a few hundred pixels per side at least. |
+| `holdout` | `float` | `1/3` | The share of invariant pixels kept for the tests: every `round(1 / holdout)`-th in raster order (deterministic). `0`: all are used for the fit, no tests. |
+| `bands` | list | `None` | The bands used and normalized; the others are not in the result. |
+| `max_iter`, `tol`, `lam`, `sample`, `nodata`, `chunks`, `n_jobs` | | | As in [`imad`](#imad). |
+
+</div>
+
+**Returns** float32, the shape of the cube (or `(band, y, x)`), with the normalized dates; a missing pixel is NaN. `attrs["radcal"]` is a JSON record: `fits`, one row per target date and band (`a`, `se_a`, `b`, `se_b`, `r`, `rmse`, `n_train`, `n_test`, the means of target, reference and normalized target on the hold-out pixels, `t`, `p_t`, the three variances, `F`, `p_F`) and `imad`, the summary of each pair's iMAD with its number of invariant pixels. `zeit.radcal_table(result)` returns the fits as a `DataFrame`.
+
+```python
+norm = zeit.radcal(cube, reference="2021-07-16")        # every date to the first
+zeit.radcal_table(norm)[["date", "band", "a", "b", "r", "p_t"]]
+```
+
+### `omnibus` { .api #omnibus }
+
+<!-- sig: zeit.omnibus -->
+```python
+zeit.omnibus(
+    data, *, bands=("vv", "vh"), enl=4.4, alpha=0.01, approximation="improved",
+    per_date=False, median=0, nodata="auto", chunks=None, n_jobs=-1,
+)
+```
+
+When the backscatter of each pixel of a Sentinel-1 series changed: the omnibus test of Conradsen, Nielsen and Skriver (2016) and Canty, Nielsen, Conradsen and Skriver (2020). The series of VV and VH (or one band) of every pixel is tested for the equality of all its dates by the likelihood ratio of independent multilook (complex Wishart) observations. If it rejects at `alpha`, the statistic factorizes into one test for each date against those before it since the last change: the first that rejects is a change, the series restarts at that date, and so on, so that every registered change has the false alarm probability `alpha`. The p-values use the improved approximations of Conradsen, Skriver and Nielsen (2024), accurate where Wilks' chi-square is not at few looks (on simulated speckle of 4.4 looks the test at `alpha = 0.01` rejects 0.98 % of the pixels with the improved p-values, 1.5 % with the chi-square). The direction of a change is the Loewner order of the difference between the date and the mean of those before it: brightening (up in every channel), darkening (down in every channel) or indefinite. The statistics are invariant to a per-pixel factor constant over the series, so sigma0 and gamma0 of one relative orbit give the same maps.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `data` | `DataArray` or path | required | A cube `(time, band, y, x)` of **linear** power (a negative median, which means dB, is refused) of **one relative orbit and pass**: the geometry changes the backscatter and the test reads that as change (a warning when `sat:relative_orbit` or `sat:orbit_state` varies). Values not positive (layover, shadow), NaN or nodata are skipped date by date: a pixel uses its own valid dates, a change is dated at the next valid date, a pixel with fewer than two valid dates is NaN. |
+| `bands` | list | `("vv", "vh")` | The VV and VH bands by name or position; `("vv",)` for one polarization. |
+| `enl` | `float` | `4.4` | The equivalent number of looks: 4.4 for Sentinel-1 IW GRDH. RTC products are resampled and differ: estimate it with [`estimate_enl`](#estimate_enl). |
+| `alpha` | `float` | `0.01` | The significance level of each test. |
+| `approximation` | `str` | `"improved"` | `"improved"` or `"chi2"`, Wilks' chi-square (as the Earth Engine tutorial of Canty et al.; more false alarms at few looks). |
+| `per_date` | `bool` | `False` | Also return the direction at each date `(time, y, x)`: 1, 2 or 3 at the dates of changes, 0 elsewhere, NaN where the date is not valid. |
+| `median` | `int` | `0` | The median filter of the p-values of Canty's scripts is not implemented (it is not rigorous): only `0`. |
+| `nodata`, `chunks`, `n_jobs` | | | As in [`imad`](#imad). |
+
+</div>
+
+**Returns** `(band, y, x)` float32 with the bands, in this order, `first_change`, `last_change`, `n_changes`, `first_direction`, `last_direction`, `greatest_change`, `p_change`, `n_dates`. The three dates are decimal years (NaN where nothing changed); `greatest_change` is the change with the largest test statistic; directions are 0 (nothing), 1 (brightening), 2 (darkening), 3 (indefinite); `p_change` is the p-value of the omnibus test of the whole series. `attrs["omnibus"]` is a JSON record (ENL, `alpha`, approximation, bands, dates). With `per_date` the result is `(summary, per_date)`.
+
+A test of one new date against the mean of those before it has limited power: a change is dated at its own date in a part of the pixels and a date or two later in the rest, and about `(j - 1) alpha` of the pixels report a change `j - 1` dates too early.
+
+```python
+s1 = zeit.load_raster("s1_rtc_orbit83/*.tif")            # (time, band: vv, vh, y, x), linear gamma0
+enl = zeit.estimate_enl(s1, region=(120, 135, 40, 55))["enl"]["vv"]     # intact forest
+change, direction = zeit.omnibus(s1, enl=enl, alpha=0.01, per_date=True)
+change.sel(band="first_change")                          # when it first changed, as a decimal year
+```
+
+### `estimate_enl` { .api #estimate_enl }
+
+<!-- sig: zeit.estimate_enl -->
+```python
+zeit.estimate_enl(data, *, bands=("vv", "vh"), region=None)
+```
+
+The equivalent number of looks of the speckle over a homogeneous area. On a uniform target the intensity of an `L`-look image has mean `m` and variance `m**2 / L`, so `L = mean**2 / variance`, made over the area for each date and band; the median over the dates is the estimate. Texture, a trend or an edge in the area lowers it: choose intact forest or calm water. The estimators of Anfinsen, Doulgeris and Eltoft (2009) are not implemented. `region` is `None` (the whole image), a pixel window `(row0, row1, col0, col1)` (end exclusive) or a boolean mask `(y, x)`. **Returns** `{"enl": {band: estimate}, "per_date": {band: [...]}, "n_pixels": count}`.
+
+References: Malila (1980), *Proc. 6th Machine Processing of Remotely Sensed Data Symposium*, 326-335. Bovolo, Marchesi and Bruzzone (2012), *IEEE TGRS* 50(6), 2196-2212. Bovolo and Bruzzone (2007), *IEEE TGRS* 45(1), 218-236. Bruzzone and Prieto (2000), *IEEE TGRS* 38(3), 1171-1182. Otsu (1979), *IEEE SMC* 9(1), 62-66. Nielsen, Conradsen and Simpson (1998), *Remote Sensing of Environment* 64(1), 1-19. Nielsen (2007), *IEEE TIP* 16(2), 463-478. Canty and Nielsen (2008), *Remote Sensing of Environment* 112(3), 1025-1036. Canty, Nielsen and Schmidt (2004), *Remote Sensing of Environment* 91(3-4), 441-451. Conradsen, Nielsen and Skriver (2016), *IEEE TGRS* 54(5), 3007-3024. Canty, Nielsen, Conradsen and Skriver (2020), *Remote Sensing* 12(1), 46. Conradsen, Skriver and Nielsen (2024), *IEEE JSTARS* 17, 16359-16376. Nielsen, Skriver and Conradsen (2019), *IEEE GRSL* (the Loewner order).

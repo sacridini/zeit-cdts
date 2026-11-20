@@ -290,6 +290,138 @@ tc = zeit.tasseled_cap(landsat, ["wetness"], coefficients="sensor")  # the matri
 lt = zeit.landtrendr(tc.sel(band="wetness"))
 ```
 
+## Components ordered by signal-to-noise (MNF)
+
+The Minimum Noise Fraction (MNF) transform of a multiband image (Green, Berman, Switzer and Craig 1988, *IEEE TGRS* 26:65-74) turns the bands into components ordered by signal-to-noise ratio instead of variance, the first holding the strongest signal and the last only noise. The noise is estimated from the differences between neighbouring pixels (the signal is smooth, so a difference is noise twice), whitened (unit variance, no correlation between bands), and a principal components rotation follows: this is the noise-adjusted principal components of Lee, Woodyatt and Berman (1990, *IEEE TGRS* 28:295-304), which gives the same components as Green's formulation. The eigenvalue of component *i* is `1 + SNR_i`: near 1 is noise. Unlike a principal components analysis the result does not depend on the units or the scale of each band. Inverting the transform with the first components only removes the noise from the bands. See the [tutorial](../tutorials/mnf.md) and the [comparison with SPy](../benchmarks/vs-originals.md#mnf-vs-spy).
+
+### `mnf` { .api }
+
+<!-- sig: zeit.mnf -->
+```python
+zeit.mnf(
+    data, n_components=None, *, transform=None, noise="diff_hv", noise_region=None,
+    noise_cov=None, mask=None, bands=None, nodata="auto", sample_fraction=1.0, seed=0,
+    per_date=False, scale="noise", return_transform=False, chunks=None, n_jobs=-1,
+)
+```
+
+The MNF components of a multiband image, the highest SNR first. It fits the transform ([`mnf_fit`](#mnf_fit) has the details of the fit and the parameters from `noise` to `seed`) and applies it, or applies `transform`, fitted on another date or image. With `scale="noise"` (ENVI's and SPy's) component *i* has noise of unit variance and a variance equal to its eigenvalue; with `"unit"` it has unit variance. A pixel with a band missing (or outside `mask`) is NaN in every component.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `data` | `DataArray`, array or path | required | `(band, y, x)` or `(time, band, y, x)`, in memory or dask, or anything `zeit.load_raster` reads. Integers are accepted. |
+| `n_components` | `int` | all | How many components to return. |
+| `transform` | `MNFTransform` or list | `None` | Apply this transform instead of fitting one (a list of one per date goes with `per_date=True` cubes). Its bands must be named as the data's; otherwise they are matched by position, with a warning. |
+| `noise`, `noise_region`, `noise_cov`, `mask`, `bands`, `nodata`, `sample_fraction`, `seed` | | | As in [`mnf_fit`](#mnf_fit). |
+| `per_date` | `bool` | `False` | With a time axis: one transform per date, each applied to its date, instead of statistics pooled over all dates and one transform for all (the components then mean the same in every date). |
+| `scale` | `"noise"` or `"unit"` | `"noise"` | Noise of unit variance (variance = eigenvalue), or unit variance. |
+| `return_transform` | `bool` | `False` | Also return the `MNFTransform` (a list with `per_date`). |
+| `chunks` | `"auto"`, `dict` | `None` | For a path: `None` reads into memory; otherwise the result is lazy. |
+| `n_jobs` | `int` | `-1` | Threads for an in-memory cube. The result does not depend on it, bit for bit. |
+
+</div>
+
+**Returns** float32 `(time, band, y, x)` (or `(band, y, x)`) with `band = ["mnf1", ...]` and the coordinates and georeferencing of the input, lazy if the input is. `attrs["mnf"]` has the estimator, the eigenvalues, the number of pixels and the scale; the matrices are in the `MNFTransform`.
+
+```python
+y, tr = zeit.mnf(enmap, return_transform=True)               # components, noise from the neighbours
+tr.table()[["component", "eigenvalue", "snr"]].head(8)       # how many are signal: eigenvalue well above 1
+y = zeit.mnf(enmap, 12, noise_region=(85, 117, 122, 137))    # the noise from a homogeneous window
+```
+
+### `mnf_fit` { .api }
+
+<!-- sig: zeit.mnf_fit -->
+```python
+zeit.mnf_fit(
+    data, *, noise="diff_hv", noise_region=None, noise_cov=None, mask=None, bands=None,
+    nodata="auto", sample_fraction=1.0, seed=0, per_date=False, chunks=None, n_jobs=-1,
+)
+```
+
+Fits the transform and returns an [`MNFTransform`](#mnftransform) (a list, one per date, with `per_date=True`). The mean and covariance of the pixels with every band valid give the total covariance Σ (divisor n - 1); the noise covariance Σ<sub>N</sub> is half the covariance of the differences `z(p) - z(q)` between each pixel and its neighbour (each direction centred on its own mean, so a ramp in the signal adds nothing). The components solve `Σ a = λ Σ_N a` with `aᵀ Σ_N a = 1`, ordered by decreasing λ = 1 + SNR, in float64: the bands are scaled by their standard deviation, the noise whitened by its eigendecomposition (a relative floor of 1e-9 under its eigenvalues, so that duplicated or noise-free bands do not stop the fit), and the rotation found by a second eigendecomposition. The sign of each component is such that it correlates positively with the band it is most correlated with, which does not change when a band is scaled by a positive number or shifted.
+
+A pixel counts only if every band is finite, different from NoData and in `mask`; a pair counts only if both pixels do, and never crosses an edge or two dates. The statistics are gathered in blocks of whole rows (a halo row below, so that each pair is counted once) and merged in a fixed order: the result is the same for 1 or 8 threads, and a dask cube is read block by block, one in memory at a time.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `data` | `DataArray`, array or path | required | `(band, y, x)` or `(time, band, y, x)`. |
+| `noise` | `str` | `"diff_hv"` | The noise estimator: `"diff_hv"` (the right and lower neighbours, pooled: robust to row or column structure), `"diff_h"`, `"diff_v"`, `"diff_diag"` (lower right, SPy's default), `"diff_antidiag"` (lower left), or `"given"` with `noise_cov`. Noise correlated between neighbours (stripes) counts as signal. |
+| `noise_region` | array or tuple | `None` | Where the differences are taken: a boolean `(y, x)` array or a pixel window `(x0, y0, x1, y1)`, half open; both pixels of a pair must be inside. The signal statistics stay those of the whole image. Pick a homogeneous area (water, a uniform field) when the scene has much fine detail. |
+| `noise_cov` | array | `None` | `(bands, bands)` noise covariance for `noise="given"` (a dark frame, another image). It must be symmetric, finite, with a non-negative diagonal. |
+| `mask` | bool array `(y, x)` | `None` | The pixels used. |
+| `bands` | list | all | The bands to use, by name or index. A band with no valid value is left out automatically; so is a constant band (both are in `dropped`, with a warning). |
+| `nodata` | `"auto"`, `float` or `None` | `"auto"` | Missing values besides NaN: the raster's NoData (0 for integers without one), a number or `None`. |
+| `sample_fraction`, `seed` | `float`, `int` | `1.0`, `0` | Use this fraction of the pixels (and pair anchors) for the statistics, chosen by a hash of the pixel's position and the seed: the same for any block size or number of threads. The transform is applied to every pixel. |
+| `per_date` | `bool` | `False` | One transform per date instead of pooled statistics. |
+| `chunks`, `n_jobs` | | | As in [`mnf`](#mnf). |
+
+</div>
+
+The fit needs more valid pixels, and more pairs in each direction, than bands (an error says how many there are); fewer than ten times the bands is a warning.
+
+### `inverse_mnf` { .api }
+
+<!-- sig: zeit.inverse_mnf -->
+```python
+zeit.inverse_mnf(components, transform, k=None, *, snr_min=None, scale="noise", chunks=None, n_jobs=-1)
+```
+
+The bands rebuilt from MNF components, `mean + Σ_{i ≤ k} p_i y_i`. The components after the first `k` are set to zero, which is their mean over the pixels the transform was fitted on: the noise directions are replaced by the mean, not shrunk towards the pixel's own value. With all the components the input comes back (to float32 rounding), with `k=0` the mean; constant bands come back as their constant.
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `components` | `DataArray` | required | The components `mnf1 ... mnfK` as `mnf` returns them, K at least `k`. |
+| `transform` | `MNFTransform` | required | The transform they came from. |
+| `k` | `int` | all given | Components to keep. |
+| `snr_min` | `float` | `None` | Instead of `k`: keep the components whose SNR (eigenvalue minus 1) is at least this. `k` and `snr_min` are mutually exclusive. |
+| `scale` | `"noise"` or `"unit"` | `"noise"` | The scale of `components`. |
+
+</div>
+
+**Returns** float32, with the bands of the transform and their names; `attrs["mnf_denoise"]` has `k` and `snr_min`.
+
+### `mnf_denoise` { .api }
+
+<!-- sig: zeit.mnf_denoise -->
+```python
+zeit.mnf_denoise(data, k=None, *, snr_min=None, transform=None, return_transform=False, **fit_kwargs)
+```
+
+The forward and inverse transforms in one pass, without keeping the components (`2 B k` operations a pixel): the bands rebuilt from the first `k` components, or from those with an SNR of at least `snr_min` (1 is signal as strong as the noise). Give exactly one of them. `fit_kwargs` are those of [`mnf_fit`](#mnf_fit) (`noise`, `noise_region`, `mask`, `bands`, `nodata`, `sample_fraction`, `seed`, `per_date`, `chunks`, `n_jobs`). The output has all the bands, with their names, units and the NaN of the invalid pixels.
+
+```python
+clean = zeit.mnf_denoise(enmap, snr_min=1.0)
+clean, tr = zeit.mnf_denoise(enmap, k=12, noise_region=(85, 117, 122, 137), return_transform=True)
+```
+
+### `MNFTransform` { .api }
+
+<!-- sig: zeit.MNFTransform -->
+
+A fitted transform: the statistics, the matrices and the table of eigenvalues, to apply to another image or date, invert or keep. Its fields are NumPy arrays (float64): `bands`, `kept` (the bands in the eigenproblem), `dropped` (`[{"band": 2, "reason": "constant"}]`; reasons `constant` and `empty`), `mean`, `cov`, `noise_cov`, `eigenvalues` (descending, `1 + SNR`), `forward` `(components, bands)` (the loadings `a_i`, zero at dropped bands), `inverse` `(bands, components)` (the patterns `p_i`), `correlation` `(bands, components)` (the correlation of each band with each component), `estimator`, `n_pixels`, `n_pairs`, `sample_fraction`, `seed` and `noise_floored`. The matrices are in the `"noise"` scale.
+
+| Member | Description |
+| :--- | :--- |
+| `snr` | `eigenvalues - 1`. |
+| `n_with_snr(snr)` | The number of components whose SNR is at least `snr`. |
+| `table()` | A DataFrame, one row a component: `eigenvalue`, `snr`, `snr_db`, `noise_fraction` (1/λ), `signal_share` and `cumulative_signal_share` (of the SNR above zero), `maf_autocorrelation` (1 - 1/λ, the lag-1 autocorrelation of the component in the direction of the estimator) and `flag` (`degenerate`: a band that combines others exactly, no variance; `floored_noise`: the component lies in a direction where the noise covariance is singular). |
+| `to_csv(path)` | The table as CSV. |
+| `to_json(path=None)` | The transform as JSON (`"format": "zeit-mnf"`), floats in their shortest round-trip form. |
+| `MNFTransform.from_json(path_or_text)` | The inverse of `to_json`, bit for bit. |
+| `MNFTransform.from_covariances(mean, cov, noise_cov, bands=None)` | The transform of given statistics (another program's, a dark frame's). |
+| `apply(data, n_components=None, *, scale="noise", ...)` | The components of other data (as `mnf(data, transform=...)`). |
+| `inverse_transform(components, k=None, *, snr_min=None, ...)` | As `inverse_mnf`. |
+| `denoise(data, k=None, *, snr_min=None, ...)` | As `mnf_denoise(data, transform=...)`. |
+
+The statistics are those the transform was fitted on: an eigenvalue of 1 or below 1 in a component means that, over the fitted pixels, its variance is no more than the noise estimate. Eigenvalues between 0 and 1 are legitimate when the signal has fine spatial detail, which the difference estimator counts as noise; use a `noise_region` to avoid it.
+
 ## Sharpening coarse data (ImproPhe)
 
 ### `improphe` { .api }

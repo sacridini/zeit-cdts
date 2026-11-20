@@ -326,6 +326,72 @@ All four components are equal in every observation FORCE computes (the disturban
 
 The OLI and ETM+ matrices are equal to 1e-7, the float32 rounding of Zeit against the double of R. For TM the brightness is equal and greenness and wetness are not, because RStoolbox's table has `+0.0002` and `+0.6806` for the SWIR1 weight of greenness and wetness, where Crist (1985) and FORCE have `-0.0002` and `-0.6806`: with those two numbers given to Zeit as `coefficients=`, all three components are equal to 8e-8. Zeit follows the paper. RStoolbox has no matrix for Sentinel-2, and Zeit gives Sentinel-2 Crist's, as FORCE does (the comparison with FORCE above).
 
+### MNF vs SPy
+
+[`mnf`](../api/preprocessing.md#mnf) is compared with **SPy 0.26** (Spectral Python, `spectral` on PyPI, MIT): `calc_stats`, `noise_from_diffs`, `mnf`, `reduce` and `denoise`. The comparison is by outputs only: SPy's source was not read for the implementation (Zeit's MNF was written from the papers), and SPy is called as a black box, its conventions measured below. There is no ENVI here; only its documented conventions (noise whitening, then a PCA; eigenvalues above 1 are signal; the inverse with the first components) are matched. The data are a synthetic image (512 x 512 x 50 bands, 6 smooth latent fields mixed into the bands, white noise of a standard deviation that grows from 0.5 to 5 across the bands, float32; also written as a GeoTIFF), SPy's own example **92AV3C** (AVIRIS Indian Pines, 145 x 145 x 220, int16, with the documented noise subregion `[117:137, 85:122]`, `noise_region=(85, 117, 122, 137)`) and the 350 x 350 window of the **EnMAP** L2A scene of the [unmixing tutorial](../tutorials/unmixing.md) (218 bands: the 6 that the scene leaves empty are dropped; int16, no NoData in the window). SPy takes `float64` `(rows, cols, bands)`; Zeit takes the file's own dtype.
+
+**SPy's conventions, measured** (each by comparing its output with the definition, one convention matching to 1e-10 and every other to 1e-6 or worse):
+
+| SPy | What it does |
+|:---|:---|
+| `calc_stats(X)` | The mean and the covariance with divisor n - 1 (the divisor n differs by 4e-6 to 5e-5); `nsamples` is n. It is the **total** covariance of the image, signal plus noise. |
+| `noise_from_diffs(X, direction)` | **Half** the covariance of the differences `z(p) - z(q)` of the pairs, **centred** on the mean difference, divisor m - 1, for each of `right`, `lower`, `lowerright` and `lowerleft`; its `mean` is the mean difference. It matches Zeit's `diff_h`, `diff_v`, `diff_diag` and `diff_antidiag` to 3e-17 to 1e-15 relative. |
+| `mnf(signal, noise)` | The eigenvalues and eigenvectors are `complex128` (numpy's `eig`) with an imaginary part of exactly 0. |
+| `reduce(X, num)` | The components of the noise-whitened, **centred** data, noise of unit variance: Zeit's `scale="noise"` components to a scale of 1 +- 7e-9 and an offset under 2e-8. |
+| `denoise(X, num)` | Restores the mean (the bands rebuilt from the first `num` components, plus the image's mean), as Zeit's `mnf_denoise`; without it the difference would be 1e-3 to 170 band standard deviations. |
+| `diff_hv` | SPy has no pooled estimator: Zeit's is the pooled covariance of the two directions, compared by building `GaussianStats` from SPy's two covariances with the pooled formula. |
+
+**Agreement.** Every number is asserted by `benchmarks/vs_originals/mnf.py`, which stops with an error otherwise.
+
+| | Synthetic 512 x 512 x 50 | 92AV3C | EnMAP 350 x 350 x 218 |
+|:---|---:|---:|---:|
+| Eigenvalues from the same statistics (`from_covariances` against `spy.mnf`), largest relative difference | 1.5e-14 | 7.5e-13 | 4.4e-12 |
+| Components `reduce(num=all)` against `zeit.mnf`, largest difference over a component's standard deviation, components with separated eigenvalues | 2.4e-7 (48 of 50) | 5.4e-7 (220 of 220) | 6.7e-6 (216 of 218) |
+| Clusters of near-equal eigenvalues (relative gap under 1e-4), compared as subspaces: largest principal angle | 0 (1 cluster of 2) | none | 2.1e-5 rad (1 cluster of 2) |
+| `denoise(num=k)` against `mnf_denoise(k)`, over a band's standard deviation | 2.1e-7 (k = 6) | 8.6e-6 (k = 82) | 2.0e-6 (k = 40) |
+| Noise covariance of Zeit's `diff_h`, `diff_v`, `diff_diag`, `diff_antidiag` against `noise_from_diffs`, relative | 2.3e-16 to 4.7e-16 | 7.5e-16 to 1.2e-15 | 3.5e-16 to 4.7e-16 |
+| Eigenvalues of those four end to end, and of the pooled `diff_hv` | 2.6e-14 at most | 1.2e-12 | 5.4e-11 |
+
+(Zeit's components are float32, so their agreement with SPy's float64 is limited to about 6e-8 of their magnitude: the 8.6e-6 of 92AV3C is that rounding of values of several thousand digital numbers over a band standard deviation of tens.) The eigenvalues are `1 + SNR`; for 92AV3C 82 have an SNR of at least 1, for the EnMAP window 40, and the synthetic image's 6 are the 6 latent fields.
+
+**Timings.** The best of 3 runs after a warm-up, SPy with 4 BLAS threads (`OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, `MKL_NUM_THREADS` = 4) against Zeit with `n_jobs=4`, and both with 1; the work at most 4 processors. Seconds. *Statistics* is `calc_stats` and `noise_from_diffs` in one direction (`lowerright`) against Zeit's pass over the image with `diff_diag`; Zeit's default `diff_hv` takes two directions and 0.095 s, 0.034 s and 0.351 s on 4 threads. *Fit* is `mnf(signal, noise)` against the eigenproblem. *Forward* is `reduce(X, num=k)` against `zeit.mnf(cube, k, transform=...)`, *denoise* `denoise(X, num=k)` against `zeit.mnf_denoise`, with k the components with an SNR of at least 1 (6, 82, 40). *Whole* is the statistics, the fit and the denoising together.
+
+| Image | Step | SPy, 4 threads | Zeit, 4 threads | | SPy, 1 thread | Zeit, 1 thread | |
+|:---|:---|---:|---:|---:|---:|---:|---:|
+| Synthetic 512 x 512 x 50 | Statistics | 0.147 | 0.073 | 2.0x | 0.189 | 0.133 | 1.4x |
+| | Fit | 0.0003 | 0.0004 | 0.8x | 0.0003 | 0.0004 | 0.6x |
+| | Forward | 0.078 | 0.014 | 5.5x | 0.091 | 0.030 | 3.1x |
+| | Denoise | 0.182 | 0.031 | 6.0x | 0.231 | 0.054 | 4.3x |
+| | Whole | 0.347 | 0.109 | 3.2x | 0.392 | 0.174 | 2.3x |
+| 92AV3C 145 x 145 x 220 | Statistics | 0.036 | 0.033 | 1.1x | 0.043 | 0.054 | 0.8x |
+| | Fit | 0.016 | 0.012 | 1.3x | 0.010 | 0.012 | 0.8x |
+| | Forward | 0.059 | 0.031 | 1.9x | 0.079 | 0.059 | 1.3x |
+| | Denoise | 0.116 | 0.057 | 2.0x | 0.170 | 0.109 | 1.6x |
+| | Whole | 0.179 | 0.100 | 1.8x | 0.224 | 0.175 | 1.3x |
+| EnMAP 350 x 350 x 218 | Statistics | 0.363 | 0.234 | 1.6x | 0.448 | 0.497 | 0.9x |
+| | Fit | 0.014 | 0.012 | 1.1x | 0.010 | 0.012 | 0.8x |
+| | Forward | 0.221 | 0.080 | 2.8x | 0.287 | 0.168 | 1.7x |
+| | Denoise | 0.616 | 0.170 | 3.6x | 0.922 | 0.331 | 2.8x |
+| | Whole | 1.054 | 0.506 | 2.1x | 1.390 | 0.834 | 1.7x |
+
+The statistics and the fit are dense linear algebra, which SPy (on numpy) leaves to its BLAS and LAPACK, so Zeit is no faster there with one thread (0.8x to 1.4x); with 4 it wins by splitting the image in blocks. The transforms are where the gain is: Zeit applies the matrices to tiles that stay in the cache, writes float32, and for `denoise` fuses the forward and inverse transforms (`2 B k` operations a pixel).
+
+**Memory.** The extra working set at the peak of the whole denoise (statistics, fit, `k = 8`), each library in its own process, above what the process holds once the image is loaded (SPy's float64 copy of the image counted in that base), 4 threads, MB:
+
+| Image | SPy | Zeit |
+|:---|---:|---:|
+| Synthetic 512 x 512 x 50 | 504 | 224 |
+| 92AV3C | 227 | 123 |
+| EnMAP 350 x 350 x 218 | 1071 | 350 |
+
+Zeit's include its float32 output (52, 19 and 107 MB) and the blocks of 8 MiB it holds per thread.
+
+**Notes.**
+
+- **Missing values.** SPy's `noise_from_diffs` has no mask, so the comparison uses windows without NoData, and Zeit is run with `nodata=None` (its default for integers without a NoData value is 0, which the EnMAP window has as a reflectance in water).
+- **Few pairs.** 92AV3C's noise subregion has 740 pixels and 684 to 720 pairs for 220 bands, under the ten times the bands that Zeit warns below (the script silences it); SPy's result is the same, and as poor.
+- **Eigenvalue order.** SPy sorts the eigenvalues descending, like Zeit; its eigenvectors have an arbitrary sign, Zeit's the rule of the correlation with the band it is most correlated with, so components are compared up to a per-component sign.
+
 ### ImproPhe vs FORCE
 
 [`improphe`](../api/preprocessing.md#improphe) is compared with **FORCE 3.11.00**'s CF-ImproPhe (`CFIMP`) and L2-ImproPhe (`L2IMP`), the code it is ported from (Frantz et al. 2016; GPL-3.0-or-later), on one synthetic tile (`force_improphe_cube.py`): a truth map of five classes in Voronoi patches (crop, forest, grass, water, urban, each a mix of two spectra with its own seasonal weight), a smooth gradient and a static brightness texture whose strength changes from patch to patch; **297 x 297 pixels of 10 m**. The fine data are 90 Sentinel-2A dates over 2018-2019 (10 bands; irregular revisit; clouds, shadows and swaths without data on 29 of them; the doys 1, 91, 181, 271 and 365 of 2018 among them, the limits of the seasonal windows; doys 91-250 of 2019 missing, so that a window is empty in that year; one column without any observation). L2's coarse scenes are 24 Landsat 8 dates at 30 m, block means (3 x 3) of the truth with noise, clouds and a hole of NoData; CF's is the year's peak NDVI of the truth at 30 m (int16, NoData -9999, a hole in each year). FORCE reads the 30 m files at 10 m by nearest neighbour, which for the integer factor is the replication of each pixel; Zeit's `reproject_match` onto the fine grid gives exactly that (checked). The fine cube Zeit gets is FORCE's own input, the BOA with the observations that FORCE's `SCREEN_QAI` drops set to NaN, so that only the method is compared. Parameters: `RESOLUTION = 10`, `KERNEL_SIZE` 100 and 200 (radii of 10 and 20 pixels, `mink` 1 and 6), `KERNEL_TEXT = 30`, `SEASONAL_WINDOW` `1 91 181 271 365` and `1 121 241 365`, both years predicted. `zeit.improphe(..., force=True)` truncated toward zero is compared with FORCE's int16 `_IMP` files over the pixels Zeit predicts.
@@ -771,6 +837,50 @@ The first line of each pair gives Zeit's times; the second reuses them against t
     - **Conventions.** eofs' and xeofs' maps are those of the weighted data, Zeit's `units` maps have the weights taken out (data units per standard deviation of the PC); with equal weights Zeit's maps and PCs are eofs' `eofs(eofscaling=2)` and `pcs(pcscaling=1)`. Signs are arbitrary in the references; Zeit's rule makes the PC correlate positively with the mean anomaly. xeofs' rotated PCs carry the variance, Zeit's have unit variance. Zeit's weights have mean 1, eofs' are sqrt(cos(latitude)) as given, so the eigenvalues differ by that constant and the ratios do not. Zeit leaves a month NaN for a pixel with fewer than 2 values of that calendar month (`min_per_month`), xarray does not; the script applies the same rule.
     - **The correlation.** `xr.corr` gives r only; the second reference adds the pairs and the p-values of independent pairs, and still has neither the effective sample size, the Sidak adjustment of the lags nor the false discovery rate that Zeit's call returns. The 2000-pixel loops are given the anomalies; Zeit's call starts from the 16-day or monthly cube.
 
+### iMAD, radcal and the omnibus test vs Canty
+
+`zeit.imad`, `zeit.radcal` and `zeit.omnibus` against Mort Canty's `iMad.py`, `iMadmap.py`, `radcal.py` and `sar_seqQ.py` (CRC5Docker, MIT licence, the code of the book *Image Analysis, Classification and Change Detection in Remote Sensing*). The scripts were **run as black boxes** (`benchmarks/vs_originals/canty_run.py`, which only lets them run on a current numpy and on Windows); Zeit's methods were written from the papers and their outputs compared. Times are wall-clock of the whole run, Canty's own reading and writing of files included, 4 threads for both (`OMP_NUM_THREADS=4` for Canty); Zeit's are the best of 2 or 3 calls from files (iMAD, radcal) or from an array (omnibus), the fit on every pixel.
+
+| Workload | Original | Time | Zeit (4 threads) | Speedup |
+|:---|:---|---:|---:|:---:|
+| iMAD + map + radcal, 1000 x 1000 px x 6 bands, 10 % changed (synthetic) | iMad + iMadmap + radcal | 11.5 s | 2.12 s | 5x |
+| iMAD + map + radcal, 1000 x 1000 px x 6 bands, 40 % changed (synthetic) | iMad + iMadmap + radcal | 11.1 s | 2.19 s | 5x |
+| iMAD + map + radcal, Landsat 2021-07-16 and 2022-07-27, 1690 x 1675 px x 6 bands (Rondonia) | iMad + iMadmap + radcal | 30.0 s | 7.97 s | 4x |
+| Omnibus, 500 x 500 px x 12 dates x VV+VH (synthetic) | `sar_seqQ.py` | 17.5 s | 0.102 s | 172x |
+| Omnibus, 300 x 300 px x 46 dates x VV+VH (Sentinel-1 RTC, Rondonia) | `sar_seqQ.py` | 41.5 s | 0.184 s | 226x |
+
+Zeit's iMAD with the default sample of 1,000,000 pixels takes 1.0 s (synthetic, 1000 x 1000) and 1.2 s (Landsat) for the fit and the output of every pixel. The omnibus test of 12 dates of 2000 x 2000 pixels takes 0.79 s; `sar_seqQ.py` keeps a `k x k x pixels` array of float64 on disk, 5 GB for that size (and 46 dates would need 2.7 GB for 400 x 400 pixels), so it was not run there.
+
+**Data.** Synthetic iMAD pair: five land covers with spatial grain, date 2 seen with a gain and an offset per band and noise of the same size, square blocks of changed cover (`change_data.py`). Real pair: the dry seasons of 2021 and 2022 of the Landsat stack of the BR-364 frontier (`CCDC_Stack_Rondonia.tif`: 16 July 2021 and 27 July 2022, six bands, raw digital numbers, more than 98 % clear). Synthetic series: gamma speckle of 4.4 looks and three blocks with known changes (a darkening, a bright flood that goes back, VV up with VH down). Real series: the RTC gamma0 (linear VV and VH, 10 m) of Planetary Computer's `sentinel-1-rtc` over 22 km of Rondonia (box -63.30..-63.10, -9.90..-9.70), relative orbit 83 descending, 46 dates from 2021-06-06 to 2022-06-19, with the equivalent number of looks estimated on the most homogeneous 15 x 15 block of intact forest (VV 6.49, VH 6.72: 6.5 used by both sides, since RTC resampling raises it above 4.4). `sar_seqQ.py` was given the central 300 x 300 pixels.
+
+**How they were checked.** Asserted by `imad.py` and `omnibus.py`.
+
+| | Synthetic 10 % / 40 % | Landsat pair |
+|:---|:---|:---|
+| Canonical correlations of the last iteration (`standardize="weighted"`, `tol=1e-3`) | 6e-6 / 6e-6 apart | 4.8e-6 apart |
+| Iterations | 14 for Zeit and Canty | 20 |
+| MAD variates (his band `N + 1 - i` is our `MADi`) | \|r\| 1.0000000, standard deviation ratio 1.00000-1.00001 | \|r\| 1.0000000, ratio 1.00001-1.00002 |
+| Chi-square | ratio within 0.993-1.008 / 0.998-1.003 | 0.99996-1.00012, r 1.000000000 |
+| Change map at 0.01 (`iMadmap.py`) | 99.985 % / 99.996 % of the pixels agree; the others have \|p - 0.01\| below 5e-5 | 99.9995 % (14 pixels, \|p - 0.01\| below 3e-6) |
+| Normalization: slopes | within 1.1e-3 of Canty's | within 6e-3 (his own three runs span up to 6e-3) |
+| Normalized images | r above 0.999999, mean difference below 0.04 % of the range | r above 0.999999, below 0.16 % |
+
+| | Omnibus, synthetic | Omnibus, Sentinel-1 RTC |
+|:---|:---|:---|
+| Date of the first change, of the last, number of changes (`"improved"`) | identical in 100 % of the pixels | identical in 100 % of the pixels (65 % of them changed at 0.01) |
+| Change at each date (`bmap`) | 99.998 % | 99.91 % |
+| Direction where both found a change | 99.79 % | 97.3 % |
+| Same, with `approximation="chi2"` (first / last / count) | 98.8 / 98.6 / 98.8 % | 92.4 / 88.3 / 87.6 % |
+
+!!! note "What the black-box runs settled"
+    - **The standardization of iMAD.** Canty's script divides the MAD variates by `sqrt(2 (1 - rho))` (Canty and Nielsen 2008), not by their unweighted standard deviation over all the pixels (Nielsen 2007): the correlations of every iteration agree with `standardize="weighted"` (to 5e-7 at iteration 2 and 9e-6 at iteration 10 on the synthetic pair) and not with `"all"`. This standardization over-flags where nothing changed (the weights shrink the variance it estimates): 15 to 30 % of the pixels at 0.01 on simulated no-change data, in Zeit and in the script alike; `"all"` keeps 1 % there.
+    - **The stopping rule.** Canty's script stops when the largest change of a canonical correlation is below 1e-3 (it ran 14 iterations where Zeit's changes were 1.03e-3 and then 6.7e-4); Zeit's `tol` defaults to the same. At 1e-6 the weighted iteration does not converge in 50 iterations.
+    - **The order and sign of the MAD variates.** Canty's band 1 is the pair of the largest canonical correlation; Zeit's `MAD1` is the pair of the smallest (largest variance, as Nielsen 2007). Signs are arbitrary. The scale is the same, and the covariance he reports uses `1 / (W - 1)`, which does not move the correlations.
+    - **The `iMadmap.py` map** is the MAD variates of the pixels whose chi-square tail `p` is below the significance, and 0 elsewhere: Zeit's `change` band is the same set.
+    - **The hold-out of `radcal.py`** is random (its fits move by up to 6e-3 in the slope between runs on the same input) and Zeit's is every third invariant pixel in raster order, so the fits agree to the sampling error, not exactly; Canty's split is 2/3 and 1/3, as Zeit's.
+    - **The omnibus test.** `sar_seqQ.py` reads a two-band file per date as the diagonal dual-polarization case (VV, VH in linear intensity, the equivalent number of looks as an argument), uses the **improved** p-values of Conradsen et al. (2024), not the chi-square: Zeit's `approximation="improved"` reproduces its maps to the pixel, `"chi2"` does not. Its `smap` and `cmap` hold the 0-based index of the first image after the change (0: no change; Zeit's decimal year of that image), `fmap` the number of changes, `bmap` one band per interval (image `j + 1` is band `j`) with 1, 2, 3 for brightening, darkening and indefinite, as Zeit's `per_date`. When the omnibus test rejects but no single date does, both stop (no change). Zeit's direction takes the difference to the mean of the images since the last change; it equals Canty's in 99.8 % of 5,286 changes of the synthetic series (the other 11 are not explained by the other references tried: the previous image, the mean of all earlier images, the mean after the change), and 97.3 % on the real series. The greatest change and the median filter have no counterpart in his script.
+    - **What is not the same work.** Canty's times include starting Python and reading the files; the IPython cluster that `sar_seqQ.py` tries to find is not there (it falls back to one process, and loses a second or two looking). Zeit's iMAD times include reading the two files as well; its omnibus time is from an array in memory.
+
 ---
 
 ### Spatiotemporal fusion (STARFM and ESTARFM)
@@ -886,8 +996,8 @@ With the nearest pair weeks away fusion cuts the NDVI error of the nearest date 
 | Platform | Windows 11 (`Windows-11-10.0.26300-SP0`) |
 | Processor | `Intel64 Family 6 Model 183 Stepping 1, GenuineIntel` (the Intel Core i5-13600K of the other benchmarks), 20 logical processors |
 | R | 4.4.2, with sfdep 0.2.5, RecoverMetricsR 0.1.0, RStoolbox 1.0.2.2, sits 1.5.4, CAST 1.0.4, Rbeast 1.0.2, remotePARTS 1.0.4, blockCV 4.0.1 (with automap 1.1.20), scam 1.2.23 and survey 4.5 |
-| Python | pyxccd 1.1.0, in a virtual environment of its own; xeofs 3.0.4, eofs 2.0.0, xarray 2026.9.0, scipy 1.18.1, statsmodels 0.15.0 and numpy 2.5.5, in the conda environment `eofbench` (Python 3.12), with Zeit from the repository on `PYTHONPATH` |
-| Date | 2026-10-24 (the AR(1) trends and PARTS: 2026-10-28; the spatial cross-validation: 2026-10-29; the transitions: 2026-11-03; ImproPhe: 2026-11-06; the resolution merge: 2026-11-07; the coregistration: 2026-11-07; the EOFs and the lagged correlation: 2026-11-16, Zeit on 1 and 8 threads) |
+| Python | pyxccd 1.1.0, in a virtual environment of its own; xeofs 3.0.4, eofs 2.0.0, xarray 2026.9.0, scipy 1.18.1, statsmodels 0.15.0 and numpy 2.5.5, in the conda environment `eofbench` (Python 3.12), with Zeit from the repository on `PYTHONPATH`; spectral (SPy) 0.26 in the same environment |
+| Date | 2026-10-24 (the AR(1) trends and PARTS: 2026-10-28; the spatial cross-validation: 2026-10-29; the transitions: 2026-11-03; ImproPhe: 2026-11-06; the resolution merge: 2026-11-07; the coregistration: 2026-11-07; the EOFs and the lagged correlation: 2026-11-16, Zeit on 1 and 8 threads; the MNF against SPy: 2026-11-20, 1 and 4 threads, a cap of 4 processors for the whole run) |
 
 ---
 
@@ -913,6 +1023,7 @@ python benchmarks/vs_originals/fusion.py A               # zeit.fuse_estarfm aga
 python benchmarks/vs_originals/fusion.py B               # the same on Zhu's bundled test data (not in this repository), and fuse_starfm against zeit.starfm
 python benchmarks/vs_originals/fusion_real.py bahia      # Landsat 8/9 and MODIS NBAR of a 15 km area from the Planetary Computer (or goias), then:
 python benchmarks/vs_originals/fusion_loo.py bahia --zhu 3   # leave one date out, against the baselines and Zhu's program
+python benchmarks/vs_originals/mnf.py --threads 4         # SPy 0.26 (conda env eofbench: pip install spectral), against zeit.mnf; --threads 1; --enmap path; --rss-only
 wsl -e bash -lc 'bash benchmarks/vs_originals/force_improphe_l2fix.sh'                      # once: the build of FORCE that L2IMP needs (one core)
 wsl -e bash -lc 'bash benchmarks/vs_originals/force_improphe.sh ~/force-ref-work/imp-ref 6'  # CFIMP and L2IMP, each with OpenBLAS (A) and GSL's CBLAS (B); then:
 python benchmarks/vs_originals/force_improphe.py --part cf,l2                              # zeit.improphe against both (--data: another cube)
@@ -941,6 +1052,9 @@ python benchmarks/vs_originals/arosics.py            # AROSICS 1.14.0 (conda env
 python benchmarks/vs_originals/arosics.py local run 1   # COREG_LOCAL with CPUs=1 and with 4 (`local run 4`), then zeit.coregister_local against both:
 python benchmarks/vs_originals/arosics.py local compare
 python benchmarks/vs_originals/polar.py               # PolarMetrics 0.1.0 (R package from GitHub: R CMD INSTALL), against zeit.polar_metrics
+# iMAD, radcal and the omnibus test against Canty's scripts (CRC5Docker, MIT; run as black boxes by canty_run.py):
+CANTY_PYTHON=path/to/env/python CANTY_SRC=path/to/CRC5Docker/src python benchmarks/vs_originals/imad.py        # [synthetic|landsat]
+CANTY_PYTHON=path/to/env/python CANTY_SRC=path/to/CRC5Docker/src python benchmarks/vs_originals/omnibus.py     # [synthetic|real|speed]
 python benchmarks/vs_originals/ewmacd.py "path/to/EWMACD v1.3.0.r"   # Brooks' script, not distributed
 PYXCCD_PYTHON=path/to/pyxccd-env/python python benchmarks/vs_originals/sccd.py CCDC_Stack_Rondonia.tif CCDC_Stack_Rondonia_Dates.csv
 ```
