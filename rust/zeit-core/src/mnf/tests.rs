@@ -143,8 +143,8 @@ fn max_angle(a: &[f64], b: &[f64], n: usize, k: usize) -> f64 {
         q
     };
     let (qa, qb) = (ortho(a), ortho(b));
-    let c = matmul(&transpose(&qa, n, k), k, n, &qb, k);
-    let g = matmul(&c, k, k, &transpose(&c, k, k), k);
+    let c = mat_mul(&transpose(&qa, n, k), k, n, &qb, k);
+    let g = mat_mul(&c, k, k, &transpose(&c, k, k), k);
     let (vals, _) = sym_eig_desc(&g, k).unwrap();
     vals[k - 1].clamp(0.0, 1.0).sqrt().acos().to_degrees()
 }
@@ -161,7 +161,7 @@ fn population(sy: &Synth) -> Vec<f64> {
         }
     }
     let mw: Vec<f64> = (0..b * r).map(|i| sy.m[i] / sy.sigma[i / r]).collect();
-    let g = matmul(&matmul(&mw, b, r, &sf, r), b, r, &transpose(&mw, b, r), b);
+    let g = mat_mul(&mat_mul(&mw, b, r, &sf, r), b, r, &transpose(&mw, b, r), b);
     sym_eig_desc(&g, b).unwrap().0.iter().map(|v| 1.0 + v).collect()
 }
 
@@ -183,7 +183,7 @@ fn sample_cov(x: &[f64], b: usize, n: usize) -> (Vec<f64>, Vec<f64>) {
 
 fn random_spd(n: usize, rng: &mut Rng, shift: f64) -> Vec<f64> {
     let g: Vec<f64> = (0..n * 2 * n).map(|_| rng.normal()).collect();
-    let mut a = matmul(&g, n, 2 * n, &transpose(&g, n, 2 * n), n);
+    let mut a = mat_mul(&g, n, 2 * n, &transpose(&g, n, 2 * n), n);
     a.iter_mut().for_each(|v| *v /= (2 * n) as f64);
     (0..n).for_each(|i| a[i * n + i] += shift);
     a
@@ -245,10 +245,10 @@ fn algebra_given_covariances() {
     assert_eq!((tr.m, tr.noise_floored), (nb, 0));
     let a = transpose(&tr.forward, nb, nb);
     let at = &tr.forward;
-    let ans = matmul(&matmul(at, nb, nb, &sn, nb), nb, nb, &a, nb);
+    let ans = mat_mul(&mat_mul(at, nb, nb, &sn, nb), nb, nb, &a, nb);
     let eye: Vec<f64> = (0..nb * nb).map(|k| if k / nb == k % nb { 1.0 } else { 0.0 }).collect();
     assert!(max_abs_diff(&ans, &eye) < 1e-10, "A' Sn A");
-    let asa = matmul(&matmul(at, nb, nb, &sigma, nb), nb, nb, &a, nb);
+    let asa = mat_mul(&mat_mul(at, nb, nb, &sigma, nb), nb, nb, &a, nb);
     let lmax = tr.eigenvalues[0];
     for i in 0..nb {
         for j in 0..nb {
@@ -259,7 +259,7 @@ fn algebra_given_covariances() {
             );
         }
     }
-    let atp = matmul(at, nb, nb, &tr.inverse, nb);
+    let atp = mat_mul(at, nb, nb, &tr.inverse, nb);
     assert!(max_abs_diff(&atp, &eye) < 1e-10, "A' P");
     // the Cholesky route (Roger 1994): K = L^-1 S L^-T, a = L^-T v
     let l = cholesky(&sn, nb);
@@ -365,9 +365,9 @@ fn denoising_factor_and_limits() {
         let tg = fit(&sy, Noise::Given(given));
         // prediction: sqrt(trace(Pi Sn) / trace(Sn)), Pi the projector on span(Sn^-1/2 M)
         let mw: Vec<f64> = (0..b * sy.r).map(|i| sy.m[i] / sy.sigma[i / sy.r]).collect();
-        let g = matmul(&transpose(&mw, b, sy.r), sy.r, b, &mw, sy.r);
+        let g = mat_mul(&transpose(&mw, b, sy.r), sy.r, b, &mw, sy.r);
         let (_, v) = sym_eig_desc(&g, sy.r).unwrap();
-        let q = matmul(&mw, b, sy.r, &v, sy.r); // orthogonal columns
+        let q = mat_mul(&mw, b, sy.r, &v, sy.r); // orthogonal columns
         let mut tr_pi_sn = 0.0;
         for c in 0..sy.r {
             let nrm: f64 = (0..b).map(|j| q[j * sy.r + c] * q[j * sy.r + c]).sum();

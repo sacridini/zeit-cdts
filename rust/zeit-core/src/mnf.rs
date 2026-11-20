@@ -25,7 +25,8 @@
 //! correlated with).
 
 use crate::parallel::{pool, threads, Shared};
-use faer::{MatRef, Side};
+use faer::linalg::matmul::matmul;
+use faer::{Accum, MatMut, MatRef, Par, Side};
 use rayon::prelude::*;
 use std::fmt;
 
@@ -315,8 +316,23 @@ impl MnfStats {
                 &halo.expect("halo row")[b * nx..][..nx]
             }
         };
-        let part = block_stats(&row, halo.is_some(), t, row0, rows, ny, nx, self.nb, opts);
+        let part = block_stats(&row, halo.is_some(), t, row0, rows, ny, nx, &self.empty_like(), opts);
         self.merge(&part);
+    }
+
+    /// Statistics with nothing in them, of the same bands and directions.
+    pub fn empty_like(&self) -> MnfStats {
+        let mut out = self.clone();
+        out.n = 0;
+        out.mean.iter_mut().for_each(|v| *v = 0.0);
+        out.m2.iter_mut().for_each(|v| *v = 0.0);
+        out.band_valid.iter_mut().for_each(|v| *v = 0);
+        for d in out.pairs.iter_mut() {
+            d.m = 0;
+            d.mean.iter_mut().for_each(|v| *v = 0.0);
+            d.m2.iter_mut().for_each(|v| *v = 0.0);
+        }
+        out
     }
 
     /// Adds the statistics of another part (after this one: Chan's update in that order).
@@ -351,23 +367,6 @@ fn sampled(seed_hash: u64, fraction: f64, key: u64) -> bool {
     ((h >> 11) as f64) * (1.0 / 9007199254740992.0) < fraction
 }
 
-/// The dot product with eight independent sums (fixed order, so deterministic).
-fn dot(a: &[f64], b: &[f64]) -> f64 {
-    let mut acc = [0.0f64; 8];
-    let (ca, cb) = (a.chunks_exact(8), b.chunks_exact(8));
-    let (ra, rb) = (ca.remainder(), cb.remainder());
-    for (x, y) in ca.zip(cb) {
-        for k in 0..8 {
-            acc[k] += x[k] * y[k];
-        }
-    }
-    let mut s = ((acc[0] + acc[4]) + (acc[1] + acc[5])) + ((acc[2] + acc[6]) + (acc[3] + acc[7]));
-    for (x, y) in ra.iter().zip(rb) {
-        s += x * y;
-    }
-    s
-}
-
 /// Mean and centred co-moment of `nb` columns of `n` values (`data[b * n + i]`, centred in place).
 fn moments(data: &mut [f64], nb: usize, n: usize) -> (Vec<f64>, Vec<f64>) {
     let mut mean = vec![0.0; nb];
@@ -381,9 +380,21 @@ fn moments(data: &mut [f64], nb: usize, n: usize) -> (Vec<f64>, Vec<f64>) {
         mean[b] = m;
         col.iter_mut().for_each(|v| *v -= m);
     }
+    // the cross-products by the product `X^T X` of the centred columns (faer's kernels, one thread: the same bits
+    // whatever the pool), the upper triangle mirrored so that the matrix is exactly symmetric
+    let x = MatRef::from_column_major_slice(data, n, nb);
+    let mut g = vec![0.0; nb * nb];
+    matmul(
+        MatMut::from_column_major_slice_mut(&mut g, nb, nb),
+        Accum::Replace,
+        x.transpose(),
+        x,
+        1.0,
+        Par::Seq,
+    );
     for i in 0..nb {
         for j in i..nb {
-            let v = dot(&data[i * n..][..n], &data[j * n..][..n]);
+            let v = g[j * nb + i];
             m2[i * nb + j] = v;
             m2[j * nb + i] = v;
         }
@@ -401,10 +412,11 @@ fn block_stats<'a, T: Sample64>(
     rows: usize,
     ny: usize,
     nx: usize,
-    nb: usize,
+    template: &MnfStats,
     opts: &StatsOptions,
 ) -> MnfStats {
-    let mut out = MnfStats::new(nb, &opts.noise);
+    let nb = template.nb;
+    let mut out = template.empty_like();
     let rr = rows + usize::from(has_halo);
     let np = rr * nx;
     let anchors = rows * nx;
@@ -599,11 +611,12 @@ fn gather<T: Sample64>(
     let blocks: Vec<(usize, usize, usize)> = (0..nt)
         .flat_map(|t| (0..ny).step_by(rpb).map(move |r0| (t, r0, rpb.min(ny - r0))))
         .collect();
+    let template = MnfStats::new(nb, &opts.noise);
     let one = |&(t, r0, rows): &(usize, usize, usize)| -> MnfStats {
         let row = |b: usize, r: usize| -> &[T] { &x[((t * nb + b) * ny + r0 + r) * nx..][..nx] };
-        block_stats(&row, r0 + rows < ny, t, r0, rows, ny, nx, nb, opts)
+        block_stats(&row, r0 + rows < ny, t, r0, rows, ny, nx, &template, opts)
     };
-    let mut total = MnfStats::new(nb, &opts.noise);
+    let mut total = template.clone();
     let th = threads(n_jobs).min(blocks.len().max(1));
     for wave in blocks.chunks(WAVE) {
         let parts: Vec<MnfStats> = if th <= 1 {
@@ -644,7 +657,7 @@ pub fn sym_eig_desc(a: &[f64], n: usize) -> Result<(Vec<f64>, Vec<f64>), MnfErro
 }
 
 /// `a (ar x ac) * b (ac x bc)`, row-major.
-fn matmul(a: &[f64], ar: usize, ac: usize, b: &[f64], bc: usize) -> Vec<f64> {
+fn mat_mul(a: &[f64], ar: usize, ac: usize, b: &[f64], bc: usize) -> Vec<f64> {
     let mut out = vec![0.0; ar * bc];
     for i in 0..ar {
         for k in 0..ac {
@@ -826,7 +839,7 @@ fn fit_core(mean: &[f64], cov: &[f64], noise_cov: &[f64], nb: usize, empty: &[bo
         }
     }
     // second rotation: PCA of the whitened total covariance
-    let mut c = matmul(&transpose(&w, b, b), b, b, &matmul(&sig, b, b, &w, b), b);
+    let mut c = mat_mul(&transpose(&w, b, b), b, b, &mat_mul(&sig, b, b, &w, b), b);
     for a in 0..b {
         for k in 0..a {
             let m = 0.5 * (c[a * b + k] + c[k * b + a]);
@@ -835,8 +848,8 @@ fn fit_core(mean: &[f64], cov: &[f64], noise_cov: &[f64], nb: usize, empty: &[bo
         }
     }
     let (lam, u) = sym_eig_desc(&c, b)?;
-    let wu = matmul(&w, b, b, &u, b);
-    let vu = matmul(&v, b, b, &u, b);
+    let wu = mat_mul(&w, b, b, &u, b);
+    let vu = mat_mul(&v, b, b, &u, b);
     let mut a_mat = vec![0.0; b * b]; // columns a_i, band units
     let mut p_mat = vec![0.0; b * b];
     let mut r_mat = vec![0.0; b * b];
@@ -1082,7 +1095,7 @@ pub fn mnf_forward_batch<T: Sample64>(
     n_jobs: i32,
 ) {
     assert!(k_out <= tr.m, "k_out is more than the components");
-    let nt = if nb * npix == 0 { 0 } else { x.len() / (nb * npix) };
+    let nt = x.len().checked_div(nb * npix).unwrap_or(0);
     assert_eq!(x.len(), nt * nb * npix);
     assert_eq!(out.len(), nt * k_out * npix);
     let ctx = Ctx::new(x, nb, npix, tr, missing, mask);
@@ -1135,7 +1148,7 @@ pub fn mnf_inverse_batch(
 ) {
     assert!(k <= k_in && k <= tr.m, "k is more than the components");
     let nb = tr.nb;
-    let nt = if k_in * npix == 0 { 0 } else { y.len() / (k_in * npix) };
+    let nt = y.len().checked_div(k_in * npix).unwrap_or(0);
     assert_eq!(y.len(), nt * k_in * npix);
     assert_eq!(out.len(), nt * nb * npix);
     // y in the noise scale = y * sqrt(lambda) for a unit input
@@ -1213,7 +1226,7 @@ pub fn mnf_denoise_batch<T: Sample64>(
     n_jobs: i32,
 ) {
     assert!(k <= tr.m, "k is more than the components");
-    let nt = if nb * npix == 0 { 0 } else { x.len() / (nb * npix) };
+    let nt = x.len().checked_div(nb * npix).unwrap_or(0);
     assert_eq!(x.len(), nt * nb * npix);
     assert_eq!(out.len(), nt * nb * npix);
     let ctx = Ctx::new(x, nb, npix, tr, missing, mask);
