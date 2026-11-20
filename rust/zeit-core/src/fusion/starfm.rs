@@ -338,7 +338,8 @@ pub fn starfm(
                 let (mut nmin, mut src, mut any) = (u32::MAX, 0u16, false);
                 for b in 0..nb {
                     let px = pixel(p, &bands[b], x, y);
-                    vals[b * region.nx + rx] = px.value as f32;
+                    vals[b * region.nx + rx] =
+                        if px.src == SRC_COARSE { px.value as f32 } else { clip(px.value, p.common.clip) as f32 };
                     nmin = nmin.min(px.n);
                     if px.src != SRC_MISSING {
                         any = true;

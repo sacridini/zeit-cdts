@@ -151,3 +151,23 @@ def test_cloud_hole_single_pair_and_fallback():
                            dates=["2020-01-02"], exclude_dates=["2020-01-03"], fallback="coarse", quality=True)
     out, q = one
     assert q.sel(band="source").values[0, 25, 25] == 3 and np.isfinite(out.values[0, :, 25, 25]).all()
+
+
+def test_plan_with_composite_windows_and_extrapolation():
+    f = [_scene(0.0), _scene(0.05), _scene(0.1)]
+    fine = _fine(f, ["2020-01-10", "2020-01-27", "2020-02-20"])
+    days = pd.date_range("2020-01-01", periods=8, freq="8D")           # 8-day composites 01-01, 01-09, ...
+    c = [_block(_scene(0.01 * i)) for i in range(len(days))]
+    coarse = _coarse(c, days)
+    coarse = coarse.assign_coords(start_datetime=("time", days), end_datetime=("time", days + pd.Timedelta(days=7)))
+    plan = zeit.fusion_plan(fine, coarse, include_fine_dates=True)
+    # a fine date takes the composite that contains it; observed rows use the other pairs only
+    obs = plan[plan.kind == "observed"]
+    assert list(obs.date.dt.strftime("%Y-%m-%d")) == ["2020-01-10", "2020-01-27", "2020-02-20"]
+    assert list(obs.coarse_date.dt.strftime("%Y-%m-%d")) == ["2020-01-09", "2020-01-25", "2020-02-18"]
+    e = zeit.fusion_plan(fine, coarse, method="estarfm", start="2020-01-01", end="2020-02-26", include_fine_dates=False)
+    assert e.loc[e.date == "2020-01-01", "extrapolated"].item() is True
+    assert e.loc[e.date == "2020-01-17", "extrapolated"].item() is False
+    assert e.loc[e.date == "2020-01-17", "pairs"].item() == "2020-01-10,2020-01-27"
+    with pytest.raises(ValueError, match="same date"):
+        zeit.fusion_plan(fine.isel(time=[0, 0]), coarse)

@@ -272,7 +272,7 @@ def _cell_px(ft: Any, fcrs: Any, ct: Any, ccrs: Any, ny: int, nx: int, shift: Tu
 
 def _run(method: str, fine: Any, coarse: Any, *, dates, start, end, include_fine_dates, keep_observed, exclude_dates,
          pairs, pair_tolerance, min_pair_valid, max_gap, radius, sigma, resampling, coarse_shift, fallback, bands,
-         nodata, quality, chunks, n_jobs, valid_range, params, strip_rows=None):
+         nodata, quality, chunks, n_jobs, valid_range, params, clip=(0.0, 1.0), strip_rows=None):
     from . import _core
     from ._threads import resolve
 
@@ -348,7 +348,8 @@ def _run(method: str, fine: Any, coarse: Any, *, dates, start, end, include_fine
                        for k in used_f])
         geom = _geometry(ft, fcrs, ct, ccrs, ey0, ey1 - ey0, nx, shift)
         kw = dict(sigma_values=sig, radius_px=radius_px, sigma=sigma, resampling=resampling, fallback=fallback,
-                  want_quality=bool(quality), n_jobs=int(resolve(n_jobs)), **params)
+                  want_quality=bool(quality), n_jobs=int(resolve(n_jobs)),
+                  clip=(float("nan"), float("nan")) if clip is None else (float(clip[0]), float(clip[1])), **params)
         if geom[0] == "affine":
             kw["affine"] = geom[1]
         else:
@@ -400,7 +401,8 @@ def fuse_starfm(fine: Any, coarse: Any, *, dates: Any = "coarse", start: Any = N
            fine_uncertainty: float = 0.002, coarse_uncertainty: float = 0.005, spatial_scale: Optional[float] = None,
            weighting: str = "direct", filter: str = "both", pure: str = "epsilon", resampling: str = "bilinear",
            coarse_shift: Tuple[float, float] = (0.0, 0.0), fallback: str = "missing", bands: Any = None,
-           nodata: Any = "auto", valid_range: Optional[Tuple[float, float]] = (-0.01, 1.6), quality: bool = False,
+           nodata: Any = "auto", valid_range: Optional[Tuple[float, float]] = (-0.01, 1.6),
+           clip: Optional[Tuple[float, float]] = (0.0, 1.0), quality: bool = False,
            chunks: Any = None, n_jobs: int = -1) -> Union[xr.DataArray, Tuple[xr.DataArray, xr.DataArray]]:
     """STARFM: predicts a fine series (Landsat, HLS, Sentinel-2) on the dates of a coarse one (MODIS).
 
@@ -467,6 +469,9 @@ def fuse_starfm(fine: Any, coarse: Any, *, dates: Any = "coarse", start: Any = N
     nodata, valid_range
         Values that mean missing besides NaN (``"auto"``: the raster's NoData); reflectance outside ``valid_range``
         is missing.
+    clip
+        Predicted values are clipped to this range (default 0 to 1, reflectance; ``None``: not clipped). Observed
+        pixels are not touched.
     quality
         Also return ``n_similar`` (minimum over the bands) and ``source`` (0 observed, 1 all pairs, 2 fewer pairs
         than planned, 3 coarse, 255 missing) as a uint16 ``(time, ["n_similar", "source"], y, x)``.
@@ -492,7 +497,8 @@ def fuse_starfm(fine: Any, coarse: Any, *, dates: Any = "coarse", start: Any = N
                 keep_observed=keep_observed, exclude_dates=exclude_dates, pairs=pairs,
                 pair_tolerance=pair_tolerance, min_pair_valid=min_pair_valid, max_gap=max_gap, radius=radius,
                 sigma=sigma, resampling=resampling, coarse_shift=coarse_shift, fallback=fallback, bands=bands,
-                nodata=nodata, quality=quality, chunks=chunks, n_jobs=n_jobs, valid_range=valid_range, params=params)
+                nodata=nodata, quality=quality, chunks=chunks, n_jobs=n_jobs, valid_range=valid_range, params=params,
+                clip=clip)
 
 
 def fuse_estarfm(fine: Any, coarse: Any, *, dates: Any = "coarse", start: Any = None, end: Any = None,
@@ -500,9 +506,10 @@ def fuse_estarfm(fine: Any, coarse: Any, *, dates: Any = "coarse", start: Any = 
             pair_tolerance: Any = "auto", min_pair_valid: float = 0.3, max_gap: Optional[int] = None,
             radius: float = 750.0, classes: float = 4.0, sigma: str = "image", v_scope: str = "window",
             alpha: float = 0.05, single_pair: str = "fallback", v_min_change: float = 0.02,
-            v_allow_negative: bool = False, resampling: str = "bilinear",
+            v_allow_negative: bool = False, v_max: float = float("inf"), resampling: str = "bilinear",
             coarse_shift: Tuple[float, float] = (0.0, 0.0), fallback: str = "missing", bands: Any = None,
-            nodata: Any = "auto", valid_range: Optional[Tuple[float, float]] = (-0.01, 1.6), quality: bool = False,
+            nodata: Any = "auto", valid_range: Optional[Tuple[float, float]] = (-0.01, 1.6),
+            clip: Optional[Tuple[float, float]] = (0.0, 1.0), quality: bool = False,
             chunks: Any = None, n_jobs: int = -1) -> Union[xr.DataArray, Tuple[xr.DataArray, xr.DataArray]]:
     """ESTARFM: predicts a fine series on the dates of a coarse one from two pairs.
 
@@ -529,6 +536,8 @@ def fuse_estarfm(fine: Any, coarse: Any, *, dates: Any = "coarse", start: Any = 
         pairs by more than ``v_min_change`` on average (reflectance, default 0.02: the same threshold as Zhu's own
         program, found by comparing outputs), and a negative slope is replaced by 1 (``v_allow_negative=False``).
         Elsewhere the coefficient is 1. ``v_min_change=0, v_allow_negative=True`` is the paper's rule alone.
+    v_max
+        Upper bound of a coefficient (default none).
     single_pair
         ``"fallback"`` (default) or ``"missing"``.
 
@@ -543,9 +552,10 @@ def fuse_estarfm(fine: Any, coarse: Any, *, dates: Any = "coarse", start: Any = 
     >>> pred = zeit.fuse_estarfm(landsat, modis, radius=900, v_scope="cell")
     """
     params = dict(classes=float(classes), v_scope=v_scope, alpha=float(alpha), single_pair=single_pair,
-                  min_change=float(v_min_change), allow_negative=bool(v_allow_negative))
+                  min_change=float(v_min_change), allow_negative=bool(v_allow_negative), v_max=float(v_max))
     return _run("estarfm", fine, coarse, dates=dates, start=start, end=end, include_fine_dates=include_fine_dates,
                 keep_observed=keep_observed, exclude_dates=exclude_dates, pairs="bracket",
                 pair_tolerance=pair_tolerance, min_pair_valid=min_pair_valid, max_gap=max_gap, radius=radius,
                 sigma=sigma, resampling=resampling, coarse_shift=coarse_shift, fallback=fallback, bands=bands,
-                nodata=nodata, quality=quality, chunks=chunks, n_jobs=n_jobs, valid_range=valid_range, params=params)
+                nodata=nodata, quality=quality, chunks=chunks, n_jobs=n_jobs, valid_range=valid_range, params=params,
+                clip=clip)

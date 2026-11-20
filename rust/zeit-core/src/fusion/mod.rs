@@ -130,6 +130,8 @@ pub struct Common {
     pub sigma: SigmaScope,
     pub resampling: Resampling,
     pub fallback: Fallback,
+    /// Predicted values are clipped to `[clip.0, clip.1]` (observed pixels are not); NaN bounds are not applied.
+    pub clip: (f64, f64),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -187,6 +189,8 @@ pub struct EstarfmParams {
     pub min_change: f64,
     /// Accept a negative regression slope (otherwise it is replaced by 1).
     pub allow_negative: bool,
+    /// Upper bound of a conversion coefficient (infinity: none).
+    pub v_max: f64,
 }
 
 /// `eps` of the direct weights: 1 DN at scale 10000.
@@ -210,6 +214,7 @@ impl StarfmParams {
                 sigma: SigmaScope::Image,
                 resampling: Resampling::Bilinear,
                 fallback: Fallback::Missing,
+                clip: (0.0, 1.0),
             },
             classes: 40.0,
             fine_unc: 0.002,
@@ -231,6 +236,7 @@ impl EstarfmParams {
                 sigma: SigmaScope::Image,
                 resampling: Resampling::Bilinear,
                 fallback: Fallback::Missing,
+                clip: (0.0, 1.0),
             },
             classes: 4.0,
             v_scope: VScope::Window,
@@ -238,6 +244,7 @@ impl EstarfmParams {
             single_pair: SinglePair::Fallback,
             min_change: 0.02,
             allow_negative: false,
+            v_max: f64::INFINITY,
         }
     }
 }
@@ -411,4 +418,14 @@ pub(crate) fn check_inputs(fine: &Fine, coarse: &Coarse, plan: &Plan, region: &R
         }
     }
     Ok(())
+}
+
+/// Clips a predicted value to the bounds of `Common::clip` (NaN stays NaN).
+#[inline]
+pub(crate) fn clip(v: f64, c: (f64, f64)) -> f64 {
+    if v.is_nan() {
+        v
+    } else {
+        v.max(c.0).min(c.1)
+    }
 }

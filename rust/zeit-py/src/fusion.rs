@@ -12,7 +12,7 @@ fn bad<T>(what: &str, got: &str, allowed: &str) -> PyResult<T> {
     Err(PyValueError::new_err(format!("{what} must be {allowed}, got {got:?}")))
 }
 
-fn common(radius_px: usize, sigma: &str, resampling: &str, fallback: &str) -> PyResult<Common> {
+fn common(radius_px: usize, sigma: &str, resampling: &str, fallback: &str, clip: (f64, f64)) -> PyResult<Common> {
     Ok(Common {
         radius_px,
         sigma: match sigma {
@@ -30,6 +30,7 @@ fn common(radius_px: usize, sigma: &str, resampling: &str, fallback: &str) -> Py
             "coarse" => Fallback::Coarse,
             s => return bad("fallback", s, "'missing' or 'coarse'"),
         },
+        clip,
     })
 }
 
@@ -106,7 +107,7 @@ fn inputs<'a>(
 #[pyo3(signature = (fine, coarse, targets, region, sigma_values, radius_px, affine = None, u = None, v = None,
     sigma = "image", resampling = "bilinear", fallback = "missing", classes = 40.0, fine_unc = 0.002,
     coarse_unc = 0.005, spatial_scale_px = None, weighting = "direct", filter = "both", pure = "epsilon",
-    zero_tol = 0.5e-4, want_quality = false, n_jobs = -1))]
+    zero_tol = 0.5e-4, clip = (0.0, 1.0), want_quality = false, n_jobs = -1))]
 #[allow(clippy::too_many_arguments)]
 fn starfm<'py>(
     py: Python<'py>,
@@ -130,12 +131,13 @@ fn starfm<'py>(
     filter: &str,
     pure: &str,
     zero_tol: f64,
+    clip: (f64, f64),
     want_quality: bool,
     n_jobs: i32,
 ) -> PyResult<(Bound<'py, PyArray4<f32>>, Option<Bound<'py, PyArray4<u16>>>)> {
     let inp = inputs(&fine, &coarse, affine, u.as_ref(), v.as_ref())?;
     let p = StarfmParams {
-        common: common(radius_px, sigma, resampling, fallback)?,
+        common: common(radius_px, sigma, resampling, fallback, clip)?,
         classes,
         fine_unc,
         coarse_unc,
@@ -204,7 +206,7 @@ fn sigma_array(fine: &Fine, reg: &Region, given: Option<PyReadonlyArray1<'_, f64
 #[pyfunction]
 #[pyo3(signature = (fine, coarse, targets, region, sigma_values, radius_px, affine = None, u = None, v = None,
     sigma = "image", resampling = "bilinear", fallback = "missing", classes = 4.0, v_scope = "window", alpha = 0.05,
-    single_pair = "fallback", min_change = 0.02, allow_negative = false, want_quality = false, n_jobs = -1))]
+    single_pair = "fallback", min_change = 0.02, allow_negative = false, v_max = f64::INFINITY, clip = (0.0, 1.0), want_quality = false, n_jobs = -1))]
 #[allow(clippy::too_many_arguments)]
 fn estarfm<'py>(
     py: Python<'py>,
@@ -226,12 +228,14 @@ fn estarfm<'py>(
     single_pair: &str,
     min_change: f64,
     allow_negative: bool,
+    v_max: f64,
+    clip: (f64, f64),
     want_quality: bool,
     n_jobs: i32,
 ) -> PyResult<(Bound<'py, PyArray4<f32>>, Option<Bound<'py, PyArray4<u16>>>)> {
     let inp = inputs(&fine, &coarse, affine, u.as_ref(), v.as_ref())?;
     let p = EstarfmParams {
-        common: common(radius_px, sigma, resampling, fallback)?,
+        common: common(radius_px, sigma, resampling, fallback, clip)?,
         classes,
         v_scope: match v_scope {
             "window" => VScope::Window,
@@ -246,6 +250,7 @@ fn estarfm<'py>(
         },
         min_change,
         allow_negative,
+        v_max,
     };
     let plan = plan_of(targets);
     let reg = Region {

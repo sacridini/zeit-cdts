@@ -92,7 +92,7 @@ pub fn coefficient(s: &[f64], p: &EstarfmParams) -> (f64, bool) {
     if built && v <= 0.0 && !p.allow_negative {
         return (1.0, false);
     }
-    (v, built)
+    (v.min(p.v_max), built)
 }
 
 /// Pearson correlation of two vectors, 0 when one has no variance, clamped to [-1, 1].
@@ -516,7 +516,7 @@ pub fn estarfm(
                 }
                 let e = pixel(p, &data, &mut sc, x, y);
                 for b in 0..nb {
-                    vals[b * region.nx + rx] = e.vals[b] as f32;
+                    vals[b * region.nx + rx] = clip(e.vals[b], p.common.clip) as f32;
                 }
                 q[rx] = e.n.min(u32::from(u16::MAX)) as u16;
                 q[region.nx + rx] = e.src;
