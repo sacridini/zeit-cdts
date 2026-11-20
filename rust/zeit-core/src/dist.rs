@@ -200,12 +200,126 @@ fn gauss_kronrod<F: Fn(f64) -> f64>(f: &F, a: f64, b: f64, tol: f64, depth: u32)
     }
 }
 
+/// The series of the regularized lower incomplete gamma function P(a, x) (x < a + 1).
+fn gamma_series(a: f64, x: f64) -> f64 {
+    let mut ap = a;
+    let mut sum = 1.0 / a;
+    let mut del = sum;
+    for _ in 0..100_000 {
+        ap += 1.0;
+        del *= x / ap;
+        sum += del;
+        if del.abs() < sum.abs() * 1e-17 {
+            break;
+        }
+    }
+    sum * (-x + a * x.ln() - lgamma(a)).exp()
+}
+
+/// The continued fraction (modified Lentz) of the regularized upper incomplete gamma function Q(a, x)
+/// (x >= a + 1).
+fn gamma_cf(a: f64, x: f64) -> f64 {
+    const TINY: f64 = 1e-300;
+    let mut b = x + 1.0 - a;
+    let mut c = 1.0 / TINY;
+    let mut d = 1.0 / b;
+    let mut h = d;
+    for i in 1..100_000 {
+        let an = -(i as f64) * (i as f64 - a);
+        b += 2.0;
+        d = an * d + b;
+        if d.abs() < TINY {
+            d = TINY;
+        }
+        c = b + an / c;
+        if c.abs() < TINY {
+            c = TINY;
+        }
+        d = 1.0 / d;
+        let del = d * c;
+        h *= del;
+        if (del - 1.0).abs() < 1e-16 {
+            break;
+        }
+    }
+    (-x + a * x.ln() - lgamma(a)).exp() * h
+}
+
+/// The regularized lower incomplete gamma function P(a, x) (R's `pgamma(x, a)`).
+pub fn gamma_p(a: f64, x: f64) -> f64 {
+    if x.is_nan() || a.is_nan() || !(a > 0.0) {
+        return f64::NAN;
+    }
+    if x <= 0.0 {
+        return 0.0;
+    }
+    if x.is_infinite() {
+        return 1.0;
+    }
+    if x < a + 1.0 {
+        gamma_series(a, x)
+    } else {
+        1.0 - gamma_cf(a, x)
+    }
+}
+
+/// The regularized upper incomplete gamma function Q(a, x), computed directly (not as `1 - P`), so that small
+/// tails keep their relative precision.
+pub fn gamma_q(a: f64, x: f64) -> f64 {
+    if x.is_nan() || a.is_nan() || !(a > 0.0) {
+        return f64::NAN;
+    }
+    if x <= 0.0 {
+        return 1.0;
+    }
+    if x.is_infinite() {
+        return 0.0;
+    }
+    if x < a + 1.0 {
+        1.0 - gamma_series(a, x)
+    } else {
+        gamma_cf(a, x)
+    }
+}
+
+/// P(X > z) for a chi-square variable with `f` degrees of freedom (R's `pchisq(z, f, lower.tail = FALSE)`).
+pub fn chi2_sf(z: f64, f: f64) -> f64 {
+    gamma_q(f / 2.0, z / 2.0)
+}
+
+/// P(X <= z) for a chi-square variable with `f` degrees of freedom.
+pub fn chi2_cdf(z: f64, f: f64) -> f64 {
+    gamma_p(f / 2.0, z / 2.0)
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn close(a: f64, b: f64, rel: f64) -> bool {
         (a - b).abs() <= rel * b.abs()
+    }
+
+    #[test]
+    fn chi_square_tails() {
+        // even degrees of freedom have a closed form: Q = exp(-z/2) sum_{i<m} (z/2)^i / i!
+        for (z, m) in [(0.3, 1usize), (4.0, 3), (30.0, 5), (120.0, 14), (7.0, 2)] {
+            let mut term = 1.0;
+            let mut sum = 1.0;
+            for i in 1..m {
+                term *= z / 2.0 / i as f64;
+                sum += term;
+            }
+            let want = (-z / 2.0f64).exp() * sum;
+            assert!(close(chi2_sf(z, 2.0 * m as f64), want, 1e-12), "{z} {m}");
+            assert!((chi2_cdf(z, 2.0 * m as f64) + want - 1.0).abs() < 1e-12);
+        }
+        // one degree of freedom: Q = erfc(sqrt(z / 2))
+        for z in [0.5, 3.84, 20.0] {
+            assert!(close(chi2_sf(z, 1.0), crate::cmath::erfc((z / 2.0f64).sqrt()), 1e-12), "{z}");
+        }
+        assert_eq!(chi2_sf(-1.0, 4.0), 1.0);
     }
 
     #[test]

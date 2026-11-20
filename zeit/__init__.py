@@ -34,6 +34,7 @@ from ._folds import SpatialFolds, autocorrelation_range, spatial_folds
 from ._profile import ErrorProfile, error_profile
 from ._hotspots import emerging_hotspots
 from ._eof import eof
+from ._imad import imad, imad_table, radcal, radcal_table
 from ._correlation import lagged_correlation, fdr
 from .segmentation import snic_grid, snic_to_polygons
 from ._snic_api import snic
@@ -145,6 +146,7 @@ __all__ = [
     "bandpass_adjust",
     "spectral_adjust",
     "tasseled_cap",
+    "imad", "imad_table", "radcal", "radcal_table",
     "improphe",
     "sentinel2_resmerge",
     "starfm",

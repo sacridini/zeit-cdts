@@ -24,6 +24,7 @@ mod coded;
 mod coreg;
 mod correlation;
 mod eof;
+mod imad;
 mod ewmacd;
 mod fields;
 mod aod;
@@ -105,6 +106,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     add_submodule(m, &hotspots::module(m.py())?)?;
     add_submodule(m, &anomaly::module(m.py())?)?;
     add_submodule(m, &eof::module(m.py())?)?;
+    add_submodule(m, &imad::module(m.py())?)?;
     add_submodule(m, &correlation::module(m.py())?)?;
     add_submodule(m, &sccd::module(m.py())?)?;
     add_submodule(m, &beast::module(m.py())?)?;
