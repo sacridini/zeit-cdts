@@ -54,6 +54,7 @@ from ._nbar import nbar
 from ._s2angles import sentinel2_angles
 from ._specadjust import spectral_adjust
 from ._tasseled import tasseled_cap
+from ._mnf import mnf, mnf_fit, inverse_mnf, mnf_denoise, MNFTransform
 from ._improphe import improphe
 from ._resmerge import sentinel2_resmerge
 from ._starfm import starfm
@@ -145,6 +146,11 @@ __all__ = [
     "bandpass_adjust",
     "spectral_adjust",
     "tasseled_cap",
+    "mnf",
+    "mnf_fit",
+    "inverse_mnf",
+    "mnf_denoise",
+    "MNFTransform",
     "improphe",
     "sentinel2_resmerge",
     "starfm",
