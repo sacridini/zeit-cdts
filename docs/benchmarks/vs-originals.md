@@ -326,6 +326,72 @@ All four components are equal in every observation FORCE computes (the disturban
 
 The OLI and ETM+ matrices are equal to 1e-7, the float32 rounding of Zeit against the double of R. For TM the brightness is equal and greenness and wetness are not, because RStoolbox's table has `+0.0002` and `+0.6806` for the SWIR1 weight of greenness and wetness, where Crist (1985) and FORCE have `-0.0002` and `-0.6806`: with those two numbers given to Zeit as `coefficients=`, all three components are equal to 8e-8. Zeit follows the paper. RStoolbox has no matrix for Sentinel-2, and Zeit gives Sentinel-2 Crist's, as FORCE does (the comparison with FORCE above).
 
+### MNF vs SPy
+
+[`mnf`](../api/preprocessing.md#mnf) is compared with **SPy 0.26** (Spectral Python, `spectral` on PyPI, MIT): `calc_stats`, `noise_from_diffs`, `mnf`, `reduce` and `denoise`. The comparison is by outputs only: SPy's source was not read for the implementation (Zeit's MNF was written from the papers), and SPy is called as a black box, its conventions measured below. There is no ENVI here; only its documented conventions (noise whitening, then a PCA; eigenvalues above 1 are signal; the inverse with the first components) are matched. The data are a synthetic image (512 x 512 x 50 bands, 6 smooth latent fields mixed into the bands, white noise of a standard deviation that grows from 0.5 to 5 across the bands, float32; also written as a GeoTIFF), SPy's own example **92AV3C** (AVIRIS Indian Pines, 145 x 145 x 220, int16, with the documented noise subregion `[117:137, 85:122]`, `noise_region=(85, 117, 122, 137)`) and the 350 x 350 window of the **EnMAP** L2A scene of the [unmixing tutorial](../tutorials/unmixing.md) (218 bands: the 6 that the scene leaves empty are dropped; int16, no NoData in the window). SPy takes `float64` `(rows, cols, bands)`; Zeit takes the file's own dtype.
+
+**SPy's conventions, measured** (each by comparing its output with the definition, one convention matching to 1e-10 and every other to 1e-6 or worse):
+
+| SPy | What it does |
+|:---|:---|
+| `calc_stats(X)` | The mean and the covariance with divisor n - 1 (the divisor n differs by 4e-6 to 5e-5); `nsamples` is n. It is the **total** covariance of the image, signal plus noise. |
+| `noise_from_diffs(X, direction)` | **Half** the covariance of the differences `z(p) - z(q)` of the pairs, **centred** on the mean difference, divisor m - 1, for each of `right`, `lower`, `lowerright` and `lowerleft`; its `mean` is the mean difference. It matches Zeit's `diff_h`, `diff_v`, `diff_diag` and `diff_antidiag` to 3e-17 to 1e-15 relative. |
+| `mnf(signal, noise)` | The eigenvalues and eigenvectors are `complex128` (numpy's `eig`) with an imaginary part of exactly 0. |
+| `reduce(X, num)` | The components of the noise-whitened, **centred** data, noise of unit variance: Zeit's `scale="noise"` components to a scale of 1 +- 7e-9 and an offset under 2e-8. |
+| `denoise(X, num)` | Restores the mean (the bands rebuilt from the first `num` components, plus the image's mean), as Zeit's `mnf_denoise`; without it the difference would be 1e-3 to 170 band standard deviations. |
+| `diff_hv` | SPy has no pooled estimator: Zeit's is the pooled covariance of the two directions, compared by building `GaussianStats` from SPy's two covariances with the pooled formula. |
+
+**Agreement.** Every number is asserted by `benchmarks/vs_originals/mnf.py`, which stops with an error otherwise.
+
+| | Synthetic 512 x 512 x 50 | 92AV3C | EnMAP 350 x 350 x 218 |
+|:---|---:|---:|---:|
+| Eigenvalues from the same statistics (`from_covariances` against `spy.mnf`), largest relative difference | 1.5e-14 | 7.5e-13 | 4.4e-12 |
+| Components `reduce(num=all)` against `zeit.mnf`, largest difference over a component's standard deviation, components with separated eigenvalues | 2.4e-7 (48 of 50) | 5.4e-7 (220 of 220) | 6.7e-6 (216 of 218) |
+| Clusters of near-equal eigenvalues (relative gap under 1e-4), compared as subspaces: largest principal angle | 0 (1 cluster of 2) | none | 2.1e-5 rad (1 cluster of 2) |
+| `denoise(num=k)` against `mnf_denoise(k)`, over a band's standard deviation | 2.1e-7 (k = 6) | 8.6e-6 (k = 82) | 2.0e-6 (k = 40) |
+| Noise covariance of Zeit's `diff_h`, `diff_v`, `diff_diag`, `diff_antidiag` against `noise_from_diffs`, relative | 2.3e-16 to 4.7e-16 | 7.5e-16 to 1.2e-15 | 3.5e-16 to 4.7e-16 |
+| Eigenvalues of those four end to end, and of the pooled `diff_hv` | 2.6e-14 at most | 1.2e-12 | 5.4e-11 |
+
+(Zeit's components are float32, so their agreement with SPy's float64 is limited to about 6e-8 of their magnitude: the 8.6e-6 of 92AV3C is that rounding of values of several thousand digital numbers over a band standard deviation of tens.) The eigenvalues are `1 + SNR`; for 92AV3C 82 have an SNR of at least 1, for the EnMAP window 40, and the synthetic image's 6 are the 6 latent fields.
+
+**Timings.** The best of 3 runs after a warm-up, SPy with 4 BLAS threads (`OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, `MKL_NUM_THREADS` = 4) against Zeit with `n_jobs=4`, and both with 1; the work at most 4 processors. Seconds. *Statistics* is `calc_stats` and `noise_from_diffs` in one direction (`lowerright`) against Zeit's pass over the image with `diff_diag`; Zeit's default `diff_hv` takes two directions and 0.095 s, 0.034 s and 0.351 s on 4 threads. *Fit* is `mnf(signal, noise)` against the eigenproblem. *Forward* is `reduce(X, num=k)` against `zeit.mnf(cube, k, transform=...)`, *denoise* `denoise(X, num=k)` against `zeit.mnf_denoise`, with k the components with an SNR of at least 1 (6, 82, 40). *Whole* is the statistics, the fit and the denoising together.
+
+| Image | Step | SPy, 4 threads | Zeit, 4 threads | | SPy, 1 thread | Zeit, 1 thread | |
+|:---|:---|---:|---:|---:|---:|---:|---:|
+| Synthetic 512 x 512 x 50 | Statistics | 0.147 | 0.073 | 2.0x | 0.189 | 0.133 | 1.4x |
+| | Fit | 0.0003 | 0.0004 | 0.8x | 0.0003 | 0.0004 | 0.6x |
+| | Forward | 0.078 | 0.014 | 5.5x | 0.091 | 0.030 | 3.1x |
+| | Denoise | 0.182 | 0.031 | 6.0x | 0.231 | 0.054 | 4.3x |
+| | Whole | 0.347 | 0.109 | 3.2x | 0.392 | 0.174 | 2.3x |
+| 92AV3C 145 x 145 x 220 | Statistics | 0.036 | 0.033 | 1.1x | 0.043 | 0.054 | 0.8x |
+| | Fit | 0.016 | 0.012 | 1.3x | 0.010 | 0.012 | 0.8x |
+| | Forward | 0.059 | 0.031 | 1.9x | 0.079 | 0.059 | 1.3x |
+| | Denoise | 0.116 | 0.057 | 2.0x | 0.170 | 0.109 | 1.6x |
+| | Whole | 0.179 | 0.100 | 1.8x | 0.224 | 0.175 | 1.3x |
+| EnMAP 350 x 350 x 218 | Statistics | 0.363 | 0.234 | 1.6x | 0.448 | 0.497 | 0.9x |
+| | Fit | 0.014 | 0.012 | 1.1x | 0.010 | 0.012 | 0.8x |
+| | Forward | 0.221 | 0.080 | 2.8x | 0.287 | 0.168 | 1.7x |
+| | Denoise | 0.616 | 0.170 | 3.6x | 0.922 | 0.331 | 2.8x |
+| | Whole | 1.054 | 0.506 | 2.1x | 1.390 | 0.834 | 1.7x |
+
+The statistics and the fit are dense linear algebra, which SPy (on numpy) leaves to its BLAS and LAPACK, so Zeit is no faster there with one thread (0.8x to 1.4x); with 4 it wins by splitting the image in blocks. The transforms are where the gain is: Zeit applies the matrices to tiles that stay in the cache, writes float32, and for `denoise` fuses the forward and inverse transforms (`2 B k` operations a pixel).
+
+**Memory.** The extra working set at the peak of the whole denoise (statistics, fit, `k = 8`), each library in its own process, above what the process holds once the image is loaded (SPy's float64 copy of the image counted in that base), 4 threads, MB:
+
+| Image | SPy | Zeit |
+|:---|---:|---:|
+| Synthetic 512 x 512 x 50 | 504 | 224 |
+| 92AV3C | 227 | 123 |
+| EnMAP 350 x 350 x 218 | 1071 | 350 |
+
+Zeit's include its float32 output (52, 19 and 107 MB) and the blocks of 8 MiB it holds per thread.
+
+**Notes.**
+
+- **Missing values.** SPy's `noise_from_diffs` has no mask, so the comparison uses windows without NoData, and Zeit is run with `nodata=None` (its default for integers without a NoData value is 0, which the EnMAP window has as a reflectance in water).
+- **Few pairs.** 92AV3C's noise subregion has 740 pixels and 684 to 720 pairs for 220 bands, under the ten times the bands that Zeit warns below (the script silences it); SPy's result is the same, and as poor.
+- **Eigenvalue order.** SPy sorts the eigenvalues descending, like Zeit; its eigenvectors have an arbitrary sign, Zeit's the rule of the correlation with the band it is most correlated with, so components are compared up to a per-component sign.
+
 ### ImproPhe vs FORCE
 
 [`improphe`](../api/preprocessing.md#improphe) is compared with **FORCE 3.11.00**'s CF-ImproPhe (`CFIMP`) and L2-ImproPhe (`L2IMP`), the code it is ported from (Frantz et al. 2016; GPL-3.0-or-later), on one synthetic tile (`force_improphe_cube.py`): a truth map of five classes in Voronoi patches (crop, forest, grass, water, urban, each a mix of two spectra with its own seasonal weight), a smooth gradient and a static brightness texture whose strength changes from patch to patch; **297 x 297 pixels of 10 m**. The fine data are 90 Sentinel-2A dates over 2018-2019 (10 bands; irregular revisit; clouds, shadows and swaths without data on 29 of them; the doys 1, 91, 181, 271 and 365 of 2018 among them, the limits of the seasonal windows; doys 91-250 of 2019 missing, so that a window is empty in that year; one column without any observation). L2's coarse scenes are 24 Landsat 8 dates at 30 m, block means (3 x 3) of the truth with noise, clouds and a hole of NoData; CF's is the year's peak NDVI of the truth at 30 m (int16, NoData -9999, a hole in each year). FORCE reads the 30 m files at 10 m by nearest neighbour, which for the integer factor is the replication of each pixel; Zeit's `reproject_match` onto the fine grid gives exactly that (checked). The fine cube Zeit gets is FORCE's own input, the BOA with the observations that FORCE's `SCREEN_QAI` drops set to NaN, so that only the method is compared. Parameters: `RESOLUTION = 10`, `KERNEL_SIZE` 100 and 200 (radii of 10 and 20 pixels, `mink` 1 and 6), `KERNEL_TEXT = 30`, `SEASONAL_WINDOW` `1 91 181 271 365` and `1 121 241 365`, both years predicted. `zeit.improphe(..., force=True)` truncated toward zero is compared with FORCE's int16 `_IMP` files over the pixels Zeit predicts.
@@ -788,8 +854,8 @@ The first line of each pair gives Zeit's times; the second reuses them against t
 | Platform | Windows 11 (`Windows-11-10.0.26300-SP0`) |
 | Processor | `Intel64 Family 6 Model 183 Stepping 1, GenuineIntel` (the Intel Core i5-13600K of the other benchmarks), 20 logical processors |
 | R | 4.4.2, with sfdep 0.2.5, RecoverMetricsR 0.1.0, RStoolbox 1.0.2.2, sits 1.5.4, CAST 1.0.4, Rbeast 1.0.2, remotePARTS 1.0.4, blockCV 4.0.1 (with automap 1.1.20), scam 1.2.23 and survey 4.5 |
-| Python | pyxccd 1.1.0, in a virtual environment of its own; xeofs 3.0.4, eofs 2.0.0, xarray 2026.9.0, scipy 1.18.1, statsmodels 0.15.0 and numpy 2.5.5, in the conda environment `eofbench` (Python 3.12), with Zeit from the repository on `PYTHONPATH` |
-| Date | 2026-10-24 (the AR(1) trends and PARTS: 2026-10-28; the spatial cross-validation: 2026-10-29; the transitions: 2026-11-03; ImproPhe: 2026-11-06; the resolution merge: 2026-11-07; the coregistration: 2026-11-07; the EOFs and the lagged correlation: 2026-11-16, Zeit on 1 and 8 threads) |
+| Python | pyxccd 1.1.0, in a virtual environment of its own; xeofs 3.0.4, eofs 2.0.0, xarray 2026.9.0, scipy 1.18.1, statsmodels 0.15.0 and numpy 2.5.5, in the conda environment `eofbench` (Python 3.12), with Zeit from the repository on `PYTHONPATH`; spectral (SPy) 0.26 in the same environment |
+| Date | 2026-10-24 (the AR(1) trends and PARTS: 2026-10-28; the spatial cross-validation: 2026-10-29; the transitions: 2026-11-03; ImproPhe: 2026-11-06; the resolution merge: 2026-11-07; the coregistration: 2026-11-07; the EOFs and the lagged correlation: 2026-11-16, Zeit on 1 and 8 threads; the MNF against SPy: 2026-11-20, 1 and 4 threads, a cap of 4 processors for the whole run) |
 
 ---
 
@@ -811,6 +877,7 @@ python benchmarks/vs_originals/force_tsa.py --part stm,fold,standardize,interp,t
 wsl -e bash -lc 'bash benchmarks/vs_originals/force_tsa_timing.sh ~/force-ref-work/tsa-bench 6'   # FORCE's compute stage on the 500 x 500 cube (also with 1); then:
 python benchmarks/vs_originals/force_tsa_timing.py    # Zeit's times against it (--profile: the cost by size)
 python benchmarks/vs_originals/tasseled.py            # RStoolbox 1.0.2.2, against zeit.tasseled_cap
+python benchmarks/vs_originals/mnf.py --threads 4         # SPy 0.26 (conda env eofbench: pip install spectral), against zeit.mnf; --threads 1; --enmap path; --rss-only
 wsl -e bash -lc 'bash benchmarks/vs_originals/force_improphe_l2fix.sh'                      # once: the build of FORCE that L2IMP needs (one core)
 wsl -e bash -lc 'bash benchmarks/vs_originals/force_improphe.sh ~/force-ref-work/imp-ref 6'  # CFIMP and L2IMP, each with OpenBLAS (A) and GSL's CBLAS (B); then:
 python benchmarks/vs_originals/force_improphe.py --part cf,l2                              # zeit.improphe against both (--data: another cube)
