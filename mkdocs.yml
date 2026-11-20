@@ -164,6 +164,7 @@ nav:
           - Emerging Hot Spots: tutorials/hotspots.md
           - EOFs and Lagged Correlation: tutorials/eof.md
           - Spectral Unmixing: tutorials/unmixing.md
+          - Noise-Ordered Components (MNF): tutorials/mnf.md
           - Phenology: tutorials/phenology.md
           - Pattern Matching (TWDTW): tutorials/twdtw.md
           - Clustering (SOM): tutorials/som.md

@@ -112,6 +112,7 @@
 | [`bandpass_adjust`](preprocessing.md#bandpass_adjust) | Sentinel-2 (and Landsat 5/7) on Landsat 8's bands: HLS's bandpass step, for L2A cubes (HLS itself: [`build_time_series`](data.md#build_time_series)) |
 | [`spectral_adjust`](preprocessing.md#spectral_adjust) | Landsat 4-9 and MODIS on Sentinel-2A's ten bands, the red edge predicted: FORCE's spectral adjustment |
 | [`tasseled_cap`](preprocessing.md#tasseled_cap) | Tasseled Cap brightness, greenness, wetness (and FORCE's disturbance): Crist 1985 as FORCE, or each sensor's matrix |
+| [`mnf`](preprocessing.md#mnf) | Minimum Noise Fraction components of a multiband image, highest SNR first, the noise from neighbouring pixels (Green et al. 1988; `mnf_fit`, `inverse_mnf`, `mnf_denoise` and `MNFTransform` fit, invert, denoise and keep it) |
 | [`improphe`](preprocessing.md#improphe) | Sharpens a coarse field or the scenes of a coarser sensor with the finer sensor's seasonal means: FORCE's CF-ImproPhe and L2-ImproPhe (Frantz et al. 2016) |
 | [`sentinel2_resmerge`](preprocessing.md#sentinel2_resmerge) | The 20 m bands of Sentinel-2 at 10 m, by a moving-window regression, an ImproPhe-like weighted mean or STARFM on the 10 m green, red and NIR: FORCE's resolution merge |
 | [`starfm`](preprocessing.md#starfm) | STARFM spatiotemporal fusion (Gao et al. 2006, as FORCE's `starfm()`): the fine image of a date that only a coarse product covers, from pairs of fine and coarse images |

@@ -50,6 +50,7 @@ pub mod l2scene;
 pub mod landtrendr;
 pub mod lasso;
 pub mod mann_kendall;
+pub mod mnf;
 pub mod medoid;
 pub mod meta;
 pub mod omnibus;
