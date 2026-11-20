@@ -26,6 +26,7 @@ mod correlation;
 mod cva;
 mod eof;
 mod imad;
+mod omnibus;
 mod ewmacd;
 mod fields;
 mod aod;
@@ -109,6 +110,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     add_submodule(m, &eof::module(m.py())?)?;
     add_submodule(m, &cva::module(m.py())?)?;
     add_submodule(m, &imad::module(m.py())?)?;
+    add_submodule(m, &omnibus::module(m.py())?)?;
     add_submodule(m, &correlation::module(m.py())?)?;
     add_submodule(m, &sccd::module(m.py())?)?;
     add_submodule(m, &beast::module(m.py())?)?;

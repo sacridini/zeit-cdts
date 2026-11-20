@@ -36,6 +36,7 @@ from ._hotspots import emerging_hotspots
 from ._eof import eof
 from ._imad import imad, imad_table, radcal, radcal_table
 from ._cva import cva, cva_table
+from ._omnibus import omnibus, estimate_enl
 from ._correlation import lagged_correlation, fdr
 from .segmentation import snic_grid, snic_to_polygons
 from ._snic_api import snic
@@ -147,7 +148,7 @@ __all__ = [
     "bandpass_adjust",
     "spectral_adjust",
     "tasseled_cap",
-    "imad", "imad_table", "radcal", "radcal_table", "cva", "cva_table",
+    "imad", "imad_table", "radcal", "radcal_table", "cva", "cva_table", "omnibus", "estimate_enl",
     "improphe",
     "sentinel2_resmerge",
     "starfm",

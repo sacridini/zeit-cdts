@@ -52,6 +52,7 @@ pub mod lasso;
 pub mod mann_kendall;
 pub mod medoid;
 pub mod meta;
+pub mod omnibus;
 pub mod optimize;
 pub mod parallax;
 pub mod pansharpen;
