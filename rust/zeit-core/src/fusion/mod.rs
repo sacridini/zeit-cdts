@@ -182,6 +182,11 @@ pub struct EstarfmParams {
     pub v_scope: VScope,
     pub alpha: f64,
     pub single_pair: SinglePair,
+    /// A conversion coefficient is regressed only where the coarse reflectance of the similar pixels changed between
+    /// the two pairs by more than this (reflectance); elsewhere it is 1.
+    pub min_change: f64,
+    /// Accept a negative regression slope (otherwise it is replaced by 1).
+    pub allow_negative: bool,
 }
 
 /// `eps` of the direct weights: 1 DN at scale 10000.
@@ -231,6 +236,8 @@ impl EstarfmParams {
             v_scope: VScope::Window,
             alpha: 0.05,
             single_pair: SinglePair::Fallback,
+            min_change: 0.02,
+            allow_negative: false,
         }
     }
 }

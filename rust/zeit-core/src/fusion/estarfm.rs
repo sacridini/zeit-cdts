@@ -79,6 +79,22 @@ pub fn slope(n: f64, sx: f64, sy: f64, sxx: f64, sxy: f64, syy: f64, alpha: f64)
     }
 }
 
+/// The conversion coefficient `V` of a group from its sums (`n`, `sx`, `sy`, `sxx`, `sxy`, `syy`, then the sums of `x`
+/// of each pair, `x` shifted as the others): the regression slope when the coarse reflectance changed between the two
+/// pairs by more than `min_change` on average over the group, the slope is positive (unless `allow_negative`) and it is
+/// significant; otherwise 1. The second value is false only when a regression was due and could not be built.
+pub fn coefficient(s: &[f64], p: &EstarfmParams) -> (f64, bool) {
+    let m = s[0] / 2.0; // pixels of the group
+    if m > 0.0 && (s[6] - s[7]).abs() / m <= p.min_change {
+        return (1.0, true);
+    }
+    let (v, built) = slope(s[0], s[1], s[2], s[3], s[4], s[5], p.alpha);
+    if built && v <= 0.0 && !p.allow_negative {
+        return (1.0, false);
+    }
+    (v, built)
+}
+
 /// Pearson correlation of two vectors, 0 when one has no variance, clamped to [-1, 1].
 pub fn pearson(a: &[f64], b: &[f64]) -> f64 {
     let n = a.len() as f64;
@@ -215,20 +231,21 @@ pub(crate) fn pixel(p: &EstarfmParams, d: &Data, sc: &mut Scratch, x: usize, y: 
                     sc.slot[key] = sc.groups.len() as i32;
                     sc.groups.push(Group {
                         cell: d.cell[q],
-                        sums: vec![0.0; nb * 6],
+                        sums: vec![0.0; nb * 8],
                     });
                 }
                 let g = &mut sc.groups[sc.slot[key] as usize];
                 for b in 0..nb {
                     for k in 0..2 {
                         let (xv, yv) = (f64::from(d.m[k][b][q]) - x0s[b], f64::from(d.f[k][b][q]) - y0s[b]);
-                        let s = &mut g.sums[b * 6..b * 6 + 6];
+                        let s = &mut g.sums[b * 8..b * 8 + 8];
                         s[0] += 1.0;
                         s[1] += xv;
                         s[2] += yv;
                         s[3] += xv * xv;
                         s[4] += xv * yv;
                         s[5] += yv * yv;
+                        s[6 + k] += xv;
                     }
                 }
             }
@@ -265,14 +282,14 @@ pub(crate) fn pixel(p: &EstarfmParams, d: &Data, sc: &mut Scratch, x: usize, y: 
             for g in &sc.groups {
                 let mut vs = Vec::with_capacity(nb);
                 for b in 0..nb {
-                    let s = &g.sums[b * 6..b * 6 + 6];
-                    vs.push(slope(s[0], s[1], s[2], s[3], s[4], s[5], p.alpha).0);
+                    let s = &g.sums[b * 8..b * 8 + 8];
+                    vs.push(coefficient(s, p).0);
                 }
                 vgroup.push(vs);
             }
         } else {
             for b in 0..nb {
-                let mut s = [0.0f64; 6];
+                let mut s = [0.0f64; 8];
                 for &(q, _) in &sc.list {
                     for k in 0..2 {
                         let (xv, yv) = (f64::from(d.m[k][b][q]) - x0s[b], f64::from(d.f[k][b][q]) - y0s[b]);
@@ -282,9 +299,10 @@ pub(crate) fn pixel(p: &EstarfmParams, d: &Data, sc: &mut Scratch, x: usize, y: 
                         s[3] += xv * xv;
                         s[4] += xv * yv;
                         s[5] += yv * yv;
+                        s[6 + k] += xv;
                     }
                 }
-                let (v, built) = slope(s[0], s[1], s[2], s[3], s[4], s[5], p.alpha);
+                let (v, built) = coefficient(&s, p);
                 vwin[b] = v;
                 forced |= !built;
             }
@@ -307,8 +325,8 @@ pub(crate) fn pixel(p: &EstarfmParams, d: &Data, sc: &mut Scratch, x: usize, y: 
             let key = if d.cell[q] < 0 { d.ncell } else { d.cell[q] as usize };
             let g = &sc.groups[sc.slot[key] as usize];
             for b in 0..nb {
-                let s = &g.sums[b * 6..b * 6 + 6];
-                forced |= !slope(s[0], s[1], s[2], s[3], s[4], s[5], p.alpha).1;
+                let s = &g.sums[b * 8..b * 8 + 8];
+                forced |= !coefficient(s, p).1;
             }
         }
     }

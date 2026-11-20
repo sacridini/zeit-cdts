@@ -499,7 +499,8 @@ def fuse_estarfm(fine: Any, coarse: Any, *, dates: Any = "coarse", start: Any = 
             include_fine_dates: bool = True, keep_observed: bool = True, exclude_dates: Any = None,
             pair_tolerance: Any = "auto", min_pair_valid: float = 0.3, max_gap: Optional[int] = None,
             radius: float = 750.0, classes: float = 4.0, sigma: str = "image", v_scope: str = "window",
-            alpha: float = 0.05, single_pair: str = "fallback", resampling: str = "bilinear",
+            alpha: float = 0.05, single_pair: str = "fallback", v_min_change: float = 0.02,
+            v_allow_negative: bool = False, resampling: str = "bilinear",
             coarse_shift: Tuple[float, float] = (0.0, 0.0), fallback: str = "missing", bands: Any = None,
             nodata: Any = "auto", valid_range: Optional[Tuple[float, float]] = (-0.01, 1.6), quality: bool = False,
             chunks: Any = None, n_jobs: int = -1) -> Union[xr.DataArray, Tuple[xr.DataArray, xr.DataArray]]:
@@ -523,6 +524,11 @@ def fuse_estarfm(fine: Any, coarse: Any, *, dates: Any = "coarse", start: Any = 
         ``"cell"``: one per coarse pixel, from its similar pixels also beyond the window (the paper's text).
     alpha
         Significance of the slope; a slope not significant at this level becomes 1 (default 0.05).
+    v_min_change, v_allow_negative
+        The coefficient is regressed only where the coarse reflectance of the similar pixels changed between the two
+        pairs by more than ``v_min_change`` on average (reflectance, default 0.02: the same threshold as Zhu's own
+        program, found by comparing outputs), and a negative slope is replaced by 1 (``v_allow_negative=False``).
+        Elsewhere the coefficient is 1. ``v_min_change=0, v_allow_negative=True`` is the paper's rule alone.
     single_pair
         ``"fallback"`` (default) or ``"missing"``.
 
@@ -536,7 +542,8 @@ def fuse_estarfm(fine: Any, coarse: Any, *, dates: Any = "coarse", start: Any = 
     --------
     >>> pred = zeit.fuse_estarfm(landsat, modis, radius=900, v_scope="cell")
     """
-    params = dict(classes=float(classes), v_scope=v_scope, alpha=float(alpha), single_pair=single_pair)
+    params = dict(classes=float(classes), v_scope=v_scope, alpha=float(alpha), single_pair=single_pair,
+                  min_change=float(v_min_change), allow_negative=bool(v_allow_negative))
     return _run("estarfm", fine, coarse, dates=dates, start=start, end=end, include_fine_dates=include_fine_dates,
                 keep_observed=keep_observed, exclude_dates=exclude_dates, pairs="bracket",
                 pair_tolerance=pair_tolerance, min_pair_valid=min_pair_valid, max_gap=max_gap, radius=radius,

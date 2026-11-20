@@ -204,7 +204,7 @@ fn sigma_array(fine: &Fine, reg: &Region, given: Option<PyReadonlyArray1<'_, f64
 #[pyfunction]
 #[pyo3(signature = (fine, coarse, targets, region, sigma_values, radius_px, affine = None, u = None, v = None,
     sigma = "image", resampling = "bilinear", fallback = "missing", classes = 4.0, v_scope = "window", alpha = 0.05,
-    single_pair = "fallback", want_quality = false, n_jobs = -1))]
+    single_pair = "fallback", min_change = 0.02, allow_negative = false, want_quality = false, n_jobs = -1))]
 #[allow(clippy::too_many_arguments)]
 fn estarfm<'py>(
     py: Python<'py>,
@@ -224,6 +224,8 @@ fn estarfm<'py>(
     v_scope: &str,
     alpha: f64,
     single_pair: &str,
+    min_change: f64,
+    allow_negative: bool,
     want_quality: bool,
     n_jobs: i32,
 ) -> PyResult<(Bound<'py, PyArray4<f32>>, Option<Bound<'py, PyArray4<u16>>>)> {
@@ -242,6 +244,8 @@ fn estarfm<'py>(
             "missing" => SinglePair::Missing,
             s => return bad("single_pair", s, "'fallback' or 'missing'"),
         },
+        min_change,
+        allow_negative,
     };
     let plan = plan_of(targets);
     let reg = Region {

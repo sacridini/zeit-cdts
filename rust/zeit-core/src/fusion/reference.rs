@@ -332,6 +332,14 @@ pub fn estarfm_pixel(
     let mut forced = false;
     let regress = |pts: &[(f64, f64)]| -> (f64, bool) {
         let n = pts.len() as f64;
+        // The mean coarse change between the pairs over the group's pixels (points alternate pair 0, pair 1).
+        let (mut m0, mut m1) = (0.0, 0.0);
+        for (i, q) in pts.iter().enumerate() {
+            if i % 2 == 0 { m0 += q.0 } else { m1 += q.0 }
+        }
+        if n > 0.0 && (m0 - m1).abs() / (n / 2.0) <= p.min_change {
+            return (1.0, true);
+        }
         if n < 3.0 {
             return (1.0, false);
         }
@@ -347,11 +355,7 @@ pub fn estarfm_pixel(
         let s2 = ((syy - v * sxy) / (n - 2.0)).max(0.0);
         let se = (s2 / sxx).sqrt();
         let ok = se == 0.0 || crate::dist::t_two_sided(v / se, n - 2.0) <= p.alpha;
-        if ok {
-            (v, true)
-        } else {
-            (1.0, false)
-        }
+        if ok && (v > 0.0 || p.allow_negative) { (v, true) } else { (1.0, false) }
     };
     let points = |b: usize, xx: usize, yy: usize| -> Vec<(f64, f64)> {
         usepairs
