@@ -29,6 +29,7 @@
 | I have two dates and labelled change masks. | [Siamese Change Detector](../tutorials/siamese.md) | Image pairs + masks |
 | I have a Sentinel-2 Level 1C scene and need surface reflectance and a cloud mask. | [`level2`](../tutorials/sentinel2-level2.md) | A `.SAFE` or the name of a product, and a DEM |
 | My images are a pixel or two off each other, or differ in view angle or sensor. | [Preparing images](../tutorials/preparing-images.md) | A cube and a reference image |
+| I have Landsat or Sentinel-2 every few weeks and MODIS every day, and want the fine image of the in-between dates. | [Spatiotemporal fusion](../tutorials/fusion.md) | A fine and a coarse series with a CRS (any grid) |
 | My class map is noisy, or I don't know where the model can be trusted. | [Post-processing & AoA](../tutorials/postprocessing.md) | Class probabilities; the model's training data |
 
 ## A quick decision guide

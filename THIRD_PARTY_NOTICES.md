@@ -266,5 +266,15 @@ The following copyright notices apply to the MIT-licensed code listed above:
 > OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 > SOFTWARE.
 
+## Written from the papers, compared as black boxes
+
+`rust/zeit-core/src/fusion/` (STARFM and ESTARFM spatiotemporal fusion, `zeit.fuse_starfm`, `zeit.fuse_estarfm`) is
+written from Gao et al. (2006), Zhu et al. (2010) and the papers that restate them. No third-party code is in it.
+Feng Gao's STARFM program (USDA Agricultural Research Service, v1.2.2) is released to the public domain
+("Unconditional Release"; CC0 1.0 on data.gov) and could not be downloaded without a registration form, so it was
+not used. Xiaolin Zhu's ESTARFM programs have no published licence ("Copyright belongs to Xiaolin Zhu"): the Python
+version was run as a black box to compare outputs (`benchmarks/vs_originals/fusion.py`); its code and its test data
+are not in this repository.
+
 The full texts of the GPL versions referred to above are available at
 <https://www.gnu.org/licenses/>.

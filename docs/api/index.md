@@ -115,6 +115,9 @@
 | [`improphe`](preprocessing.md#improphe) | Sharpens a coarse field or the scenes of a coarser sensor with the finer sensor's seasonal means: FORCE's CF-ImproPhe and L2-ImproPhe (Frantz et al. 2016) |
 | [`sentinel2_resmerge`](preprocessing.md#sentinel2_resmerge) | The 20 m bands of Sentinel-2 at 10 m, by a moving-window regression, an ImproPhe-like weighted mean or STARFM on the 10 m green, red and NIR: FORCE's resolution merge |
 | [`starfm`](preprocessing.md#starfm) | STARFM spatiotemporal fusion (Gao et al. 2006, as FORCE's `starfm()`): the fine image of a date that only a coarse product covers, from pairs of fine and coarse images |
+| [`fuse_starfm`](preprocessing.md#fuse_starfm) | STARFM fusion of a fine series (Landsat, HLS, Sentinel-2) and a coarse one in its own grid (MODIS), from the paper (Gao et al. 2006): the fine image of every coarse date, clouds filled on the fine dates
+| [`fuse_estarfm`](preprocessing.md#fuse_estarfm) | ESTARFM fusion from two pairs (Zhu et al. 2010): neighbours similar on both dates, correlation weights, a conversion coefficient from a regression, temporal weights
+| [`fusion_plan`](preprocessing.md#fusion_plan) | The pairs and the dates a fusion would use, as a table, without running it
 | [`pansharpen`](preprocessing.md#pansharpen) | Multispectral bands on the grid of a finer panchromatic band, for any sensor and any ratio above 1 (CBERS-4A WPM, Landsat 8 band 8, ...): Brovey, Gram-Schmidt adaptive (GSA), high-pass filter and principal components, written from the papers |
 | [`level2_series`](preprocessing.md#level2_series) | `find_l1c`, `download_l1c` and `level2` over the scenes of a tile, one at a time and resumable, as one lazy `(time, band, y, x)` reflectance cube |
 | [`load_level2_series`](preprocessing.md#load_level2_series) | The scenes written by `level2_series` as that cube again: float32 reflectance x 10000, NaN for the fill and the QAI's default screening |

@@ -75,6 +75,7 @@ def main():
     ap.add_argument("--threads", type=int, default=4)
     ap.add_argument("--radius", type=float, default=750.0)
     ap.add_argument("--zhu", type=int, default=0)
+    ap.add_argument("--skip", type=int, default=0, help="also leave out this many dates on each side of the predicted one")
     ap.add_argument("--fast", action="store_true", help="without the slow per-cell variant")
     ap.add_argument("--only", nargs="*", help="run only these methods (names as in the table)")
     a = ap.parse_args()
@@ -86,11 +87,11 @@ def main():
     on_grid = xr.concat([coarse.isel(time=k).rio.reproject_match(ref, resampling=1, nodata=np.nan)
                          for k in range(coarse.sizes["time"])], dim="time").assign_coords(time=coarse.time)
     def starfm(**kw):
-        return lambda d: zeit.fuse_starfm(fine, coarse, dates=[d], include_fine_dates=False, exclude_dates=[d],
+        return lambda d, ex: zeit.fuse_starfm(fine, coarse, dates=[d], include_fine_dates=False, exclude_dates=ex,
                                          radius=a.radius, n_jobs=a.threads, **kw)
 
     def estarfm(**kw):
-        return lambda d: zeit.fuse_estarfm(fine, coarse, dates=[d], include_fine_dates=False, exclude_dates=[d],
+        return lambda d, ex: zeit.fuse_estarfm(fine, coarse, dates=[d], include_fine_dates=False, exclude_dates=ex,
                                           radius=a.radius, n_jobs=a.threads, **kw)
 
     methods = {
@@ -112,7 +113,9 @@ def main():
     zhu_done = 0
     for i, d in enumerate(days):
         truth = fine.isel(time=i).values
-        others = [j for j in range(len(days)) if j != i]
+        out = [j for j in range(len(days)) if abs(j - i) <= a.skip]        # the date and its `skip` neighbours on each side
+        others = [j for j in range(len(days)) if j not in out]
+        ex = [days[j] for j in out]
         before = [j for j in others if j < i]
         after = [j for j in others if j > i]
         base = {}
@@ -127,7 +130,7 @@ def main():
         for name, fn in methods.items():
             t0 = time.perf_counter()
             try:
-                res[name] = fn(d).values[0]
+                res[name] = fn(d, ex).values[0]
             except ValueError as e:
                 print(f"  {d} {name}: {e}")
                 continue
@@ -149,13 +152,14 @@ def main():
             theirs = np.where(theirs <= -9999, np.nan, theirs / 10000.0)
             res["Zhu ESTARFM"] = theirs
             times.setdefault("Zhu ESTARFM", []).append(t_z)
-            own = methods["estarfm"](d).values[0]
+            own = methods["estarfm"](d, ex).values[0]
             agreement(own, theirs, int(round(a.radius / 30.0)), f"{d}: zeit.fuse_estarfm vs Zhu on the same inputs")
         gap = min(abs((pd.Timestamp(days[j]) - pd.Timestamp(d)).days) for j in others)
         for name, pred in res.items():
             table.setdefault(name, []).append((d, gap, stats(pred, truth)))
         print(d, f"(nearest pair {gap} d)", {k: f"{v[-1][2][1, 0]:.4f}" for k, v in table.items()})
-    print(f"\n{a.site}: leave-one-date-out, {len(days)} dates, radius {a.radius:g} m (mean over dates)")
+    skip = f", {a.skip} neighbouring date(s) on each side left out too" if a.skip else ""
+    print(f"\n{a.site}: leave-one-date-out, {len(days)} dates, radius {a.radius:g} m{skip} (mean over dates)")
     print(f"  {'method':<16}" + "".join(f"{n:>14}" for n in ("green rmse", "red rmse", "nir rmse", "NDVI rmse", "NDVI bias", "NDVI r", "s/date", "dates")))
     for name, rows in table.items():
         s = np.nanmean(np.stack([r[2] for r in rows]), axis=0)

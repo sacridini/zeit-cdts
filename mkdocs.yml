@@ -137,6 +137,7 @@ nav:
           - Cloud Masking (Tmask): tutorials/tmask.md
           - Sentinel-2 Level 1C to Surface Reflectance: tutorials/sentinel2-level2.md
           - Preparing Images: tutorials/preparing-images.md
+          - Spatiotemporal Fusion (STARFM, ESTARFM): tutorials/fusion.md
           - Embeddings (TESSERA, AlphaEarth): tutorials/embeddings.md
       - Visualisation:
           - Plotting & Exploring Results: tutorials/plotting.md

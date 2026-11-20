@@ -429,6 +429,128 @@ modis = zeit.load_raster("modis_daily.tif", dates=[...], like=landsat)       # o
 daily = zeit.starfm(landsat, modis, radius=25)
 ```
 
+### `fuse_starfm` { .api }
+
+<!-- sig: zeit.fuse_starfm -->
+```python
+zeit.fuse_starfm(
+    fine, coarse, *, dates="coarse", start=None, end=None, include_fine_dates=True,
+    keep_observed=True, exclude_dates=None, pairs="bracket", pair_tolerance="auto",
+    min_pair_valid=0.3, max_gap=None, radius=750.0, classes=40, sigma="image",
+    fine_uncertainty=0.002, coarse_uncertainty=0.005, spatial_scale=None,
+    weighting="direct", filter="both", pure="epsilon", resampling="bilinear",
+    coarse_shift=(0.0, 0.0), fallback="missing", bands=None, nodata="auto",
+    valid_range=(-0.01, 1.6), quality=False, chunks=None, n_jobs=-1,
+)
+```
+
+Spatiotemporal fusion of a fine series (Landsat, HLS, Sentinel-2) and a coarse, frequent one (MODIS): the fine image of every coarse date, with STARFM (Gao, Masek, Schwaller and Hall 2006, IEEE TGRS 44:2207-2218, [doi:10.1109/TGRS.2006.872081](https://doi.org/10.1109/TGRS.2006.872081)). Each band of a pixel is a weighted mean, over the neighbours of a window that look like it in the fine image of a **pair**, of the neighbour's fine value plus the coarse change from the pair's date to the predicted one; the weights favour neighbours whose coarse pixel matches their fine value (a pure coarse pixel), whose coarse value changed little, and that are near. A pair is a fine date that has a coarse image of the same date (or composite). Each predicted date uses the nearest pair before and the nearest after it (`pairs="bracket"`), and on a fine date the valid observed pixels are kept while the clouded ones are predicted from the other pairs: gap filling.
+
+This is not [`starfm`](#starfm), which is FORCE's streamlined variant for the Sentinel-2 20 to 10 m merge (the coarse series on the fine grid, FORCE's arithmetic). `fuse_starfm` takes the coarse series **on its own grid and CRS** (MODIS's sinusoidal grid is fine; `coarse_shift` moves it by a fixed displacement), handles clouds and no-data per date and band, chooses the pairs by date, and has the options below. The coarse image is read at each fine pixel by bilinear interpolation (or nearest neighbour), and what is missing in it (per band) stays missing. See [`fusion_plan`](#fusion_plan) for the dates and pairs a run would use, and the [fusion tutorial](../tutorials/fusion.md).
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `fine` | `DataArray` or path | required | Reflectance `(time, band, y, x)` with a CRS, in memory or dask. Integers are refused unless they carry a `scale_factor`. NaN is missing (mask clouds first). |
+| `coarse` | `DataArray` or path | required | The coarse series in its own CRS and grid. Bands are matched to the fine ones by role (`blue`, `green`, `red`, `nir`, `swir1`, `swir2`; MODIS `sur_refl_b0N` and `Nadir_Reflectance_BandN` are known, band 5 is never used); a role missing in either is not fused. |
+| `dates` | `"coarse"` or list | `"coarse"` | Output dates: every coarse date from `start` to `end`, or a list of dates (each snapped to the nearest coarse date). |
+| `start`, `end` | date | first / last fine date | Range of the output dates (nothing is extrapolated by default). |
+| `include_fine_dates` | `bool` | `True` | Also output the fine dates. |
+| `keep_observed` | `bool` | `True` | On a fine date keep its valid pixels (`source` 0) and predict the others without that date's own pair. |
+| `exclude_dates` | list of dates | `None` | Fine dates never used as pairs: predict a date without it (leave-one-date-out). |
+| `pairs` | `str` | `"bracket"` | `"bracket"`: the nearest pair on each side; `"nearest"`: the nearest one. |
+| `pair_tolerance` | `"auto"` or `int` | `"auto"` | Days: a fine date pairs with the coarse date nearest to it within this (`"auto"`: half the median coarse interval, 0 for a daily series, 4 for 8-day). Where the coarse series has `start_datetime` and `end_datetime` coordinates (the 8-day composites) a fine date pairs with the composite whose window contains it. |
+| `min_pair_valid` | `float` | `0.3` | A fine image is a pair only if this share of the area is valid in every band. |
+| `max_gap` | `int` or `None` | `None` | Days: pairs farther than this from a date are not used; a date left with none is skipped (reported in `attrs`). |
+| `radius` | `float` | `750.0` | Half the window, in map units of the fine series, rounded to pixels (750 m is 25 Landsat pixels: a 51-pixel window, about three MODIS pixels; use 300-500 for Sentinel-2 at 10 m). The cost grows with its square. |
+| `classes` | `float` | `40` | `m` of the similarity threshold `2 sigma / m`: more classes, fewer and closer neighbours. 40 is FORCE's value; Zhu et al. (2010) use 4. |
+| `sigma` | `"image"` or `"window"` | `"image"` | `sigma` of the threshold: the standard deviation of the whole fine image of the pair, per band, or of the window. |
+| `fine_uncertainty`, `coarse_uncertainty` | `float` | `0.002`, `0.005` | Reflectance uncertainties of the sample filter. |
+| `spatial_scale` | `float` or `None` | `radius` | `A` of the spatial distance `1 + d / A`, map units. |
+| `weighting` | `str` | `"direct"` | `"direct"`: the weights are the inverse of the product of the spectral, temporal and spatial distances; `"log"`: the logarithmic form for heterogeneous areas. |
+| `filter` | `str` | `"both"` | A neighbour is kept if its spectral distance **and** its temporal distance are below those of the pixel plus the uncertainty (`"both"`), one of them (`"either"`), or always (`"none"`). |
+| `pure` | `str` | `"epsilon"` | `"epsilon"`: pure coarse pixels dominate through the weights only; `"tiers"`: neighbours whose fine value equals the coarse one and that did not change go first, exactly; `"cells"`: only the neighbours in homogeneous coarse pixels when there are some. |
+| `resampling` | `str` | `"bilinear"` | How the coarse image is read at a fine pixel: `"bilinear"` or `"nearest"`. |
+| `coarse_shift` | `(float, float)` | `(0, 0)` | `(dx, dy)` in the coarse CRS: a displacement of the coarse grid. |
+| `fallback` | `str` | `"missing"` | `"coarse"` writes the coarse value where nothing can be predicted. |
+| `bands` | `None`, list or dict | `None` | The roles to fuse, or `{"fine": {role: band}, "coarse": {role: band}}` when the names are not the usual ones. |
+| `nodata`, `valid_range` | | `"auto"`, `(-0.01, 1.6)` | Values that mean missing besides NaN; reflectance outside the range is missing. |
+| `quality` | `bool` | `False` | Also return `n_similar` and `source` (below). |
+| `n_jobs` | `int` | `-1` | Threads; the result does not depend on it. |
+
+</div>
+
+**Returns** float32 `(time, band, y, x)` on the fine grid, in memory (computed in strips of rows with their halo, so a scene does not need to fit in memory as a whole). Coordinates along `time`: `fusion_kind` (`"observed"` for a fine date, `"predicted"`), `fusion_pairs` (the pair dates), `fusion_coarse_date`, `fusion_extrapolated`; `attrs["fusion"]` has the method, the parameters, the dates that could not be output and the citation. With `quality=True` a tuple `(prediction, quality)`, `quality` being uint16 `(time, ["n_similar", "source"], y, x)`: `n_similar` the neighbours used (minimum over the bands) and `source` 0 observed, 1 predicted from all the planned pairs, 2 from fewer (the other was missing at that pixel), 3 the coarse value, 255 missing.
+
+```python
+modis = zeit.build_time_series(source="planetary_computer", collection="modis-43A4-061", ...)
+pred = zeit.fuse_starfm(landsat, modis, radius=900)
+loo, q = zeit.fuse_starfm(landsat, modis, exclude_dates=["2023-06-19"], dates=["2023-06-19"],
+                          include_fine_dates=False, quality=True)       # one date without its own image
+```
+
+**Which coarse product.** The nadir BRDF-adjusted MCD43A4 (`modis-43A4-061` on the Planetary Computer, daily) is the natural partner of a near-nadir sensor: the day-to-day view-angle noise of MODIS is gone, at the price of a 16-day weighting that smooths abrupt events. Mask it per band with its mandatory quality (0 = full inversion) before fusing; band 5 (1230-1250 nm) has no Landsat counterpart. The 8-day `modis-09A1-061` (composites of real observations; give the time axis `start_datetime`/`end_datetime`) suits abrupt events better and is noisier.
+
+**Defaults and the reference programs.** `classes`, the uncertainties and the log weights follow the paper and its restatements; they could not be checked against Feng Gao's program (see [Against the Original Implementations](../benchmarks/vs-originals.md#spatiotemporal-fusion-starfm-and-estarfm)). The program of the USDA Agricultural Research Service is released to the public domain ("Unconditional Release", CC0 on data.gov); nothing of it is copied here. Mind that one run of a Landsat scene with 46 dates writes about 17 GB of float32 per band set: choose the area or the dates first.
+
+### `fuse_estarfm` { .api }
+
+<!-- sig: zeit.fuse_estarfm -->
+```python
+zeit.fuse_estarfm(
+    fine, coarse, *, dates="coarse", start=None, end=None, include_fine_dates=True,
+    keep_observed=True, exclude_dates=None, pair_tolerance="auto", min_pair_valid=0.3,
+    max_gap=None, radius=750.0, classes=4, sigma="image", v_scope="window", alpha=0.05,
+    single_pair="fallback", v_min_change=0.02, v_allow_negative=False,
+    resampling="bilinear", coarse_shift=(0.0, 0.0), fallback="missing", bands=None,
+    nodata="auto", valid_range=(-0.01, 1.6), quality=False, chunks=None, n_jobs=-1,
+)
+```
+
+ESTARFM (Zhu, Chen, Gao, Chen and Masek 2010, Remote Sensing of Environment 114:2610-2623, [doi:10.1016/j.rse.2010.05.032](https://doi.org/10.1016/j.rse.2010.05.032)): the same task as [`fuse_starfm`](#fuse_starfm) from **two** pairs, all bands together. The neighbours of a pixel are those within `2 sigma / classes` of it in every band on both pair dates; each is weighted by the correlation of its fine and coarse spectra (a vector of both dates' bands) and by its distance; its coarse change is scaled by a conversion coefficient (the slope of a regression of fine on coarse reflectance over the similar pixels); the predictions from the two pairs are combined by how much the coarse window changed since each pair. A date outside the two pairs is extrapolated from the two nearest (`fusion_extrapolated`). A pixel clear in only one pair is predicted from that pair alone (`single_pair="fallback"`, `source` 2).
+
+The parameters are those of `fuse_starfm` that choose dates and pairs, `radius`, `classes` (default 4, as the paper and Zhu's program), `sigma`, `resampling`, `coarse_shift`, `fallback`, `bands`, `nodata`, `valid_range`, `quality`, `n_jobs`, and:
+
+<div class="params" markdown>
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `v_scope` | `"window"` or `"cell"` | `"window"` | `"window"`: one conversion coefficient per window, from all its similar pixels; `"cell"`: one per coarse pixel, also from its similar pixels beyond the window (the paper's text). `"cell"` needs a coarse grid that is not the fine one. |
+| `alpha` | `float` | `0.05` | A slope not significant at this level becomes 1. |
+| `v_min_change` | `float` | `0.02` | The coefficient is regressed only where the coarse reflectance of the similar pixels changed between the two pairs by more than this on average; elsewhere it is 1. |
+| `v_allow_negative` | `bool` | `False` | A negative slope is replaced by 1. |
+| `single_pair` | `"fallback"` or `"missing"` | `"fallback"` | What to do at a pixel clear in one pair only. |
+
+</div>
+
+**Returns** as `fuse_starfm`; `source` is 0 observed, 1 two pairs, 4 two pairs with a coefficient set to 1 where a regression was due, 2 one pair, 3 coarse, 255 missing. With one band the correlation of the spectra degenerates (a warning for fewer than two bands): fuse the bands, then compute the index.
+
+```python
+pred = zeit.fuse_estarfm(landsat, modis, radius=900)
+```
+
+**Against Zhu's program.** Zeit's conversion-coefficient rule (`v_min_change`, positive slope) was found by comparing outputs with Xiaolin Zhu's Python program on its bundled test data; the paper's text alone gives only "linear regression with statistical significance". The program has no licence and was run as a black box, never read or copied; see [Against the Original Implementations](../benchmarks/vs-originals.md#spatiotemporal-fusion-starfm-and-estarfm).
+
+### `fusion_plan` { .api }
+
+<!-- sig: zeit.fusion_plan -->
+```python
+zeit.fusion_plan(
+    fine, coarse, *, method="starfm", dates="coarse", start=None, end=None,
+    include_fine_dates=True, keep_observed=True, exclude_dates=None, pairs="bracket",
+    pair_tolerance="auto", min_pair_valid=0.3, max_gap=None, bands=None,
+    valid_range=(-0.01, 1.6), chunks=None,
+)
+```
+
+The dates a fusion would output and the pairs each is predicted from, without running it: one row per output date with `date`, `kind` (`"observed"` or `"predicted"`), `coarse_date`, `pairs` (the fine dates, comma separated) and `extrapolated` (`method="estarfm"` takes the two bracketing pairs and extrapolates from the two nearest where one side has none). The dates that cannot be output are in `df.attrs["skipped"]`, the fine dates that are not pairs (clouded, excluded, no coarse image) in `df.attrs["unpaired"]`. It reads the fine series once to count the valid pixels of each date.
+
+```python
+plan = zeit.fusion_plan(landsat, modis, method="estarfm", exclude_dates=["2023-06-19"])
+```
+
+
 ## Co-registration
 
 

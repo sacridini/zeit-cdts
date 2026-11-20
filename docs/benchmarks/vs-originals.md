@@ -773,6 +773,104 @@ The first line of each pair gives Zeit's times; the second reuses them against t
 
 ---
 
+### Spatiotemporal fusion (STARFM and ESTARFM)
+
+[`fuse_starfm`](../api/preprocessing.md#fuse_starfm) and [`fuse_estarfm`](../api/preprocessing.md#fuse_estarfm) are written from the papers (Gao et al. 2006; Zhu et al. 2010), with a naive per-pixel implementation of the formulas as the oracle of the unit tests. Their outputs are compared with the programs of the authors, as **black boxes** (outputs only, nothing of their code read):
+
+* **ESTARFM**: Xiaolin Zhu's Python program. It has **no licence** ("Copyright belongs to Xiaolin Zhu"): it was run locally from its own folder in a separate conda environment (`estarfm-ref`: gdal, numpy, scikit-learn, statsmodels, idlwrap), its pop-up dialogs answered from outside (`benchmarks/vs_originals/fusion_estarfm_ref.py`), and neither it nor its bundled test data are in this repository.
+* **STARFM**: Feng Gao's program (USDA Agricultural Research Service, v1.2.2) is in the public domain ("Unconditional Release"; CC0 1.0 on data.gov), but the ARS page gives it only through a registration form (name, e-mail, affiliation), which was not filled in on anyone's behalf. So it was **not run**; the reference is `zeit.starfm`, FORCE's variant adopted from the ARS program, on the same inputs. The defaults that depend on Gao's program (`classes`, the uncertainties, the filter and the weights' form) follow the paper and its restatements and could not be checked against it.
+
+**Zhu's bundled test data** (400 x 400 pixels, green, red and NIR of Landsat TM and MODIS resampled to 30 m on 2001-05-24, 07-11 and 08-12 at the BOREAS site; the 07-11 image is predicted from the other two, `radius = 750 m` = 25 pixels, `classes = 4`):
+
+| | Green | Red | NIR |
+|:---|---:|---:|---:|
+| Values of Zeit within 1 DN of Zhu's (the 25-pixel border excluded) | 96.5% | 96.4% | 96.2% |
+| RMSE of Zeit against the observed Landsat of 07-11 | 0.0053 | 0.0048 | 0.0131 |
+| RMSE of Zhu's program against the observed Landsat of 07-11 | 0.0054 | 0.0048 | 0.0125 |
+
+The NDVI RMSE against the observation is 0.0426 for both and the bias -0.0043 (Zeit) and -0.0045 (Zhu).
+
+**What was found by comparing outputs.** The rules of the paper alone (a regression of the window, significant at 5%) give, on these data, an NIR error 1.6 times Zhu's. Outputs of the program on constructed inputs showed what its conversion coefficient does: it is regressed only where the coarse reflectance of the similar pixels changed between the two pairs by more than 0.02 (200 DN) on average, a negative slope is not used, and elsewhere it is 1; Zeit's `v_min_change=0.02` and `v_allow_negative=False` are that rule, and with it 96% of the values of each band are within 1 DN of Zhu's. The rest are pixels with five similar pixels or fewer, where the program applies no coarse change at all in some bands (a coefficient of 0) and Zeit, as the paper, uses 1: the two are equally far from the truth on these data (NIR RMSE 0.0131 against 0.0125), and Zeit does not copy it. Choosing the similar pixels from the window's standard deviation (`sigma="window"`) instead of the image's moves agreement to 9-44%: the program's threshold is the image's.
+
+**STARFM on the same data**, against the observed image and `zeit.starfm` (FORCE's variant of the ARS program, the coarse series on the fine grid, uncertainties 0.002, `nclass` = `classes`). RMSE of the reflectance (green, red, NIR) and of the NDVI:
+
+| | `classes` | Green | Red | NIR | NDVI |
+|:---|---:|---:|---:|---:|---:|
+| `fuse_starfm` | 40 | 0.0039 | 0.0042 | 0.0165 | 0.0413 |
+| `zeit.starfm` (FORCE) | 40 | 0.0039 | 0.0042 | 0.0161 | 0.0477 |
+| `fuse_starfm` | 4 | 0.0038 | 0.0045 | 0.0195 | 0.0417 |
+| `zeit.starfm` (FORCE) | 4 | 0.0038 | 0.0043 | 0.0170 | 0.0468 |
+
+They are as close to the observation as each other, and they do not give the same values: 1-10% of the values of `fuse_starfm` are within 1 DN of FORCE's with the default options (27%, 18% and 5% with the logarithmic weights, the closest option of those tried: `filter`, `sigma`, `weighting`, `pure`, the uncertainties), because the candidate rule and the weights are not the same programs. This agreement is not a check of Zeit's STARFM against Gao's program, which was not run.
+
+**The synthetic series of the unit test** (128 x 128, six fine dates, 46 coarse 8-day dates, a sensor offset and noise in the coarse series; day 152 predicted from days 88 and 208, `radius = 300 m`): the values of Zeit are within 1 DN of Zhu's for 98.8%, 96.7% and 98.4% of the pixels (green, red, NIR) and the RMSE against the truth is the same to the fourth decimal (0.0036, 0.0028, 0.0029) for both.
+
+**Real data, leave one date out.** Landsat 8 and 9 (Collection 2 Level 2, QA_PIXEL masked) and MODIS NBAR (MCD43A4, `modis-43A4-061`, mandatory quality 0 and 1) of 2023 over 15 x 15 km (500 x 500 Landsat pixels) at two sites, from the Planetary Computer (`fusion_real.py`). Every Landsat date with 80% of its pixels clear is predicted from the others (`exclude_dates=[date]`) and compared with its observation (`fusion_loo.py`): RMSE of the reflectance bands and of the NDVI, and the NDVI bias, averaged over the dates; the baselines are the nearest Landsat date, the linear interpolation in time between the two bracketing Landsat dates and the MODIS image resampled to the Landsat grid. Landsat 8 and 9 together revisit every eight days, so the dates are 8 days from their nearest neighbours in the dry season: a hard case for fusion, since the linear interpolation is hard to beat over eight days.
+
+**Western Bahia, Brazil (12.1 S 45.8 W): mechanised agriculture, large fields.**
+
+| Method | Green RMSE | Red RMSE | NIR RMSE | NDVI RMSE | NDVI bias | NDVI r | s per date | Dates |
+|:---|---:|---:|---:|---:|---:|---:|---:|---:|
+| nearest Landsat date | 0.0139 | 0.0196 | 0.0294 | 0.0548 | 0.0040 | 0.957 |  | 25 |
+| MODIS resampled | 0.0281 | 0.0388 | 0.0485 | 0.1203 | -0.0244 | 0.793 |  | 25 |
+| `fuse_starfm` (defaults) | 0.0130 | 0.0179 | 0.0278 | 0.0522 | -0.0001 | 0.960 | 3.6 | 25 |
+| `fuse_starfm`, `classes=4` | 0.0144 | 0.0205 | 0.0295 | 0.0633 | -0.0084 | 0.945 | 5.5 | 25 |
+| `fuse_starfm`, `filter="either"` | 0.0129 | 0.0179 | 0.0277 | 0.0517 | 0.0002 | 0.961 | 3.6 | 25 |
+| `fuse_starfm`, `weighting="log"` | 0.0128 | 0.0174 | 0.0273 | 0.0490 | 0.0001 | 0.965 | 4.1 | 25 |
+| `fuse_estarfm` (defaults) | 0.0132 | 0.0179 | 0.0284 | 0.0515 | -0.0000 | 0.961 | 9.1 | 25 |
+| `fuse_estarfm`, `v_min_change=1` (coefficient 1) | 0.0132 | 0.0176 | 0.0282 | 0.0497 | 0.0009 | 0.964 | 9.1 | 25 |
+| `fuse_estarfm`, `v_max=2` | 0.0132 | 0.0179 | 0.0282 | 0.0506 | 0.0001 | 0.962 | 9.1 | 25 |
+| `fuse_estarfm`, `classes=8` | 0.0133 | 0.0181 | 0.0288 | 0.0525 | -0.0000 | 0.959 | 7.2 | 25 |
+| linear interpolation in time | 0.0112 | 0.0150 | 0.0229 | 0.0372 | 0.0023 | 0.980 |  | 23 |
+
+**Goias, Brazil (16.0 S 47.9 W): smallholder fields, pasture and cerrado remnants.**
+
+| Method | Green RMSE | Red RMSE | NIR RMSE | NDVI RMSE | NDVI bias | NDVI r | s per date | Dates |
+|:---|---:|---:|---:|---:|---:|---:|---:|---:|
+| nearest Landsat date | 0.0075 | 0.0121 | 0.0224 | 0.0488 | 0.0032 | 0.934 |  | 22 |
+| MODIS resampled | 0.0196 | 0.0263 | 0.0471 | 0.1136 | -0.0312 | 0.712 |  | 22 |
+| `fuse_starfm` (defaults) | 0.0073 | 0.0108 | 0.0221 | 0.0442 | -0.0000 | 0.955 | 3.9 | 22 |
+| `fuse_starfm`, `classes=4` | 0.0081 | 0.0125 | 0.0246 | 0.0566 | -0.0110 | 0.936 | 5.9 | 22 |
+| `fuse_starfm`, `filter="either"` | 0.0073 | 0.0107 | 0.0219 | 0.0436 | 0.0001 | 0.956 | 3.9 | 22 |
+| `fuse_starfm`, `weighting="log"` | 0.0075 | 0.0107 | 0.0221 | 0.0428 | 0.0005 | 0.958 | 4.7 | 22 |
+| `fuse_estarfm` (defaults) | 0.0078 | 0.0113 | 0.0215 | 0.0418 | 0.0003 | 0.958 | 10.7 | 22 |
+| `fuse_estarfm`, `v_min_change=1` (coefficient 1) | 0.0077 | 0.0110 | 0.0214 | 0.0415 | 0.0002 | 0.959 | 10.7 | 22 |
+| `fuse_estarfm`, `v_max=2` | 0.0078 | 0.0112 | 0.0210 | 0.0416 | 0.0003 | 0.959 | 10.7 | 22 |
+| `fuse_estarfm`, `classes=8` | 0.0079 | 0.0115 | 0.0220 | 0.0430 | 0.0003 | 0.956 | 8.2 | 22 |
+| linear interpolation in time | 0.0061 | 0.0095 | 0.0168 | 0.0343 | 0.0034 | 0.955 |  | 20 |
+
+(The row of the linear interpolation has fewer dates: those with a Landsat date on each side.) Fusion is as good as the nearest Landsat date or better, and ESTARFM is better than STARFM at the second site; the linear interpolation in time, which has the advantage of two clear Landsat images eight days apart, is better than both. Where it stops being a good idea, that is, with the two nearest Landsat dates on each side of the date left out too (the nearest pair 24 to 56 days away):
+
+**Bahia, two neighbouring dates on each side left out too**
+
+| Method | Green RMSE | Red RMSE | NIR RMSE | NDVI RMSE | NDVI bias | NDVI r | s per date | Dates |
+|:---|---:|---:|---:|---:|---:|---:|---:|---:|
+| nearest Landsat date | 0.0196 | 0.0320 | 0.0470 | 0.1188 | 0.0052 | 0.836 |  | 25 |
+| MODIS resampled | 0.0281 | 0.0388 | 0.0485 | 0.1203 | -0.0244 | 0.793 |  | 25 |
+| `fuse_starfm` (defaults) | 0.0160 | 0.0228 | 0.0383 | 0.0780 | 0.0002 | 0.912 | 3.3 | 25 |
+| `fuse_starfm`, `weighting="log"` | 0.0154 | 0.0216 | 0.0370 | 0.0721 | 0.0022 | 0.924 | 3.7 | 25 |
+| `fuse_estarfm` (defaults) | 0.0155 | 0.0219 | 0.0383 | 0.0770 | 0.0023 | 0.915 | 8.9 | 25 |
+| linear interpolation in time | 0.0142 | 0.0214 | 0.0341 | 0.0692 | 0.0049 | 0.932 |  | 19 |
+
+**Goias, two neighbouring dates on each side left out too**
+
+| Method | Green RMSE | Red RMSE | NIR RMSE | NDVI RMSE | NDVI bias | NDVI r | s per date | Dates |
+|:---|---:|---:|---:|---:|---:|---:|---:|---:|
+| nearest Landsat date | 0.0106 | 0.0191 | 0.0427 | 0.0962 | -0.0064 | 0.853 |  | 22 |
+| MODIS resampled | 0.0196 | 0.0263 | 0.0471 | 0.1136 | -0.0312 | 0.712 |  | 22 |
+| `fuse_starfm` (defaults) | 0.0089 | 0.0137 | 0.0323 | 0.0628 | 0.0024 | 0.912 | 3.5 | 22 |
+| `fuse_starfm`, `weighting="log"` | 0.0090 | 0.0131 | 0.0313 | 0.0593 | 0.0029 | 0.922 | 4.2 | 22 |
+| `fuse_estarfm` (defaults) | 0.0092 | 0.0133 | 0.0315 | 0.0603 | 0.0019 | 0.923 | 10.6 | 22 |
+| linear interpolation in time | 0.0080 | 0.0134 | 0.0275 | 0.0566 | 0.0062 | 0.940 |  | 16 |
+
+With the nearest pair weeks away fusion cuts the NDVI error of the nearest date by a third (0.0780 and 0.0603 against 0.1188 and 0.0962 at the two sites, STARFM and ESTARFM) and comes close to the linear interpolation, which here is computed on the dates (19 and 16) that have a Landsat date on each side; it does not beat it in these data.
+
+**Against Zhu's program on the real data.** On the three dates whose pairs and target have fewer than 1% of missing pixels (the few missing pixels are filled from their nearest valid neighbour for the program, which has to be given complete images), `fuse_estarfm` and Zhu's program are within 1 DN for 94.9% to 97.9% of the values of each band (2023-05-23, 06-08 and 06-24, Bahia, 500 x 500 pixels, `radius = 750 m`), and their RMSE against the observation is the same to four decimals (red 0.0218, 0.0097 and 0.0116).
+
+**Time.** Zhu's program takes 75 s on its 400 x 400 test data (one process; Python loops) and 142 s per date on the 500 x 500 real areas. `fuse_estarfm` takes 12.4 s on the test data with one thread and 5.2 s with four (the three bands, two pairs, a window of 51 x 51), `fuse_starfm` 6.0 s and 2.5 s; on the real areas 9.1 s (ESTARFM) and 3.6 s (STARFM) per date with four threads. Zeit's implementation computes each date from scratch (the spectral selection of the neighbours is repeated for every date): predicting many dates of the same pairs does not share the work yet.
+
+**Defaults.** `classes = 40` for STARFM (4 for ESTARFM), the filter `both`, direct weights, `pure="epsilon"`, bilinear resampling and `radius = 750 m` are the paper's values; on Zhu's data the STARFM options differ in NIR RMSE by less than 3% except `classes=4` (+18%) and `pure="tiers"` (+3% NIR, +7% NDVI), and on the real data `classes = 4` for STARFM raises the NDVI RMSE by 21% and 28% at the two sites (0.0633 against 0.0522 and 0.0566 against 0.0442), `filter="either"` changes it by less than 2%, and the logarithmic weights lower it by 6% and 3% (0.0490 and 0.0428) but raise it on Zhu's data (0.0447 against 0.0413), so the defaults stay the paper's; for ESTARFM the coefficient rule of Zhu's program, a coefficient of 1 everywhere (`v_min_change=1`), a cap of 2 (`v_max=2`) and `classes=8` are within 6% of each other in NDVI RMSE (0.0515, 0.0497, 0.0506, 0.0525 at the first site; 0.0418, 0.0415, 0.0416, 0.0430 at the second), and `v_scope="cell"` (2.5 times slower) was no better where it was tried (before the clip to 0-1 was added), so the defaults are Zhu's rule and the window. Without the clip to 0-1 the ESTARFM coefficient regressed from a few similar pixels produced negative reflectances and NDVI errors above 1 on some dates (2023-03-12 at the first site): the predictions of both methods are clipped to 0-1 (`clip=`)..
+
 ## Protocol
 
 - **The same inputs.** Each script draws its inputs with a fixed seed, writes them to a temporary folder (CSV or raw float64), runs the original on the files from `Rscript`, and runs Zeit on the same arrays in memory.
@@ -811,6 +909,10 @@ python benchmarks/vs_originals/force_tsa.py --part stm,fold,standardize,interp,t
 wsl -e bash -lc 'bash benchmarks/vs_originals/force_tsa_timing.sh ~/force-ref-work/tsa-bench 6'   # FORCE's compute stage on the 500 x 500 cube (also with 1); then:
 python benchmarks/vs_originals/force_tsa_timing.py    # Zeit's times against it (--profile: the cost by size)
 python benchmarks/vs_originals/tasseled.py            # RStoolbox 1.0.2.2, against zeit.tasseled_cap
+python benchmarks/vs_originals/fusion.py A               # zeit.fuse_estarfm against Zhu's program (black box, conda env estarfm-ref), synthetic series
+python benchmarks/vs_originals/fusion.py B               # the same on Zhu's bundled test data (not in this repository), and fuse_starfm against zeit.starfm
+python benchmarks/vs_originals/fusion_real.py bahia      # Landsat 8/9 and MODIS NBAR of a 15 km area from the Planetary Computer (or goias), then:
+python benchmarks/vs_originals/fusion_loo.py bahia --zhu 3   # leave one date out, against the baselines and Zhu's program
 wsl -e bash -lc 'bash benchmarks/vs_originals/force_improphe_l2fix.sh'                      # once: the build of FORCE that L2IMP needs (one core)
 wsl -e bash -lc 'bash benchmarks/vs_originals/force_improphe.sh ~/force-ref-work/imp-ref 6'  # CFIMP and L2IMP, each with OpenBLAS (A) and GSL's CBLAS (B); then:
 python benchmarks/vs_originals/force_improphe.py --part cf,l2                              # zeit.improphe against both (--data: another cube)
