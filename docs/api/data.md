@@ -461,7 +461,7 @@ Without dates, the band axis keeps the name `band` and the algorithms ask for `y
 | `clip` | bounds or geometries | `None` | Read only a region: `(xmin, ymin, xmax, ymax)` in the raster's CRS, or polygons (GeoDataFrame, GeoSeries, shapely). |
 | `masked` | `"auto"`, `bool` | `"auto"` | `"auto"`: NoData becomes NaN in float rasters, while integer rasters (e.g. NDVI × 10000 in Int16) keep their values and type. `True`: NaN everywhere (integers become floats). `False`: values as stored. |
 | `pattern` | `str` | `None` | Several files: regular expression with a named group `date` and optionally `band`, matched against each file name. |
-| `date_format` | `str` | `None` | `strptime` format of the dates in file names or band descriptions (e.g. `"%Y%m%d"`). |
+| `date_format` | `str` | `None` | `strptime` format of the dates in file names or band descriptions (e.g. `"%Y%m%d"`). Without it the names are read as `YYYY-MM-DD` (also `_` and `.`), `YYYYMMDD`, `YYYYDOY`, a month (`2001-02`, `2001_02`, `2001.02`, `200102`: the first day of the month) or a lone year, in that order. |
 | `recursive` | `bool` | `False` | Folders: also search sub-folders. |
 | `like` | path, `DataArray` or `Dataset` | `None` | A reference raster whose grid the result takes (CRS, cells, extent and `x`/`y` coordinates), so that the two line up cell by cell; see [On the grid of another raster](#on-the-grid-of-another-raster). numpy input: a raster on the same grid whose coordinates and CRS georeference the array. |
 | `crs` | `str`, `int`, `CRS` | `None` | Without a reference raster: the CRS to reproject to, as `gdalwarp -t_srs`; see [In another CRS or at another resolution](#in-another-crs-or-at-another-resolution). |

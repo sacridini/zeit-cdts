@@ -160,6 +160,51 @@ def test_folder_of_single_date_files(tmp_path):
     assert load_raster(files).sizes["time"] == 3
 
 
+@pytest.mark.parametrize("name, expected, rest", [
+    ("CHIRPS_2001-02", "2001-02-01", "CHIRPS"),
+    ("precip_2001_02", "2001-02-01", "precip"),
+    ("evi_200102", "2001-02-01", "evi"),
+    ("CHIRPS-2.0.2001.02", "2001-02-01", "CHIRPS-2.0"),
+    ("ERA5_2001", "2001-01-01", "ERA5"),
+    ("2001-12", "2001-12-01", ""),
+    ("S2A_MSIL2A_20230105T143731_N0509_R096_T20LKP_20230105T185050", "2023-01-05", None),
+    ("LC08_L2SP_221071_20230105_20230112_02_T1", "2023-01-05", None),
+    ("MOD13Q1.A2001017.h12v10.061.2020290123456", "2001-01-17", None),
+    ("scene_2023-01-05_red", "2023-01-05", "scene__red"),
+    ("evi_20010230", None, None),  # not a date, and not a month either
+    ("evi_2001-02-30", "2001", None),  # an impossible day is not read as a month
+    ("tile_221071_2001", "2001-01-01", None),
+    ("evi_200113", None, None),  # month 13
+])
+def test_find_date_layouts(name, expected, rest):
+    from zeit._time import find_date
+
+    found = find_date(name)
+    if expected is None:
+        assert found is None
+        return
+    if expected == "2001":  # only checks that the month is not taken from the invalid date
+        assert found is None or found[0].day == 1 and found[0].month == 1
+        return
+    assert found[0] == pd.Timestamp(expected)
+    if rest is not None:
+        assert found[1] == rest
+
+
+def test_folder_of_monthly_files_without_date_format(tmp_path):
+    styles = ("CHIRPS_{y}-{m:02d}", "precip_{y}_{m:02d}", "evi_{y}{m:02d}", "CHIRPS-2.0.{y}.{m:02d}")
+    for n, style in enumerate(styles):
+        folder = tmp_path / f"style{n}"
+        folder.mkdir()
+        for m in range(1, 13):
+            write_stack(folder / (style.format(y=2001, m=m) + ".tif"), np.full((1, 3, 3), m, dtype=np.int16))
+        cube = load_raster(str(folder))
+        assert cube.sizes["time"] == 12, style
+        assert cube.time.dt.month.values.tolist() == list(range(1, 13)), style
+        assert (cube.time.dt.year.values == 2001).all() and (cube.time.dt.day.values == 1).all()
+        assert cube.isel(time=4).values[0, 0] == 5
+
+
 def test_folder_with_pattern_and_bands(tmp_path):
     for d in ("20220101", "20220115"):
         for b in ("B02", "B03"):
