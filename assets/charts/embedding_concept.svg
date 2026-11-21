@@ -1,0 +1,52 @@
+<svg class="zd" viewBox="0 0 880 228" role="img" aria-label="How an embedding is made: a year of Sentinel-1 and Sentinel-2 observations of a pixel goes through a foundation model, which outputs one vector of 64 or 128 numbers; one vector per pixel and year makes a (time, band, y, x) cube" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="zd-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="zd-arrowhead"/></marker></defs>
+<text class="zd-step" x="0" y="16">1 · A year of observations of one pixel</text>
+<g transform="translate(0,34)">
+<rect class="zd-panel" x="0" y="0" width="236" height="150" rx="10"/>
+<line class="zd-grid" x1="16" x2="222" y1="38" y2="38"/>
+<line class="zd-grid" x1="16" x2="222" y1="78" y2="78"/>
+<line class="zd-grid" x1="16" x2="222" y1="118" y2="118"/>
+<path class="zd-s2a" d="M20,104 L36,100 L52,92 L68,74 L84,56 L100,46 L116,44 L132,50 L148,62 L164,80 L180,94 L196,100 L216,104"/>
+<path class="zd-s2b" d="M20,62 L36,66 L52,70 L68,82 L84,96 L100,104 L116,106 L132,100 L148,92 L164,80 L180,70 L196,64 L216,62"/>
+<path class="zd-s1" d="M20,122 L34,118 L48,124 L62,112 L76,116 L90,108 L104,113 L118,106 L132,112 L146,118 L160,114 L174,121 L188,117 L202,123 L216,119"/>
+<g class="zd-obs"><circle cx="36" cy="100" r="3"/><circle cx="68" cy="74" r="3"/><circle cx="100" cy="46" r="3"/><circle cx="132" cy="50" r="3"/><circle cx="164" cy="80" r="3"/><circle cx="196" cy="100" r="3"/></g>
+<text class="zd-small" x="16" y="141">Jan</text><text class="zd-small" x="216" y="141" text-anchor="end">Dec</text>
+<text class="zd-key zd-key--a" x="16" y="22">Sentinel-2 bands</text><text class="zd-key zd-key--s1" x="132" y="22">Sentinel-1 radar</text>
+</g>
+<line class="zd-arrow" x1="246" x2="290" y1="109" y2="109" marker-end="url(#zd-arrow)"/>
+<text class="zd-step" x="300" y="16">2 · A foundation model</text>
+<g transform="translate(300,34)">
+<path class="zd-model" d="M0,0 L150,30 L150,120 L0,150 Z"/>
+<text class="zd-model-t" x="64" y="70" text-anchor="middle">encoder</text>
+<text class="zd-small zd-model-s" x="64" y="88" text-anchor="middle">trained once,</text>
+<text class="zd-small zd-model-s" x="64" y="101" text-anchor="middle">on the whole planet</text>
+</g>
+<line class="zd-arrow" x1="458" x2="502" y1="109" y2="109" marker-end="url(#zd-arrow)"/>
+<text class="zd-step" x="512" y="16">3 · One vector</text>
+<g transform="translate(512,34)">
+<rect class="zd-v zd-v1" x="0" y="0" width="36" height="9" rx="2"/><rect class="zd-v zd-v4" x="0" y="11" width="36" height="9" rx="2"/>
+<rect class="zd-v zd-v2" x="0" y="22" width="36" height="9" rx="2"/><rect class="zd-v zd-v5" x="0" y="33" width="36" height="9" rx="2"/>
+<rect class="zd-v zd-v3" x="0" y="44" width="36" height="9" rx="2"/><rect class="zd-v zd-v1" x="0" y="55" width="36" height="9" rx="2"/>
+<rect class="zd-v zd-v4" x="0" y="66" width="36" height="9" rx="2"/><rect class="zd-v zd-v2" x="0" y="77" width="36" height="9" rx="2"/>
+<rect class="zd-v zd-v5" x="0" y="88" width="36" height="9" rx="2"/><rect class="zd-v zd-v3" x="0" y="99" width="36" height="9" rx="2"/>
+<rect class="zd-v zd-v4" x="0" y="110" width="36" height="9" rx="2"/><rect class="zd-v zd-v1" x="0" y="121" width="36" height="9" rx="2"/>
+<rect class="zd-v zd-v2" x="0" y="132" width="36" height="9" rx="2"/><rect class="zd-v zd-v5" x="0" y="143" width="36" height="7" rx="2"/>
+<text class="zd-mono" x="46" y="9">A00</text><text class="zd-mono" x="46" y="31">A02</text>
+<text class="zd-mono" x="46" y="80">⋮</text>
+<text class="zd-mono" x="46" y="150">A63</text>
+<text class="zd-small" x="0" y="170">64 numbers (AlphaEarth)</text>
+<text class="zd-small" x="0" y="185">or 128 (TESSERA)</text>
+</g>
+<line class="zd-arrow" x1="596" x2="628" y1="109" y2="109" marker-end="url(#zd-arrow)"/>
+<text class="zd-step" x="640" y="16">4 · Every pixel, every year</text>
+<g transform="translate(636,44)">
+<path class="zd-cube-side" d="M120,22 L170,0 L170,108 L120,130 Z"/>
+<path class="zd-cube-top" d="M0,22 L50,0 L170,0 L120,22 Z"/>
+<rect class="zd-cube-front" x="0" y="22" width="120" height="108"/>
+<line class="zd-cube-line" x1="0" x2="120" y1="49" y2="49"/><line class="zd-cube-line" x1="0" x2="120" y1="76" y2="76"/><line class="zd-cube-line" x1="0" x2="120" y1="103" y2="103"/>
+<line class="zd-cube-line" x1="30" x2="30" y1="22" y2="130"/><line class="zd-cube-line" x1="60" x2="60" y1="22" y2="130"/><line class="zd-cube-line" x1="90" x2="90" y1="22" y2="130"/>
+<text class="zd-small" x="120" y="152" text-anchor="middle">x, y: 10 m cells</text>
+<text class="zd-small" x="178" y="66">band:</text><text class="zd-small" x="178" y="80">A00…A63</text>
+<text class="zd-small" x="104" y="-8" text-anchor="middle">time: 2017 … 2025</text>
+</g>
+</svg>
