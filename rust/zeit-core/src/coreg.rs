@@ -2,7 +2,7 @@
 //! reference on the same pixel grid, from the phase correlation of one matching window.
 //!
 //! A port of the global `COREG` of AROSICS 1.14.0 (Automated and Robust Open-Source Image Co-Registration
-//! Software, `arosics/CoReg.py`; Scheffler, Hollstein, Hofmann and Bochow 2017, "AROSICS: An automated and robust
+//! Software, `arosics/CoReg.py`; Scheffler, Hollstein, Diedrich, Segl and Hostert 2017, "AROSICS: An automated and robust
 //! open-source image co-registration software for multi-sensor satellite data", Remote Sensing 9(7):676),
 //!
 //!   Copyright (C) 2017-2026 Daniel Scheffler (GFZ Potsdam, daniel.scheffler@gfz.de) and the GFZ Helmholtz Centre

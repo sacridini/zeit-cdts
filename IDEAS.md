@@ -2683,7 +2683,7 @@ validação.
   window_position=None, max_shift=5, max_iter=5, band=None, ref_band=None, resampling="cubic",
   nodata="auto", min_reliability=None, n_jobs=-1)`, que devolve `(aligned, shifts)`, no core em
   `rust/zeit-core/src/coreg.rs` (o Janus liga direto; o `rustfft` 6, MIT ou Apache-2.0, faz as
-  FFTs). Port do `COREG` global do AROSICS 1.14.0 (Scheffler, Hollstein, Hofmann e Bochow 2017,
+  FFTs). Port do `COREG` global do AROSICS 1.14.0 (Scheffler, Hollstein, Diedrich, Segl e Hostert 2017,
   Remote Sensing 9(7):676; Apache-2.0, Daniel Scheffler e o GFZ Potsdam; sem arquivo NOTICE), com o
   cabeçalho e a linha no `THIRD_PARTY_NOTICES.md`. Por data: a janela de casamento (o centroide da
   sobreposição, recortada nela, levada à grade pelo piso das bordas), o espectro de potência cruzado

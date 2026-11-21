@@ -2,7 +2,7 @@
 //! the points fit to correct it with.
 //!
 //! A port of the `COREG_LOCAL` of AROSICS 1.14.0 (Automated and Robust Open-Source Image Co-Registration Software,
-//! `arosics/CoReg_local.py`, `arosics/Tie_Point_Grid.py`; Scheffler, Hollstein, Hofmann and Bochow 2017, "AROSICS:
+//! `arosics/CoReg_local.py`, `arosics/Tie_Point_Grid.py`; Scheffler, Hollstein, Diedrich, Segl and Hostert 2017, "AROSICS:
 //! An automated and robust open-source image co-registration software for multi-sensor satellite data", Remote
 //! Sensing 9(7):676),
 //!

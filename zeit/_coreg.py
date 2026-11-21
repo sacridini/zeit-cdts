@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Co-registration of each date of a cube to a reference image: ``zeit.coregister`` and ``zeit.coregister_local``.
 
-A port of the global ``COREG`` and of ``COREG_LOCAL`` of AROSICS 1.14.0 (Scheffler, Hollstein, Hofmann and Bochow
+A port of the global ``COREG`` and of ``COREG_LOCAL`` of AROSICS 1.14.0 (Scheffler, Hollstein, Diedrich, Segl and Hostert
 2017, *Remote Sensing* 9(7):676; Copyright (C) 2017-2026 Daniel Scheffler and the GFZ Helmholtz Centre for
 Geosciences, Potsdam; Apache-2.0, https://git.gfz-potsdam.de/danschef/arosics). The shifts are estimated by the
 compiled core (``zeit._core.coreg``, ``rust/zeit-core/src/coreg.rs`` and ``coreg_local.rs``); the global one moves
