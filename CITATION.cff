@@ -1,0 +1,31 @@
+cff-version: 1.2.0
+message: "If you use Zeit in your work, please cite it as below, and cite the papers of the methods you used."
+type: software
+title: "Zeit: change detection and time series analysis of Earth observation data cubes"
+abstract: >-
+  Zeit (zeit-cdts) is a Python package for Earth observation data cube processing and time series analysis: change
+  detection and trajectory methods such as LandTrendr, CCDC, BFAST and TWDTW, phenology, accuracy assessment,
+  embeddings and deep learning, over cloud-native data (STAC, Xarray, Dask).
+authors:
+  - family-names: Lacerda
+    given-names: Eduardo
+    orcid: "https://orcid.org/0000-0003-3803-5842"
+doi: 10.5281/zenodo.24515400
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.24515400
+    description: "The concept DOI of Zeit on Zenodo: it resolves to the latest version, and each version has its own DOI."
+license: GPL-3.0-or-later
+repository-code: "https://github.com/sacridini/zeit-cdts"
+url: "https://sacridini.github.io/zeit-cdts/"
+keywords:
+  - remote sensing
+  - Earth observation
+  - data cubes
+  - time series
+  - change detection
+  - LandTrendr
+  - CCDC
+  - BFAST
+  - TWDTW
+  - phenology
