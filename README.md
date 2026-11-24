@@ -11,7 +11,7 @@
 [![Tests](https://github.com/sacridini/zeit-cdts/actions/workflows/tests.yml/badge.svg)](https://github.com/sacridini/zeit-cdts/actions/workflows/tests.yml)
 [![Docs](https://github.com/sacridini/zeit-cdts/actions/workflows/docs.yml/badge.svg)](https://github.com/sacridini/zeit-cdts/actions/workflows/docs.yml)
 [![PyPI version](https://badge.fury.io/py/zeit-cdts.svg)](https://badge.fury.io/py/zeit-cdts)
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24515400.svg)](https://doi.org/10.5281/zenodo.24515400)
+[![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.24515400-1682D4)](https://doi.org/10.5281/zenodo.24515400)
 
 **Zeit** is a high-performance Python package for Earth Observation (EO) data cube processing and time series analysis. It bridges the gap between modern cloud-native data formats (STAC, Xarray, Dask) and state-of-the-art pixel-based trajectory algorithms (TWDTW, CCDC, LandTrendr). 
 
