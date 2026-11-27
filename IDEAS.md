@@ -3955,6 +3955,85 @@ THIRD_PARTY_NOTICES.
   variância 1; o Zeit deixa NaN o mês com menos de 2 valores (`min_per_month`).
 - **Janus:** as ferramentas `eof` e `lagged_correlation` e o `corr()` da calculadora seguem o plano do Z1 (fora desta fase).
 
+## Fase 27: o Zeit vira a API Python do Janus (`janus-eo`) (pedido de 2026-11-28)
+
+O Zeit passa a morar no repositório do Janus como a sua API Python: `pip install janus-eo`, `import janus as jn`. O
+`zeit-cdts` continua por 12 meses como pacote de transição, sincronizado com o `janus-eo` a cada versão.
+
+**Decisões (2026-11-28):**
+- **Nomes:** PyPI `janus-eo` (o `janus` é do aio-libs, o `janus-py` de outro projeto). Import `janus`: colide só com o
+  `janus` do aio-libs (uma fila async) no mesmo ambiente; o README avisa e o `janus/__init__.py` dá um erro claro se
+  achar o outro instalado. Comando de terminal `jnpy` (o `janus` é o executável do app).
+- **Versão:** uma só para o app e a API, a do Janus (workspace `Cargo.toml`); a primeira `janus-eo` é a próxima versão
+  do Janus depois da 1.23.1. Uma tag `v*` publica tudo: instalador, wheels, PyPI e GHCR.
+- **Versão do `zeit-cdts`:** `4.` seguido da versão do Janus (Janus 1.24.0 → `zeit-cdts 4.1.24.0`, que depende de
+  `janus-eo==1.24.0`). Fica sempre acima da 3.10.0, então `pip install -U zeit-cdts` atualiza, e a ordem se mantém
+  mesmo quando o Janus mudar de major (PEP 440 aceita quatro segmentos).
+- **DOI:** o do Janus (conceito `10.5281/zenodo.24515398`). O registro do Zeit (`10.5281/zenodo.24515400`) fica como
+  histórico, com uma última versão que aponta para o Janus (`isPartOf`/`isContinuedBy`).
+- **Transição:** 12 meses de `FutureWarning` (o `DeprecationWarning` fica escondido em scripts e notebooks); depois uma
+  última versão do `zeit-cdts`, que continua funcionando mas não é mais atualizada.
+
+**O que o levantamento achou (2026-11-28):**
+- Zeit: 246 arquivos Python com `import zeit`, ~7.700 ocorrências de "zeit" em `.py`/`.rs`/`.toml`/`.md`; console
+  script `zeit = "zeit.cli:main"`; 10 variáveis `ZEIT_*` (`_config.py`, `_cache.py`, `_threads.py`, `_weights.py`,
+  `_embeddings.py`, `_gdaltransform.py`, `_plot`); cache em `$XDG_CACHE_HOME/zeit`, `%LOCALAPPDATA%\zeit`,
+  `~/.cache/zeit`; configuração em `%APPDATA%\zeit\config.toml`, `~/.config/zeit`; CI `build_wheels.yml`
+  (cibuildwheel, trusted publishing em tag `v*`), `tests.yml`, `docs.yml` (mkdocs para o Pages), `containers.yml`
+  (GHCR `zeit-cdts`).
+- Janus: o app roda `python -c "import zeit, ..."` para checar o ambiente (`janus-app/src/main.rs:668`) e grava cada
+  execução como script Python com `import zeit` (`janus-app/src/python.rs`, `scripts.rs`,
+  `janus-zeit/src/python/*`); fixtures do `janus-zeit` gravadas com o Zeit Python 2.0.0 (`tests/data/python_calls.json`,
+  geradores `tools/zeit_*_fixtures.py`); `zeit-core` vem por git (rev `65767889`) em `janus-zeit`, `janus-embed` e
+  `janus-ml`; o `pages.yml` já publica o `site/` do Janus no Pages (um Pages por repositório); sem `pyproject.toml`.
+
+**27a, a troca de nome no repositório do Zeit (sem mudar de lugar):**
+- `zeit/` → `janus/`, `zeit._core` → `janus._core` (`setup.py`, `#[pymodule]` em `rust/zeit-py/src/lib.rs`),
+  `zeit-cdts` → `janus-eo`, console script `jnpy`. Em lotes, cada um revisado.
+- `ZEIT_*` → `JANUS_*`, aceitando os nomes antigos com aviso durante a transição.
+- Cache e configuração: pasta nova `janus`; se ela não existir e a antiga existir, usar a antiga (ninguém perde o cache
+  de DEM e L1C). Antes, ver se o app já usa uma pasta `janus` nesses lugares, para não misturar.
+- **Os metadados gravados em arquivo ficam como estão** (`ZEIT_TIME`, `ZEIT_EMBEDDING`, `ZEIT_EMBEDDING_ENCODING`,
+  `"zeit-mnf"`, `"zeit.ai/1"`, `.zeit-level2.json`, `.zeit-complete`, a chave `"zeit"` do protocolo de tiles): são nomes
+  de formato, e trocá-los quebraria a leitura de arquivos já gravados, pelo pacote e pelo app.
+- User-Agents novos (e o de `_s2fetch.py:26`, que aponta para `sacridini/zeit`, corrigido).
+- Aceite: os 125 arquivos de `tests/` passando com `import janus`.
+
+**27b, o pacote de transição `zeit-cdts`:**
+- Só uma pasta `zeit/`: um *finder* em `sys.modules` que entrega `janus.*` como `zeit.*` (`import zeit.level2`,
+  `zeit._core`, `isinstance` e pickles com nomes `zeit.*` continuam valendo), `FutureWarning` uma vez por sessão, console
+  script `zeit` que chama o `jnpy` com o aviso. Wheel `py3-none-any`, sem Rust.
+- Aceite: a suíte de `tests/` de antes da 27a (com `import zeit`), sem mudança, passando contra o pacote de transição.
+
+**27c, para o repositório do Janus:**
+- Histórico trazido por `git subtree` ou merge de históricos (para o `git blame`), depois: `rust/zeit-core` →
+  `crates/zeit-core` (cabe em `members = ["crates/*"]`; o nome do crate pode ficar), `rust/zeit-py` → `crates/janus-py`,
+  pacote em `python/janus/`, transição em `python/zeit-shim/`, testes em `python/tests/`.
+- A dependência git do `zeit-core` vira `path` nos três crates (senão o Cargo vê dois `zeit-core 1.7.0` e os tipos não
+  batem). Risco: o `zeit-core` de hoje não é a rev fixada; os testes do `janus-zeit` (fixtures da 2.0.0) dizem o que
+  mudou.
+- Risco: o sdist do `janus-eo` tem de compilar sem o app. Testar no começo; se o setuptools-rust complicar, maturin.
+- Editions 2021 e 2024 convivem; `faer` e `rayon` já batem; `pyo3` e `numpy` entram sem conflito no lock.
+
+**27d, o CI no Janus:**
+- `build.yml` em tag `v*` também monta as wheels (cibuildwheel), a do `zeit-cdts`, e publica no PyPI por trusted
+  publishing (cadastrar o publisher do `janus-eo` e mudar o do `zeit-cdts` para o novo repositório e workflow); a
+  imagem vai para `ghcr.io/sacridini/janus-eo`.
+- Os testes Python (o `tests.yml` do Zeit) filtrados por caminho (`python/**`, `crates/zeit-core/**`,
+  `crates/janus-py/**`).
+- O `pages.yml` monta o mkdocs dentro do site do Janus (em `/python/`).
+
+**27e, o app:**
+- Scripts gravados com `import janus as jn`; a checagem do ambiente aceita `janus` e, na transição, `zeit`.
+- `tools/zeit_*_fixtures.py` e `tools/bench_*_vs_zeit.py` para `janus`; os JSON já gravados (`bench/*-vs-zeit.json`,
+  `python_calls.json`) ficam como registro.
+
+**27f, o lançamento:**
+- `janus-eo` e o app na mesma versão, `zeit-cdts 4.<versão>`; README, `CITATION.cff` (o do Janus) e Zenodo.
+- O repositório `zeit-cdts` é **arquivado, não apagado** (as tags antigas do Janus apontam para revs dele); o site
+  antigo ganha um aviso com o link novo.
+- Nada vai para PyPI, GHCR ou tag sem confirmação do usuário.
+
 ## Para depois
 
 - Fase 19: `zeit.ai.predict` com fp16 na GPU (2,4× no Siamese, medido) vale para todos os
