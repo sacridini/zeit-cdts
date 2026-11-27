@@ -1,0 +1,195 @@
+<svg class="zc" viewBox="0 0 720 764" role="img" aria-label="Time of each original implementation and of Zeit on 1 thread and on many, on the largest workload of each benchmark" xmlns="http://www.w3.org/2000/svg">
+<text class="zc-head" x="0" y="20">Method · workload</text>
+<text class="zc-head" x="215" y="20">Time of the call (log scale)</text>
+<text class="zc-head" x="720" y="20" text-anchor="end">Faster, 1 thread / many</text>
+<line class="zc-grid" x1="243.9" x2="243.9" y1="44" y2="750"/>
+<text class="zc-tick" x="243.9" y="38" text-anchor="middle">10 ms</text>
+<line class="zc-grid" x1="299.1" x2="299.1" y1="44" y2="750"/>
+<text class="zc-tick" x="299.1" y="38" text-anchor="middle">100 ms</text>
+<line class="zc-grid" x1="354.3" x2="354.3" y1="44" y2="750"/>
+<text class="zc-tick" x="354.3" y="38" text-anchor="middle">1 s</text>
+<line class="zc-grid" x1="409.6" x2="409.6" y1="44" y2="750"/>
+<text class="zc-tick" x="409.6" y="38" text-anchor="middle">10 s</text>
+<line class="zc-grid" x1="464.8" x2="464.8" y1="44" y2="750"/>
+<text class="zc-tick" x="464.8" y="38" text-anchor="middle">100 s</text>
+<g class="zc-row" data-tip="Emerging hot spots, 100 × 100 cells × 12 dates: sfdep, 9 permutations 8.7 min; Zeit 17 ms on 1 thread (30,481× faster), 6.0 ms on 19 (86,056×). Agreement: Gi* max diff 2.0e-14." tabindex="0">
+<rect class="zc-hit" x="0" y="56" width="720" height="46"/>
+<text class="zc-name" x="0" y="76.0">Emerging hot spots</text>
+<text class="zc-sub" x="0" y="92.0">100 × 100 cells × 12 dates</text>
+<line class="zc-link" x1="231.8" x2="504.3" y1="79.0" y2="79.0"/>
+<circle class="zc-dot zc-dot--ref" cx="504.3" cy="79.0" r="6"/>
+<circle class="zc-dot zc-bar--zeit-lo" cx="256.7" cy="79.0" r="6"/>
+<circle class="zc-dot zc-dot--zeit" cx="231.8" cy="79.0" r="6"/>
+<text class="zc-val zc-val--soft" x="220.8" y="83.0" text-anchor="end">6.0 ms</text>
+<text class="zc-val zc-val--soft" x="515.3" y="83.0">8.7 min</text>
+<text class="zc-val" x="720" y="83.0" text-anchor="end">30,481× / 86,056×</text>
+</g>
+<g class="zc-row" data-tip="Recovery metrics, 1000 × 1000 px × 21 years: RecoverMetricsR 52.4 s; Zeit 98 ms on 1 thread (535× faster), 61 ms on 19 (861×). Agreement: max rel. diff 6.0e-08 (rri, r80p, yryr, y2r)." tabindex="0">
+<rect class="zc-hit" x="0" y="102" width="720" height="46"/>
+<text class="zc-name" x="0" y="122.0">Recovery metrics</text>
+<text class="zc-sub" x="0" y="138.0">1000 × 1000 px × 21 years</text>
+<line class="zc-link" x1="287.2" x2="449.3" y1="125.0" y2="125.0"/>
+<circle class="zc-dot zc-dot--ref" cx="449.3" cy="125.0" r="6"/>
+<circle class="zc-dot zc-bar--zeit-lo" cx="298.6" cy="125.0" r="6"/>
+<circle class="zc-dot zc-dot--zeit" cx="287.2" cy="125.0" r="6"/>
+<text class="zc-val zc-val--soft" x="276.2" y="129.0" text-anchor="end">61 ms</text>
+<text class="zc-val zc-val--soft" x="460.3" y="129.0">52.4 s</text>
+<text class="zc-val" x="720" y="129.0" text-anchor="end">535× / 861×</text>
+</g>
+<g class="zc-row" data-tip="EWMACD, 10,000 px × 71 dates: Brooks&#x27; EWMACD v1.3.0 script 2.8 s; Zeit 55 ms on 1 thread (50× faster), 6.6 ms on 19 (417×). Agreement: the same flags." tabindex="0">
+<rect class="zc-hit" x="0" y="148" width="720" height="46"/>
+<text class="zc-name" x="0" y="168.0">EWMACD</text>
+<text class="zc-sub" x="0" y="184.0">10,000 px × 71 dates</text>
+<line class="zc-link" x1="233.9" x2="378.6" y1="171.0" y2="171.0"/>
+<circle class="zc-dot zc-dot--ref" cx="378.6" cy="171.0" r="6"/>
+<circle class="zc-dot zc-bar--zeit-lo" cx="284.6" cy="171.0" r="6"/>
+<circle class="zc-dot zc-dot--zeit" cx="233.9" cy="171.0" r="6"/>
+<text class="zc-val zc-val--soft" x="222.9" y="175.0" text-anchor="end">6.6 ms</text>
+<text class="zc-val zc-val--soft" x="389.6" y="175.0">2.8 s</text>
+<text class="zc-val" x="720" y="175.0" text-anchor="end">50× / 417×</text>
+</g>
+<g class="zc-row" data-tip="S-CCD, 1000 px × 1598 dates, synthetic: pyxccd 1.1.0 22.0 s; Zeit 1.2 s on 1 thread (19× faster), 142 ms on 19 (155×). Agreement: same number of breaks 100%, pyxccd&#x27;s breaks within 1 obs 100%." tabindex="0">
+<rect class="zc-hit" x="0" y="194" width="720" height="46"/>
+<text class="zc-name" x="0" y="214.0">S-CCD</text>
+<text class="zc-sub" x="0" y="230.0">1000 px × 1598 dates, synthetic</text>
+<line class="zc-link" x1="307.5" x2="428.5" y1="217.0" y2="217.0"/>
+<circle class="zc-dot zc-dot--ref" cx="428.5" cy="217.0" r="6"/>
+<circle class="zc-dot zc-bar--zeit-lo" cx="357.9" cy="217.0" r="6"/>
+<circle class="zc-dot zc-dot--zeit" cx="307.5" cy="217.0" r="6"/>
+<text class="zc-val zc-val--soft" x="296.5" y="221.0" text-anchor="end">142 ms</text>
+<text class="zc-val zc-val--soft" x="439.5" y="221.0">22.0 s</text>
+<text class="zc-val" x="720" y="221.0" text-anchor="end">19× / 155×</text>
+</g>
+<g class="zc-row" data-tip="Spectral unmixing, 1000 × 1000 px × 6 bands: RStoolbox mesma 21.8 s; Zeit 1.2 s on 1 thread (17× faster), 132 ms on 19 (165×). Agreement: max diff 4.0e-04 (fractions); RMSE never larger than mesma&#x27;s." tabindex="0">
+<rect class="zc-hit" x="0" y="240" width="720" height="46"/>
+<text class="zc-name" x="0" y="260.0">Spectral unmixing</text>
+<text class="zc-sub" x="0" y="276.0">1000 × 1000 px × 6 bands</text>
+<line class="zc-link" x1="305.8" x2="428.2" y1="263.0" y2="263.0"/>
+<circle class="zc-dot zc-dot--ref" cx="428.2" cy="263.0" r="6"/>
+<circle class="zc-dot zc-bar--zeit-lo" cx="359.6" cy="263.0" r="6"/>
+<circle class="zc-dot zc-dot--zeit" cx="305.8" cy="263.0" r="6"/>
+<text class="zc-val zc-val--soft" x="294.8" y="267.0" text-anchor="end">132 ms</text>
+<text class="zc-val zc-val--soft" x="439.2" y="267.0">21.8 s</text>
+<text class="zc-val" x="720" y="267.0" text-anchor="end">17× / 165×</text>
+</g>
+<g class="zc-row" data-tip="Bayesian smoothing, 1000 × 1000 px × 4 classes: sits 10.7 s; Zeit 1.1 s on 1 thread (9× faster), 147 ms on 19 (73×). Agreement: max diff 7.8e-16." tabindex="0">
+<rect class="zc-hit" x="0" y="286" width="720" height="46"/>
+<text class="zc-name" x="0" y="306.0">Bayesian smoothing</text>
+<text class="zc-sub" x="0" y="322.0">1000 × 1000 px × 4 classes</text>
+<line class="zc-link" x1="308.3" x2="411.2" y1="309.0" y2="309.0"/>
+<circle class="zc-dot zc-dot--ref" cx="411.2" cy="309.0" r="6"/>
+<circle class="zc-dot zc-bar--zeit-lo" cx="357.4" cy="309.0" r="6"/>
+<circle class="zc-dot zc-dot--zeit" cx="308.3" cy="309.0" r="6"/>
+<text class="zc-val zc-val--soft" x="297.3" y="313.0" text-anchor="end">147 ms</text>
+<text class="zc-val zc-val--soft" x="422.2" y="313.0">10.7 s</text>
+<text class="zc-val" x="720" y="313.0" text-anchor="end">9× / 73×</text>
+</g>
+<g class="zc-row" data-tip="Area of applicability, 2000 × 100,000 points, 8 predictors: CAST 1.2 s; Zeit 447 ms on 1 thread (3× faster), 41 ms on 19 (30×). Agreement: DI max diff 1.6e-15." tabindex="0">
+<rect class="zc-hit" x="0" y="332" width="720" height="46"/>
+<text class="zc-name" x="0" y="352.0">Area of applicability</text>
+<text class="zc-sub" x="0" y="368.0">2000 × 100,000 points, 8 predictors</text>
+<line class="zc-link" x1="277.6" x2="358.9" y1="355.0" y2="355.0"/>
+<circle class="zc-dot zc-dot--ref" cx="358.9" cy="355.0" r="6"/>
+<circle class="zc-dot zc-bar--zeit-lo" cx="335.0" cy="355.0" r="6"/>
+<circle class="zc-dot zc-dot--zeit" cx="277.6" cy="355.0" r="6"/>
+<text class="zc-val zc-val--soft" x="266.6" y="359.0" text-anchor="end">41 ms</text>
+<text class="zc-val zc-val--soft" x="369.9" y="359.0">1.2 s</text>
+<text class="zc-val" x="720" y="359.0" text-anchor="end">3× / 30×</text>
+</g>
+<g class="zc-row" data-tip="Area of applicability, 2000 × 100,000 points, 64 predictors: CAST 5.8 s; Zeit 990 ms on 1 thread (6× faster), 319 ms on 19 (18×). Agreement: DI max diff 1.8e-15." tabindex="0">
+<rect class="zc-hit" x="0" y="378" width="720" height="46"/>
+<text class="zc-name" x="0" y="398.0">Area of applicability</text>
+<text class="zc-sub" x="0" y="414.0">2000 × 100,000 points, 64 predictors</text>
+<line class="zc-link" x1="326.9" x2="396.4" y1="401.0" y2="401.0"/>
+<circle class="zc-dot zc-dot--ref" cx="396.4" cy="401.0" r="6"/>
+<circle class="zc-dot zc-bar--zeit-lo" cx="354.1" cy="401.0" r="6"/>
+<circle class="zc-dot zc-dot--zeit" cx="326.9" cy="401.0" r="6"/>
+<text class="zc-val zc-val--soft" x="315.9" y="405.0" text-anchor="end">319 ms</text>
+<text class="zc-val zc-val--soft" x="407.4" y="405.0">5.8 s</text>
+<text class="zc-val" x="720" y="405.0" text-anchor="end">6× / 18×</text>
+</g>
+<g class="zc-row" data-tip="BEAST, 10,000 px × 144 months: Rbeast (beast123, AVX2) on 1 thread 5.5 min; Zeit 3.6 min on 1 thread (2× faster), 18.1 s on 19 (2×). Agreement: the same chain with Rbeast&#x27;s generic kernels; with its AVX2 kernels the trends differ by a median 2.3e-03 sd, the mean number of changepoints by -0.31." tabindex="0">
+<rect class="zc-hit" x="0" y="424" width="720" height="46"/>
+<text class="zc-name" x="0" y="444.0">BEAST</text>
+<text class="zc-sub" x="0" y="460.0">10,000 px × 144 months</text>
+<line class="zc-link" x1="423.8" x2="493.3" y1="447.0" y2="447.0"/>
+<circle class="zc-dot zc-dot--ref" cx="493.3" cy="447.0" r="6"/>
+<circle class="zc-dot zc-bar--zeit-lo" cx="483.4" cy="447.0" r="6"/>
+<circle class="zc-dot zc-dot--zeit" cx="423.8" cy="447.0" r="6"/>
+<text class="zc-val zc-val--soft" x="412.8" y="451.0" text-anchor="end">18.1 s</text>
+<text class="zc-val zc-val--soft" x="504.3" y="451.0">5.5 min</text>
+<text class="zc-val" x="720" y="451.0" text-anchor="end">2× / 2×</text>
+</g>
+<g class="zc-row" data-tip="AR(1) trend, 200 × 200 px × 30 years: remotePARTS fitAR_map 1.1 min; Zeit 72 ms on 1 thread (931× faster), 23 ms on 8 (2,888×). Agreement: slope max diff 1.1e-07 of the largest, rho max diff 7.7e-06." tabindex="0">
+<rect class="zc-hit" x="0" y="470" width="720" height="46"/>
+<text class="zc-name" x="0" y="490.0">AR(1) trend</text>
+<text class="zc-sub" x="0" y="506.0">200 × 200 px × 30 years</text>
+<line class="zc-link" x1="264.0" x2="455.1" y1="493.0" y2="493.0"/>
+<circle class="zc-dot zc-dot--ref" cx="455.1" cy="493.0" r="6"/>
+<circle class="zc-dot zc-bar--zeit-lo" cx="291.2" cy="493.0" r="6"/>
+<circle class="zc-dot zc-dot--zeit" cx="264.0" cy="493.0" r="6"/>
+<text class="zc-val zc-val--soft" x="253.0" y="497.0" text-anchor="end">23 ms</text>
+<text class="zc-val zc-val--soft" x="466.1" y="497.0">1.1 min</text>
+<text class="zc-val" x="720" y="497.0" text-anchor="end">931× / 2,888×</text>
+</g>
+<g class="zc-row" data-tip="PARTS, 40,000 px in 26 partitions of 1500: remotePARTS fitGLS_partition 4.4 min; Zeit 12.8 s on 1 thread (20× faster), 3.5 s on 8 (75×). Agreement: partitions&#x27; estimates, SEs and nuggets max rel. diff 4.7e-15, overall estimate 1.4e-16; overall t 0.028% apart (cross-partition nugget)." tabindex="0">
+<rect class="zc-hit" x="0" y="516" width="720" height="46"/>
+<text class="zc-name" x="0" y="536.0">PARTS</text>
+<text class="zc-sub" x="0" y="552.0">40,000 px in 26 partitions of 1500</text>
+<line class="zc-link" x1="384.4" x2="487.9" y1="539.0" y2="539.0"/>
+<circle class="zc-dot zc-dot--ref" cx="487.9" cy="539.0" r="6"/>
+<circle class="zc-dot zc-bar--zeit-lo" cx="415.6" cy="539.0" r="6"/>
+<circle class="zc-dot zc-dot--zeit" cx="384.4" cy="539.0" r="6"/>
+<text class="zc-val zc-val--soft" x="373.4" y="543.0" text-anchor="end">3.5 s</text>
+<text class="zc-val zc-val--soft" x="498.9" y="543.0">4.4 min</text>
+<text class="zc-val" x="720" y="543.0" text-anchor="end">20× / 75×</text>
+</g>
+<g class="zc-row" data-tip="Autocorrelation range, 300 × 300 px, 2 bands: blockCV cv_spatial_autocor 2.7 s; Zeit 287 ms on 1 thread (10× faster), 50 ms on 8 (55×). Agreement: range / blockCV&#x27;s 0.89-0.99." tabindex="0">
+<rect class="zc-hit" x="0" y="562" width="720" height="46"/>
+<text class="zc-name" x="0" y="582.0">Autocorrelation range</text>
+<text class="zc-sub" x="0" y="598.0">300 × 300 px, 2 bands</text>
+<line class="zc-link" x1="282.3" x2="378.5" y1="585.0" y2="585.0"/>
+<circle class="zc-dot zc-dot--ref" cx="378.5" cy="585.0" r="6"/>
+<circle class="zc-dot zc-bar--zeit-lo" cx="324.4" cy="585.0" r="6"/>
+<circle class="zc-dot zc-dot--zeit" cx="282.3" cy="585.0" r="6"/>
+<text class="zc-val zc-val--soft" x="271.3" y="589.0" text-anchor="end">50 ms</text>
+<text class="zc-val zc-val--soft" x="389.5" y="589.0">2.7 s</text>
+<text class="zc-val" x="720" y="589.0" text-anchor="end">10× / 55×</text>
+</g>
+<g class="zc-row" data-tip="kNNDM folds, 5000 points, k = 5: CAST knndm 40.1 s; Zeit 565 ms on 1 thread (71× faster), 529 ms on 8 (76×). Agreement: W 0.267 (CAST 0.269; CAST&#x27;s W by zeit equal)." tabindex="0">
+<rect class="zc-hit" x="0" y="608" width="720" height="46"/>
+<text class="zc-name" x="0" y="628.0">kNNDM folds</text>
+<text class="zc-sub" x="0" y="644.0">5000 points, k = 5</text>
+<line class="zc-link" x1="339.0" x2="442.9" y1="631.0" y2="631.0"/>
+<circle class="zc-dot zc-dot--ref" cx="442.9" cy="631.0" r="6"/>
+<circle class="zc-dot zc-bar--zeit-lo" cx="340.6" cy="631.0" r="6"/>
+<circle class="zc-dot zc-dot--zeit" cx="339.0" cy="631.0" r="6"/>
+<text class="zc-val zc-val--soft" x="328.0" y="635.0" text-anchor="end">529 ms</text>
+<text class="zc-val zc-val--soft" x="453.9" y="635.0">40.1 s</text>
+<text class="zc-val" x="720" y="635.0" text-anchor="end">71× / 76×</text>
+</g>
+<g class="zc-row" data-tip="Error profile, 2000 cross-validated points: CAST errorProfiles 450 ms; Zeit 23 ms on 1 thread (20× faster), 10 ms on 8 (44×). Agreement: windows max diff 5.3e-15; curve within 1.2% of the metric&#x27;s range." tabindex="0">
+<rect class="zc-hit" x="0" y="654" width="720" height="46"/>
+<text class="zc-name" x="0" y="674.0">Error profile</text>
+<text class="zc-sub" x="0" y="690.0">2000 cross-validated points</text>
+<line class="zc-link" x1="244.4" x2="335.2" y1="677.0" y2="677.0"/>
+<circle class="zc-dot zc-dot--ref" cx="335.2" cy="677.0" r="6"/>
+<circle class="zc-dot zc-bar--zeit-lo" cx="263.6" cy="677.0" r="6"/>
+<circle class="zc-dot zc-dot--zeit" cx="244.4" cy="677.0" r="6"/>
+<text class="zc-val zc-val--soft" x="233.4" y="681.0" text-anchor="end">10 ms</text>
+<text class="zc-val zc-val--soft" x="346.2" y="681.0">450 ms</text>
+<text class="zc-val" x="720" y="681.0" text-anchor="end">20× / 44×</text>
+</g>
+<g class="zc-row" data-tip="AOA, Mahalanobis, 2000 × 100,000 points, 8 predictors: CAST, method MD 15.1 min; Zeit 437 ms on 1 thread (2,082× faster), 68 ms on 8 (13,294×). Agreement: DI max diff 3.3e-13." tabindex="0">
+<rect class="zc-hit" x="0" y="700" width="720" height="46"/>
+<text class="zc-name" x="0" y="720.0">AOA, Mahalanobis</text>
+<text class="zc-sub" x="0" y="736.0">2000 × 100,000 points, 8 predictors</text>
+<line class="zc-link" x1="290.0" x2="517.7" y1="723.0" y2="723.0"/>
+<circle class="zc-dot zc-dot--ref" cx="517.7" cy="723.0" r="6"/>
+<circle class="zc-dot zc-bar--zeit-lo" cx="334.4" cy="723.0" r="6"/>
+<circle class="zc-dot zc-dot--zeit" cx="290.0" cy="723.0" r="6"/>
+<text class="zc-val zc-val--soft" x="279.0" y="727.0" text-anchor="end">68 ms</text>
+<text class="zc-val zc-val--soft" x="528.7" y="727.0">15.1 min</text>
+<text class="zc-val" x="720" y="727.0" text-anchor="end">2,082× / 13,294×</text>
+</g>
+</svg>
